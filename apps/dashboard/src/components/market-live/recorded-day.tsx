@@ -16,6 +16,7 @@ import {
   bookAt,
   marketPhases,
   type BookChunk,
+  type BookEvent,
   type MarketPhase,
   type RecordedCandles,
   type RelayGap,
@@ -361,11 +362,13 @@ export function RecordedOrderBook({
   heatmap,
   cursor,
   gaps,
+  marks,
 }: {
   store: OrderBookStore
   heatmap: HeatmapStore
   cursor: ReplayCursor
   gaps: ReadonlyArray<RelayGap>
+  marks?: ReadonlyArray<BookEvent> | undefined
 }) {
   const inGap = useReplay(
     cursor,
@@ -373,7 +376,12 @@ export function RecordedOrderBook({
   )
   const notRecorded = useHeatmapNotRecorded(heatmap)
   return (
-    <OrderBookPanel store={store} recorded notRecorded={inGap || notRecorded} />
+    <OrderBookPanel
+      store={store}
+      recorded
+      notRecorded={inGap || notRecorded}
+      marks={marks}
+    />
   )
 }
 

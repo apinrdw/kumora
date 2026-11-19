@@ -1,0 +1,369 @@
+// Replay book events (wayfinder #491) from cached book chunks and tape (see fetch.mjs).
+// Library: load(cacheDir, code, spans, { sideTime }) and detect(series, params).
+import { readFileSync, readdirSync, existsSync } from "node:fs"
+
+export const WINDOW = 30_000
+export const COOLDOWN = 30_000
+export const SHARE = 100 // shares per lot
+export const base = {
+  k: 1,
+  m: 5,
+  wallFloor: 5e8,
+  levelFloor: 1e8,
+  eatenShare: 0.6,
+  pulledShare: 0.25,
+  moveTol: 0.2,
+  moveFrames: 2,
+  moveRule: "delta",
+  approach: 3,
+}
+
+export const tick = (p) =>
+  p < 200 ? 1 : p < 500 ? 2 : p < 2000 ? 5 : p < 5000 ? 10 : 25
+// Ticks from a up to b (a <= b), stepping through the tick bands.
+export const ticksBetween = (a, b) => {
+  const [lo, hi] = a <= b ? [a, b] : [b, a]
+  let n = 0
+  for (let p = lo; p < hi; p += tick(p)) n++
+  return n
+}
+
+let tapeCache = null
+const loadTape = (cacheDir) => {
+  if (tapeCache) return tapeCache
+  const byCode = new Map()
+  for (const f of readdirSync(`${cacheDir}/tape`))
+    for (const t of JSON.parse(readFileSync(`${cacheDir}/tape/${f}`, "utf8"))) {
+      if (t.board !== "RG") continue
+      if (!byCode.has(t.code)) byCode.set(t.code, new Map())
+      byCode.get(t.code).set(t.tradeNumber, t)
+    }
+  tapeCache = new Map(
+    [...byCode].map(([c, m]) => [
+      c,
+      [...m.values()].sort(
+        (a, b) =>
+          a.time - b.time || Number(a.tradeNumber) - Number(b.tradeNumber)
+      ),
+    ])
+  )
+  return tapeCache
+}
+
+// sideTime "at": a side's frame time is the delta's `at` (the later side's time).
+// sideTime "early": when one delta carries both sides, both get the earliest time they could have, previous at + 1.
+export const load = (cacheDir, code, spans, { sideTime = "at" } = {}) => {
+  const trades = loadTape(cacheDir).get(code) ?? []
+  const segments = []
+  for (const [from, to] of spans) {
+    const frames = { bid: [], offer: [] }
+    const bothGap = []
+    let book = null,
+      prevAt = from,
+      both = 0
+    for (let m = from; m < to; m += 60_000) {
+      const file = `${cacheDir}/books/${code}-${m}.json`
+      const chunk = existsSync(file)
+        ? JSON.parse(readFileSync(file, "utf8"))
+        : null
+      if (!chunk) continue
+      if (!book && chunk.start) {
+        book = chunk.start
+        frames.bid.push({ t: from, levels: book.bids, initial: true })
+        frames.offer.push({ t: from, levels: book.offers, initial: true })
+      }
+      for (const d of chunk.deltas) {
+        if (d.at < from || d.at >= to) {
+          book = { ...book, ...d }
+          continue
+        }
+        const hasBoth = "bids" in d && "offers" in d
+        if (hasBoth) {
+          both++
+          bothGap.push(d.at - prevAt)
+        }
+        const t =
+          hasBoth && sideTime === "early" ? Math.min(prevAt + 1, d.at) : d.at
+        if ("bids" in d)
+          frames.bid.push({ t, levels: d.bids, servedAt: d.servedAt })
+        if ("offers" in d)
+          frames.offer.push({ t, levels: d.offers, servedAt: d.servedAt })
+        book = { ...book, ...d }
+        prevAt = d.at
+      }
+    }
+    const tr = trades.filter((x) => x.time >= from && x.time < to)
+    segments.push({ code, from, to, frames, trades: tr, both, bothGap })
+  }
+  return segments
+}
+
+const lotsAt = (levels, p) => levels.find((l) => l.price === p)
+// Bid levels run high to low, offers low to high. "In view" means the 20-level window reaches p.
+const inView = (side, levels, p) => {
+  if (levels.length < 20) return true
+  const last = levels.at(-1).price
+  return side === "bid" ? p >= last : p <= last
+}
+const beyond = (side, p, q) => (side === "bid" ? q < p : q > p)
+const median = (xs) => {
+  if (!xs.length) return 0
+  const s = [...xs].sort((a, b) => a - b)
+  const m = s.length >> 1
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
+export const detect = (seg, P) => {
+  const events = []
+  const evalFrom = seg.from + WINDOW
+  let quietMs = 0
+  for (const side of ["bid", "offer"]) {
+    const frames = seg.frames[side]
+    // Bid levels are hit by sell aggressors, offers by buy aggressors.
+    const aggr = seg.trades.filter(
+      (x) => x.side === (side === "bid" ? "sell" : "buy")
+    )
+    const hit = (p, a, b) => {
+      let s = 0
+      for (const x of aggr)
+        if (x.time > a && x.time <= b && x.price === p) s += x.lots
+      return s
+    }
+    const tradedBeyond = (p, a, b) =>
+      seg.trades.some(
+        (x) => x.time > a && x.time <= b && beyond(side, p, x.price)
+      )
+    const walls = frames.map((f) => {
+      const med = median(f.levels.map((l) => l.lots))
+      return new Set(
+        f.levels
+          .filter(
+            (l) =>
+              l.lots >= P.m * med && l.lots * SHARE * l.price >= P.wallFloor
+          )
+          .map((l) => l.price)
+      )
+    })
+    const last = new Map()
+    const emit = (e) => {
+      const key = `${e.kind}|${side}|${e.price}`
+      if (last.has(key) && e.t - last.get(key) < COOLDOWN) return
+      last.set(key, e.t)
+      events.push({ ...e, side, code: seg.code })
+    }
+    // Time each side is too quiet: fewer than 2 frames in the trailing window.
+    for (let s = evalFrom; s < seg.to; s += 1000) {
+      const n = frames.filter(
+        (f) => !f.initial && f.t > s - WINDOW && f.t <= s
+      ).length
+      if (n < 2) quietMs += 1000
+    }
+    const wallBirth = new Map()
+    for (let i = 1; i < frames.length; i++) {
+      const f = frames[i],
+        prev = frames[i - 1],
+        t = f.t
+      for (const p of walls[i]) if (!walls[i - 1].has(p)) wallBirth.set(p, i)
+      if (t < evalFrom) continue
+      const ws = t - WINDOW
+      const inWin = frames.filter(
+        (x) => !x.initial && x.t > ws && x.t <= t
+      ).length
+      if (inWin < 2) continue
+      let j0 = i
+      while (j0 > 0 && frames[j0].t > ws) j0--
+      const start = frames[j0]
+
+      // Absorbed: a best-3 level at the window's start, standing in every frame since, took k x its start lots.
+      for (const l0 of start.levels.slice(0, 3)) {
+        const p = l0.price
+        let stood = true
+        for (let j = j0; j <= i; j++)
+          if (!lotsAt(frames[j].levels, p)) stood = false
+        if (!stood) continue
+        const h = hit(p, ws, t)
+        if (
+          h >= P.k * l0.lots &&
+          h * SHARE * p >= P.levelFloor &&
+          !tradedBeyond(p, ws, t)
+        )
+          emit({
+            kind: "absorbed",
+            t,
+            price: p,
+            before: l0,
+            after: lotsAt(f.levels, p),
+            traded: h,
+            from: ws,
+          })
+      }
+      // Eaten: a best-3 level or a wall left the book in this interval, and the window's trades at it explain most of its peak.
+      for (const p of new Set([
+        ...prev.levels.slice(0, 3).map((l) => l.price),
+        ...walls[i - 1],
+      ])) {
+        if (lotsAt(f.levels, p) || !inView(side, f.levels, p)) continue
+        let peak = 0
+        for (let j = j0; j < i; j++)
+          peak = Math.max(peak, lotsAt(frames[j].levels, p)?.lots ?? 0)
+        const h = hit(p, ws, t)
+        if (peak * SHARE * p >= P.levelFloor && h >= P.eatenShare * peak)
+          emit({
+            kind: "eaten",
+            t,
+            price: p,
+            before: lotsAt(prev.levels, p),
+            peak,
+            traded: h,
+            from: ws,
+            wall: walls[i - 1].has(p),
+            crossed: !f.levels.length || beyond(side, p, f.levels[0].price),
+          })
+      }
+
+      // Reloaded: overflow at the best that stayed best.
+      const b0 = prev.levels[0],
+        b1 = f.levels[0]
+      if (b0 && b1 && b0.price === b1.price) {
+        const h = hit(b0.price, prev.t, t)
+        if (h > b0.lots && h * SHARE * b0.price >= P.levelFloor)
+          emit({
+            kind: "reloaded",
+            how: "overflow",
+            tag: b1.orders <= 1 ? "single" : "crowd",
+            t,
+            price: b0.price,
+            before: b0,
+            after: b1,
+            traded: h,
+            from: prev.t,
+          })
+      }
+      // Reloaded: hit down at the best, then refilled at the same price while it stayed best.
+      if (i >= 2) {
+        const a = frames[i - 2].levels[0]
+        if (a && b0 && b1 && a.price === b0.price && b0.price === b1.price) {
+          const h = hit(a.price, frames[i - 2].t, prev.t)
+          const drop = a.lots - b0.lots
+          if (
+            drop >= 0.5 * a.lots &&
+            h >= 0.5 * drop &&
+            b1.lots >= 0.5 * a.lots &&
+            b1.lots > b0.lots &&
+            h * SHARE * a.price >= P.levelFloor
+          )
+            emit({
+              kind: "reloaded",
+              how: "refill",
+              tag: b1.orders - b0.orders <= 1 ? "single" : "crowd",
+              t,
+              price: a.price,
+              before: a,
+              low: b0,
+              after: b1,
+              traded: h,
+              from: frames[i - 2].t,
+            })
+        }
+      }
+
+      // Wall appeared: became a wall here, mostly by added lots, while already in view.
+      for (const p of walls[i]) {
+        if (walls[i - 1].has(p) || !inView(side, prev.levels, p)) continue
+        const l1 = lotsAt(f.levels, p),
+          l0 = lotsAt(prev.levels, p)
+        if (l1.lots - (l0?.lots ?? 0) >= 0.5 * l1.lots)
+          emit({
+            kind: "appeared",
+            t,
+            price: p,
+            before: l0,
+            after: l1,
+            orders: l1.orders,
+            conc: l1.orders <= 3,
+            from: prev.t,
+          })
+      }
+      // Wall pulled over one or two intervals.
+      for (const j of [i - 1, i - 2]) {
+        if (j < 0) continue
+        for (const p of walls[j]) {
+          const lj = lotsAt(frames[j].levels, p)
+          let ok = true
+          for (let x = j; x <= i; x++)
+            if (!inView(side, frames[x].levels, p)) ok = false
+          if (!ok) continue
+          const li = lotsAt(f.levels, p)?.lots ?? 0
+          if (li > 0.5 * lj.lots) continue
+          if (tradedBeyond(p, frames[j].t, t)) continue
+          const h = hit(p, frames[j].t, t)
+          const loss = lj.lots - li
+          if (h >= P.pulledShare * loss) continue
+          const bestJ = frames[j].levels[0]?.price ?? p
+          const dist = ticksBetween(bestJ, p)
+          const birth = wallBirth.get(p) ?? j
+          const distBirth = ticksBetween(frames[birth].levels[0]?.price ?? p, p)
+          const approached = dist <= P.approach && dist < distBirth
+          // Moved: a similar wall (lots within the tolerance, same orders) appeared on this side within 2 frames.
+          let movedTo = null
+          for (
+            let x = Math.max(1, i - P.moveFrames);
+            x <= Math.min(frames.length - 1, i + P.moveFrames);
+            x++
+          )
+            for (const q of walls[x]) {
+              if (q === p || (P.moveRule !== "delta" && walls[x - 1].has(q)))
+                continue
+              const lq = lotsAt(frames[x].levels, q)
+              if (P.moveRule === "delta") {
+                // Match what left p with what arrived at q: lots within the tolerance, the same number of orders.
+                const lqPrev = lotsAt(frames[x - 1].levels, q) ?? {
+                  lots: 0,
+                  orders: 0,
+                }
+                const gained = lq.lots - lqPrev.lots,
+                  gainedOrders = lq.orders - lqPrev.orders
+                const lostOrders =
+                  lj.orders - (lotsAt(f.levels, p)?.orders ?? 0)
+                if (
+                  Math.abs(gained - loss) <= P.moveTol * loss &&
+                  gainedOrders === lostOrders
+                )
+                  movedTo = {
+                    price: q,
+                    lots: lq.lots,
+                    gained,
+                    orders: lq.orders,
+                    frame: x - i,
+                  }
+              } else if (
+                Math.abs(lq.lots - lj.lots) <= P.moveTol * lj.lots &&
+                lq.orders === lj.orders
+              )
+                movedTo = {
+                  price: q,
+                  lots: lq.lots,
+                  orders: lq.orders,
+                  frame: x - i,
+                }
+            }
+          emit({
+            kind: movedTo ? "moved" : "pulled",
+            t,
+            price: p,
+            before: lj,
+            afterLots: li,
+            traded: h,
+            dist,
+            distBirth,
+            approached,
+            movedTo,
+            from: frames[j].t,
+            conc: lj.orders <= 3,
+          })
+        }
+      }
+    }
+  }
+  return { events, quietMs, evalMs: 2 * (seg.to - evalFrom) }
+}

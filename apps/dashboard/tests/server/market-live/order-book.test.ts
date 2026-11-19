@@ -38,12 +38,19 @@ class FakeSocket implements Peer {
   open = Effect.succeed(true)
   readonly sent: Array<string> = []
   private current: PeerState = "new"
+  private codes: ReadonlyArray<StockCode> = []
   send = (text: string) => Effect.sync(() => void this.sent.push(text))
   close = () => Effect.void
   state = Effect.sync(() => this.current)
   setState = (state: PeerState) =>
     Effect.sync(() => {
       this.current = state
+    })
+  // The selected code first: whole books go out only for selected codes.
+  watching = Effect.sync(() => this.codes)
+  setWatching = (codes: ReadonlyArray<StockCode>) =>
+    Effect.sync(() => {
+      this.codes = codes
     })
 }
 
@@ -80,12 +87,18 @@ const stringField = (field: number, text: string) =>
   messageField(field, [...new TextEncoder().encode(text)])
 
 // Wrapper case 10, `Orderbook`: the stock code, the pipe-delimited body of
-// one side, and the frame's ISO time.
-const orderBookFrame = (code: string, body: string, datetime: string) =>
+// one side, the frame's ISO time, and its sequence number when given.
+const orderBookFrame = (
+  code: string,
+  body: string,
+  datetime: string,
+  sequence?: number
+) =>
   Uint8Array.from(
     messageField(10, [
       ...stringField(1, code),
       ...stringField(2, body),
+      ...(sequence === undefined ? [] : varintField(3, sequence)),
       ...stringField(5, datetime),
     ])
   )
@@ -498,6 +511,153 @@ describe("the order book", () => {
   )
 })
 
+// The recorded BBCA sides relabelled as another code's.
+const sidesOf = (code: string, datetime = bbca.datetime) => [
+  orderBookFrame(code, bbca.bid.replaceAll("BBCA", code), datetime),
+  orderBookFrame(code, bbca.offer.replaceAll("BBCA", code), datetime),
+]
+
+// The readings every delta carried, by code, in order.
+const deltaReadings = (messages: ReadonlyArray<ViewerDown>) =>
+  messages.flatMap((message) =>
+    message._tag === "Delta" ? (message.bookReadings ?? []) : []
+  )
+
+describe("book readings and the delta", () => {
+  it.effect(
+    "a delta carries whole books for selected codes and readings for every changed code",
+    () =>
+      Effect.gen(function* () {
+        const { stockbit, viewer } = yield* tradingDay()
+        const page = yield* viewer("BBCA")
+        yield* stockbit([...BBCA_SIDES, ...sidesOf("TLKM")])
+        yield* TestClock.adjust("1 second")
+        const messages = yield* received(page)
+        assert.deepStrictEqual(
+          messages.flatMap((message) =>
+            message._tag === "Delta"
+              ? (message.orderBooks ?? []).map((book) => book.code)
+              : []
+          ),
+          ["BBCA"]
+        )
+        const readings = deltaReadings(messages)
+        assert.deepStrictEqual(readings.map((reading) => reading.code).sort(), [
+          "BBCA",
+          "TLKM",
+        ])
+        const bbcaReadings = readings.find((each) => each.code === "BBCA")!
+        // 5,025 to 5,050 is one Rp25 tick; 5,025 down to 4,970 leaves none
+        // empty across the Rp10 band below 5,000.
+        assert.strictEqual(bbcaReadings.spread?.ticks, 1)
+        assert.strictEqual(bbcaReadings.bid.emptyTicks, 0)
+        assert.strictEqual(bbcaReadings.bid.lots, 138_674)
+        assert.strictEqual(DateTime.toEpochMillis(bbcaReadings.at), SEEN)
+      })
+  )
+
+  it.effect(
+    "a trade settled after a code's latest book reaches the page as its value today, the readings keeping the book's as-of",
+    () =>
+      Effect.gen(function* () {
+        const { stockbit, viewer } = yield* tradingDay()
+        const page = yield* viewer("ASII")
+        yield* stockbit(BBCA_SIDES)
+        yield* TestClock.adjust("1 second")
+        yield* stockbit([
+          runningTradeBatch([
+            {
+              tradeWib: "14:20:27.000",
+              code: "BBCA",
+              price: 5025,
+              volume: 400_000,
+              action: 1,
+              board: 1,
+              tradeNumber: 900_001,
+            },
+          ]),
+        ])
+        // Past the trade's 5 s merge window: settled.
+        yield* TestClock.adjust("6 seconds")
+        const valueOf = (messages: ReadonlyArray<ViewerDown>) =>
+          messages
+            .flatMap((message) => message.scannerFigures ?? [])
+            .filter((figures) => figures.code === "BBCA")
+            .at(-1)?.value
+        assert.strictEqual(
+          valueOf(yield* received(page)),
+          2_010_000_000,
+          "a delta carries BBCA's value today once its trade settles"
+        )
+        const [snapshot] = yield* received(yield* viewer("ASII"))
+        assert(snapshot?._tag === "Snapshot")
+        assert.strictEqual(
+          valueOf([snapshot]),
+          2_010_000_000,
+          "a snapshot carries BBCA's value today once its trade settles"
+        )
+        assert.deepStrictEqual(
+          (snapshot.bookReadings ?? []).map((reading) =>
+            DateTime.toEpochMillis(reading.at)
+          ),
+          [SEEN]
+        )
+      })
+  )
+
+  it.effect("a snapshot carries every code's latest readings", () =>
+    Effect.gen(function* () {
+      const { stockbit, viewer } = yield* tradingDay()
+      yield* viewer("BBCA")
+      yield* stockbit([...BBCA_SIDES, ...sidesOf("TLKM")])
+      yield* TestClock.adjust("1 second")
+      const [snapshot] = yield* received(yield* viewer("ASII"))
+      assert(snapshot?._tag === "Snapshot")
+      assert.deepStrictEqual(
+        (snapshot.bookReadings ?? []).map((reading) => reading.code).sort(),
+        ["BBCA", "TLKM"]
+      )
+    })
+  )
+
+  it.effect(
+    "outside Sessions 1 and 2 readings keep their last values and no delta carries any",
+    () =>
+      Effect.gen(function* () {
+        const { stockbit, viewer } = yield* tradingDay()
+        const page = yield* viewer("BBCA")
+        yield* stockbit(BBCA_SIDES)
+        yield* TestClock.adjust("1 second")
+        // 16:05 WIB: post-trading.
+        yield* TestClock.setTime(Date.parse("2026-11-09T16:05:00+07:00"))
+        yield* stockbit([
+          ...sidesOf("TLKM", "2026-11-09T16:05:00.000+07:00"),
+          orderBookFrame(
+            "BBCA",
+            bbca.bid.replace("5025;193;3600900", "5030;5;50000"),
+            "2026-11-09T16:05:00.000+07:00"
+          ),
+        ])
+        yield* TestClock.adjust("1 second")
+        const messages = yield* received(page)
+        assert.deepStrictEqual(
+          deltaReadings(messages).map((reading) => reading.code),
+          ["BBCA"]
+        )
+        const [snapshot] = yield* received(yield* viewer("BBCA"))
+        assert(snapshot?._tag === "Snapshot")
+        const held = snapshot.bookReadings ?? []
+        assert.deepStrictEqual(
+          held.map((reading) => [
+            reading.code,
+            DateTime.toEpochMillis(reading.at),
+          ]),
+          [["BBCA", SEEN]]
+        )
+      })
+  )
+})
+
 // One whole websocket frame, `orderbook` (wrapper case 10) holding PRDL's bid
 // side, captured from wss-jkt.trading.stockbit.com on 2026-07-29 (09:51:01
 // WIB). Not a seam: the decoder alone, which the spec allows Vitest for.
@@ -545,36 +705,80 @@ describe("Ajaib's ORDER_BOOK_CUSTOM frames", () => {
   )
 })
 
+describe("Ajaib's ORDER_BOOK_CUSTOM side times", () => {
+  it.effect(
+    "each side's time is the last frame that changed it; Ajaib books carry no sequence number",
+    () =>
+      Effect.gen(function* () {
+        const books = yield* makeOrderBooks(DAY)
+        // The whole book, then two bid-only deltas.
+        yield* books.ajaibFrames(recorded.ajaib.bbca)
+        const book = yield* books.bookOf(StockCode.make("BBCA"), false)
+        assert(book?._tag === "OrderBook")
+        const [initial, , lastBid] = recorded.ajaib.bbca.map(
+          (frame) => (JSON.parse(frame) as { updateTime: number }).updateTime
+        )
+        assert.deepStrictEqual(
+          {
+            provenance: book.provenance,
+            bidAt: book.bidAt && DateTime.toEpochMillis(book.bidAt),
+            offerAt: book.offerAt && DateTime.toEpochMillis(book.offerAt),
+            bidSequence: book.bidSequence,
+            offerSequence: book.offerSequence,
+          },
+          {
+            provenance: "Ajaib",
+            bidAt: lastBid,
+            offerAt: initial,
+            bidSequence: undefined,
+            offerSequence: undefined,
+          }
+        )
+      })
+  )
+})
+
 describe("Stockbit's order_book frames", () => {
-  it.effect("decode one side: levels in lots, the side's total lots", () =>
-    Effect.gen(function* () {
-      const books = yield* makeOrderBooks(WibDate.make("2026-07-29"))
-      yield* books.stockbitFrames([
-        Uint8Array.from(atob(PRDL_BID), (char) => char.charCodeAt(0)),
-      ])
-      const book = yield* books.bookOf(StockCode.make("PRDL"), true)
-      assert(book?._tag === "OrderBook")
-      assert.deepStrictEqual(
-        {
-          bids: book.bids.slice(0, 2),
-          levels: book.bids.length,
-          bidLots: book.bidLots,
-          offers: book.offers,
-          at: DateTime.formatIso(book.at),
-        },
-        {
-          bids: [
-            { price: 252, lots: 5866, orders: 58 },
-            { price: 250, lots: 10_887, orders: 144 },
-          ],
-          levels: 8,
-          bidLots: 60_098,
-          // No offer frame yet.
-          offers: [],
-          at: "2026-07-29T02:51:01.323Z",
-        }
-      )
-    })
+  it.effect(
+    "decode one side: levels in lots, the side's total lots, its own time and sequence number",
+    () =>
+      Effect.gen(function* () {
+        const books = yield* makeOrderBooks(WibDate.make("2026-07-29"))
+        yield* books.stockbitFrames([
+          Uint8Array.from(atob(PRDL_BID), (char) => char.charCodeAt(0)),
+        ])
+        const book = yield* books.bookOf(StockCode.make("PRDL"), true)
+        assert(book?._tag === "OrderBook")
+        assert.deepStrictEqual(
+          {
+            bids: book.bids.slice(0, 2),
+            levels: book.bids.length,
+            bidLots: book.bidLots,
+            offers: book.offers,
+            at: DateTime.formatIso(book.at),
+            bidAt: book.bidAt && DateTime.formatIso(book.bidAt),
+            bidSequence: book.bidSequence,
+            offerAt: book.offerAt,
+            offerSequence: book.offerSequence,
+          },
+          {
+            bids: [
+              { price: 252, lots: 5866, orders: 58 },
+              { price: 250, lots: 10_887, orders: 144 },
+            ],
+            levels: 8,
+            bidLots: 60_098,
+            // No offer frame yet.
+            offers: [],
+            at: "2026-07-29T02:51:01.323Z",
+            // `datetime` (field 5) and `sequence_number` (field 3).
+            bidAt: "2026-07-29T02:51:01.323Z",
+            bidSequence: 10_320,
+            offerAt: undefined,
+            offerSequence: undefined,
+          }
+        )
+      })
   )
 
   // One side's body: a single level, and the side's totals.
@@ -608,6 +812,36 @@ describe("Stockbit's order_book frames", () => {
             bids: [{ price: 5000, lots: 10, orders: 1 }],
             offers: [{ price: 5100, lots: 7, orders: 1 }],
             at: Date.parse(at(2)),
+          }
+        )
+      })
+  )
+
+  it.effect(
+    "each side keeps its own time and sequence number; the book's as-of is the later side's",
+    () =>
+      Effect.gen(function* () {
+        const books = yield* makeOrderBooks(DAY)
+        yield* books.stockbitFrames([
+          orderBookFrame("BBCA", body("BID", 5000, 10), at(1), 10_320),
+          orderBookFrame("BBCA", body("OFFER", 5100, 7), at(3), 10_318),
+        ])
+        const book = yield* books.bookOf(StockCode.make("BBCA"), true)
+        assert(book?._tag === "OrderBook")
+        assert.deepStrictEqual(
+          {
+            at: DateTime.toEpochMillis(book.at),
+            bidAt: book.bidAt && DateTime.toEpochMillis(book.bidAt),
+            offerAt: book.offerAt && DateTime.toEpochMillis(book.offerAt),
+            bidSequence: book.bidSequence,
+            offerSequence: book.offerSequence,
+          },
+          {
+            at: Date.parse(at(3)),
+            bidAt: Date.parse(at(1)),
+            offerAt: Date.parse(at(3)),
+            bidSequence: 10_320,
+            offerSequence: 10_318,
           }
         )
       })

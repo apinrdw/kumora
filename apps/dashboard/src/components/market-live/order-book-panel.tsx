@@ -1,10 +1,11 @@
-import type { BookLevel, OrderBook } from "@workspace/relay"
+import type { BookEvent, BookLevel, OrderBook } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect, DateTime } from "effect"
 import { useSyncExternalStore } from "react"
 
 import { compact, plain, tapeTime } from "@/lib/format"
 
+import { LadderMarks, LadderMarksLegend } from "./book-events"
 import { StaleSince, useMergedStale } from "./market-conditions"
 import type { OrderBookStore } from "./order-book-store"
 
@@ -118,7 +119,14 @@ function Totals({ book }: { book: OrderBook }) {
   )
 }
 
-function Ladder({ book }: { book: OrderBook }) {
+// With `marks`, each level shows its recent book events, under a legend.
+function Ladder({
+  book,
+  marks,
+}: {
+  book: OrderBook
+  marks: ReadonlyArray<BookEvent> | undefined
+}) {
   const rows = Array.from(
     { length: LADDER_LEVELS },
     (_, index) => [book.bids[index], book.offers[index]] as const
@@ -130,74 +138,94 @@ function Ladder({ book }: { book: OrderBook }) {
   const tone = (level: BookLevel | undefined) =>
     level && Effect.runSync(priceTone(level.price, book.previousClose))
   return (
-    <table className="w-full text-[12px] tabular-nums">
-      <thead className="text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
-        <tr className="h-6">
-          <th className="pl-1 text-right font-medium">Freq</th>
-          <th className="text-right font-medium">Lot</th>
-          <th className="pr-2 text-right font-medium">Bid</th>
-          <th className="pl-2 text-left font-medium">Offer</th>
-          <th className="text-left font-medium">Lot</th>
-          <th className="pr-1 text-left font-medium">Freq</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map(([bid, offer], index) => (
-          <tr key={index} className="h-[22px]">
-            <td className="pl-1 text-right text-muted-foreground">
-              {bid && Effect.runSync(plain(bid.orders))}
-            </td>
-            <td
-              className="text-right"
-              style={bid && Effect.runSync(lotBar(bid, largest, "bid"))}
-            >
-              {bid && Effect.runSync(plain(bid.lots))}
-            </td>
-            <td
-              className={cn(
-                "pr-2 text-right font-semibold",
-                tone(bid),
-                index === 0 && "underline decoration-dotted"
-              )}
-            >
-              {bid && Effect.runSync(plain(bid.price))}
-            </td>
-            <td
-              className={cn(
-                "pl-2 font-semibold",
-                tone(offer),
-                index === 0 && "underline decoration-dotted"
-              )}
-            >
-              {offer && Effect.runSync(plain(offer.price))}
-            </td>
-            <td
-              style={offer && Effect.runSync(lotBar(offer, largest, "offer"))}
-            >
-              {offer && Effect.runSync(plain(offer.lots))}
-            </td>
-            <td className="pr-1 text-muted-foreground">
-              {offer && Effect.runSync(plain(offer.orders))}
-            </td>
+    <>
+      <table className="w-full text-[12px] tabular-nums">
+        <thead className="text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
+          <tr className="h-6">
+            <th className="pl-1 text-right font-medium">Freq</th>
+            <th className="text-right font-medium">Lot</th>
+            <th className="pr-2 text-right font-medium">Bid</th>
+            <th className="pl-2 text-left font-medium">Offer</th>
+            <th className="text-left font-medium">Lot</th>
+            <th className="pr-1 text-left font-medium">Freq</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map(([bid, offer], index) => (
+            <tr key={index} className="h-[22px]">
+              <td className="pl-1 text-right text-muted-foreground">
+                {bid && Effect.runSync(plain(bid.orders))}
+              </td>
+              <td
+                className="text-right"
+                style={bid && Effect.runSync(lotBar(bid, largest, "bid"))}
+              >
+                {bid && (
+                  <LadderMarks
+                    events={marks ?? []}
+                    side="bid"
+                    price={bid.price}
+                  />
+                )}
+                {bid && Effect.runSync(plain(bid.lots))}
+              </td>
+              <td
+                className={cn(
+                  "pr-2 text-right font-semibold",
+                  tone(bid),
+                  index === 0 && "underline decoration-dotted"
+                )}
+              >
+                {bid && Effect.runSync(plain(bid.price))}
+              </td>
+              <td
+                className={cn(
+                  "pl-2 font-semibold",
+                  tone(offer),
+                  index === 0 && "underline decoration-dotted"
+                )}
+              >
+                {offer && Effect.runSync(plain(offer.price))}
+              </td>
+              <td
+                style={offer && Effect.runSync(lotBar(offer, largest, "offer"))}
+              >
+                {offer && Effect.runSync(plain(offer.lots))}
+                {offer && (
+                  <LadderMarks
+                    events={marks ?? []}
+                    side="offer"
+                    price={offer.price}
+                  />
+                )}
+              </td>
+              <td className="pr-1 text-muted-foreground">
+                {offer && Effect.runSync(plain(offer.orders))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {marks !== undefined && <LadderMarksLegend />}
+    </>
   )
 }
 
 // The selected code's order book as an IDX ladder, live from the viewer
 // socket through `store`, with its depth curve and totals underneath. On a
 // recorded day, `recorded`: the stored frame in force, headed by its time,
-// and `notRecorded` inside a relay gap.
+// and `notRecorded` inside a relay gap. With `marks`, the ladder marks the
+// levels' recent book events, under a legend.
 export function OrderBookPanel({
   store,
   recorded = false,
   notRecorded = false,
+  marks,
 }: {
   store: OrderBookStore
   recorded?: boolean
   notRecorded?: boolean
+  marks?: ReadonlyArray<BookEvent> | undefined
 }) {
   const book = useSyncExternalStore(
     store.subscribe,
@@ -251,7 +279,7 @@ export function OrderBookPanel({
         </p>
       ) : (
         <div className={cn("flex flex-col gap-2", stale && "opacity-60")}>
-          <Ladder book={book} />
+          <Ladder book={book} marks={marks} />
           <DepthCurve book={book} />
           <Totals book={book} />
         </div>

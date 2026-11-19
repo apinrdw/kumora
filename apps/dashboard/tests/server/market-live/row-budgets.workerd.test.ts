@@ -308,3 +308,16 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
     )
   }
 )
+
+// A session's end writes its books over the last one's, so it runs on a busy
+// day of its own.
+layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
+  "row budgets of a session's end",
+  (it) => {
+    it.effect(
+      "a session's end writes at most a row per code with a book, over the last session's",
+      () => withinBudget("session end", { rowsWritten: BUSY_DAY.codes }),
+      10_000
+    )
+  }
+)

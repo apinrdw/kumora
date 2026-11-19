@@ -1,0 +1,104 @@
+// Listen on production's viewer socket as a browser would, offering
+// permessage-deflate, and count wire bytes vs decoded bytes.
+// usage: node viewer.mjs <cookieFile> <seconds> <selected>
+import { readFileSync } from "node:fs"
+import tls from "node:tls"
+import crypto from "node:crypto"
+import zlib from "node:zlib"
+
+const [cookieFile, seconds, selected] = process.argv.slice(2)
+const host = "kumora-dashboard.kumora.workers.dev"
+const key = crypto.randomBytes(16).toString("base64")
+const cookie = `__Secure-better-auth.session_token=${readFileSync(cookieFile, "utf8").trim()}`
+const socket = tls.connect({ host, port: 443, servername: host, ALPNProtocols: ["http/1.1"] })
+
+let wire = 0, handshake = null, buf = Buffer.alloc(0), deflate = false
+let decoded = 0, messages = 0, books = 0, bookBytes = 0, deltas = 0
+const inflater = zlib.createInflateRaw()
+const pendingInflate = []
+const t0 = Date.now()
+let tStart = 0, wireAtStart = 0
+
+const frame = (payload) => {
+  const mask = crypto.randomBytes(4)
+  const len = payload.length
+  const head = len < 126 ? Buffer.from([0x81, 0x80 | len]) : Buffer.from([0x81, 0x80 | 126, len >> 8, len & 255])
+  const body = Buffer.from(payload.map((b, i) => b ^ mask[i % 4]))
+  return Buffer.concat([head, mask, body])
+}
+
+const inflate = (data) => new Promise((resolve) => {
+  const chunks = []
+  const onData = (c) => chunks.push(c)
+  inflater.on("data", onData)
+  inflater.write(Buffer.concat([data, Buffer.from([0, 0, 0xff, 0xff])]))
+  inflater.flush(zlib.constants.Z_SYNC_FLUSH, () => { inflater.off("data", onData); resolve(Buffer.concat(chunks)) })
+})
+
+let chain = Promise.resolve()
+const onMessage = (text) => {
+  messages++
+  decoded += text.length
+  if (tStart === 0) return
+  try {
+    const m = JSON.parse(text)
+    if (m._tag === "Delta" || m.orderBooks) {
+      deltas++
+      for (const b of m.orderBooks ?? []) { books++; bookBytes += JSON.stringify(b).length }
+    }
+  } catch {}
+}
+
+socket.on("secureConnect", () => {
+  socket.write([
+    `GET /market-live/live HTTP/1.1`, `Host: ${host}`, `Upgrade: websocket`, `Connection: Upgrade`,
+    `Sec-WebSocket-Key: ${key}`, `Sec-WebSocket-Version: 13`,
+    `Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits`,
+    `Origin: https://${host}`, `Cookie: ${cookie}`, `User-Agent: Mozilla/5.0`, ``, ``,
+  ].join("\r\n"))
+})
+socket.on("data", (data) => {
+  wire += data.length
+  buf = Buffer.concat([buf, data])
+  if (handshake === null) {
+    const end = buf.indexOf("\r\n\r\n")
+    if (end < 0) return
+    handshake = buf.subarray(0, end).toString()
+    buf = buf.subarray(end + 4)
+    console.log(handshake.split("\r\n").filter((l) => /^HTTP|^sec-websocket-extensions/i.test(l)).join("\n"))
+    deflate = /permessage-deflate/i.test(handshake)
+    socket.write(frame(Buffer.from(JSON.stringify({ _tag: "Select", protocolVersion: 5, selected, watchlist: [] }))))
+    // Count from 3 s in, after the snapshot.
+    setTimeout(() => { tStart = Date.now(); wireAtStart = wire; messagesAtStart = messages; decodedAtStart = decoded }, 3000)
+    setTimeout(report, 3000 + Number(seconds) * 1000)
+  }
+  while (buf.length >= 2) {
+    const fin = buf[0] & 0x80, rsv1 = buf[0] & 0x40, op = buf[0] & 0x0f
+    let len = buf[1] & 0x7f, off = 2
+    if (len === 126) { if (buf.length < 4) return; len = buf.readUInt16BE(2); off = 4 }
+    else if (len === 127) { if (buf.length < 10) return; len = Number(buf.readBigUInt64BE(2)); off = 10 }
+    if (buf.length < off + len) return
+    const payload = buf.subarray(off, off + len)
+    buf = buf.subarray(off + len)
+    if (op === 8) { console.log("closed", payload.length >= 2 ? payload.readUInt16BE(0) : "", payload.subarray(2).toString()); return report() }
+    if (op === 9) continue
+    if (!fin) { console.log("fragmented frame, unsupported"); continue }
+    const p = Buffer.from(payload)
+    chain = chain.then(async () => onMessage((rsv1 && deflate ? await inflate(p) : p).toString()))
+  }
+})
+let messagesAtStart = 0, decodedAtStart = 0
+const report = async () => {
+  await chain
+  const s = (Date.now() - tStart) / 1000
+  console.log(JSON.stringify({
+    deflate, seconds: s,
+    wireKBps: +((wire - wireAtStart) / s / 1024).toFixed(1),
+    decodedKBps: +((decoded - decodedAtStart) / s / 1024).toFixed(1),
+    messagesPerS: +((messages - messagesAtStart) / s).toFixed(2),
+    deltas, booksPerS: +(books / s).toFixed(1), avgBookBytes: books ? Math.round(bookBytes / books) : 0,
+    bookShareOfDecoded: +(bookBytes / (decoded - decodedAtStart)).toFixed(3),
+  }))
+  process.exit(0)
+}
+socket.on("error", (e) => { console.log("error", e.message); process.exit(1) })

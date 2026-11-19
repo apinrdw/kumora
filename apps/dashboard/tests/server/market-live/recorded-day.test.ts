@@ -50,12 +50,19 @@ class FakeSocket implements Peer {
   open = Effect.succeed(true)
   readonly sent: Array<string> = []
   private current: PeerState = "new"
+  private codes: ReadonlyArray<StockCode> = []
   send = (text: string) => Effect.sync(() => void this.sent.push(text))
   close = () => Effect.void
   state = Effect.sync(() => this.current)
   setState = (state: PeerState) =>
     Effect.sync(() => {
       this.current = state
+    })
+  // The selected code first: whole books go out only for selected codes.
+  watching = Effect.sync(() => this.codes)
+  setWatching = (codes: ReadonlyArray<StockCode>) =>
+    Effect.sync(() => {
+      this.codes = codes
     })
 }
 
@@ -99,11 +106,13 @@ const ajaibBookFrame = (
     updateTime: wib(time).epochMilliseconds,
   })
 
-// Stockbit's `order_book` frame (wrapper case 10): one full side.
+// Stockbit's `order_book` frame (wrapper case 10): one full side, with its
+// sequence number when given.
 const orderBookFrame = (
   side: "BID" | "OFFER",
   levels: ReadonlyArray<readonly [price: number, orders: number, lots: number]>,
-  time: string
+  time: string,
+  sequence?: number
 ) => {
   const shares = levels.reduce((total, [, , lots]) => total + lots * 100, 0)
   const body = [
@@ -119,6 +128,7 @@ const orderBookFrame = (
     messageField(10, [
       ...stringField(1, "BBCA"),
       ...stringField(2, body),
+      ...(sequence === undefined ? [] : varintField(3, sequence)),
       ...stringField(5, `2026-11-09T${time}+07:00`),
     ])
   )
@@ -680,6 +690,34 @@ describe("a restarted trading day", () => {
   )
 
   it.effect(
+    "keeps the readings of a book last served in a session, for the break's snapshots",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("11:29:00").epochMilliseconds)
+        const sql = memorySql()
+        const first = yield* tradingDay(sql)
+        yield* first.ajaib([
+          ajaibBookFrame("11:29:00", [[8_000, 30, 3]], [[8_025, 10, 1]]),
+        ])
+        yield* pastFlush
+        yield* first.stop
+
+        yield* TestClock.setTime(wib("12:10:00").epochMilliseconds)
+        const restarted = yield* tradingDay(sql)
+        const page = yield* restarted.viewer("TLKM")
+        const [snapshot] = yield* page
+        assert(snapshot?._tag === "Snapshot")
+        assert.deepStrictEqual(
+          (snapshot.bookReadings ?? []).map((reading) => ({
+            code: reading.code,
+            imbalance: reading.imbalance,
+          })),
+          [{ code: StockCode.make("BBCA"), imbalance: 0.5 }]
+        )
+      })
+  )
+
+  it.effect(
     "keeps a code's last price and previous close past a totals-only liveprice frame",
     () =>
       Effect.gen(function* () {
@@ -1047,8 +1085,8 @@ describe("the recorded order book", () => {
           ajaibBookFrame("14:20:05", [[8_000, 50, 3]], [[8_025, 40, 2]]),
         ])
         yield* day.stockbit([
-          orderBookFrame("BID", [[8_000, 5, 90]], "14:20:10"),
-          orderBookFrame("OFFER", [[8_025, 1, 10]], "14:20:10"),
+          orderBookFrame("BID", [[8_000, 5, 90]], "14:20:10", 100),
+          orderBookFrame("OFFER", [[8_025, 1, 10]], "14:20:10", 101),
         ])
         yield* day.viewer()
         // 15 s without a Stockbit frame: stale, so Ajaib's book is served.
@@ -1064,15 +1102,170 @@ describe("the recorded order book", () => {
           const book = yield* bookAt(chunk, wib(cursor))
           return book === undefined
             ? undefined
-            : { provenance: book.provenance, at: DateTime.formatIso(book.at) }
+            : {
+                provenance: book.provenance,
+                at: DateTime.formatIso(book.at),
+                bidAt: book.bidAt && DateTime.formatIso(book.bidAt),
+                offerAt: book.offerAt && DateTime.formatIso(book.offerAt),
+                bidSequence: book.bidSequence,
+                offerSequence: book.offerSequence,
+              }
         })
         assert.deepStrictEqual(yield* served("14:20:15"), {
           provenance: "Stockbit",
           at: "2026-11-09T07:20:10.000Z",
+          bidAt: "2026-11-09T07:20:10.000Z",
+          offerAt: "2026-11-09T07:20:10.000Z",
+          bidSequence: 100,
+          offerSequence: 101,
         })
+        // Ajaib's book has no sequence numbers: Stockbit's don't carry over.
         assert.deepStrictEqual(yield* served("14:20:40"), {
           provenance: "Ajaib",
           at: "2026-11-09T07:20:05.000Z",
+          bidAt: "2026-11-09T07:20:05.000Z",
+          offerAt: "2026-11-09T07:20:05.000Z",
+          bidSequence: undefined,
+          offerSequence: undefined,
+        })
+      })
+  )
+
+  it.effect(
+    "keeps each side's own time and sequence number, so a minute's frames order per side",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("14:20:12").epochMilliseconds)
+        const day = yield* tradingDay(memorySql())
+        // A viewer on BBCA, so the day records its book.
+        yield* day.viewer()
+        yield* day.stockbit([
+          orderBookFrame("BID", [[8_000, 3, 50]], "14:20:10", 10_320),
+          orderBookFrame("OFFER", [[8_025, 2, 40]], "14:20:12", 10_318),
+        ])
+        yield* TestClock.setTime(wib("14:20:40").epochMilliseconds)
+        yield* day.stockbit([
+          orderBookFrame("BID", [[8_000, 5, 90]], "14:20:40", 10_377),
+        ])
+        yield* TestClock.setTime(wib("14:21:30").epochMilliseconds)
+        yield* day.stockbit([
+          orderBookFrame("OFFER", [[8_050, 1, 10]], "14:21:30", 10_402),
+        ])
+        yield* TestClock.adjust("2 minutes")
+
+        const sides = Effect.fnUntraced(function* (
+          minute: string,
+          cursor: string
+        ) {
+          const response = yield* day.get({
+            _tag: "Book",
+            code: StockCode.make("BBCA"),
+            minute: wib(minute),
+          })
+          const chunk = yield* decodeBookChunk(yield* textOf(response))
+          const book = yield* bookAt(chunk, wib(cursor))
+          return book === undefined
+            ? undefined
+            : {
+                bidAt: book.bidAt && DateTime.formatIso(book.bidAt),
+                offerAt: book.offerAt && DateTime.formatIso(book.offerAt),
+                bidSequence: book.bidSequence,
+                offerSequence: book.offerSequence,
+              }
+        })
+
+        assert.deepStrictEqual(yield* sides("14:20:00", "14:20:20"), {
+          bidAt: "2026-11-09T07:20:10.000Z",
+          offerAt: "2026-11-09T07:20:12.000Z",
+          bidSequence: 10_320,
+          offerSequence: 10_318,
+        })
+        assert.deepStrictEqual(yield* sides("14:20:00", "14:20:50"), {
+          bidAt: "2026-11-09T07:20:40.000Z",
+          offerAt: "2026-11-09T07:20:12.000Z",
+          bidSequence: 10_377,
+          offerSequence: 10_318,
+        })
+        // The next minute's chunk starts from the book in force, sides and all.
+        assert.deepStrictEqual(yield* sides("14:21:00", "14:21:10"), {
+          bidAt: "2026-11-09T07:20:40.000Z",
+          offerAt: "2026-11-09T07:20:12.000Z",
+          bidSequence: 10_377,
+          offerSequence: 10_318,
+        })
+        assert.deepStrictEqual(yield* sides("14:21:00", "14:21:45"), {
+          bidAt: "2026-11-09T07:20:40.000Z",
+          offerAt: "2026-11-09T07:21:30.000Z",
+          bidSequence: 10_377,
+          offerSequence: 10_402,
+        })
+      })
+  )
+
+  it.effect(
+    "a chunk stored before the per-side times decodes and replays as before",
+    () =>
+      Effect.gen(function* () {
+        const ms = (time: string) => wib(time).epochMilliseconds
+        // As the object stored it before bidAt, offerAt and the sequences.
+        const stored = JSON.stringify({
+          code: "BBCA",
+          minute: ms("14:20:00"),
+          start: {
+            _tag: "OrderBook",
+            code: "BBCA",
+            bids: [{ price: 8_000, lots: 50, orders: 3 }],
+            offers: [{ price: 8_025, lots: 40, orders: 2 }],
+            bidLots: 50,
+            offerLots: 40,
+            at: ms("14:19:50"),
+            provenance: "Stockbit",
+            previousClose: 8_000,
+          },
+          deltas: [
+            {
+              servedAt: ms("14:20:10"),
+              at: ms("14:20:10"),
+              bids: [{ price: 8_000, lots: 90, orders: 5 }],
+              bidLots: 90,
+            },
+            {
+              servedAt: ms("14:20:30"),
+              at: ms("14:20:05"),
+              provenance: "Ajaib",
+              offers: [{ price: 8_050, lots: 10, orders: 1 }],
+              offerLots: 10,
+            },
+          ],
+        })
+        const chunk = yield* decodeBookChunk(stored)
+        const replayed = Effect.fnUntraced(function* (cursor: string) {
+          const book = yield* bookAt(chunk, wib(cursor))
+          return book === undefined
+            ? undefined
+            : { ...book, at: DateTime.toEpochMillis(book.at) }
+        })
+        assert.deepStrictEqual(yield* replayed("14:20:20"), {
+          _tag: "OrderBook",
+          code: StockCode.make("BBCA"),
+          bids: [{ price: 8_000, lots: 90, orders: 5 }],
+          offers: [{ price: 8_025, lots: 40, orders: 2 }],
+          bidLots: 90,
+          offerLots: 40,
+          at: ms("14:20:10"),
+          provenance: "Stockbit",
+          previousClose: 8_000,
+        })
+        assert.deepStrictEqual(yield* replayed("14:20:40"), {
+          _tag: "OrderBook",
+          code: StockCode.make("BBCA"),
+          bids: [{ price: 8_000, lots: 90, orders: 5 }],
+          offers: [{ price: 8_050, lots: 10, orders: 1 }],
+          bidLots: 90,
+          offerLots: 10,
+          at: ms("14:20:05"),
+          provenance: "Ajaib",
+          previousClose: 8_000,
         })
       })
   )

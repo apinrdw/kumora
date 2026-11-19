@@ -10,9 +10,27 @@ import {
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
-import { makeCandleStore } from "@/components/market-live/candle-store"
+import { useBookAlerts } from "@/components/book-alerts/use-book-alerts"
+import type { BookEventStore } from "@/components/market-live/book-event-store"
+import {
+  BookEventList,
+  useBookEvents,
+  useRecentBookEvents,
+} from "@/components/market-live/book-events"
+import {
+  makeBookReadingsStore,
+  type BookReadingsStore,
+} from "@/components/market-live/book-readings-store"
+import { BookReadout } from "@/components/market-live/book-readout"
+import {
+  makeCandleStore,
+  type CandleStore,
+} from "@/components/market-live/candle-store"
 import { makeChartPair } from "@/components/market-live/chart-pair"
-import { makeDayStateStore } from "@/components/market-live/day-state-store"
+import {
+  makeDayStateStore,
+  type DayStateStore,
+} from "@/components/market-live/day-state-store"
 import { DayStrip } from "@/components/market-live/day-strip"
 import { LayoutB } from "@/components/market-live/layout-b"
 import { LiveChart } from "@/components/market-live/live-chart"
@@ -111,8 +129,9 @@ function useCodeStores(
   )
   const heatmap = useHeatmap(selected, day, today)
   const sweeps = useSweeps(selected, day, today)
+  const bookEvents = useBookEvents(selected, day)
   useRememberedTopN(sweeps)
-  return { candles, book, heatmap, sweeps }
+  return { candles, book, heatmap, sweeps, bookEvents }
 }
 
 // The candle chart and the footprint chart, moving together; each code's
@@ -145,32 +164,38 @@ function ConditionsBar({
   )
 }
 
-// The selected code's order book: live, or as of the cursor.
+// The selected code's order book, its levels marked with their recent book
+// events: live, or as of the cursor.
 function BookPanel({
   store,
   heatmap,
+  events,
   cursor,
   gaps,
 }: {
   store: OrderBookStore
   heatmap: HeatmapStore
+  events: BookEventStore
   cursor: ReplayCursor | undefined
   gaps: ReadonlyArray<RelayGap>
 }) {
+  const marks = useRecentBookEvents(events, cursor)
   return cursor === undefined ? (
-    <OrderBookPanel store={store} />
+    <OrderBookPanel store={store} marks={marks} />
   ) : (
     <RecordedOrderBook
       store={store}
       heatmap={heatmap}
       cursor={cursor}
       gaps={gaps}
+      marks={marks}
     />
   )
 }
 
 // The running trades: live, whose socket feeds the page through
-// `onMessage`, or as of the cursor.
+// `onMessage` and the browser's book event alerts, or as of the cursor. A
+// recorded day never alerts.
 function TapePanel({
   selected,
   watchlist,
@@ -186,12 +211,20 @@ function TapePanel({
   onSelect: (code: StockCode) => void
   onMessage: (message: ViewerDown) => void
 }) {
+  const tellAlerts = useBookAlerts(cursor === undefined)
+  const heard = useCallback(
+    (message: ViewerDown) => {
+      onMessage(message)
+      tellAlerts(message)
+    },
+    [onMessage, tellAlerts]
+  )
   return cursor === undefined ? (
     <LiveTape
       selected={selected}
       watchlist={watchlist}
       onSelect={onSelect}
-      onMessage={onMessage}
+      onMessage={heard}
     />
   ) : (
     <RecordedTape
@@ -204,11 +237,11 @@ function TapePanel({
 }
 
 // What the page keeps in its URL, so a shared link opens it: the selected
-// code, the phone's panel tab and the sweep log's Big only toggle. Picking
-// a code adds a history entry; switching a view replaces it and keeps the
-// scroll.
+// code, the phone's panel tab, the sweep log's Big only toggle, and the book
+// event a link lands on. Picking a code adds a history entry and leaves the
+// event; switching a view replaces it and keeps the scroll.
 function useMarketLiveSearch() {
-  const { code: selected = DEFAULT_CODE, panel, big } = Route.useSearch()
+  const { code: selected = DEFAULT_CODE, panel, big, event } = Route.useSearch()
   const navigate = Route.useNavigate()
   const change = useCallback(
     (patch: MarketLiveSearch, view: boolean) =>
@@ -220,7 +253,7 @@ function useMarketLiveSearch() {
     [navigate]
   )
   const select = useCallback(
-    (code: StockCode) => change({ code }, false),
+    (code: StockCode) => change({ code, event: undefined }, false),
     [change]
   )
   const pickPanel = useCallback(
@@ -234,10 +267,95 @@ function useMarketLiveSearch() {
   return {
     selected,
     select,
+    event,
     panel,
     pickPanel,
     log: { bigOnly: big === true, onBigOnly: setBigOnly },
   }
+}
+
+// The selected code's charts and, under them, its book readout and book
+// events.
+function DayCharts({
+  code,
+  today,
+  closed,
+  codes,
+  onPick,
+  event,
+  stores,
+  flow,
+  pair,
+  cursor,
+  gaps,
+  shownGaps,
+}: {
+  code: StockCode
+  today: WibDate
+  closed: ClosedMarket["closed"]
+  codes: ReturnType<typeof useStockCodeList>
+  onPick: (code: StockCode) => void
+  event: MarketLiveSearch["event"]
+  stores: {
+    candles: CandleStore
+    book: OrderBookStore
+    dayStates: DayStateStore
+    readings: BookReadingsStore
+    bookEvents: BookEventStore
+  }
+  flow:
+    | {
+        heatmap: ReturnType<typeof useHeatmap>
+        sweeps: SweepStore
+        bookEvents: BookEventStore
+      }
+    | undefined
+  pair: ReturnType<typeof useChartPair>
+  cursor: ReplayCursor | undefined
+  gaps: ReadonlyArray<RelayGap>
+  shownGaps: ReadonlyArray<RelayGap>
+}) {
+  return (
+    <>
+      <LiveChart
+        store={stores.candles}
+        heatmap={flow?.heatmap}
+        sweeps={flow?.sweeps}
+        bookEvents={flow?.bookEvents}
+        pair={pair}
+        gaps={shownGaps}
+        dayStates={stores.dayStates}
+        conditions={<ConditionsBar cursor={cursor} closed={closed} />}
+        cursor={cursor}
+        transport={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
+        search={
+          <StockCodePicker
+            list={codes}
+            label="Search stock code"
+            shortcut="Ctrl K"
+            onPick={onPick}
+            className="ml-auto w-full max-w-xs"
+          />
+        }
+      />
+      <BookReadout
+        code={code}
+        today={today}
+        readings={stores.readings}
+        book={stores.book}
+        dayStates={stores.dayStates}
+        cursor={cursor}
+        gaps={shownGaps}
+        events={
+          <BookEventList
+            store={stores.bookEvents}
+            cursor={cursor}
+            landOn={event}
+          />
+        }
+      />
+    </>
+  )
 }
 
 function MarketLiveDay({
@@ -250,11 +368,17 @@ function MarketLiveDay({
   today: WibDate
   closed: ClosedMarket["closed"]
 }) {
-  const { selected, select, ...view } = useMarketLiveSearch()
+  const { selected, select, event, ...view } = useMarketLiveSearch()
   const codes = useStockCodeList(day, today)
-  const { candles, book, heatmap, sweeps } = useCodeStores(selected, day, today)
+  const { candles, book, heatmap, sweeps, bookEvents } = useCodeStores(
+    selected,
+    day,
+    today
+  )
   // An index has no aggressor sides: plain candles and total volume only.
-  const flow = INDEX_CODES.includes(selected) ? undefined : { heatmap, sweeps }
+  const flow = INDEX_CODES.includes(selected)
+    ? undefined
+    : { heatmap, sweeps, bookEvents }
   // A recorded day's sweeps can have broker codes: its log gains the broker
   // columns and the width for them.
   const withBrokers = day !== undefined
@@ -265,6 +389,9 @@ function MarketLiveDay({
   // codes' Day states to load. The server render shows no codes, and the
   // rows fill once the page hydrates and the viewer socket's snapshot arrives.
   const [dayStates] = useState(() => clientRuntime.runSync(makeDayStateStore()))
+  // Every code's book readings: a snapshot carries them all, whichever code
+  // it selected, so one store serves every code picked.
+  const [readings] = useState(() => Effect.runSync(makeBookReadingsStore))
   const watchlist = useWatchlist()
   const cursor = useReplayCursor(day)
   const gaps = useRecordedDay({
@@ -286,34 +413,30 @@ function MarketLiveDay({
       book.apply(message)
       heatmap.apply(message)
       dayStates.apply(message)
+      readings.apply(message)
+      bookEvents.apply(message)
       clientRuntime.runFork(player.hear(message))
     },
-    [candles, sweeps, book, heatmap, dayStates, player]
+    [candles, sweeps, book, heatmap, dayStates, readings, bookEvents, player]
   )
   return (
     <>
       <h1 className="text-2xl font-bold">Market Live</h1>
       <LayoutB
         charts={
-          <LiveChart
-            store={candles}
-            heatmap={flow?.heatmap}
-            sweeps={flow?.sweeps}
+          <DayCharts
+            code={selected}
+            today={today}
+            closed={closed}
+            codes={codes}
+            onPick={select}
+            event={event}
+            stores={{ candles, book, dayStates, readings, bookEvents }}
+            flow={flow}
             pair={pair}
-            gaps={shownGaps}
-            dayStates={dayStates}
-            conditions={<ConditionsBar cursor={cursor} closed={closed} />}
             cursor={cursor}
-            transport={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
-            search={
-              <StockCodePicker
-                list={codes}
-                label="Search stock code"
-                shortcut="Ctrl K"
-                onPick={select}
-                className="ml-auto w-full max-w-xs"
-              />
-            }
+            gaps={gaps}
+            shownGaps={shownGaps}
           />
         }
         log={
@@ -343,6 +466,7 @@ function MarketLiveDay({
           <BookPanel
             store={book}
             heatmap={heatmap}
+            events={bookEvents}
             cursor={cursor}
             gaps={gaps}
           />

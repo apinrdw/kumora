@@ -282,6 +282,15 @@ const coldFetch = Effect.fnUntraced(function* (
   })
 })
 
+// Another day's values (previous-values.ts), from its object.
+const dayValuesOf = Effect.fnUntraced(function* (date: WibDate) {
+  const env = yield* WorkerEnv
+  const other = env.TRADING_DAY.getByName(date)
+  return yield* Effect.tryPromise(() =>
+    other.fetch(new URL(ObjectPath.dayValues, "https://trading-day.invalid"))
+  )
+})
+
 // Decision: a plain class, not `DurableObject` from `cloudflare:workers`: the
 // object needs no RPC, and only the bridge may import that module. Each
 // callback runs through the bridge's result runner, which logs any failure.
@@ -348,6 +357,7 @@ export class TradingDayObject {
             askMove: pokeDay(ObjectPath.move),
             anyHour: movesAnyHour,
           },
+          previousDayValues: dayValuesOf,
         })
       )
       return { day, peerFor }
@@ -422,6 +432,8 @@ export class TradingDayObject {
           )
         )
       )
+    if (pathname === ObjectPath.dayValues)
+      return respond(withMarketClock(this.day.dayValues))
     // The reconcile cron's poke: 202 when the day will build, else 204.
     if (pathname === ObjectPath.brokerTotals)
       return respond(

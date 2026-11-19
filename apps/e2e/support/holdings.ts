@@ -315,3 +315,19 @@ export function seedStockSectors(sectors: Readonly<Record<string, string>>) {
     db.close()
   }
 }
+
+// Puts `codes` on the Test stage's Special Monitoring Board, as the board
+// cron would leave them; other rows stay, since specs share the stage.
+export function seedSpecialBoard(codes: ReadonlyArray<string>) {
+  const id = databaseId("HoldingsDb")
+  if (id === undefined) throw new Error("The Test stage has no HoldingsDb yet")
+  const db = new DatabaseSync(databaseFile(id).pathname, { timeout: 5000 })
+  try {
+    const row = db.prepare(
+      "INSERT OR REPLACE INTO special_board VALUES (?, 'X', '2026-11-18T16:00:00.000Z')"
+    )
+    for (const code of codes) row.run(code)
+  } finally {
+    db.close()
+  }
+}

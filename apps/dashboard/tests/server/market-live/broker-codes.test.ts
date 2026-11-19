@@ -11,6 +11,7 @@ import {
   TradeNumber,
   WibDate,
   decodeBrokerCodesStatus,
+  decodeRecordedBookEvents,
   decodeRecordedBrokerCodes,
   decodeRecordedCandles,
   decodeRecordedTape,
@@ -1445,6 +1446,23 @@ describe("a day with no tape", () => {
         ])
         assert.isTrue((yield* day.status).complete)
       })
+  )
+
+  it.effect("answers a walked and sealed day's book events not recorded", () =>
+    Effect.gen(function* () {
+      const day = yield* historyDay()
+      yield* day.post("Stockbit", WALKED, 3)
+      yield* day.alarm
+      assert.isTrue((yield* day.status).complete)
+      const answer = yield* answerText(day, {
+        _tag: "BookEvents",
+        code: StockCode.make("TLKM"),
+      })
+      assert.isFalse(
+        (yield* decodeRecordedBookEvents(answer.text)).recorded,
+        "a walk records no book events"
+      )
+    })
   )
 
   it.effect(

@@ -13,6 +13,7 @@ import type { CandleStore } from "./candle-store"
 import type { ChartPair } from "./chart-pair"
 import { useDayState, type DayStateStore } from "./day-state-store"
 import { FootprintChart } from "./footprint-chart"
+import type { BookEventStore } from "./book-event-store"
 import type { HeatmapStore } from "./heatmap-store"
 import { useHeatmapNotRecorded } from "./use-heatmap"
 import { useAuctionIndicative, useMergedStale } from "./market-conditions"
@@ -147,6 +148,38 @@ function ChartHeadline({
   )
 }
 
+// The heatmap's book event marks, named under the chart when it has them.
+function MarksLegend({ shown }: { shown: boolean }) {
+  if (!shown) return null
+  return (
+    <p className="text-[11px] text-muted-foreground">
+      Book event marks: ◆ absorbed, eaten or reloaded · ■ wall appeared, pulled
+      or moved · green on the bid, red on the offer
+    </p>
+  )
+}
+
+// The candle chart's title and its top-N filter, for a stock code: an index
+// has no sweeps, so no filter and no title.
+function CandlesTitle({
+  sweeps,
+  cursor,
+}: {
+  sweeps: SweepStore | undefined
+  cursor: ReplayCursor | undefined
+}) {
+  if (sweeps === undefined) return null
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <h3 className="text-[15px] font-bold">Candles</h3>
+      {/* Under the title on a phone. */}
+      <div className="max-lg:basis-full">
+        <TopNControl store={sweeps} cursor={cursor} />
+      </div>
+    </div>
+  )
+}
+
 // The selected code's chart column: its header, then `transport` on a
 // recorded day, then the footprint chart (only with `sweeps`: an index has
 // none), then the candle chart: the 1-minute candles with volume, live from the
@@ -159,6 +192,7 @@ export function LiveChart({
   store,
   heatmap,
   sweeps,
+  bookEvents,
   pair,
   gaps,
   dayStates,
@@ -172,6 +206,8 @@ export function LiveChart({
   heatmap?: HeatmapStore
   // The selected code's sweeps, as bubbles under a top-N filter.
   sweeps?: SweepStore | undefined
+  // The selected code's book events, marked on the heatmap.
+  bookEvents?: BookEventStore | undefined
   pair: ChartPair
   // The relay gaps to shade as not recorded.
   gaps: ReadonlyArray<RelayGap>
@@ -212,15 +248,7 @@ export function LiveChart({
         aria-label="Candles"
         className="flex min-w-0 flex-col gap-2 lg:flex-[1_1_auto]"
       >
-        {sweeps !== undefined && (
-          <div className="flex flex-wrap items-center gap-3">
-            <h3 className="text-[15px] font-bold">Candles</h3>
-            {/* Under the title on a phone. */}
-            <div className="max-lg:basis-full">
-              <TopNControl store={sweeps} cursor={cursor} />
-            </div>
-          </div>
-        )}
+        <CandlesTitle sweeps={sweeps} cursor={cursor} />
         {/* The canvas has no text: this says what it draws. */}
         <p className="sr-only">One-minute candles: {count}</p>
         {heatmap !== undefined && <HeatmapNotRecorded heatmap={heatmap} />}
@@ -233,6 +261,7 @@ export function LiveChart({
                 store={store}
                 heatmap={heatmap}
                 sweeps={sweeps}
+                bookEvents={bookEvents}
                 cursor={cursor}
                 gaps={gaps}
                 pair={pair}
@@ -240,6 +269,7 @@ export function LiveChart({
             </Suspense>
           </ClientOnly>
         </div>
+        <MarksLegend shown={bookEvents !== undefined} />
         <p className="text-[11px] text-muted-foreground">
           <a
             href="https://www.tradingview.com/"

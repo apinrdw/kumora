@@ -1,4 +1,5 @@
 import {
+  type TablerIcon,
   IconAlertCircle,
   IconAlertTriangle,
   IconCircleCheck,
@@ -31,6 +32,8 @@ export type KToastProps = {
   description?: string
   action?: KAction
   onDismiss?: () => void
+  /** In the tone's colour, in place of its own icon. */
+  icon?: TablerIcon
   className?: string
 }
 
@@ -41,9 +44,11 @@ export function KToast({
   description,
   action,
   onDismiss,
+  icon,
   className,
 }: KToastProps) {
   const t = TONE[tone]
+  const ToneIcon = icon ?? t.Icon
   return (
     <div
       role={t.role}
@@ -52,7 +57,7 @@ export function KToast({
         className
       )}
     >
-      <t.Icon
+      <ToneIcon
         aria-hidden
         stroke={1.75}
         className={cn("mt-0.5 size-4.5 shrink-0", t.className)}
@@ -91,6 +96,9 @@ type ToastOptions = {
   action?: KAction
   /** ms; errors and warnings stay longer by default. */
   duration?: number
+  icon?: TablerIcon
+  /** A toast shown again with the same id replaces the one on screen. */
+  id?: string | number
 }
 
 const show = (tone: KToastTone, title: string, opts: ToastOptions = {}) =>
@@ -101,6 +109,7 @@ const show = (tone: KToastTone, title: string, opts: ToastOptions = {}) =>
           tone={tone}
           title={title}
           description={opts.description}
+          icon={opts.icon}
           action={
             opts.action && {
               label: opts.action.label,
@@ -114,6 +123,7 @@ const show = (tone: KToastTone, title: string, opts: ToastOptions = {}) =>
         />
       ),
       {
+        id: opts.id,
         duration:
           opts.duration ??
           (tone === "error" || tone === "warning" ? 8000 : 4000),

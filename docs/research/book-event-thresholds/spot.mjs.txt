@@ -1,0 +1,77 @@
+// Print events with the level's lots per frame and the trades at its price, for checking by eye.
+// usage: P='{"k":1,...}' node spot.mjs <cacheDir> <kind> <n> [codes]
+import { load, detect, WINDOW, base } from "./replay.mjs"
+
+const [cacheDir, kind, n, codeArg] = process.argv.slice(2)
+const P = { ...base, ...JSON.parse(process.env.P ?? "{}") }
+const w = (h) => Date.parse(`2026-11-17T${h}:00+07:00`)
+const spans = [
+  [w("09:00"), w("09:15")],
+  [w("09:15"), w("09:30")],
+  [w("14:00"), w("14:30")],
+]
+const codes = (
+  codeArg ??
+  "TLKM,BBRI,KOTA,BBCA,FOLK,GOTO,BBNI,AKRA,MEDC,DSSA,SMGR,ERAA,TAPG,PANI,PNBN"
+).split(",")
+const hms = (t) => new Date(t + 7 * 3600e3).toISOString().slice(11, 23)
+const all = []
+for (const code of codes)
+  for (const seg of load(cacheDir, code, spans))
+    for (const e of detect(seg, P).events)
+      if (e.kind === kind) all.push({ e, seg })
+console.log(kind, "events", all.length)
+// Spread the sample across codes and time.
+const step = Math.max(1, Math.floor(all.length / Number(n)))
+for (const { e, seg } of all
+  .filter((_, i) => i % step === 0)
+  .slice(0, Number(n))) {
+  const { frames, trades } = seg
+  const from = e.from ?? e.t - WINDOW
+  console.log(
+    `\n# ${e.code} ${e.side} ${e.price} ${kind}${e.how ? " " + e.how : ""}${e.tag ? " " + e.tag : ""} at ${hms(e.t)} ${JSON.stringify({ traded: e.traded, dist: e.dist, approached: e.approached, movedTo: e.movedTo, crossed: e.crossed, wall: e.wall, peak: e.peak })}`
+  )
+  const fr = frames[e.side].filter(
+    (f) => f.t >= from - 3000 && f.t <= e.t + 3000
+  )
+  let lastKey = null
+  for (const f of fr) {
+    const key = JSON.stringify([
+      f.levels.find((x) => x.price === e.price),
+      f.levels[0]?.price,
+      f.t > e.t,
+      f.t < from,
+    ])
+    if (key === lastKey) continue
+    lastKey = key
+    const l = f.levels.find((x) => x.price === e.price)
+    const rank = f.levels.findIndex((x) => x.price === e.price)
+    console.log(
+      `  ${hms(f.t)} ${f.t > e.t ? "after" : f.t < from ? "before" : "     "} best ${f.levels[0]?.price} lvl ${l ? `${l.lots}/${l.orders}o #${rank}` : "-"} view ${f.levels.at(-1)?.price}`
+    )
+  }
+  const tr = trades.filter(
+    (x) =>
+      x.time > from - 3000 &&
+      x.time <= e.t + 3000 &&
+      Math.abs(x.price - e.price) <=
+        2 *
+          (e.price < 200
+            ? 1
+            : e.price < 500
+              ? 2
+              : e.price < 2000
+                ? 5
+                : e.price < 5000
+                  ? 10
+                  : 25)
+  )
+  const agg = new Map()
+  for (const x of tr) {
+    const k = `${x.price} ${x.side}`
+    agg.set(k, (agg.get(k) ?? 0) + x.lots)
+  }
+  console.log(
+    `  trades near price (window±3s): ${[...agg].map(([k, v]) => `${k} ${v}`).join(", ") || "none"}`
+  )
+}

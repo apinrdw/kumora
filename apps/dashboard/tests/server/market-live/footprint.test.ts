@@ -408,13 +408,13 @@ describe("the page's candles and footprints", () => {
 })
 
 describe("the viewer protocol", () => {
-  it.effect("version 6 is served; a version 5 page is closed with 4426", () =>
+  it.effect("version 7 is served; a version 6 page is closed with 4426", () =>
     Effect.gen(function* () {
-      assert.strictEqual(ViewerProtocolVersion, 6)
+      assert.strictEqual(ViewerProtocolVersion, 7)
       const day = yield* tradingDay()
       const current = yield* day.viewer("UNTR")
       assert.lengthOf(current.sent, 1)
-      const old = yield* day.viewer("UNTR", 5)
+      const old = yield* day.viewer("UNTR", 6)
       assert.strictEqual(old.closedWith, ViewerCloseCode.NewVersion)
       assert.lengthOf(old.sent, 0)
     })

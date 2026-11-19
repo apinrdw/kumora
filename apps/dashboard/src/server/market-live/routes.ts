@@ -20,6 +20,9 @@ export const ObjectPath = {
   // to move to R2 (POST): 202 when it moves, else 204. No Worker route
   // reaches it.
   move: "/move",
+  // A sealed day's every code's value (GET), asked by the next trading
+  // day's object (previous-values.ts). No Worker route reaches it.
+  dayValues: "/day-values",
 } as const
 
 // The index Durable Object (day-index-object.ts): one, by this name. A day's
