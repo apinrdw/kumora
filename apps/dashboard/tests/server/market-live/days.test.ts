@@ -30,12 +30,16 @@ const STRIP = {
   url: "https://market-live.invalid/days",
 }
 
-const objects = () => {
+// The day's object and the index; the index's fetch rejects, as during a
+// reset, when `indexRejects` says so.
+const objects = (indexRejects: boolean) => {
   const reached: Array<{ readonly name: string; readonly url: string }> = []
   const stub = (binding: string) => ({
     getByName: (name: string) => ({
       fetch: (url: URL) => {
         reached.push({ name: `${binding}:${name}`, url: url.href })
+        if (indexRejects && binding === "MARKET_LIVE_INDEX")
+          return Effect.runPromise(Effect.fail(new Error("Object reset")))
         return Effect.runPromise(
           Effect.succeed(
             new Response(
@@ -54,9 +58,9 @@ const objects = () => {
   return { reached, env }
 }
 
-const setup = Effect.fnUntraced(function* () {
+const setup = Effect.fnUntraced(function* (indexRejects = false) {
   const { layer, mails } = seam()
-  const { reached, env } = objects()
+  const { reached, env } = objects(indexRejects)
   const layers = Layer.merge(layer, env)
   const coldDays = yield* makeColdDays
   const get = Effect.fnUntraced(function* (
@@ -126,6 +130,22 @@ describe("a recorded day GET", () => {
             url: "https://market-live.invalid/days",
           },
         ])
+      })
+  )
+
+  it.effect(
+    "with the index's fetch rejecting reaches the day's object, and asks the index again next time",
+    () =>
+      Effect.gen(function* () {
+        const { reached, tape, signedIn } = yield* setup(true)
+        const cookie = yield* signedIn
+        for (const _ of [1, 2])
+          assert.strictEqual((yield* tape({ cookie })).status, 200)
+        const day = {
+          name: "TRADING_DAY:2026-11-06",
+          url: `https://market-live.invalid${TAPE}`,
+        }
+        assert.deepStrictEqual(reached, [STRIP, day, STRIP, day])
       })
   )
 
