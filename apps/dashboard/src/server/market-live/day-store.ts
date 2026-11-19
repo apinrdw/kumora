@@ -1135,15 +1135,11 @@ export const makeDayStore = (
 
     // The day's newest `limit` stored book events of every code, oldest
     // first.
-    // Decision: no index on `time`. The key leads with the code, so this
-    // visits every book event of the day and sorts them: 2 rows read an
-    // event, 48,000 at 24,000 events. An index on `time` read 100 rows for
-    // the newest 100, but each event then wrote 2 rows, not 1, and making it
-    // on a day recorded before it read 2 rows and wrote 1 an event. A row
-    // written costs 1,000 read (docs/runbooks/order-flow-cost.md), so the
-    // index pays only past 500 of these reads a day, and an object reads
-    // once, at its first snapshot (book-event-log.ts): a live day's a few
-    // times a day, a sealed past day's never.
+    // Decision: no index on `time`: this visits and sorts every book event
+    // of the day, 2 rows read an event, once an object, at its first
+    // snapshot (book-event-log.ts). An index read 100 rows for 100 events
+    // but wrote 2 rows an event, and a row written costs 1,000 read
+    // (docs/runbooks/order-flow-cost.md): it pays only past 500 reads a day.
     const newestBookEvents = (limit: number) =>
       Effect.map(
         Effect.forEach(
