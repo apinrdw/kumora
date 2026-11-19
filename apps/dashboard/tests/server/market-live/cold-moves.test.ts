@@ -4,7 +4,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { WibDate, type RecordedDay } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { askBackfillMoves, askDueMoves } from "@/server/market-live/cold-moves"
+import { askOlderMoves, askDueMoves } from "@/server/market-live/cold-moves"
 
 // Twenty recorded days, 2026-10-01 to 2026-10-20, oldest first; the
 // 2026-10-18 and 2026-10-05 cold.
@@ -58,7 +58,7 @@ describe("the reconcile cron's moves", () => {
 
 // Twenty-five recorded days, 2026-10-01 to 2026-10-25, oldest first; the
 // 2026-10-05 cold. The newest 15 start at 2026-10-11.
-const BACKFILL_ROWS: ReadonlyArray<RecordedDay> = Array.from(
+const OLDER_ROWS: ReadonlyArray<RecordedDay> = Array.from(
   { length: 25 },
   (_, index): RecordedDay => {
     const day = WibDate.make(`2026-10-${String(index + 1).padStart(2, "0")}`)
@@ -71,13 +71,13 @@ const BACKFILL_ROWS: ReadonlyArray<RecordedDay> = Array.from(
   }
 )
 
-describe("the backfill's moves", () => {
+describe("the older days' moves", () => {
   it.effect(
     "asks the hot days older than the newest 15, oldest first, until 3 move",
     () =>
       Effect.gen(function* () {
         const asked: Array<WibDate> = []
-        yield* askBackfillMoves(Effect.succeed(BACKFILL_ROWS), (day) =>
+        yield* askOlderMoves(Effect.succeed(OLDER_ROWS), (day) =>
           Effect.suspend(() => {
             asked.push(day)
             // 10-01 still waits for its build; 10-02's object is unreachable.
@@ -100,9 +100,9 @@ describe("the backfill's moves", () => {
   it.effect("asks nothing once every older day is cold", () =>
     Effect.gen(function* () {
       const asked: Array<WibDate> = []
-      yield* askBackfillMoves(
+      yield* askOlderMoves(
         Effect.succeed(
-          BACKFILL_ROWS.map((row) =>
+          OLDER_ROWS.map((row) =>
             row.day < "2026-10-11" ? { ...row, cold: true as const } : row
           )
         ),

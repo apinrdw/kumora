@@ -249,7 +249,7 @@ A recorded day whose walk is done, or one older than ten trading days. It is fix
 _Avoid_: Archive day, archived day
 
 **Move**:
-How a hot day turns cold: a chain of alarms, outside streaming hours, writes its views to R2, marks it cold in the day index, then empties its object.
+How a hot day turns cold: a chain of alarms, outside streaming hours, writes its views to R2, marks it cold in the day index, then empties its object. The reconcile cron asks the newest hot days to move, then a few older ones each night, oldest first; a day not yet due is asked again the next night.
 _Avoid_: archiving, migration
 
 **Relay gap**:

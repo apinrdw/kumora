@@ -1,7 +1,7 @@
-// The backfill (spec apinrdw/kumora#556, "The move"): the reconcile cron
-// moves the days recorded before cold days a few a night, oldest first, each
-// on whichever trade shape and heatmap form it holds, and every answer it
-// serves from R2 is the one its object served.
+// The older days' moves (spec apinrdw/kumora#556, "The move"): the
+// reconcile cron moves the days recorded before cold days a few a night,
+// oldest first, each on whichever trade shape and heatmap form it holds, and
+// every answer it serves from R2 is the one its object served.
 import { gunzipSync } from "node:zlib"
 
 import { assert, describe, it } from "@effect/vitest"
@@ -16,7 +16,7 @@ import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
 import { coldAnswer } from "@/server/market-live/cold-days"
-import { askBackfillMoves } from "@/server/market-live/cold-moves"
+import { askOlderMoves } from "@/server/market-live/cold-moves"
 import { makeDayIndex } from "@/server/market-live/day-index"
 import type { Sql } from "@/server/market-live/day-store"
 
@@ -136,7 +136,7 @@ const chain = Effect.fnUntraced(function* (old: OldDay) {
   }
 })
 
-describe("the backfill", () => {
+describe("the older days' moves", () => {
   it.effect(
     "moves a few old days of either shape a night, oldest first, each answering from R2 as its object did",
     () =>
@@ -194,7 +194,7 @@ describe("the backfill", () => {
         )
         const asked: Array<WibDate> = []
         const night = Effect.fnUntraced(function* () {
-          yield* askBackfillMoves(listed, (date) =>
+          yield* askOlderMoves(listed, (date) =>
             Effect.suspend(() => {
               asked.push(date)
               const old = olds.find((each) => each.date === date)
