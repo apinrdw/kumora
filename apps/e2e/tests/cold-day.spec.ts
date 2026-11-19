@@ -103,6 +103,9 @@ interface DayGet {
   readonly path: string
   // Whether the browser's cache answered it, not the Worker.
   cached: boolean
+  // Whether anything answered it: the dev build's second mount aborts the
+  // first mount's GETs, and one aborted before the cache answers has none.
+  answered: boolean
 }
 
 // Each of the day's GETs the page sends from now on, as Chromium's network
@@ -120,17 +123,22 @@ const dayGets = async (page: Page, day: WibDate) => {
       resource: pathname.slice(prefix.length).split("/")[0] ?? "",
       path: pathname.slice(prefix.length),
       cached: false,
+      answered: false,
     }
     byId.set(requestId, get)
     gets.push(get)
   })
   cdp.on("Network.requestServedFromCache", ({ requestId }) => {
     const get = byId.get(requestId)
-    if (get !== undefined) get.cached = true
+    if (get === undefined) return
+    get.cached = true
+    get.answered = true
   })
   cdp.on("Network.responseReceived", ({ requestId, response }) => {
     const get = byId.get(requestId)
-    if (get !== undefined && response.fromDiskCache === true) get.cached = true
+    if (get === undefined) return
+    get.answered = true
+    if (response.fromDiskCache === true) get.cached = true
   })
   return gets
 }
@@ -250,7 +258,7 @@ test("a cold day replays, is never rechecked, and reloads from the browser's cac
   await reload()
   const reloadedFrom = gets.length
   await reload()
-  const reloaded = gets.slice(reloadedFrom)
+  const reloaded = gets.slice(reloadedFrom).filter((get) => get.answered)
   expect(new Set(reloaded.map((get) => get.resource))).toEqual(
     new Set([
       "codes",
