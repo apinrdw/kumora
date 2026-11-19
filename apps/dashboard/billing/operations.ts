@@ -14,8 +14,9 @@ import { DateTime, Effect } from "effect"
 
 import type { WorkerEnv } from "@workspace/server"
 
+import { makeDayStore, type Sql } from "../src/server/market-live/day-store.ts"
 import type { makeTradingDay } from "../src/server/market-live/trading-day.ts"
-import { BUSY_DAY, busyCodes } from "./busy-figures.ts"
+import { BUSY_DAY, FLUSHED_BOOK_EVENTS, busyCodes } from "./busy-figures.ts"
 
 type TradingDay = Effect.Success<ReturnType<typeof makeTradingDay>>
 
@@ -35,8 +36,10 @@ export interface Operation {
   readonly before?: (
     day: TradingDay
   ) => Effect.Effect<unknown, unknown, WorkerEnv>
+  // What is counted: a call on the day, or on a day store over its `sql`.
   readonly measure: (
-    day: TradingDay
+    day: TradingDay,
+    sql: Sql
   ) => Effect.Effect<Response, unknown, WorkerEnv>
 }
 
@@ -49,6 +52,41 @@ const codesGet = (day: TradingDay) =>
   day.recorded({
     _tag: "BrokerCodes",
     at: DateTime.makeUnsafe("2026-11-09T16:15:00+07:00"),
+  })
+
+// One code's book events, as the page's recorded day asks them.
+const bookEventsGet = (day: TradingDay) =>
+  day.recorded({ _tag: "BookEvents", code: StockCode.make("C7") })
+
+// A flush of book events alone, a wall pulled each ms at one code after
+// the close, as the day store writes them: a sealed day's object takes none.
+const eventsFlush = (_day: TradingDay, sql: Sql) =>
+  Effect.gen(function* () {
+    const store = yield* makeDayStore(sql, { today: false })
+    const close = DateTime.toEpochMillis(
+      DateTime.makeUnsafe("2026-11-09T16:15:00+07:00")
+    )
+    yield* store.write({
+      trades: [],
+      candles: [],
+      footprints: [],
+      livePrices: [],
+      chunks: [],
+      ajaibBooks: [],
+      facts: {},
+      bookEvents: Array.from({ length: FLUSHED_BOOK_EVENTS }, (_, n) => ({
+        kind: "pulled",
+        code: StockCode.make("FLUSHED"),
+        at: DateTime.makeUnsafe(close + n),
+        side: "bid",
+        price: 1_000,
+        lots: 6_000,
+        orders: 2,
+        ticks: 3,
+        approached: false,
+      })),
+    })
+    return Response.json({ flushed: FLUSHED_BOOK_EVENTS })
   })
 
 // Decision: a full Ajaib page, 5,000 trades, resent with the codes the day
@@ -133,6 +171,9 @@ export const operations = {
   // codes are complete.
   "recorded codes GET": { before: statusPass, measure: codesGet },
   "recorded codes GET, freshly started": { measure: codesGet },
+  "book events GET, freshly started": { measure: bookEventsGet },
+  // Writes book events of a code of its own, which no other budget reads.
+  "book events flush": { measure: eventsFlush },
   // Its GET writes the codes-complete fact: it gets a busy day of its own.
   "recorded codes GET, batched before the codes-complete fact": {
     stored: "batched before the codes-complete fact",

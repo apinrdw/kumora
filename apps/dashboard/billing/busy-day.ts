@@ -4,7 +4,7 @@
 // the object's SQLite, and its tape summary as the seal writes it. The
 // trading day makes the tables first, so the day has today's shape. It also
 // holds the broker trades index and its rebuild's fact, as a day recorded
-// before apinrdw/kumora#561 does.
+// before apinrdw/kumora#561 does, and the book events its live books found.
 import { Clock, DateTime, Effect } from "effect"
 
 import { BROKER_TOTALS_VERSION } from "../src/server/broker-totals/version.ts"
@@ -85,7 +85,7 @@ export const buildBusyDay = Effect.fnUntraced(function* (
   )
   if (exec("SELECT 1 FROM facts WHERE key = ?", Fact.sealed).length > 0)
     return 0
-  const { trades, codes, holes } = BUSY_DAY
+  const { trades, codes, holes, bookEvents } = BUSY_DAY
   const brokers = BROKERS.join("")
   yield* Effect.sync(() =>
     storage.transactionSync(() => {
@@ -110,6 +110,14 @@ export const buildBusyDay = Effect.fnUntraced(function* (
         SELECT 'C' || (x % ${codes}), ${OPEN} + (x / ${codes}) * 60000, x, 1000,
           x, 1001, ${OPEN} + (x / ${codes}) * 60000 + 59000, 1002, 999, 100,
           10000000, 40, 5000000, 5000000
+        FROM n`
+      )
+      // A wall pulled every 1.1 s, each code's turn coming round 30 times.
+      exec(
+        `${numbers(bookEvents)} INSERT INTO book_events
+        SELECT 'C' || (x % ${codes}), ${OPEN} + x * ${SPAN_MS} / ${bookEvents},
+          'pulled', 'bid', 1000 + x % 500, 6000, 2,
+          '{"ticks":3,"approached":false}'
         FROM n`
       )
       exec(BROKER_TRADES_INDEX)
@@ -142,6 +150,7 @@ export const buildBusyDay = Effect.fnUntraced(function* (
     [Fact.orderFlowBuilt, ORDER_FLOW_BUILT],
     [Fact.sweepBrokersBuilt, SWEEP_BROKERS_BUILT],
     [Fact.gaps, '{"gaps":[]}'],
+    [Fact.bookEvents, "recorded"],
     [Fact.sealed, "2026-11-09T10:00:00.000Z"],
   ]
   for (const [key, value] of facts)

@@ -1,8 +1,8 @@
 // The day's book events (spec apinrdw/kumora#517, "Book events"): what the
 // level ledger found, held for the next delta, the next flush and the
-// snapshots. The day store keeps every flushed one; memory keeps the newest
-// SNAPSHOT_BOOK_EVENTS and the ones not stored yet, at most
-// MAX_UNFLUSHED_EVENTS of them.
+// snapshots. The day store keeps every flushed one; memory keeps the ones
+// not stored yet, at most MAX_UNFLUSHED_EVENTS of them, and the newest
+// SNAPSHOT_BOOK_EVENTS from the first snapshot on.
 import {
   BookEventOrder,
   MAX_CODE_BOOK_EVENTS,
@@ -24,11 +24,9 @@ export const MAX_UNFLUSHED_EVENTS = 10_000
 export const makeBookEventLog = (
   store: Pick<DayStore, "bookEventsOf" | "newestBookEvents">
 ) =>
-  Effect.gen(function* () {
-    // A restarted object's snapshots still carry the day's newest.
-    let newest: Array<BookEvent> = [
-      ...(yield* store.newestBookEvents(SNAPSHOT_BOOK_EVENTS)),
-    ]
+  Effect.sync(() => {
+    // The day's newest SNAPSHOT_BOOK_EVENTS, none until a snapshot asks.
+    let newest: Array<BookEvent> | undefined
     let pending: Array<BookEvent> = []
     let unflushed: Array<BookEvent> = []
 
@@ -39,10 +37,25 @@ export const makeBookEventLog = (
         unflushed.push(...events)
         if (unflushed.length > MAX_UNFLUSHED_EVENTS)
           unflushed = unflushed.slice(-MAX_UNFLUSHED_EVENTS)
-        newest = Arr.sort([...newest, ...events], BookEventOrder).slice(
-          -SNAPSHOT_BOOK_EVENTS
-        )
+        if (newest !== undefined)
+          newest = Arr.sort([...newest, ...events], BookEventOrder).slice(
+            -SNAPSHOT_BOOK_EVENTS
+          )
       })
+
+    // Decision: the store's newest are read when a snapshot first asks, not
+    // as the object starts: the read visits every book event of the day
+    // (day-store.ts, `newestBookEvents`), and a sealed day's object starts at
+    // each of the page's 30 s rechecks and sends no snapshot. At 24,000
+    // events a start read 48,010 rows, now 10 (row-budgets.workerd.test.ts).
+    const newestOnce = Effect.gen(function* () {
+      if (newest !== undefined) return newest
+      const stored = yield* store.newestBookEvents(SNAPSHOT_BOOK_EVENTS)
+      newest = Arr.sort([...stored, ...unflushed], BookEventOrder).slice(
+        -SNAPSHOT_BOOK_EVENTS
+      )
+      return newest
+    })
 
     // The events found since the last delta.
     const takeDelta = Effect.sync(() => {
@@ -77,6 +90,6 @@ export const makeBookEventLog = (
       toFlush,
       written,
       ofCode,
-      newest: Effect.sync(() => newest),
+      newest: newestOnce,
     }
   })

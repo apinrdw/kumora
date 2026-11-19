@@ -3,9 +3,10 @@
 // budget names an operation in billing/operations.ts. The busy day is built
 // once for each `layer` block, so every budget lives here.
 import { assert, layer } from "@effect/vitest"
+import { decodeRecordedBookEvents } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { BUSY_DAY } from "../../../billing/busy-figures"
+import { BUSY_DAY, FLUSHED_BOOK_EVENTS } from "../../../billing/busy-figures"
 import { CHUNK } from "../../../src/server/market-live/broker-codes"
 import type { OperationName } from "../../../billing/operations"
 
@@ -71,6 +72,34 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
           assert.isAtMost(fresh.rows.rowsRead, warm.rows.rowsRead + 10)
           assert.strictEqual(fresh.rows.rowsWritten, 0)
         }),
+      10_000
+    )
+
+    it.effect(
+      "a sealed day's object starts without reading its book events, and a code's GET reads that code's alone",
+      () =>
+        Effect.gen(function* () {
+          const { start, rows, status, answer } =
+            yield* (yield* BusyDay).billed("book events GET, freshly started")
+          assert.strictEqual(status, 200)
+          const ofCode = BUSY_DAY.bookEvents / BUSY_DAY.codes
+          const { events } = yield* decodeRecordedBookEvents(answer)
+          assert.lengthOf(events, ofCode)
+          // The start read 10 rows, none a book event (26 with the index
+          // drop of the day's first): reading the day's newest, it read
+          // 48,010, two an event.
+          assert.isAtMost(start.rowsRead, 50)
+          // The code's 30 by the key's prefix, and the step that ends them.
+          assert.isAtMost(rows.rowsRead, ofCode + 10)
+        }),
+      10_000
+    )
+
+    // An index on the events' time made it two rows an event: 2,000.
+    it.effect(
+      "a flush writes one row for each book event",
+      () =>
+        withinBudget("book events flush", { rowsWritten: FLUSHED_BOOK_EVENTS }),
       10_000
     )
   }
