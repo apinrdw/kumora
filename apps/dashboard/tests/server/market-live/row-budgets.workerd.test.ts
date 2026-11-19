@@ -3,6 +3,7 @@
 // budget names an operation in billing/operations.ts. The busy day is built
 // once for each `layer` block, so every budget lives here.
 import { assert, layer } from "@effect/vitest"
+import { decodeRecordedBookEvents } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { BUSY_DAY } from "../../../billing/busy-figures"
@@ -70,6 +71,24 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
           assert.deepStrictEqual(fresh.answer, warm.answer)
           assert.isAtMost(fresh.rows.rowsRead, warm.rows.rowsRead + 10)
           assert.strictEqual(fresh.rows.rowsWritten, 0)
+        }),
+      10_000
+    )
+
+    it.effect(
+      "a sealed day's object starts without reading its book events, and a code's GET reads that code's alone",
+      () =>
+        Effect.gen(function* () {
+          const { start, rows, status, answer } =
+            yield* (yield* BusyDay).billed("book events GET, freshly started")
+          assert.strictEqual(status, 200)
+          const ofCode = BUSY_DAY.bookEvents / BUSY_DAY.codes
+          const { events } = yield* decodeRecordedBookEvents(answer)
+          assert.lengthOf(events, ofCode)
+          assert.isAtMost(start.rowsRead, 50)
+          assert.strictEqual(start.rowsWritten, 0)
+          assert.isAtMost(rows.rowsRead, ofCode + 10)
+          assert.strictEqual(rows.rowsWritten, 0)
         }),
       10_000
     )

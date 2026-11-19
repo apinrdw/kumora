@@ -51,6 +51,10 @@ const codesGet = (day: TradingDay) =>
     at: DateTime.makeUnsafe("2026-11-09T16:15:00+07:00"),
   })
 
+// One code's book events, as the page's recorded day asks them.
+const bookEventsGet = (day: TradingDay) =>
+  day.recorded({ _tag: "BookEvents", code: StockCode.make("C7") })
+
 // Decision: a full Ajaib page, 5,000 trades, resent with the codes the day
 // holds, as a walk over a sealed day sends them: it changes no codes, so
 // it costs its chunks and its checks, `buildable`'s status pass and
@@ -133,6 +137,7 @@ export const operations = {
   // codes are complete.
   "recorded codes GET": { before: statusPass, measure: codesGet },
   "recorded codes GET, freshly started": { measure: codesGet },
+  "book events GET, freshly started": { measure: bookEventsGet },
   // Its GET writes the codes-complete fact: it gets a busy day of its own.
   "recorded codes GET, batched before the codes-complete fact": {
     stored: "batched before the codes-complete fact",
