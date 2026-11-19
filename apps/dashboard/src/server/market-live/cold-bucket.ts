@@ -34,7 +34,6 @@ export interface DayBucket {
 // `status.json` (the broker codes protocol's) and `manifest.json` sit beside
 // that folder. A later change to an answer's format converts on read or
 // rewrites the day R2 to R2. See spec apinrdw/kumora#556, "The layout".
-// The day's keys.
 export const dayKeys = (date: WibDate) =>
   Effect.sync(() => {
     const day = `days/${date}`

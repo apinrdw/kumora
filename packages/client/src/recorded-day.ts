@@ -171,11 +171,10 @@ export const makeNewestWins = Effect.sync(() => {
 export const CODES_RECHECK = Duration.seconds(30)
 
 // Decision: a cold day's shown answer is never asked again, complete or not:
-// it is fixed in R2 for good. Cold is read from the browser's copy of the
-// strip, read again at each recheck, no GET to the Worker while the copy
-// lasts, so a day that turned cold after that copy is rechecked until it
-// expires at the next seal; a strip that fails to load counts the day hot.
-// See spec apinrdw/kumora#556, "Routing and caching".
+// it is fixed in R2 for good. Cold is read at each recheck from the
+// browser's copy of the strip, so a day that turned cold after that copy is
+// rechecked until it expires at the next seal; a strip that fails to load
+// counts the day hot. See spec apinrdw/kumora#556, "Routing and caching".
 const isColdDay = (date: WibDate) =>
   fetchDayStrip().pipe(
     Effect.map((days) => days.some((day) => day.day === date && day.cold)),
