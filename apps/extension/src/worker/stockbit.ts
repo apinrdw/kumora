@@ -14,13 +14,20 @@ import { jwtPayloadText } from "./jwt.ts"
 // page last refreshed. See apinrdw/kumora#43.
 export const WEBSOCKET_KEY_URL =
   "https://exodus.stockbit.com/auth/websocket/key"
-// Decision: the access token is in one of two cookies, by how the owner
-// signed in. `credentialStorage` held it until 2026-11-20; after a Google
-// sign-in that cookie holds the user's profile and no token, and the token is
-// in `sb_social_access_token`. Both tokens name the user in `data.uid`.
+
+// Decision: the access token is in one of two cookies, likely by how the
+// owner signed in. `credentialStorage` held it before; after a Google
+// sign-in (seen 2026-11-20) it holds the user's profile and no token, and
+// the token is in `sb_social_access_token`, with the same `data.uid`.
 // `credentialStorage` is read first. See apinrdw/kumora#591.
 const CREDENTIAL_COOKIES = ["credentialStorage", "sb_social_access_token"]
 
+// Decision: both REST calls stay on `exodus.stockbit.com` with the token as a
+// Bearer header. The page itself now calls `exodus.api.stockbit.com` with its
+// cookies and no `Authorization` header (seen 2026-11-20). Whether that host
+// takes the Bearer header is untested, so moving there is a separate question
+// from which cookie holds the token. See apinrdw/kumora#591.
+//
 // Stockbit's REST running-trade tape, which backfill pages by trade number.
 export const RUNNING_TRADE_URL =
   "https://exodus.stockbit.com/order-trade/running-trade"
@@ -72,14 +79,15 @@ interface CookieTab {
   ) => Effect.Effect<Option.Option<Answer>>
 }
 
-// Decision: the service worker reads the Stockbit tab's cookies from Chrome's
-// cookie store (`chrome.cookies`, the `cookies` permission), never from the
-// page's `document.cookie`, which hides an HttpOnly cookie; whether
-// `sb_social_access_token` is one is unknown. A read by URL finds a cookie of
-// `stockbit.com` or `.stockbit.com`, Secure or not, under the manifest's
-// `https://stockbit.com/*` host permission. The cookies stay the tab's: with
-// no Stockbit tab attached there is no answer, as when the tab read them. See
-// apinrdw/kumora#591.
+// Decision: the service worker reads the Stockbit tab's cookies with
+// `chrome.cookies` (the `cookies` permission), which sees the HttpOnly
+// cookies the page's `document.cookie` hides: `sb_social_access_token` may be
+// one. They stay the tab's: with no Stockbit tab attached there is no
+// answer, as when the tab read them. See apinrdw/kumora#591.
+//
+// A read by this URL finds a cookie of `stockbit.com` or `.stockbit.com`,
+// Secure or not, under the manifest's `https://stockbit.com/*` host
+// permission.
 const STOCKBIT_URL = "https://stockbit.com/"
 
 // A Stockbit cookie's value in Chrome's cookie store, "" when it is missing.
