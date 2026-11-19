@@ -313,11 +313,14 @@ describe("following a recorded day's broker codes", () => {
   )
 
   it.effect(
-    "asks again for a day the strip names hot, until a later strip names it cold",
+    "asks again for a day the strip names hot, and once more past the browser's copy when a later strip names it cold",
     () => {
       const codesFrom = codesWorker({})
       return Effect.gen(function* () {
-        const codes = yield* makeBrokerCodesFollower(DAY, () => {})
+        const shown: Array<RecordedTradeCodes> = []
+        const codes = yield* makeBrokerCodesFollower(DAY, (answer) =>
+          shown.push(answer)
+        )
         yield* Effect.forkChild(codes.recheck)
         yield* codes.ask(second(1))
         yield* TestClock.adjust("30 seconds")
@@ -327,7 +330,9 @@ describe("following a recorded day's broker codes", () => {
         assert.deepStrictEqual(codesFrom.asked, [
           { at: DateTime.toEpochMillis(second(1)), fresh: false },
           { at: DateTime.toEpochMillis(second(1)), fresh: true },
+          { at: DateTime.toEpochMillis(second(1)), fresh: true },
         ])
+        assert.deepStrictEqual(buyersShown(shown), ["BK", "BK", "BK"])
       }).pipe(Effect.provideService(HttpClient.HttpClient, codesFrom.client))
     }
   )
@@ -355,18 +360,22 @@ describe("following a recorded day's broker codes", () => {
 // A Worker answering each sweep brokers GET of BBCA with one more whole sweep
 // than the last, the day complete from the `completeFrom`th GET on, and its
 // first `failing` GETs answered 503; it records whether each GET went past
-// the browser's copy. Its day strip says the day is cold when `cold` does,
-// or once `turnCold` ran.
+// the browser's copy. Its day strip says the day is cold once `coldAfter`
+// GETs were answered (0: from the start), or once `turnCold` ran.
 const sweepBrokersWorker = (
   completeFrom: number,
   failing = 0,
-  cold = false
+  coldAfter = Number.POSITIVE_INFINITY
 ) => {
   const asked: Array<boolean> = []
-  let coldNow = cold
+  let coldNow = false
   const client = HttpClient.make((request, url) =>
     Effect.gen(function* () {
-      const strip = stripAnswer(request, url, coldNow)
+      const strip = stripAnswer(
+        request,
+        url,
+        coldNow || asked.length >= coldAfter
+      )
       if (Option.isSome(strip)) return strip.value
       asked.push(
         Option.isSome(yield* Effect.serviceOption(FetchHttpClient.RequestInit))
@@ -453,7 +462,7 @@ describe("following a recorded day's sweep brokers", () => {
   )
 
   it.effect("asks once for a cold day, though its codes are incomplete", () => {
-    const brokersFrom = sweepBrokersWorker(Number.POSITIVE_INFINITY, 0, true)
+    const brokersFrom = sweepBrokersWorker(Number.POSITIVE_INFINITY, 0, 0)
     return Effect.gen(function* () {
       const shown: Array<
         [sweeps: number, complete: boolean, asksAgain: boolean]
@@ -470,7 +479,7 @@ describe("following a recorded day's sweep brokers", () => {
   })
 
   it.effect("a cold day's failed first ask is asked again 30 s later", () => {
-    const brokersFrom = sweepBrokersWorker(Number.POSITIVE_INFINITY, 1, true)
+    const brokersFrom = sweepBrokersWorker(Number.POSITIVE_INFINITY, 1, 0)
     return Effect.gen(function* () {
       const shown: Array<
         [sweeps: number, complete: boolean, asksAgain: boolean]
@@ -503,6 +512,30 @@ describe("following a recorded day's sweep brokers", () => {
         yield* TestClock.adjust("10 seconds")
         brokersFrom.turnCold()
         yield* TestClock.adjust("20 seconds")
+        yield* TestClock.adjust("5 minutes")
+        assert.deepStrictEqual(brokersFrom.asked, [false, true])
+        assert.deepStrictEqual(shown, [
+          [1, false, true],
+          [2, false, false],
+        ])
+      }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
+    }
+  )
+
+  it.effect(
+    "asks once more past the browser's copy for a day that turns cold as its answer comes back",
+    () => {
+      const brokersFrom = sweepBrokersWorker(Number.POSITIVE_INFINITY, 0, 1)
+      return Effect.gen(function* () {
+        const shown: Array<
+          [sweeps: number, complete: boolean, asksAgain: boolean]
+        > = []
+        yield* Effect.forkChild(
+          followSweepBrokers(DAY, BBCA, (answer, asksAgain) =>
+            shown.push([answer.sweeps.length, answer.complete, asksAgain])
+          )
+        )
+        yield* TestClock.adjust("30 seconds")
         yield* TestClock.adjust("5 minutes")
         assert.deepStrictEqual(brokersFrom.asked, [false, true])
         assert.deepStrictEqual(shown, [
