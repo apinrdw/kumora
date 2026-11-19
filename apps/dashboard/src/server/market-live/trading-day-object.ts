@@ -256,6 +256,32 @@ const movesAnyHour = Effect.map(
   (env) => env.MARKET_LIVE_MOVES_ANY_HOUR !== undefined
 )
 
+// An emptied object's answer: recorded day GETs from R2, a broker codes
+// batch taken but not written, the status as the move stored it; to a poke
+// (a session end, the reconcile cron's build, a move) nothing to do; and no
+// socket.
+const coldFetch = Effect.fnUntraced(function* (
+  cold: ColdDay,
+  request: Request,
+  url: URL
+) {
+  const recorded = yield* recordedDayRequest(url)
+  if (Option.isSome(recorded))
+    return yield* cold.recorded(recorded.value.resource)
+  if (url.pathname === ObjectPath.brokerCodes) {
+    if (request.method !== "POST") return yield* cold.status(url.searchParams)
+    return yield* cold.post(yield* Effect.promise(() => request.text()))
+  }
+  const poked: ReadonlyArray<string> = [
+    ObjectPath.endSessions,
+    ObjectPath.brokerTotals,
+    ObjectPath.move,
+  ]
+  return new Response(null, {
+    status: poked.includes(url.pathname) ? 204 : 410,
+  })
+})
+
 // Decision: a plain class, not `DurableObject` from `cloudflare:workers`: the
 // object needs no RPC, and only the bridge may import that module. Each
 // callback runs through the bridge's result runner, which logs any failure.
@@ -348,33 +374,6 @@ export class TradingDayObject {
     )
   }
 
-  // An emptied object's answer: recorded day GETs from R2, a broker codes
-  // batch taken but not written, the status as the move stored it; to a
-  // poke (a session end, the reconcile cron's build, a move) nothing to do;
-  // and no socket.
-  private coldFetch(cold: ColdDay, request: Request, url: URL) {
-    const recorded = Effect.runSync(recordedDayRequest(url))
-    if (Option.isSome(recorded))
-      return respond(cold.recorded(recorded.value.resource))
-    if (url.pathname === ObjectPath.brokerCodes)
-      return respond(
-        request.method === "POST"
-          ? Effect.flatMap(
-              Effect.promise(() => request.text()),
-              cold.post
-            )
-          : cold.status(url.searchParams)
-      )
-    const poked: ReadonlyArray<string> = [
-      ObjectPath.endSessions,
-      ObjectPath.brokerTotals,
-      ObjectPath.move,
-    ]
-    return new Response(null, {
-      status: poked.includes(url.pathname) ? 204 : 410,
-    })
-  }
-
   // Accepts the socket the Worker entry routed here, a viewer's already
   // gated and the relay's tagged with the instant on Market Live's clock its
   // token deadline counts from; answers the sessions a user still holds
@@ -383,7 +382,8 @@ export class TradingDayObject {
   // the reconcile cron's pokes.
   fetch(request: Request): Response | Promise<Response> {
     const url = new URL(request.url)
-    if (this.cold !== undefined) return this.coldFetch(this.cold, request, url)
+    if (this.cold !== undefined)
+      return respond(coldFetch(this.cold, request, url))
     const { pathname } = url
     const recorded = Effect.runSync(recordedDayRequest(url))
     if (Option.isSome(recorded))

@@ -50,13 +50,8 @@ const DAY_RESOURCES: ReadonlyArray<RecordedResource> = [
   { _tag: "Gaps" },
 ]
 
-// Each code's resources the move writes, one object per view and code.
-const codeResources = (code: StockCode): ReadonlyArray<RecordedResource> => [
-  { _tag: "Candles", code },
-  { _tag: "Sweeps", code },
-  { _tag: "SweepBrokers", code },
-  { _tag: "Heatmap", code },
-]
+// Each code's views the move writes, one object per view and code.
+const CODE_VIEWS = ["Candles", "Sweeps", "SweepBrokers", "Heatmap"] as const
 
 // What a move writes to and tells.
 export interface ColdTarget {
@@ -172,7 +167,7 @@ const writeAnswers = Effect.fnUntraced(function* (
     for (const resource of DAY_RESOURCES) yield* writeAnswer(resource)
   const { run, more } = yield* slice(yield* day.codes, after, CODES_PER_RUN)
   for (const code of run)
-    for (const resource of codeResources(code)) yield* writeAnswer(resource)
+    for (const _tag of CODE_VIEWS) yield* writeAnswer({ _tag, code })
   const next: MoveProgress = more
     ? { _tag: "Answers", after: run.at(-1)! }
     : { _tag: "Tape", tape: { segments: [] } }
@@ -205,7 +200,7 @@ const writeBooks = Effect.fnUntraced(function* (
   for (const code of run)
     yield* putObject(
       bucket,
-      dayKeys(date).book(code),
+      (yield* dayKeys(date)).book(code),
       yield* packBook(yield* day.books.chunksOf(code)),
       "application/octet-stream"
     )
@@ -220,7 +215,7 @@ const finish = Effect.fnUntraced(function* (
   { date, bucket, day }: MoveStep,
   markCold: ColdTarget["markCold"]
 ) {
-  const keys = dayKeys(date)
+  const keys = yield* dayKeys(date)
   const status = yield* day.status
   yield* putObject(
     bucket,
@@ -252,7 +247,7 @@ const coldBook = Effect.fnUntraced(function* (
   code: StockCode,
   minute: number
 ) {
-  const key = dayKeys(date).book(code)
+  const key = (yield* dayKeys(date)).book(code)
   const head = yield* Effect.promise(() =>
     bucket.get(key, { range: { offset: 0, length: BOOK_INDEX_BYTES } })
   )
@@ -304,7 +299,8 @@ const storedStatus = Effect.fnUntraced(function* (
   date: WibDate,
   after: number
 ) {
-  const stored = yield* Effect.promise(() => bucket.get(dayKeys(date).status))
+  const { status: key } = yield* dayKeys(date)
+  const stored = yield* Effect.promise(() => bucket.get(key))
   if (stored === null) return undefined
   const status = yield* decodeBrokerCodesStatus(
     yield* Effect.promise(() => new Response(stored.body).text())

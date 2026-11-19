@@ -34,33 +34,35 @@ export interface DayBucket {
 // `status.json` (the broker codes protocol's) and `manifest.json` sit beside
 // that folder. A later change to an answer's format converts on read or
 // rewrites the day R2 to R2. See spec apinrdw/kumora#556, "The layout".
-const dayFolder = (date: WibDate) => `days/${date}`
-const answerFolder = (date: WibDate) =>
-  `${dayFolder(date)}/v${ViewerProtocolVersion}`
-
 // The day's keys.
-export const dayKeys = (date: WibDate) => ({
-  // The day's final broker codes status, as its status GET answered at the
-  // move (`after` 0: every missing range).
-  status: `${dayFolder(date)}/status.json`,
-  // Written last: its presence means the day moved whole.
-  manifest: `${dayFolder(date)}/manifest.json`,
-  // One code's order books: its chunks behind a minute index
-  // (cold-books.ts).
-  book: (code: StockCode) => `${answerFolder(date)}/book/${code}.bin`,
-  // The tape's blocks behind its index (cold-tape.ts); a segment is named by
-  // its first trade's number.
-  tapeIndex: `${answerFolder(date)}/tape/index.json`,
-  tapeSegment: (segment: string) => `${answerFolder(date)}/tape/${segment}.bin`,
-})
-export type DayKeys = ReturnType<typeof dayKeys>
+export const dayKeys = (date: WibDate) =>
+  Effect.sync(() => {
+    const day = `days/${date}`
+    const answers = `${day}/v${ViewerProtocolVersion}`
+    return {
+      // The folder of the answers built for this viewer protocol.
+      answers,
+      // The day's final broker codes status, as its status GET answered at
+      // the move (`after` 0: every missing range).
+      status: `${day}/status.json`,
+      // Written last: its presence means the day moved whole.
+      manifest: `${day}/manifest.json`,
+      // One code's order books: its chunks behind a minute index
+      // (cold-books.ts).
+      book: (code: StockCode) => `${answers}/book/${code}.bin`,
+      // The tape's blocks behind its index (cold-tape.ts); a segment is
+      // named by its first trade's number.
+      tapeIndex: `${answers}/tape/index.json`,
+      tapeSegment: (segment: string) => `${answers}/tape/${segment}.bin`,
+    }
+  })
+export type DayKeys = Effect.Success<ReturnType<typeof dayKeys>>
 
 // The key of a resource answered by one stored object; none for one read
 // otherwise: Tape and BrokerCodes read tape blocks (cold-tape.ts), and Book
 // reads ranges of its code's object.
 export const answerKey = (date: WibDate, resource: RecordedResource) =>
-  Effect.sync(() => {
-    const folder = answerFolder(date)
+  Effect.map(dayKeys(date), ({ answers: folder }) => {
     switch (resource._tag) {
       case "Codes":
         return `${folder}/codes.json.gz`

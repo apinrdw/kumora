@@ -107,7 +107,7 @@ export const writeTapeRun = Effect.fnUntraced(function* (
   { date, bucket, tape, segments }: TapeRun,
   progress: TapeProgress
 ) {
-  const keys = dayKeys(date)
+  const keys = yield* dayKeys(date)
   const written = [...progress.segments]
   // The blocks read since the last segment, newest first.
   let held: Array<{
@@ -355,7 +355,7 @@ export const coldTapeAnswer = Effect.fnUntraced(function* (
   date: WibDate,
   resource: TapeCursor & { readonly _tag: "Tape" | "BrokerCodes" }
 ) {
-  const keys = dayKeys(date)
+  const keys = yield* dayKeys(date)
   const index = yield* indexOf(bucket, keys.tapeIndex)
   if (index === undefined) return undefined
   const picked = yield* blockTradesAt(bucket, keys, index.blocks, resource)
