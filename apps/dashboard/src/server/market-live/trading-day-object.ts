@@ -257,7 +257,8 @@ const movesAnyHour = Effect.map(
 )
 
 // An emptied object's answer: recorded day GETs from R2, a broker codes
-// batch taken but not written, the status as the move stored it; to a poke
+// batch taken but not written, the status and the day's values as the move
+// stored them; to a poke
 // (a session end, the reconcile cron's build, a move) nothing to do; and no
 // socket.
 const coldFetch = Effect.fnUntraced(function* (
@@ -268,6 +269,7 @@ const coldFetch = Effect.fnUntraced(function* (
   const recorded = yield* recordedDayRequest(url)
   if (Option.isSome(recorded))
     return yield* cold.recorded(recorded.value.resource)
+  if (url.pathname === ObjectPath.dayValues) return yield* cold.dayValues
   if (url.pathname === ObjectPath.brokerCodes) {
     if (request.method !== "POST") return yield* cold.status(url.searchParams)
     return yield* cold.post(yield* Effect.promise(() => request.text()))

@@ -245,6 +245,8 @@ export const buildBusyDay = Effect.fnUntraced(function* (
     [Fact.orderFlowBuilt, ORDER_FLOW_BUILT],
     [Fact.sweepBrokersBuilt, SWEEP_BROKERS_BUILT],
     [Fact.gaps, '{"gaps":[]}'],
+    // Recorded with book events, none found: no viewer watched.
+    [Fact.bookEvents, "recorded"],
     [Fact.sealed, "2026-11-09T10:00:00.000Z"],
   ]
   for (const [key, value] of facts)

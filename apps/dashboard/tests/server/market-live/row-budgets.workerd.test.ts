@@ -243,8 +243,8 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
       "a busy day's move to R2 reads at most 3 M rows and writes at most 50, its deleteAll() bills no row, and R2 answers as the object did",
       () =>
         Effect.gen(function* () {
-          const { rows, emptied, tables, checks } = yield* (yield* BusyDay)
-            .moved
+          const { rows, emptied, tables, checks, values } =
+            yield* (yield* BusyDay).moved
           assert.isAtMost(rows.rowsRead, 3_000_000)
           assert.isAtMost(rows.rowsWritten, 50)
           assert.strictEqual(emptied.rowsRead, 0)
@@ -273,8 +273,12 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
               "Book 200",
               "Book 200",
               "Book 404",
+              "BookEvents 200",
             ]
           )
+          assert.include(checks[14]!.cold.body, '"recorded":true,"events":[]')
+          assert.strictEqual(values.hot.status, 200)
+          assert.deepStrictEqual(values.cold, values.hot)
           assert.include(checks[2]!.cold.body, '"tradeNumber":"1460000"')
           // Each tape answer reads the index once, kept after, and its
           // blocks by range: at most two.

@@ -11,6 +11,7 @@ import {
   recordedDayPath,
   recordedDayRequest,
   StockCode,
+  ViewerProtocolVersion,
   type RecordedResource,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
@@ -26,6 +27,8 @@ import { memoryDayBucket } from "./memory-day-bucket"
 import { memorySql } from "./sql"
 
 const DAY = WibDate.make("2026-11-09")
+// The folder of the day's answers, built for the viewer protocol.
+const ANSWERS = `days/2026-11-09/v${ViewerProtocolVersion}`
 const SEALED = "private, max-age=31536000, immutable"
 const CODES: RecordedResource = { _tag: "Codes" }
 const GAPS: RecordedResource = { _tag: "Gaps" }
@@ -55,9 +58,64 @@ const book = (code: string, minute: string): RecordedResource => ({
   minute: wib(minute),
 })
 
+type Day = Effect.Success<ReturnType<typeof tradingDay>>
+
 const textOf = (response: Response) => Effect.promise(() => response.text())
 
-type Day = Effect.Success<ReturnType<typeof tradingDay>>
+// A response's body, gunzipped when it was sent gzipped, as a browser
+// reads it.
+const bodyOf = Effect.fnUntraced(function* (response: Response) {
+  const bytes = new Uint8Array(
+    yield* Effect.promise(() => response.arrayBuffer())
+  )
+  return new TextDecoder().decode(
+    response.headers.get("Content-Encoding") === "gzip"
+      ? gunzipSync(bytes)
+      : bytes
+  )
+})
+
+const bookEvents = (code: string): RecordedResource => ({
+  _tag: "BookEvents",
+  code: StockCode.make(code),
+})
+
+// UNTR's bids every 5 s from 09:10:00, ten 1,000-lot levels from 1000
+// down, and at 09:10:31 a 6,000-lot wall at 990: the level ledger finds it
+// appeared. Flushed past the minute.
+const wallAppears = Effect.fnUntraced(function* (day: Day) {
+  for (const second of [0, 5, 10, 15, 20, 25, 30, 31]) {
+    const time = `09:10:${String(second).padStart(2, "0")}.000`
+    yield* at(time)
+    yield* day.frames([
+      stockbitBook({
+        side: "BID",
+        time,
+        levels: Array.from({ length: 10 }, (_, k) => {
+          const price = 1000 - 5 * k
+          return second === 31 && price === 990
+            ? ([price, 2, 6000] as const)
+            : ([price, 10, 1000] as const)
+        }),
+      }),
+      ...(second === 0
+        ? [
+            stockbitBook({
+              side: "OFFER",
+              time,
+              levels: [
+                [1005, 10, 900],
+                [1010, 10, 900],
+              ],
+            }),
+          ]
+        : []),
+    ])
+    yield* TestClock.adjust("300 millis")
+  }
+  yield* at("09:11:06.000")
+  yield* TestClock.adjust("1 second")
+})
 
 // A relay day with a code list naming UNTR and BBCA (none when not
 // `listed`), a few UNTR trades and UNTR's book, which a viewer had it record
@@ -237,7 +295,7 @@ describe("a cold day", () => {
           PER_CODE.map(
             ([folder, _tag]) =>
               [
-                `days/2026-11-09/v6/${folder}/${code}.json.gz`,
+                `${ANSWERS}/${folder}/${code}.json.gz`,
                 { _tag, code: StockCode.make(code) },
               ] as const
           )
@@ -247,15 +305,15 @@ describe("a cold day", () => {
         for (const [key, resource] of resources)
           hot.set(key, yield* textOf(yield* before.get(resource)))
         assert.include(
-          hot.get("days/2026-11-09/v6/candles/UNTR.json.gz"),
+          hot.get(`${ANSWERS}/candles/UNTR.json.gz`),
           '"close":23325'
         )
         assert.include(
-          hot.get("days/2026-11-09/v6/heatmap/BBCA.json.gz"),
+          hot.get(`${ANSWERS}/heatmap/BBCA.json.gz`),
           '"notRecorded":true'
         )
         assert.notInclude(
-          hot.get("days/2026-11-09/v6/heatmap/UNTR.json.gz"),
+          hot.get(`${ANSWERS}/heatmap/UNTR.json.gz`),
           "notRecorded"
         )
 
@@ -331,23 +389,23 @@ describe("a cold day", () => {
         assert.deepStrictEqual(
           [...sealed.days.objects.keys()].sort(),
           [
+            "days/2026-11-09/day-values.json",
             "days/2026-11-09/manifest.json",
             "days/2026-11-09/status.json",
-            "days/2026-11-09/v6/book/UNTR.bin",
+            `${ANSWERS}/book-events.json`,
+            `${ANSWERS}/book/UNTR.bin`,
             ...["BBCA", "IHSG", "NG.IHSG", "TN.IHSG", "UNTR"].flatMap((code) =>
-              PER_CODE.map(
-                ([folder]) => `days/2026-11-09/v6/${folder}/${code}.json.gz`
-              )
+              PER_CODE.map(([folder]) => `${ANSWERS}/${folder}/${code}.json.gz`)
             ),
-            "days/2026-11-09/v6/codes.json.gz",
-            "days/2026-11-09/v6/gaps.json.gz",
-            "days/2026-11-09/v6/tape/1.bin",
-            "days/2026-11-09/v6/tape/index.json",
+            `${ANSWERS}/codes.json.gz`,
+            `${ANSWERS}/gaps.json.gz`,
+            `${ANSWERS}/tape/1.bin`,
+            `${ANSWERS}/tape/index.json`,
           ].sort()
         )
         assert.deepStrictEqual(
           JSON.parse(sealed.days.text("days/2026-11-09/manifest.json")!),
-          { viewerProtocol: 6 }
+          { viewerProtocol: ViewerProtocolVersion }
         )
         const status = JSON.parse(
           sealed.days.text("days/2026-11-09/status.json")!
@@ -495,6 +553,112 @@ describe("a cold day", () => {
           })
         }
         assert.deepStrictEqual(after.reached, ["index"])
+      })
+  )
+
+  it.effect(
+    "answers each code's BookEvents from R2 as its object did: a code's events, and none for a code without",
+    () =>
+      Effect.gen(function* () {
+        const sealed = yield* sealedDay(wallAppears)
+        const resources = ["UNTR", "BBCA", "ASII"].map(bookEvents)
+        const before = yield* worker(sealed)
+        const hot = []
+        for (const resource of resources)
+          hot.push(yield* textOf(yield* before.get(resource)))
+        assert.include(hot[0], '"kind":"appeared"')
+        assert.deepStrictEqual(JSON.parse(hot[1]!), {
+          code: "BBCA",
+          recorded: true,
+          events: [],
+        })
+
+        assert.isTrue(yield* moved(sealed))
+        // A code's events are stored; a code with none is not.
+        assert.isTrue(
+          sealed.days.objects.has(`${ANSWERS}/book-events/UNTR.json.gz`)
+        )
+        assert.isFalse(
+          sealed.days.objects.has(`${ANSWERS}/book-events/BBCA.json.gz`)
+        )
+        const after = yield* worker(sealed)
+        for (const [index, resource] of resources.entries()) {
+          const response = yield* after.get(resource)
+          assert.strictEqual(response.status, 200)
+          assert.strictEqual(response.headers.get("Cache-Control"), SEALED)
+          assert.strictEqual(yield* bodyOf(response), hot[index])
+        }
+        assert.deepStrictEqual(after.reached, ["index"])
+        // The emptied object answers the same.
+        const stale = yield* sealed.day.recorded(resources[1]!)
+        assert.strictEqual(yield* bodyOf(stale), hot[1])
+      })
+  )
+
+  it.effect(
+    "answers BookEvents not recorded from R2 for a day recorded before book events",
+    () =>
+      Effect.gen(function* () {
+        const recorded = yield* sealedDay()
+        yield* recorded.day.evicted
+        recorded.sql.exec("DELETE FROM facts WHERE key = 'book-events'")
+        yield* TestClock.setTime(Date.parse("2026-11-10T10:00:00+07:00"))
+        const sealed = {
+          ...recorded,
+          day: yield* tradingDay(recorded.sql, [], undefined, recorded.target),
+        }
+        const resources = ["UNTR", "BBCA"].map(bookEvents)
+        const before = yield* worker(sealed)
+        const hot = []
+        for (const resource of resources)
+          hot.push(yield* textOf(yield* before.get(resource)))
+        assert.deepStrictEqual(JSON.parse(hot[0]!), {
+          code: "UNTR",
+          recorded: false,
+          events: [],
+        })
+
+        assert.isTrue(yield* moved(sealed))
+        const after = yield* worker(sealed)
+        for (const [index, resource] of resources.entries()) {
+          const response = yield* after.get(resource)
+          assert.strictEqual(response.status, 200)
+          assert.strictEqual(response.headers.get("Cache-Control"), SEALED)
+          assert.strictEqual(yield* bodyOf(response), hot[index])
+        }
+        assert.deepStrictEqual(after.reached, ["index"])
+      })
+  )
+
+  it.effect(
+    "answers the next trading day's ask for its values from R2 as its object did",
+    () =>
+      Effect.gen(function* () {
+        const sealed = yield* sealedDay()
+        const hot = yield* sealed.day.dayValues
+        const body = yield* textOf(hot)
+        assert.include(body, '["UNTR",')
+
+        assert.isTrue(yield* moved(sealed))
+        const cold = yield* sealed.day.dayValues
+        assert.strictEqual(cold.status, 200)
+        assert.strictEqual(
+          cold.headers.get("Content-Type"),
+          hot.headers.get("Content-Type")
+        )
+        assert.strictEqual(yield* textOf(cold), body)
+      })
+  )
+
+  it.effect(
+    "answers the ask for its values 404 when it moved before its values were stored",
+    () =>
+      Effect.gen(function* () {
+        const sealed = yield* sealedDay()
+        assert.isTrue(yield* moved(sealed))
+        sealed.days.objects.delete("days/2026-11-09/day-values.json")
+        const cold = yield* sealed.day.dayValues
+        assert.strictEqual(cold.status, 404)
       })
   )
 

@@ -1845,12 +1845,27 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           })
         )
 
+  // Every code's value, once sealed (previous-values.ts).
+  const dayValues = Effect.suspend(() =>
+    dayValuesAnswer(
+      sealed,
+      Effect.map(store.storedBubbles(0), ({ days }) =>
+        days.map(({ code, sums }) => ({ code, value: sums.value }))
+      )
+    )
+  )
+
   // What a sealed day's move to R2 reads (cold-days.ts): its answers as
   // `recorded` builds them, for every code its list names or it holds data
   // of.
   const dayToMove = {
     answer: recorded,
     status: brokerCodes.status(new URLSearchParams()),
+    dayValues,
+    bookEvents: {
+      recorded: Effect.sync(() => today || bookEventsMarked),
+      codes: store.bookEventCodes,
+    },
     codes: Effect.gen(function* () {
       const codes = new Set(yield* store.dayCodes)
       for (const code of (yield* listedCodes(codeListStore)) ?? [])
@@ -1981,19 +1996,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     // whether it moves.
     move: turned(startMove, () => Effect.succeed(false)),
     alarm: turned(alarm, nothing),
-    // Every code's value, for the next trading day's object. A cold day
-    // answers none yet, as a day the relay didn't seal.
-    dayValues: turned(
-      Effect.suspend(() =>
-        dayValuesAnswer(
-          sealed,
-          Effect.map(store.storedBubbles(0), ({ days }) =>
-            days.map(({ code, sums }) => ({ code, value: sums.value }))
-          )
-        )
-      ),
-      () => Effect.succeed(new Response(null, { status: 404 }))
-    ),
+    // Every code's value, for the next trading day's object; a cold day's
+    // as its move stored them.
+    dayValues: turned(dayValues, (emptied) => emptied.dayValues),
     // Decision: on a day the relay recorded, and on any sealed day, broker
     // codes touch no recorded day state (no flush, seal or index row), so its
     // answers stay byte-identical (#244). A walk day before its seal takes

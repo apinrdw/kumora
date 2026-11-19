@@ -12,6 +12,7 @@ import {
   brokerCodesAfter,
   decodeBrokerCodesStatus,
   encodeBrokerCodesStatus,
+  encodeRecordedBookEvents,
   ViewerProtocolVersion,
   type RecordedResource,
   type WibDate,
@@ -40,9 +41,17 @@ import {
   type TapeSource,
 } from "./cold-tape.ts"
 import { checkedBatch, noStoreAnswer } from "./broker-codes.ts"
+import { dayValuesResponse, noDayValues } from "./previous-values.ts"
 
 const Manifest = Schema.Struct({ viewerProtocol: Schema.Int })
 const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(Manifest))
+
+// Whether the day recorded book events (`bookEvents` in cold-bucket.ts).
+const BookEventsRecorded = Schema.fromJsonString(
+  Schema.Struct({ recorded: Schema.Boolean })
+)
+const encodeBookEventsRecorded = Schema.encodeEffect(BookEventsRecorded)
+const decodeBookEventsRecorded = Schema.decodeUnknownEffect(BookEventsRecorded)
 
 // The resources the move writes, each once for the day.
 const DAY_RESOURCES: ReadonlyArray<RecordedResource> = [
@@ -50,7 +59,8 @@ const DAY_RESOURCES: ReadonlyArray<RecordedResource> = [
   { _tag: "Gaps" },
 ]
 
-// Each code's views the move writes, one object per view and code.
+// Each code's views the move writes, one object per view and code; and
+// BookEvents for each code with an event.
 const CODE_VIEWS = ["Candles", "Sweeps", "SweepBrokers", "Heatmap"] as const
 
 // What a move writes to and tells.
@@ -61,12 +71,21 @@ export interface ColdTarget {
 }
 
 // What a move reads its day through: the day's own answers
-// (recorded-answers.ts), its broker codes status, its tape and its books.
+// (recorded-answers.ts), its broker codes status, its values, its book
+// events, its tape and its books.
 export interface DayToMove {
   readonly answer: (
     resource: RecordedResource
   ) => Effect.Effect<Response, unknown, WorkerEnv>
   readonly status: Effect.Effect<Response, unknown>
+  // Its answer to the next trading day's ask for its values
+  // (previous-values.ts).
+  readonly dayValues: Effect.Effect<Response, unknown>
+  // Whether the day recorded book events, and the codes with one stored.
+  readonly bookEvents: {
+    readonly recorded: Effect.Effect<boolean>
+    readonly codes: Effect.Effect<ReadonlyArray<StockCode>>
+  }
   // Every code with a view to store, ascending.
   readonly codes: Effect.Effect<ReadonlyArray<StockCode>, unknown>
   readonly tape: TapeSource
@@ -113,8 +132,9 @@ const slice = (
 // One step of a sealed day's move to R2 from `progress`, answering where
 // the next starts; "Cold" once the index marked it. The steps: the day's
 // answers and each code's views, the tape's blocks and index (cold-tape.ts),
-// each code's book (cold-books.ts), then `status.json`, then
-// `manifest.json`, then the index marks the day cold. Each step rewrites
+// each code's book (cold-books.ts), then `status.json` and
+// `day-values.json`, then `manifest.json`, then the index marks the day
+// cold. Each step rewrites
 // the same keys, so a move that fails partway leaves the day hot, and a
 // retry is safe. An answer that isn't a 200 (a day with no code list) is
 // not written, so the cold read answers it 404.
@@ -163,11 +183,27 @@ const writeAnswers = Effect.fnUntraced(function* (
     if (response.status !== 200) return
     yield* putObject(bucket, key, gzipSync(text), "application/json")
   })
-  if (after === undefined)
+  if (after === undefined) {
     for (const resource of DAY_RESOURCES) yield* writeAnswer(resource)
+    yield* putObject(
+      bucket,
+      (yield* dayKeys(date)).bookEvents,
+      yield* encodeBookEventsRecorded({
+        recorded: yield* day.bookEvents.recorded,
+      }),
+      "application/json"
+    )
+  }
   const { run, more } = yield* slice(yield* day.codes, after, CODES_PER_RUN)
-  for (const code of run)
+  // Decision: BookEvents is stored only for a code with an event; every
+  // other code's answer is built from whether the day recorded them, stored
+  // once (`noBookEvents`): book events are found only for codes a viewer
+  // watched. A day moved before then answers BookEvents 404.
+  const withEvents = new Set(yield* day.bookEvents.codes)
+  for (const code of run) {
     for (const _tag of CODE_VIEWS) yield* writeAnswer({ _tag, code })
+    if (withEvents.has(code)) yield* writeAnswer({ _tag: "BookEvents", code })
+  }
   const next: MoveProgress = more
     ? { _tag: "Answers", after: run.at(-1)! }
     : { _tag: "Tape", tape: { segments: [] } }
@@ -210,7 +246,13 @@ const writeBooks = Effect.fnUntraced(function* (
   return next
 })
 
-// `status.json`, then `manifest.json`, then the index's mark.
+// `status.json` and `day-values.json`, then `manifest.json`, then the
+// index's mark.
+// Decision: the day's values are stored once at the move, as the next
+// trading day's object asks for them only the morning after, by when the day
+// is usually cold. Built as the hot answer is, from one pass over the
+// day's candles (`storedBubbles`): about 400 K rows on a full day, once, on
+// top of the busy day's 385 K. See spec apinrdw/kumora#517, "Data".
 const finish = Effect.fnUntraced(function* (
   { date, bucket, day }: MoveStep,
   markCold: ColdTarget["markCold"]
@@ -223,6 +265,10 @@ const finish = Effect.fnUntraced(function* (
     yield* Effect.promise(() => status.text()),
     "application/json"
   )
+  const values = yield* day.dayValues
+  const valuesText = yield* Effect.promise(() => values.text())
+  if (values.status === 200)
+    yield* putObject(bucket, keys.dayValues, valuesText, "application/json")
   yield* putObject(
     bucket,
     keys.manifest,
@@ -282,9 +328,41 @@ export const coldAnswer = Effect.fnUntraced(function* (
   const key = yield* answerKey(date, resource)
   if (key === undefined) return undefined
   const stored = yield* Effect.promise(() => bucket.get(key))
-  return stored === null
-    ? yield* notStored
-    : yield* sealedAnswer(stored.body, "gzip")
+  if (stored !== null) return yield* sealedAnswer(stored.body, "gzip")
+  return resource._tag === "BookEvents"
+    ? yield* noBookEvents(bucket, date, resource.code)
+    : yield* notStored
+})
+
+// A code's BookEvents answer when it stored none: no events, recorded as
+// the day stored; not recorded when the day stored neither.
+const noBookEvents = Effect.fnUntraced(function* (
+  bucket: DayBucket,
+  date: WibDate,
+  code: StockCode
+) {
+  const { bookEvents: key } = yield* dayKeys(date)
+  const stored = yield* Effect.promise(() => bucket.get(key))
+  if (stored === null) return yield* notStored
+  const { recorded } = yield* decodeBookEventsRecorded(
+    yield* Effect.promise(() => new Response(stored.body).text())
+  )
+  return yield* sealedAnswer(
+    yield* encodeRecordedBookEvents({ code, recorded, events: [] }),
+    "plain"
+  )
+}, Effect.orDie)
+
+// A cold day's answer to the next trading day's ask for its values, as its
+// object answered it before the move; 404 for a day moved before its values
+// were stored, as a day the relay didn't seal.
+export const coldDayValues = Effect.fnUntraced(function* (
+  bucket: DayBucket,
+  date: WibDate
+) {
+  const { dayValues: key } = yield* dayKeys(date)
+  const stored = yield* Effect.promise(() => bucket.get(key))
+  return stored === null ? noDayValues() : dayValuesResponse(stored.body)
 })
 
 // The broker codes status a cold day's status GET answers: the stored final
@@ -334,7 +412,9 @@ export const takenUnwritten = Effect.fnUntraced(function* (
 
 // A cold day's object, emptied once its move marked it cold: it answers
 // recorded day GETs from R2, a broker codes batch as taken while writing
-// nothing, and the status GET from the final status the move stored.
+// nothing, the status GET from the final status the move stored, and the
+// next trading day's ask for its values from the values the move stored
+// (404 for a day moved before they were).
 // Decision: the emptied object answers from R2 itself, so a Worker isolate
 // that still counts the day hot for a minute (COLD_DAYS_KEPT_MS in days.ts)
 // reaches the same answers, and the move empties the object as soon as the
@@ -349,6 +429,7 @@ export const coldDay = (
     return answer ?? (yield* notStored)
   }),
   post: (text: string) => takenUnwritten(text, date),
+  dayValues: Effect.flatMap(bucket, (days) => coldDayValues(days, date)),
   status: Effect.fnUntraced(function* (search: URLSearchParams) {
     const after = yield* brokerCodesAfter(search)
     if (Option.isNone(after)) return yield* noStoreAnswer(400, "Bad after")

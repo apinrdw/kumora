@@ -46,6 +46,12 @@ export const dayKeys = (date: WibDate) =>
       status: `${day}/status.json`,
       // Written last: its presence means the day moved whole.
       manifest: `${day}/manifest.json`,
+      // The day's answer to the next trading day's ask for its values
+      // (previous-values.ts), as its object answered it.
+      dayValues: `${day}/day-values.json`,
+      // Whether the day recorded book events: what a code without a stored
+      // BookEvents answer answers.
+      bookEvents: `${answers}/book-events.json`,
       // One code's order books: its chunks behind a minute index
       // (cold-books.ts).
       book: (code: StockCode) => `${answers}/book/${code}.bin`,
@@ -59,7 +65,8 @@ export type DayKeys = Effect.Success<ReturnType<typeof dayKeys>>
 
 // The key of a resource answered by one stored object; none for one read
 // otherwise: Tape and BrokerCodes read tape blocks (cold-tape.ts), and Book
-// reads ranges of its code's object.
+// reads ranges of its code's object. A code with no stored BookEvents answer
+// answers none from the day's `bookEvents` (cold-days.ts).
 export const answerKey = (date: WibDate, resource: RecordedResource) =>
   Effect.map(dayKeys(date), ({ answers: folder }) => {
     switch (resource._tag) {
@@ -75,6 +82,8 @@ export const answerKey = (date: WibDate, resource: RecordedResource) =>
         return `${folder}/sweep-brokers/${resource.code}.json.gz`
       case "Heatmap":
         return `${folder}/heatmap/${resource.code}.json.gz`
+      case "BookEvents":
+        return `${folder}/book-events/${resource.code}.json.gz`
       default:
         return undefined
     }

@@ -993,12 +993,14 @@ export const makeDayStore = (
       return rows
     })
 
-    // The codes a table keyed by (code, minute) holds rows of, ascending.
+    // The codes a table keyed by code first holds rows of, ascending.
     // Decision: a seek per code down the primary key, not a DISTINCT scan:
     // about one row read a code, where the scan reads every row (about
     // 13 K book chunks, or every candle). See spec apinrdw/kumora#556,
     // "The move".
-    const codesOf = (table: "candles" | "book_chunks" | "heatmaps") =>
+    const codesOf = (
+      table: "candles" | "book_chunks" | "heatmaps" | "book_events"
+    ) =>
       Effect.sync(() =>
         sql
           .exec(
@@ -1018,10 +1020,19 @@ export const makeDayStore = (
     // (cold-books.ts).
     const bookCodes = codesOf("book_chunks")
 
-    // Every code the day holds a candle, book or heatmap of, ascending.
+    // The codes with a stored book event, ascending.
+    const bookEventCodes = codesOf("book_events")
+
+    // Every code the day holds a candle, book, heatmap or book event of,
+    // ascending.
     const dayCodes = Effect.gen(function* () {
       const codes = new Set<StockCode>()
-      for (const table of ["candles", "book_chunks", "heatmaps"] as const)
+      for (const table of [
+        "candles",
+        "book_chunks",
+        "heatmaps",
+        "book_events",
+      ] as const)
         for (const code of yield* codesOf(table)) codes.add(code)
       return [...codes].sort()
     })
@@ -1115,6 +1126,7 @@ export const makeDayStore = (
       livePrice,
       chunkAt,
       bookCodes,
+      bookEventCodes,
       dayCodes,
       storedChunksOf,
       heatmapOf,

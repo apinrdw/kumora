@@ -400,6 +400,8 @@ export const tradingDay = Effect.fnUntraced(function* (
     alarm: day.alarm.pipe(Effect.provide(env)),
     alarms,
     asked,
+    // The day's answer to the next trading day's ask for its values.
+    dayValues: day.dayValues.pipe(Effect.provide(env)),
     // Whether the move emptied the object.
     emptied: Effect.sync(() => emptied),
     // A newer day's seal or the reconcile cron asking it to move.

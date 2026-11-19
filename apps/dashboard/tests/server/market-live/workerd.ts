@@ -80,7 +80,7 @@ const ReadBack = Schema.Struct({ status: Schema.Number, body: Schema.String })
 // What a move to R2 billed: its rows and alarm runs, what its deleteAll()
 // billed, the tables left, and each checked resource's answer from the
 // object before the move and from R2 after it, with the gets R2 served for
-// it (`key` or `key offset+length`).
+// it (`key` or `key offset+length`), and its values before and after.
 const Moved = Schema.Struct({
   rows: Rows,
   runs: Schema.Number,
@@ -94,6 +94,8 @@ const Moved = Schema.Struct({
       gets: Schema.Array(Schema.String),
     })
   ),
+  // The day's answer to the next trading day's ask for its values.
+  values: Schema.Struct({ hot: ReadBack, cold: ReadBack }),
 })
 
 const decodeMoved = Schema.decodeUnknownEffect(Schema.fromJsonString(Moved))

@@ -13,7 +13,10 @@ import { Clock, DateTime, Effect, Layer } from "effect"
 
 import { BrokerTotalsDb } from "../src/server/broker-totals/db.ts"
 import type { DayBucket } from "../src/server/market-live/cold-bucket.ts"
-import { coldAnswer } from "../src/server/market-live/cold-days.ts"
+import {
+  coldAnswer,
+  coldDayValues,
+} from "../src/server/market-live/cold-days.ts"
 import { Fact, type Sql } from "../src/server/market-live/day-store.ts"
 import { durableSql } from "../src/server/market-live/durable-sql.ts"
 import { shiftedClock } from "../src/server/market-live/market-clock.ts"
@@ -151,7 +154,8 @@ const BOOK_CODE = StockCode.make(BUSY_DAY.bookCode)
 // The answers a move is checked by, each asked of the object before it and
 // of R2 after it: the day's, the tape and its codes at the day's end, at
 // midday below a trade and in the morning, the book code's views, and its
-// book at the open, at midday, and before its first chunk.
+// book at the open, at midday, and before its first chunk, and its book
+// events: none, the day recording them.
 const MOVE_CHECKS: ReadonlyArray<RecordedResource> = [
   { _tag: "Codes" },
   { _tag: "Gaps" },
@@ -171,6 +175,7 @@ const MOVE_CHECKS: ReadonlyArray<RecordedResource> = [
   { _tag: "Book", code: BOOK_CODE, minute: wib("09:00:00") },
   { _tag: "Book", code: BOOK_CODE, minute: wib("12:34:30") },
   { _tag: "Book", code: BOOK_CODE, minute: wib("08:59:00") },
+  { _tag: "BookEvents", code: BOOK_CODE },
 ]
 
 // An answer's status and its body as the browser reads it, gunzipped when
@@ -232,6 +237,7 @@ const moved = Effect.fnUntraced(function* (
   const hot = yield* Effect.forEach(MOVE_CHECKS, (resource) =>
     Effect.flatMap(day.recorded(resource), readBack)
   )
+  const hotValues = yield* Effect.flatMap(day.dayValues, readBack)
   const before = sql.usage!()
   if (!(yield* day.move)) return new Response("Not due", { status: 409 })
   let runs = 0
@@ -263,6 +269,13 @@ const moved = Effect.fnUntraced(function* (
     emptied: measured.emptied,
     tables: yield* tablesOf(storage),
     checks,
+    values: {
+      hot: hotValues,
+      cold: yield* Effect.flatMap(
+        coldDayValues(r2.bucket, BUSY_DAY.date),
+        readBack
+      ),
+    },
   })
 }, Effect.scoped)
 
