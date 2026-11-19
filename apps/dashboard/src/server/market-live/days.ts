@@ -78,13 +78,16 @@ export const gatedRead = <E, R>(
 // path alone.
 const OBJECT_ORIGIN = "https://market-live.invalid"
 
+// What the Worker reaches an object through.
+interface ObjectStub {
+  readonly fetch: (url: URL) => Promise<Response>
+}
+
 // A new request to the object, so no header the client sent, its cookie
 // included, reaches it; and the object's answer carries no Set-Cookie, so a
 // sealed day's answers cache in the browser.
 const fromObject = (
-  stub: (env: WorkerEnv["Service"]) => Effect.Effect<{
-    readonly fetch: (url: URL) => Promise<Response>
-  }>,
+  stub: (env: WorkerEnv["Service"]) => Effect.Effect<ObjectStub>,
   path: string
 ) =>
   Effect.gen(function* () {
@@ -94,7 +97,7 @@ const fromObject = (
     )
   })
 
-const indexStub = (env: WorkerEnv["Service"]) =>
+const indexStub = (env: WorkerEnv["Service"]): Effect.Effect<ObjectStub> =>
   Effect.sync(() => env.MARKET_LIVE_INDEX.getByName(DAY_INDEX))
 
 export const dayStripRoute = (request: Request) =>
