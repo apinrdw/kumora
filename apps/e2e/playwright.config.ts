@@ -6,6 +6,7 @@ import { ADMIN, testUrl } from "./support/accounts"
 import { MARKET_CLOCK_OFFSET } from "./support/clock"
 import { TEST_INGEST_TOKEN } from "./support/ingest"
 import {
+  COLD_DAY_SPEC,
   RELAY_LOAD_SPEC,
   REPAINT_BENCH_SPEC,
   recording,
@@ -38,6 +39,7 @@ const projects = [
     dependencies: ["setup"],
     testIgnore: [
       TRADING_DAY_SPECS,
+      COLD_DAY_SPEC,
       RELAY_LOAD_SPEC,
       REPAINT_BENCH_SPEC,
       ...recorded.chromium,
@@ -70,6 +72,21 @@ const projects = [
     // by side: when an evidence run picks any trading-day spec, the whole
     // project records.
     ...(recorded.tradingDay ? { use: { video } } : {}),
+  },
+  // Decision: the cold day spec runs after every chromium and trading-day
+  // spec. Its walk day's broker totals build writes the one BrokerTotalsDb,
+  // whose built days and missing trades the stocks spec counts over every
+  // window.
+  {
+    name: "cold-day",
+    dependencies: [
+      "setup",
+      "chromium",
+      "trading-day",
+      ...(recorded.chromium.length > 0 ? ["chromium-video"] : []),
+    ],
+    testMatch: COLD_DAY_SPEC,
+    ...(recorded.coldDay ? { use: { video } } : {}),
   },
 ]
 
