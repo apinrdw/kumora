@@ -22,7 +22,8 @@ const at = (wall: string) =>
 
 // A relay day of trades 1 and 2, sealed at 17:00, its row in a day index
 // that already lists `recorded`, moving to a bucket in memory; its builds
-// write to a broker totals DB.
+// write to a broker totals DB. `bucketReads` counts each time the day reads
+// its bucket.
 const sealedDay = Effect.fnUntraced(function* (
   recorded: ReadonlyArray<WibDate> = []
 ) {
@@ -37,8 +38,12 @@ const sealedDay = Effect.fnUntraced(function* (
     decodeDayStrip
   )
   const days = memoryDayBucket()
+  const bucketReads = { count: 0 }
   const day = yield* tradingDay(memorySql(), [], memoryBrokerTotalsDb().layer, {
-    bucket: days.bucket,
+    bucket: Effect.sync(() => {
+      bucketReads.count += 1
+      return days.bucket
+    }),
     markCold: index.markCold(DAY),
     listed: (date) =>
       Effect.map(strip, (listed) =>
@@ -56,7 +61,7 @@ const sealedDay = Effect.fnUntraced(function* (
     strip,
     (listed) => listed.days.find((row) => row.day === DAY)?.cold === true
   )
-  return { day, days, cold }
+  return { day, days, cold, bucketReads }
 })
 
 // The alarm run while its earliest wake is due.
@@ -197,6 +202,24 @@ describe("a sealed day's move to R2", () => {
         const status = yield* statusOf(day)
         assert.isTrue(status.complete)
         assert.deepStrictEqual(status.missing, [])
+      })
+  )
+
+  // Decision in trading-day-object.ts: callbacks read WorkerEnv per request.
+  it.effect(
+    "reads its bucket afresh for each step, and for each answer once emptied",
+    () =>
+      Effect.gen(function* () {
+        const { day, bucketReads } = yield* sealedDay()
+        yield* at("2026-11-24T17:00:00")
+        assert.isTrue(yield* day.move)
+        yield* dueAlarms(day)
+        assert.isTrue(yield* day.emptied)
+        // Answers, Tape, Books and Finish.
+        assert.strictEqual(bucketReads.count, 4)
+        yield* statusOf(day)
+        yield* statusOf(day)
+        assert.strictEqual(bucketReads.count, 6)
       })
   )
 
