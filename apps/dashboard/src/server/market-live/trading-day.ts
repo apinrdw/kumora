@@ -1681,7 +1681,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   )
 
   // Once the move started, a batch is answered as taken and writes nothing,
-  // as an emptied object's (cold-days.ts `coldDay`).
+  // as an emptied object's (cold-days.ts `takenUnwritten`).
   const moving = Effect.map(
     store.fact(Fact.move),
     (progress) => progress !== undefined
