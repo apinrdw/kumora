@@ -248,7 +248,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // Decision: a row whose text is already stored, gzipped or plain, is left
   // out, and so is a delete of a row never stored, so a batch writes only
   // the rows it changes, not every code's row of each minute it touches. See
-  // docs/runbooks/order-flow-cost.md, "Sweep brokers: one Staging evening".
+  // apinrdw/kumora#348.
   const minuteRows = (minute: number, heldCodes: HeldCodes) =>
     store.sweepBrokerMinute(
       Effect.gen(function* () {

@@ -51,7 +51,7 @@ import {
 // Decision: the busy day's trades come in bursts of BURST, one code and side
 // each, the code drawn by Zipf's law over its 800 codes: about 0.31 sweeps
 // a trade and 145 K stock-minutes, near the cost model's 0.3 and 150 K
-// (docs/runbooks/order-flow-cost.md, "First estimate").
+// (docs/runbooks/order-flow-cost.md, "Why the old estimate missed the reads").
 const BURST = 3
 const SEAL = DateTime.toEpochMillis(
   DateTime.makeUnsafe("2026-11-09T17:00:00+07:00")
