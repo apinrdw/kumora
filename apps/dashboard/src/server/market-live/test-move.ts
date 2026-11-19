@@ -29,7 +29,7 @@ class IndexRefusedCold extends Schema.TaggedError<IndexRefusedCold>()(
 const markCold = Effect.fnUntraced(function* (date: WibDate) {
   const env = yield* WorkerEnv
   const index = env.MARKET_LIVE_INDEX.getByName(DAY_INDEX)
-  const response = yield* Effect.tryPromise(() =>
+  const response = yield* Effect.tryPromise((): Promise<Response> =>
     index.fetch(new URL(DayIndexColdPath, "https://day-index.invalid"), {
       method: "POST",
       body: date,

@@ -10,7 +10,9 @@ import {
   BrokerCode,
   BrokerCodesProtocolVersion,
   DayStripPath,
+  type BatchRow,
   type InvestorType,
+  type StockCode,
   TradeNumber,
   WibDate,
   decodeDayStrip,
@@ -41,7 +43,7 @@ const N = 1_000
 // regular board, a buy sweep of two trades at 09:01 and a sell sweep of one
 // at 09:02; then negotiated trades, one a second from 09:05, which neither
 // the candles nor the sweeps count.
-const walkRows = (day: WibDate, code: string) => {
+const walkRows = (day: WibDate, code: StockCode) => {
   const codes = (text: string) => {
     const [buyer, buyerType, seller, sellerType] = text.split(" ")
     return {
@@ -58,20 +60,19 @@ const walkRows = (day: WibDate, code: string) => {
     lots: number,
     side: "buy" | "sell" | "negotiated",
     text: string
-  ) =>
-    [
-      TradeNumber.make(String(n)),
-      codes(text),
-      {
-        time: DateTime.makeUnsafe(at),
-        code,
-        price,
-        lots,
-        ...(side === "negotiated"
-          ? { board: "NG", side: "none" }
-          : { board: "RG", side }),
-      },
-    ] as const
+  ): BatchRow => [
+    TradeNumber.make(String(n)),
+    codes(text),
+    {
+      time: DateTime.makeUnsafe(at),
+      code,
+      price,
+      lots,
+      ...(side === "negotiated"
+        ? { board: "NG" as const, side: "none" as const }
+        : { board: "RG" as const, side }),
+    },
+  ]
   const at = (time: string) => wibInstant(`${day}T${time}`)
   return [
     row(1, at("09:01:00"), 500, 10, "buy", "AK F BK D"),
