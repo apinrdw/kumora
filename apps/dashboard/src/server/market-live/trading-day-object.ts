@@ -14,7 +14,7 @@ import {
   runServerEffect,
   runServerEffectResult,
 } from "@workspace/server"
-import { Clock, DateTime, Effect, Layer, Option, Schema, Scope } from "effect"
+import { Clock, DateTime, Effect, Option, Schema, Scope } from "effect"
 
 import { brokerTotalsDbD1 } from "../broker-totals/db.ts"
 import { durableSql } from "./durable-sql.ts"
@@ -248,6 +248,14 @@ const emptied = Effect.fnUntraced(function* (storage: DurableObjectStorage) {
   yield* Effect.promise(() => marked)
 })
 
+// The recorded days bucket, and whether moves run in Streaming hours, read
+// from the request a callback runs in.
+const daysBucket = Effect.map(WorkerEnv, (env) => env.DAYS_BUCKET)
+const movesAnyHour = Effect.map(
+  WorkerEnv,
+  (env) => env.MARKET_LIVE_MOVES_ANY_HOUR !== undefined
+)
+
 // Decision: a plain class, not `DurableObject` from `cloudflare:workers`: the
 // object needs no RPC, and only the bridge may import that module. Each
 // callback runs through the bridge's result runner, which logs any failure.
@@ -257,18 +265,14 @@ export class TradingDayObject {
   // An emptied object's answers, its day moved to R2; none while it is hot.
   private cold: ColdDay | undefined
 
-  constructor(
-    private readonly ctx: DurableObjectState,
-    // Decision: the bindings Cloudflare hands the constructor serve only the
-    // object's start, which runs before any request: the market clock and
-    // its offset for the seal's alarm. Callbacks read WorkerEnv per request.
-    env: WorkerEnv["Service"]
-  ) {
+  // Decision: the constructor takes no bindings, though Cloudflare hands it
+  // them: the start and every callback read WorkerEnv, which the runner
+  // provides, so no copy of a binding outlives the request that read it.
+  constructor(private readonly ctx: DurableObjectState) {
     // The Worker entry reaches the object by name, so the name is set.
     const date = decodeDate(ctx.id.name)
     // Lives as long as the object; it holds the delta timers.
     const scope = Scope.makeUnsafe()
-    const workerEnv = Layer.succeed(WorkerEnv)(env)
     // The alarm runs on the Worker's clock; the seal on Market Live's.
     const start = Effect.gen(function* () {
       const peerFor = yield* peerLookup(ctx, yield* watchingStore(ctx.storage))
@@ -311,12 +315,12 @@ export class TradingDayObject {
           recordDay,
           brokerTotalsDb: brokerTotalsDbD1,
           cold: {
-            bucket: env.DAYS_BUCKET,
+            bucket: daysBucket,
             markCold: postToIndex(DayIndexColdPath, date),
             empty: emptied(ctx.storage),
             listed,
             askMove: pokeDay(ObjectPath.move),
-            anyHour: env.MARKET_LIVE_MOVES_ANY_HOUR !== undefined,
+            anyHour: movesAnyHour,
           },
         })
       )
@@ -328,15 +332,13 @@ export class TradingDayObject {
       if (
         (yield* Effect.promise(() => ctx.storage.get<boolean>(COLD))) === true
       )
-        return { cold: coldDay(date, env.DAYS_BUCKET) }
+        return { cold: coldDay(date, daysBucket) }
       return yield* start
     })
     // Cloudflare holds every event until the day is made; a failure resets
     // the object.
     void ctx.blockConcurrencyWhile(() =>
-      runServerEffect(
-        started.pipe(Scope.provide(scope), Effect.provide(workerEnv))
-      ).then((made) => {
+      runServerEffect(started.pipe(Scope.provide(scope))).then((made) => {
         if ("cold" in made) this.cold = made.cold
         else {
           this.day = made.day

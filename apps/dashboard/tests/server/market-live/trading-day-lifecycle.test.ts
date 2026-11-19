@@ -350,9 +350,9 @@ const run = (seed: number, mode: Mode) =>
         .prepare("SELECT missing_trades AS missing FROM built_days")
         .get() as { missing: number } | undefined
     const status = Effect.gen(function* () {
-      const response = yield* object.day.brokerCodes.status(
-        new URLSearchParams()
-      )
+      const response = yield* object.day.brokerCodes
+        .status(new URLSearchParams())
+        .pipe(Effect.provide(env))
       return yield* decodeBrokerCodesStatus(
         yield* Effect.promise(() => response.text())
       )

@@ -421,7 +421,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // Where the day moves once its walk is done (cold-days.ts). A day without
   // it never moves.
   readonly cold?: {
-    readonly bucket: DayBucket
+    // Read in each step of the move and each answer once emptied, from the
+    // request it runs in.
+    readonly bucket: Effect.Effect<DayBucket, never, WorkerEnv>
     // Marks the day cold in the day index.
     readonly markCold: Effect.Effect<void, unknown, WorkerEnv>
     // Empties the object for good, keeping only a mark that it is cold
@@ -437,7 +439,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     ) => Effect.Effect<unknown, unknown, WorkerEnv>
     // Moves run in Streaming hours too: the Test stage's, whose market clock
     // reads session 1 (apps/e2e/support/clock.ts).
-    readonly anyHour?: boolean
+    readonly anyHour?: Effect.Effect<boolean, never, WorkerEnv>
   }
 }) {
   // Delta timers outlive the message that started them.
@@ -1193,14 +1195,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       if (options.cold === undefined || stored === undefined)
         return yield* wakes.set("move", undefined)
       const cold = options.cold
-      if (cold.anyHour !== true) {
+      if (cold.anyHour === undefined || !(yield* cold.anyHour)) {
         const at = yield* outsideStreaming(now)
         if (DateTime.isLessThan(now, at)) return yield* wakes.set("move", at)
       }
       yield* Effect.gen(function* () {
         const next = yield* moveStep(
           options.date,
-          cold,
+          { bucket: yield* cold.bucket, markCold: cold.markCold },
           dayToMove,
           yield* decodeMove(stored)
         )

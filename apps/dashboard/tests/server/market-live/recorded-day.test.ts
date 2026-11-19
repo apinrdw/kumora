@@ -256,7 +256,8 @@ const tradingDay = Effect.fnUntraced(function* (
       Effect.forEach(socket.sent, (text) => decodeViewerDown(text))
     )
   })
-  const get = (resource: RecordedResource) => day.recorded(resource)
+  const get = (resource: RecordedResource) =>
+    day.recorded(resource).pipe(Effect.provide(env))
   // Everything the relay was sent down its ingest socket.
   const requests = Effect.suspend(() =>
     Effect.forEach(relay.sent, (text) => decodeIngestDown(text))

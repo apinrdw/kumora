@@ -72,7 +72,10 @@ const sealedDay = Effect.fnUntraced(function* (
   const index = yield* makeDayIndex(memorySql())
   const days = memoryDayBucket()
   const sql = memorySql()
-  const target = { bucket: days.bucket, markCold: index.markCold(DAY) }
+  const target = {
+    bucket: Effect.succeed(days.bucket),
+    markCold: index.markCold(DAY),
+  }
   const day = yield* tradingDay(sql, [], undefined, target)
   if (listed)
     yield* day.codeList(
@@ -515,7 +518,7 @@ describe("a cold day", () => {
       const days = memoryDayBucket()
       const index = yield* makeDayIndex(memorySql())
       const day = yield* tradingDay(memorySql(), [], undefined, {
-        bucket: days.bucket,
+        bucket: Effect.succeed(days.bucket),
         markCold: index.markCold(DAY),
       })
       assert.isFalse(yield* moved({ day }))

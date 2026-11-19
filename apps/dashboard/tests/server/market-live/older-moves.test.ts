@@ -79,7 +79,7 @@ const oldDay = Effect.fnUntraced(function* (
   yield* at("09:01:10")
   const days = memoryDayBucket()
   const day = yield* tradingDay(sql, [], undefined, {
-    bucket: days.bucket,
+    bucket: Effect.succeed(days.bucket),
     markCold: index.markCold(date),
   })
   yield* day.codeList(

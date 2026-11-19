@@ -221,12 +221,12 @@ const moved = Effect.fnUntraced(function* (
     viewers: Effect.succeed([]),
     viewersOf: () => Effect.succeed([]),
     cold: {
-      bucket: r2.bucket,
+      bucket: Effect.succeed(r2.bucket),
       markCold: Effect.void,
       empty: emptyMeasured(storage, sql, measured),
       listed: () => Effect.succeed(false),
       askMove: () => Effect.void,
-      anyHour: true,
+      anyHour: Effect.succeed(true),
     },
   })
   const hot = yield* Effect.forEach(MOVE_CHECKS, (resource) =>

@@ -174,7 +174,7 @@ export const tradingDay = Effect.fnUntraced(function* (
   viewers: Array<FakeSocket> = [],
   brokerTotalsDb?: Layer.Layer<BrokerTotalsDb>,
   cold?: {
-    readonly bucket: DayBucket
+    readonly bucket: Effect.Effect<DayBucket>
     readonly markCold: Effect.Effect<void, unknown>
     readonly listed?: (date: WibDate) => Effect.Effect<boolean, unknown>
   }
@@ -305,6 +305,11 @@ export const tradingDay = Effect.fnUntraced(function* (
   })
   const recorded = (resource: RecordedResource) =>
     day.recorded(resource).pipe(Effect.provide(env))
+  // The broker codes status GET's answer, with the GET's query.
+  const status = (search = "") =>
+    day.brokerCodes
+      .status(new URLSearchParams(search))
+      .pipe(Effect.provide(env))
   // A code's recorded day candles answer, decoded, with its Cache-Control.
   const recordedCandles = Effect.fnUntraced(function* (code: string) {
     const response = yield* recorded({
@@ -389,6 +394,7 @@ export const tradingDay = Effect.fnUntraced(function* (
     viewer,
     left,
     recorded,
+    status,
     recordedCandles,
     recordedSweeps,
     alarm: day.alarm.pipe(Effect.provide(env)),

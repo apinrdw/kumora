@@ -103,7 +103,7 @@ const sealedDay = Effect.fnUntraced(function* (sql: Sql) {
   const index = yield* makeDayIndex(memorySql())
   const days = memoryDayBucket()
   const day = yield* tradingDay(sql, [], undefined, {
-    bucket: days.bucket,
+    bucket: Effect.succeed(days.bucket),
     markCold: index.markCold(DAY),
   })
   yield* day.trades(TAPED.map(tradeOf))

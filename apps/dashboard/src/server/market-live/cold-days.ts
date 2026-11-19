@@ -343,16 +343,20 @@ export const takenUnwritten = Effect.fnUntraced(function* (
 // that still counts the day hot for a minute (COLD_DAYS_KEPT_MS in days.ts)
 // reaches the same answers, and the move empties the object as soon as the
 // index marks it cold. See spec apinrdw/kumora#556, "The move".
-export const coldDay = (date: WibDate, bucket: DayBucket) => ({
-  recorded: (resource: RecordedResource) =>
-    Effect.flatMap(coldAnswer(bucket, date, resource), (answer) =>
-      answer === undefined ? notStored : Effect.succeed(answer)
-    ),
+// `bucket` is read for each answer, from the request it answers.
+export const coldDay = (
+  date: WibDate,
+  bucket: Effect.Effect<DayBucket, never, WorkerEnv>
+) => ({
+  recorded: Effect.fnUntraced(function* (resource: RecordedResource) {
+    const answer = yield* coldAnswer(yield* bucket, date, resource)
+    return answer ?? (yield* notStored)
+  }),
   post: (text: string) => takenUnwritten(text, date),
   status: Effect.fnUntraced(function* (search: URLSearchParams) {
     const after = yield* brokerCodesAfter(search)
     if (Option.isNone(after)) return yield* noStoreAnswer(400, "Bad after")
-    const status = yield* storedStatus(bucket, date, after.value)
+    const status = yield* storedStatus(yield* bucket, date, after.value)
     if (status === undefined) return yield* notStored
     return yield* noStoreAnswer(
       200,

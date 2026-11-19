@@ -80,9 +80,7 @@ const statusOf = Effect.fnUntraced(function* (
   day: Effect.Success<ReturnType<typeof sealedDay>>["day"],
   search = ""
 ) {
-  const response = yield* day.day.brokerCodes.status(
-    new URLSearchParams(search)
-  )
+  const response = yield* day.status(search)
   assert.strictEqual(response.status, 200)
   return JSON.parse(yield* Effect.promise(() => response.text()))
 })
@@ -173,11 +171,7 @@ describe("a sealed day's move to R2", () => {
           ["3", "3"],
         ])
         assert.deepStrictEqual((yield* statusOf(day, "after=3")).missing, [])
-        assert.strictEqual(
-          (yield* day.day.brokerCodes.status(new URLSearchParams("after=x")))
-            .status,
-          400
-        )
+        assert.strictEqual((yield* day.status("after=x")).status, 400)
         assert.isTrue(days.objects.has("days/2026-11-09/status.json"))
       })
   )
