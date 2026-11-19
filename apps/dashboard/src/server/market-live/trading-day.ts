@@ -436,8 +436,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     // Empties the object for good, keeping only a mark that it is cold
     // (trading-day-object.ts).
     readonly empty: Effect.Effect<void, unknown>
+    // Whether the day index lists `date`: a day that was recorded.
+    readonly listed: (
+      date: WibDate
+    ) => Effect.Effect<boolean, unknown, WorkerEnv>
     // Asks another day's object to move, if it is due.
-    readonly askMove: (date: WibDate) => Effect.Effect<void, unknown, WorkerEnv>
+    readonly askMove: (
+      date: WibDate
+    ) => Effect.Effect<unknown, unknown, WorkerEnv>
     // Moves run in Streaming hours too: the Test stage's, whose market clock
     // reads session 1 (apps/e2e/support/clock.ts).
     readonly anyHour?: boolean
@@ -1001,14 +1007,18 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         ...(yield* sweepBrokers.storage),
       })
     )
-    // The day leaving the window at this seal is asked to move. A failed ask
-    // waits for the reconcile cron (cold-moves.ts).
-    if (today && options.cold !== undefined)
-      yield* options.cold
-        .askMove(yield* leavingAt(options.date))
-        .pipe(
-          Effect.catchCause((cause) => Effect.logError("Move not asked", cause))
-        )
+    // The day leaving the window at this seal is asked to move, if the index
+    // lists it: asking a day never recorded would make an empty object for
+    // it. A failed ask waits for the reconcile cron (cold-moves.ts).
+    if (today && options.cold !== undefined) {
+      const { cold } = options
+      const leaving = yield* leavingAt(options.date)
+      yield* Effect.gen(function* () {
+        if (yield* cold.listed(leaving)) yield* cold.askMove(leaving)
+      }).pipe(
+        Effect.catchCause((cause) => Effect.logError("Move not asked", cause))
+      )
+    }
   })
 
   // A batch's rows with fields as tape trades, marked walk and their

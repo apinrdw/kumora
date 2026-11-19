@@ -125,6 +125,7 @@ const billed = Effect.fnUntraced(function* (
             bucket: memoryBucket(),
             markCold: Effect.void,
             empty: emptyMeasured(storage, sql, moving),
+            listed: () => Effect.succeed(false),
             askMove: () => Effect.void,
             anyHour: true,
           },
