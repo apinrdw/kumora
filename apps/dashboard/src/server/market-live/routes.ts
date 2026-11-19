@@ -16,13 +16,11 @@ export const ObjectPath = {
   // The reconcile cron's poke (POST) to build the day's broker totals
   // (src/server/broker-totals/reconcile.ts). No Worker route reaches it.
   brokerTotals: "/broker-totals",
-  // The Test stage's move to R2 now (POST, test-move.ts).
+  // A newer day's seal, or the reconcile cron (cold-moves.ts), asks the day
+  // to move to R2 (POST): 202 when it moves, else 204. No Worker route
+  // reaches it.
   move: "/move",
 } as const
-
-// The Test stage's route that moves a sealed day to R2 at once:
-// `POST <TestMovePath><date>`, the ingest token as its bearer.
-export const TestMovePath = "/market-live/test-move/"
 
 // The index Durable Object (day-index-object.ts): one, by this name. A day's
 // object POSTs its row to its path at the seal; the Worker GETs the strip

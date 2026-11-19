@@ -14,7 +14,7 @@ import {
   type RecordedResource,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { DateTime, Effect, Exit, Layer, Option } from "effect"
+import { DateTime, Effect, Layer, Option } from "effect"
 import { TestClock } from "effect/testing"
 
 import { makeDayIndex } from "@/server/market-live/day-index"
@@ -41,6 +41,11 @@ const TAPE: RecordedResource = {
   at: DateTime.makeUnsafe("2026-11-09T17:00:00+07:00"),
 }
 
+const UNTR_CANDLES: RecordedResource = {
+  _tag: "Candles",
+  code: StockCode.make("UNTR"),
+}
+
 const wib = (time: string) => DateTime.makeUnsafe(`2026-11-09T${time}+07:00`)
 const at = (time: string) =>
   TestClock.setTime(DateTime.toEpochMillis(wib(time)))
@@ -54,23 +59,30 @@ const textOf = (response: Response) => Effect.promise(() => response.text())
 
 type Day = Effect.Success<ReturnType<typeof tradingDay>>
 
-// A relay day with a code list naming UNTR and BBCA, a few UNTR trades and
-// UNTR's book, which a viewer had it record (BBCA's isn't), sealed at 17:00
-// with its relay gaps, then whatever `record` adds before the seal, and its
-// row in a day index.
+// A relay day with a code list naming UNTR and BBCA (none when not
+// `listed`), a few UNTR trades and UNTR's book, which a viewer had it record
+// (BBCA's isn't), sealed at 17:00 with its relay gaps, then whatever
+// `record` adds before the seal, and its row in a day index. It moves to an
+// R2 bucket in memory.
 const sealedDay = Effect.fnUntraced(function* (
-  record: (day: Day) => Effect.Effect<void, unknown> = () => Effect.void
+  record: (day: Day) => Effect.Effect<void, unknown> = () => Effect.void,
+  listed = true
 ) {
   yield* at("09:01:10")
-  const day = yield* tradingDay(memorySql())
-  yield* day.codeList(
-    JSON.stringify({
-      results: [
-        { code: "UNTR", name: "United Tractors" },
-        { code: "BBCA", name: "Bank Central Asia" },
-      ],
-    })
-  )
+  const index = yield* makeDayIndex(memorySql())
+  const days = memoryDayBucket()
+  const sql = memorySql()
+  const target = { bucket: days.bucket, markCold: index.markCold(DAY) }
+  const day = yield* tradingDay(sql, [], undefined, target)
+  if (listed)
+    yield* day.codeList(
+      JSON.stringify({
+        results: [
+          { code: "UNTR", name: "United Tractors" },
+          { code: "BBCA", name: "Bank Central Asia" },
+        ],
+      })
+    )
   yield* day.left(yield* day.viewer("UNTR"))
   yield* day.frames([
     stockbitBook({ side: "BID", levels: [[23_300, 3, 50]], time: "09:01:10" }),
@@ -88,22 +100,26 @@ const sealedDay = Effect.fnUntraced(function* (
   yield* record(day)
   yield* at("17:00:00")
   yield* day.alarm
-  const index = yield* makeDayIndex(memorySql())
   yield* index.record({ day: DAY, trades: 2, gap: true })
-  const days = memoryDayBucket()
-  const target = { bucket: days.bucket, markCold: index.markCold(DAY) }
-  return { day, index, days, target }
+  return { day, index, days, sql, target }
 })
 
 type Sealed = Effect.Success<ReturnType<typeof sealedDay>>
 
-// The day's move, the test entry point. The index's mark needs no binding.
-const moved = (sealed: Pick<Sealed, "day" | "target">) =>
-  sealed.day.day
-    .move(sealed.target)
-    .pipe(
-      Effect.provideService(WorkerEnv, {} as unknown as WorkerEnv["Service"])
-    )
+// The alarm's runs while a move step is due now, at most `runs`; how many.
+const alarms = Effect.fnUntraced(function* (day: Sealed["day"], runs = 50) {
+  for (let run = 0; run < runs; run++) {
+    if (yield* day.emptied) return run
+    const due = day.alarms.at(-1)
+    if (due === undefined || DateTime.isGreaterThan(due, yield* DateTime.now))
+      return run
+    yield* day.alarm
+  }
+  return runs
+})
+
+// The day moved to R2 (the harness's `movedToR2`): whether it emptied.
+const moved = (sealed: Pick<Sealed, "day">) => sealed.day.movedToR2
 
 const stripDays = (index: Sealed["index"]) =>
   Effect.flatMap(Effect.flatMap(index.strip, textOf), decodeDayStrip).pipe(
@@ -198,6 +214,14 @@ describe("a cold day", () => {
         assert.strictEqual(tape.headers.get("Cache-Control"), SEALED)
         assert.strictEqual(yield* textOf(tape), hot.tape)
         assert.deepStrictEqual(after.reached, ["index"])
+
+        // An isolate that still counts the day hot reaches its emptied
+        // object, which answers from R2 too.
+        const stale = yield* sealed.day.recorded(TAPE)
+        assert.strictEqual(stale.headers.get("Cache-Control"), SEALED)
+        assert.strictEqual(yield* textOf(stale), hot.tape)
+        const codes = yield* sealed.day.recorded(CODES)
+        assert.strictEqual(codes.headers.get("Content-Encoding"), "gzip")
       })
   )
 
@@ -254,6 +278,48 @@ describe("a cold day", () => {
   )
 
   it.effect(
+    "with no code list, answers each traded code's views from R2, and Codes and an untraded code's views not recorded",
+    () =>
+      Effect.gen(function* () {
+        const sealed = yield* sealedDay(undefined, false)
+        const traded = PER_CODE.map(
+          ([, _tag]) =>
+            ({ _tag, code: StockCode.make("UNTR") }) as RecordedResource
+        )
+        const before = yield* worker(sealed)
+        const hot = []
+        for (const resource of traded)
+          hot.push(yield* textOf(yield* before.get(resource)))
+        assert.include(hot[0], '"close":23325')
+        assert.strictEqual((yield* before.get(CODES)).status, 404)
+
+        assert.isTrue(yield* moved(sealed))
+        const after = yield* worker(sealed)
+        for (const [index, resource] of traded.entries()) {
+          const response = yield* after.get(resource)
+          assert.strictEqual(response.status, 200)
+          assert.strictEqual(response.headers.get("Content-Encoding"), "gzip")
+          const stored = new Uint8Array(
+            yield* Effect.promise(() => response.arrayBuffer())
+          )
+          assert.strictEqual(
+            new TextDecoder().decode(gunzipSync(stored)),
+            hot[index]
+          )
+        }
+        for (const resource of [
+          CODES,
+          { _tag: "Candles", code: StockCode.make("BBCA") } as const,
+        ]) {
+          const response = yield* after.get(resource)
+          assert.strictEqual(response.status, 404)
+          assert.strictEqual(response.headers.get("Cache-Control"), "no-store")
+        }
+        assert.deepStrictEqual(after.reached, ["index"])
+      })
+  )
+
+  it.effect(
     "stores the final broker codes status and a manifest beside its answers",
     () =>
       Effect.gen(function* () {
@@ -289,13 +355,12 @@ describe("a cold day", () => {
   )
 
   it.effect(
-    "is never marked cold without its manifest, and stays served by its object until a retry lands it",
+    "is never marked cold without its manifest, and stays served by its object until a retry a minute later lands it",
     () =>
       Effect.gen(function* () {
         const sealed = yield* sealedDay()
         sealed.days.refused.add("days/2026-11-09/manifest.json")
-        const failed = yield* Effect.exit(moved(sealed))
-        assert.isTrue(Exit.isFailure(failed))
+        assert.isFalse(yield* moved(sealed))
         assert.isUndefined((yield* stripDays(sealed.index))[0]?.cold)
 
         const hot = yield* worker(sealed)
@@ -307,8 +372,55 @@ describe("a cold day", () => {
         ])
 
         sealed.days.refused.clear()
-        yield* moved(sealed)
+        yield* TestClock.adjust("1 minute")
+        yield* alarms(sealed.day)
+        assert.isTrue(yield* sealed.day.emptied)
         assert.isTrue((yield* stripDays(sealed.index))[0]?.cold)
+      })
+  )
+
+  it.effect(
+    "moves a day with no code list whole when its object restarts after each step, served hot by its object until the index marks it cold",
+    () =>
+      Effect.gen(function* () {
+        const whole = yield* sealedDay(undefined, false)
+        yield* moved(whole)
+        const sealed = yield* sealedDay(undefined, false)
+        const before = yield* worker(sealed)
+        const hot = yield* textOf(yield* before.get(UNTR_CANDLES))
+        yield* TestClock.setTime(
+          DateTime.toEpochMillis(
+            DateTime.makeUnsafe("2026-11-24T00:00:00+07:00")
+          )
+        )
+        assert.isTrue(yield* sealed.day.move)
+        let day = sealed.day
+        let steps = 0
+        while (!(yield* day.emptied)) {
+          assert.isUndefined((yield* stripDays(sealed.index))[0]?.cold)
+          const served = yield* worker({ ...sealed, day })
+          assert.strictEqual(
+            yield* textOf(yield* served.get(UNTR_CANDLES)),
+            hot
+          )
+          assert.deepStrictEqual(served.reached, [
+            "index",
+            "day /market-live/days/2026-11-09/candles/UNTR",
+          ])
+          yield* day.evicted
+          day = yield* tradingDay(sealed.sql, [], undefined, sealed.target)
+          assert.strictEqual(yield* alarms(day, 1), 1)
+          steps++
+        }
+        // Its answers, its tape, its books, then its status and manifest.
+        assert.strictEqual(steps, 4)
+        assert.isTrue((yield* stripDays(sealed.index))[0]?.cold)
+        assert.deepStrictEqual(
+          [...sealed.days.objects.keys()].sort(),
+          [...whole.days.objects.keys()].sort()
+        )
+        for (const [key, bytes] of whole.days.objects)
+          assert.deepStrictEqual(sealed.days.objects.get(key), bytes, key)
       })
   )
 
@@ -400,15 +512,13 @@ describe("a cold day", () => {
   it.effect("does not move before its seal", () =>
     Effect.gen(function* () {
       yield* at("10:00:00")
-      const day = yield* tradingDay(memorySql())
-      const index = yield* makeDayIndex(memorySql())
       const days = memoryDayBucket()
-      assert.isFalse(
-        yield* moved({
-          day,
-          target: { bucket: days.bucket, markCold: index.markCold(DAY) },
-        })
-      )
+      const index = yield* makeDayIndex(memorySql())
+      const day = yield* tradingDay(memorySql(), [], undefined, {
+        bucket: days.bucket,
+        markCold: index.markCold(DAY),
+      })
+      assert.isFalse(yield* moved({ day }))
       assert.strictEqual(days.objects.size, 0)
     })
   )

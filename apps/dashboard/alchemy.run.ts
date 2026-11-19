@@ -133,11 +133,12 @@ export const Website = Cloudflare.Website.Vite(
             ).pipe(Config.withDefault(Redacted.make("0"))),
           }
         : {}
-    // Decision: the Test stage alone answers the e2e's move route, which
-    // moves a sealed day to R2 at once (src/server/market-live/test-move.ts);
-    // no deployed stage binds it. Until #581's alarm chain moves days itself.
-    const testMoves: Partial<Record<"MARKET_LIVE_TEST_MOVES", "on">> =
-      stage === TEST ? { MARKET_LIVE_TEST_MOVES: "on" } : {}
+    // Decision: the Test stage alone moves days to R2 in Streaming hours
+    // (src/server/market-live/cold-window.ts): its market clock reads
+    // session 1 all run, so the e2e's cold day would never move. No
+    // deployed stage binds it.
+    const testMoves: Partial<Record<"MARKET_LIVE_MOVES_ANY_HOUR", "on">> =
+      stage === TEST ? { MARKET_LIVE_MOVES_ANY_HOUR: "on" } : {}
     // The stage's crons and their Decisions: src/server/stage-crons.ts.
     const crons = stageCrons((yield* stageKind(stage)) === "production")
     return {

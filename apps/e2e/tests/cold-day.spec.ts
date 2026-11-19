@@ -1,7 +1,8 @@
-// A cold day on Market Live (spec apinrdw/kumora#556, ticket #580): a past
-// day the walks filled, sealed, then moved to the Test stage's local R2 by
-// its move route (apps/dashboard/src/server/market-live/test-move.ts). It
-// replays with its tape, candles, sweeps and sweep brokers; its page never
+// A cold day on Market Live (spec apinrdw/kumora#556, tickets #580 and
+// #581): a past day the walks filled, sealed, built, then moved by its own
+// alarm chain to the Test stage's local R2, as a day out of the
+// 10-trading-day window does, and its object emptied. It replays with its
+// tape, candles, sweeps and sweep brokers, answered from R2; its page never
 // rechecks its codes, though they stay incomplete; and a reload answers its
 // GETs from the browser's cache.
 import type { Page } from "@playwright/test"
@@ -19,8 +20,6 @@ import {
   encodeBrokerCodesBatch,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
-
-import { TestMovePath } from "../../dashboard/src/server/market-live/routes.ts"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
 import { tradingDaysBeforeToday } from "../support/broker-totals"
@@ -136,11 +135,10 @@ const dayGets = async (page: Page, day: WibDate) => {
   return gets
 }
 
-// Decision: until tickets #577 and #578 serve them from R2, a cold day's
-// sweep brokers and broker codes come from its object, which caches a
-// complete day's a minute and an incomplete one's not at all. The day has
-// no code list, so its codes answer is a 404 no copy keeps.
-const NOT_CACHED_YET = new Set(["sweep-brokers", "broker-codes", "codes"])
+// Decision: a cold day's 404 is not kept (cold-days.ts `notStored`): the
+// day has no code list, so its codes answer is one, and so is its book, as
+// the walks recorded none. Every other answer comes from R2, kept for good.
+const NOT_KEPT = new Set(["codes", "books"])
 
 test("a cold day replays, is never rechecked, and reloads from the browser's cache", async ({
   page,
@@ -166,18 +164,21 @@ test("a cold day replays, is never rechecked, and reloads from the browser's cac
     }
   )
   expect(posted.status()).toBe(200)
-  // The batch made the day buildable, so it sealed at once: the strip lists
-  // it, hot.
+  // The batch made the day buildable, so it sealed at once and built; out
+  // of the window, it then moved to R2 and the strip lists it cold.
   await expect
-    .poll(() => stripRow(page, day), { timeout: 30_000 })
-    .toMatchObject({ day, trades: N - 1 })
-  expect((await stripRow(page, day))?.cold).toBeUndefined()
-
-  const moved = await page.request.post(`${DASHBOARD}${TestMovePath}${day}`, {
-    headers: BEARER,
+    .poll(() => stripRow(page, day), { timeout: 60_000 })
+    .toMatchObject({ day, trades: N - 1, cold: true })
+  // R2 answers: a 404 of the move's own, and an incomplete day's sweep
+  // brokers kept for good, which its object never keeps.
+  const codesGet = await page.request.get(
+    `${DASHBOARD}/market-live/days/${day}/codes`
+  )
+  expect(codesGet.status()).toBe(404)
+  expect(await codesGet.json()).toEqual({
+    error: "NotFound",
+    message: "Not recorded",
   })
-  expect(moved.status()).toBe(204)
-  expect((await stripRow(page, day))?.cold).toBe(true)
 
   // Decision: the context's routes go (support/test.ts sets the client
   // address and the Turnstile stub through them): Playwright turns the
@@ -211,6 +212,22 @@ test("a cold day replays, is never rechecked, and reloads from the browser's cac
     `${DASHBOARD}/market-live/days/${day}/sweep-brokers/${code}`
   )
   expect(await codesAnswer.json()).toMatchObject({ complete: false })
+  expect(codesAnswer.headers()["cache-control"]).toBe(
+    "private, max-age=31536000, immutable"
+  )
+  // A late batch is taken and writes nothing.
+  const late = await page.request.post(`${DASHBOARD}/api/broker-codes/${day}`, {
+    headers: BEARER,
+    data: Effect.runSync(
+      encodeBrokerCodesBatch({
+        version: BrokerCodesProtocolVersion,
+        feed: "Ajaib",
+        day,
+        rows: walkRows(day, code).slice(0, 1),
+      })
+    ),
+  })
+  expect(late.status()).toBe(200)
   const loaded = gets.length
   await page.waitForTimeout(35_000)
   expect(gets.slice(loaded)).toEqual([])
@@ -244,6 +261,6 @@ test("a cold day replays, is never rechecked, and reloads from the browser's cac
     ])
   )
   expect(
-    reloaded.filter((get) => !get.cached && !NOT_CACHED_YET.has(get.resource))
+    reloaded.filter((get) => !get.cached && !NOT_KEPT.has(get.resource))
   ).toEqual([])
 })
