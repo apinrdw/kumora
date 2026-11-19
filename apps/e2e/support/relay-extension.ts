@@ -185,10 +185,17 @@ export const LISTED_CODES = ["BBCA", "BRMS", "ENRG", "TLKM"]
 const AJAIB_PAGE = `<!doctype html><title>Fake Ajaib</title><p>Fake Ajaib</p>
 <script>fetch("/api/v1/user/profile/", { headers: { "${AJAIB_HEADER}": "yes" } })</script>`
 
-// Stockbit's session cookie holds the access token, readable from scripts.
-const STOCKBIT_CREDENTIAL = encodeURIComponent(
-  JSON.stringify({ accessToken: STOCKBIT_TOKEN })
-)
+// Stockbit's session cookies as a Google sign-in leaves them
+// (apinrdw/kumora#591): `credentialStorage` holds the user and no token, and
+// `sb_social_access_token` holds the access token. The fake serves the token
+// HttpOnly, the case a page's scripts can't read; whether Stockbit's own is
+// HttpOnly is unknown.
+const STOCKBIT_COOKIES = [
+  `credentialStorage=${encodeURIComponent(
+    JSON.stringify({ state: { user: { id: 4242 } }, version: 0 })
+  )}; Path=/; Secure`,
+  `sb_social_access_token=${STOCKBIT_TOKEN}; Domain=stockbit.com; Path=/; Secure; HttpOnly`,
+]
 
 // WebsocketWrapMessageChannel { ping (2): { message: "pong" } }
 const PONG = Uint8Array.from([0x12, 0x06, 0x0a, 0x04, ...Buffer.from("pong")])
@@ -268,7 +275,7 @@ export async function startFakeBrokers() {
       if (host === "stockbit.com") {
         response.writeHead(200, {
           "content-type": "text/html",
-          "set-cookie": `credentialStorage=${STOCKBIT_CREDENTIAL}; Path=/; Secure`,
+          "set-cookie": STOCKBIT_COOKIES,
         })
         return response.end("<!doctype html><title>Fake Stockbit</title>")
       }
