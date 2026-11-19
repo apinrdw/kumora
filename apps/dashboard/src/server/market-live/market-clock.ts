@@ -8,7 +8,7 @@ import { Clock, DateTime, Effect, Schema } from "effect"
 
 // The Clock `base` reads, `offset` ms later. Sleeps are unchanged.
 // Its methods are the Clock interface Effect's runtime calls.
-const shifted = (base: Clock.Clock, offset: number) =>
+export const shiftedClock = (base: Clock.Clock, offset: number) =>
   Effect.succeed<Clock.Clock>({
     currentTimeMillisUnsafe: () => base.currentTimeMillisUnsafe() + offset,
     currentTimeMillis: Effect.map(
@@ -47,7 +47,7 @@ export const withMarketClock = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     return yield* Effect.provideService(
       effect,
       Clock.Clock,
-      yield* shifted(base, offset)
+      yield* shiftedClock(base, offset)
     )
   })
 
