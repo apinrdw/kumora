@@ -1540,6 +1540,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       target,
       answer: recorded,
       status: brokerCodes.status(new URLSearchParams()),
+      books: { codes: store.bookCodes, chunksOf: store.storedChunksOf },
     })
     return true
   })

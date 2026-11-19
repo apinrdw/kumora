@@ -16,6 +16,7 @@ import {
 import { DateTime, Effect } from "effect"
 
 import type { DaySums, MinuteFigures, StoredBubbles } from "./bubble-book.ts"
+import type { StoredBookChunk } from "./cold-books.ts"
 import type {
   FootprintRow,
   StoredCandle,
@@ -867,6 +868,27 @@ export const makeDayStore = (
       return rows
     })
 
+    // The codes with a stored book chunk, and one code's chunks as stored,
+    // ascending by minute: what a cold day's books are packed from
+    // (cold-books.ts).
+    const bookCodes = Effect.sync(() =>
+      sql
+        .exec("SELECT DISTINCT code FROM book_chunks ORDER BY code")
+        .map((row) => StockCode.make(String(row.code)))
+    )
+    const storedChunksOf = (code: StockCode) =>
+      Effect.sync(() =>
+        sql
+          .exec(
+            "SELECT minute, chunk FROM book_chunks WHERE code = ? ORDER BY minute",
+            code
+          )
+          .map((row): StoredBookChunk => ({
+            minute: Number(row.minute),
+            chunk: row.chunk as Uint8Array,
+          }))
+      )
+
     // Every code's latest chunk: the books a restarted object starts from.
     const latestChunks = Effect.suspend(() =>
       Effect.forEach(
@@ -934,6 +956,8 @@ export const makeDayStore = (
       livePrices,
       livePrice,
       chunkAt,
+      bookCodes,
+      storedChunksOf,
       heatmapOf,
       latestChunks,
       ajaibBooks,
