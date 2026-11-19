@@ -25,7 +25,7 @@ import {
   type TradeFields,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { DateTime, Effect, Layer, Option, Schema, Scope } from "effect"
+import { DateTime, Effect, Layer, Option, Scope } from "effect"
 import { TestClock } from "effect/testing"
 
 import type { Sql } from "@/server/market-live/day-store"
@@ -94,17 +94,7 @@ const tradingDay = Effect.fnUntraced(function* (
   } = {}
 ) {
   const date = options.date ?? DAY
-  const base = options.sql ?? memorySql()
-  // Every statement that wrote to the broker trades index.
-  const indexWrites: Array<string> = []
-  const sql: Sql = {
-    exec: (query, ...bindings) => {
-      if (/^(INSERT|DELETE).*broker_trades/s.test(query))
-        indexWrites.push(query)
-      return base.exec(query, ...bindings)
-    },
-    transaction: (write) => base.transaction(write),
-  }
+  const sql = options.sql ?? memorySql()
   const alarms: Array<DateTime.Utc> = []
   const indexed: Array<RecordedDay> = []
   const relays: Array<FakeSocket> = []
@@ -213,23 +203,8 @@ const tradingDay = Effect.fnUntraced(function* (
       .pipe(Effect.provide(env))
   })
   const alarm = day.alarm.pipe(Effect.provide(env))
-  // The broker trades index, one row per trade side, as Data Studio reads it.
-  const index = Effect.sync(() =>
-    base
-      .exec(
-        "SELECT broker, investor_type, side, number FROM broker_trades ORDER BY number, side"
-      )
-      .map((row) => [
-        String(row.broker),
-        String(row.investor_type),
-        String(row.side),
-        Number(row.number),
-      ])
-  )
   return {
-    sql: base,
-    index,
-    indexWrites,
+    sql,
     day,
     post,
     status,
@@ -912,6 +887,383 @@ describe("a recorded day's broker codes answer", () => {
   )
 })
 
+// Spec apinrdw/kumora#554, "`codesComplete` in `facts`".
+describe("a day's codes-complete fact", () => {
+  const CURSOR = wib("17:00:00")
+  // `sql`, each statement's text kept in `queries`.
+  const watched = (sql: Sql) => {
+    const queries: Array<string> = []
+    return {
+      queries,
+      sql: {
+        exec: (query, ...bindings) => {
+          queries.push(query)
+          return sql.exec(query, ...bindings)
+        },
+        transaction: (write) => sql.transaction(write),
+      } satisfies Sql,
+    }
+  }
+  // The statements that read the chunks in order, as a scan does.
+  const scans = (queries: ReadonlyArray<string>) =>
+    queries.filter((query) =>
+      /FROM broker_code_chunks WHERE chunk >/.test(query)
+    )
+  const factOf = (sql: Sql) =>
+    sql
+      .exec("SELECT value FROM facts WHERE key = 'codes-complete'")
+      .map((row) => String(row.value))
+  // A day of 250 Ajaib trades at 15:00, sealed at 17:00, on `sql`.
+  const sealedDay = (sql = memorySql()) =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+      const day = yield* tradingDay({ sql })
+      const socket = yield* day.relay
+      yield* day.ajaibTrades(socket, numbers(1, 250), "15:00:00")
+      yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+      yield* day.alarm
+      yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
+      return day
+    })
+  const completeOf = Effect.fnUntraced(function* (
+    day: Effect.Success<ReturnType<typeof tradingDay>>
+  ) {
+    const response = yield* day.day.recorded({
+      _tag: "BrokerCodes",
+      at: CURSOR,
+    })
+    const text = yield* Effect.promise(() => response.text())
+    return (yield* decodeRecordedBrokerCodes(text)).complete
+  })
+
+  it.effect(
+    "is set by the batch that completes the codes and cleared by the batch that raises N",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* sealedDay()
+        assert.deepStrictEqual(factOf(day.sql), ["false"])
+        yield* day.post(
+          "Ajaib",
+          numbers(1, 249).map((number) => [number, YP_CC] as const),
+          250
+        )
+        assert.deepStrictEqual(factOf(day.sql), ["false"])
+        assert.isFalse(yield* completeOf(day))
+
+        yield* day.post("Ajaib", [[250, YP_CC]])
+        assert.deepStrictEqual(factOf(day.sql), ["true"])
+        assert.isTrue(yield* completeOf(day))
+
+        yield* day.post("Ajaib", [], 251)
+        assert.deepStrictEqual(factOf(day.sql), ["false"])
+        assert.isFalse(yield* completeOf(day))
+      })
+  )
+
+  it.effect(
+    "lands in the batch's transaction: a batch whose fact write fails keeps none of its codes",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* sealedDay()
+        day.sql.exec(
+          `CREATE TRIGGER fails BEFORE INSERT ON facts
+          WHEN NEW.key = 'codes-complete'
+          BEGIN SELECT RAISE(ABORT, 'disk full'); END`
+        )
+        const posted = yield* Effect.exit(
+          day.post(
+            "Ajaib",
+            numbers(1, 250).map((number) => [number, YP_CC] as const),
+            250
+          )
+        )
+        assert.isTrue(posted._tag === "Failure")
+        assert.isTrue(Option.isNone(yield* day.held(1)))
+        assert.deepStrictEqual(factOf(day.sql), ["false"])
+      })
+  )
+
+  it.effect(
+    "answers a restarted object from the fact, reading no chunk in order",
+    () =>
+      Effect.gen(function* () {
+        const base = memorySql()
+        const day = yield* sealedDay(base)
+        yield* day.post(
+          "Ajaib",
+          numbers(1, 250).map((number) => [number, YP_CC] as const),
+          250
+        )
+        const { queries, sql } = watched(base)
+        const restarted = yield* tradingDay({ sql })
+        queries.length = 0
+        assert.isTrue(yield* completeOf(restarted))
+        assert.deepStrictEqual(scans(queries), [])
+      })
+  )
+
+  it.effect(
+    "is written once by the first answer on a day whose batches came before it",
+    () =>
+      Effect.gen(function* () {
+        const base = memorySql()
+        const day = yield* sealedDay(base)
+        yield* day.post(
+          "Ajaib",
+          numbers(1, 250).map((number) => [number, YP_CC] as const),
+          250
+        )
+        base.exec("DELETE FROM facts WHERE key = 'codes-complete'")
+        const { queries, sql } = watched(base)
+        const restarted = yield* tradingDay({ sql })
+        assert.isTrue(yield* completeOf(restarted))
+        assert.deepStrictEqual(factOf(base), ["true"])
+
+        queries.length = 0
+        assert.isTrue(yield* completeOf(restarted))
+        assert.deepStrictEqual(scans(queries), [])
+      })
+  )
+
+  it.effect("is written by the seal, from codes that came before it", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+      const day = yield* tradingDay()
+      const socket = yield* day.relay
+      yield* day.ajaibTrades(socket, numbers(1, 250), "15:00:00")
+      yield* day.post(
+        "Ajaib",
+        numbers(1, 250).map((number) => [number, YP_CC] as const),
+        250
+      )
+      day.sql.exec("DELETE FROM facts WHERE key = 'codes-complete'")
+      yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+      yield* day.alarm
+      assert.deepStrictEqual(factOf(day.sql), ["true"])
+    })
+  )
+})
+
+// Spec apinrdw/kumora#554, "The tape summary": a sealed relay day's status
+// reads which numbers its tape holds from a summary the seal wrote.
+describe("a sealed relay day's tape summary", () => {
+  // A hole, a run across a chunk's edge that a walk row splits, a whole
+  // chunk, and the numbers past the tape's last.
+  const TAPED = numbers(1, 3_500).filter(
+    (number) =>
+      number !== 5 &&
+      !(number >= 998 && number <= 1_003) &&
+      !(number >= 2_001 && number <= 3_000)
+  )
+  const WALKED = [999]
+  const N = 4_000
+
+  it.effect(
+    "answers the status a scan of the tape answers, reading no trade",
+    () =>
+      Effect.gen(function* () {
+        const base = memorySql()
+        const statements: Array<string> = []
+        const sql: Sql = {
+          exec: (query, ...bindings) => {
+            statements.push(query)
+            return base.exec(query, ...bindings)
+          },
+          transaction: (write) => base.transaction(write),
+        }
+        yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+        const day = yield* tradingDay({ sql })
+        yield* day.ajaibTrades(yield* day.relay, TAPED, "15:00:00")
+        yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+        yield* day.alarm
+        yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
+        yield* day.post(
+          "Ajaib",
+          numbers(1, N).map((number) =>
+            WALKED.includes(number)
+              ? ([number, YP_CC] as const)
+              : ([number, YP_CC, null] as const)
+          ),
+          N
+        )
+        const answers = Effect.all([
+          day.statusText,
+          day.statusTextAfter("after=2500"),
+        ])
+
+        statements.length = 0
+        const summarized = yield* answers
+        assert.deepStrictEqual(
+          statements.filter((query) => /\bFROM trades\b/.test(query)),
+          []
+        )
+        assert.deepStrictEqual(yield* day.missing, [
+          [5, 5],
+          [998, 998],
+          [1_000, 1_003],
+          [2_001, 3_000],
+          [3_501, 4_000],
+        ])
+
+        base.exec("DELETE FROM facts WHERE key = 'tape-summary'")
+        assert.deepStrictEqual(yield* answers, summarized)
+      })
+  )
+})
+
+// Spec apinrdw/kumora#554, "The tape summary": a walk day, a day sealed
+// before the summary and a relay day before its seal.
+describe("the tape summary of other days", () => {
+  // The SQL a day ran, and the statements of it that read the tape.
+  const watched = (base: Sql) => {
+    const statements: Array<string> = []
+    const sql: Sql = {
+      exec: (query, ...bindings) => {
+        statements.push(query)
+        return base.exec(query, ...bindings)
+      },
+      transaction: (write) => base.transaction(write),
+    }
+    const tapeReads = Effect.sync(() => {
+      const reads = statements.filter((query) => /\bFROM trades\b/.test(query))
+      statements.length = 0
+      return reads.length
+    })
+    return { sql, tapeReads }
+  }
+  const unsummarize = (base: Sql) =>
+    Effect.sync(() => {
+      base.exec("DELETE FROM tape_summary")
+      base.exec("DELETE FROM facts WHERE key = 'tape-summary'")
+    })
+  const HISTORY = WibDate.make("2026-10-01")
+  const WALK_FIELDS: TradeFields = { ...FIELDS, time: wib("10:00:00", HISTORY) }
+  const walked = (taped: ReadonlyArray<number>) =>
+    taped.map((number) => [number, YP_CC, WALK_FIELDS] as const)
+
+  // A walk day's two Ajaib batches: the second fills part of a hole in a
+  // chunk the first touched, and sends codes without fields past its tape.
+  // `before` runs between them.
+  const walkDay = Effect.fnUntraced(function* (
+    before: (base: Sql) => Effect.Effect<void>
+  ) {
+    const base = memorySql()
+    const { sql, tapeReads } = watched(base)
+    yield* TestClock.setTime(wib("19:00:00", HISTORY).epochMilliseconds)
+    const day = yield* tradingDay({ sql, date: HISTORY })
+    yield* day.post(
+      "Ajaib",
+      walked(
+        numbers(1, 1_500).filter(
+          (number) => number !== 5 && !(number >= 998 && number <= 1_003)
+        )
+      )
+    )
+    yield* before(base)
+    yield* day.post(
+      "Ajaib",
+      [
+        ...walked([1_001, 1_002, ...numbers(2_501, 3_500)]),
+        ...numbers(3_501, 4_000).map(
+          (number) => [number, YP_CC, null] as const
+        ),
+      ],
+      4_000
+    )
+    return { base, day, tapeReads }
+  })
+
+  for (const [name, before] of [
+    ["a walk day", () => Effect.void],
+    ["a walk day whose tape was stored before the summary", unsummarize],
+  ] as const)
+    it.effect(
+      `answers ${name}'s status a scan of its tape answers, reading no trade`,
+      () =>
+        Effect.gen(function* () {
+          const { base, day, tapeReads } = yield* walkDay(before)
+          const answers = Effect.all([
+            day.statusText,
+            day.statusTextAfter("after=1002"),
+          ])
+
+          yield* tapeReads
+          const summarized = yield* answers
+          assert.strictEqual(yield* tapeReads, 0)
+          assert.deepStrictEqual(yield* day.missing, [
+            [5, 5],
+            [998, 1_000],
+            [1_003, 1_003],
+            [1_501, 2_500],
+            [3_501, 4_000],
+          ])
+
+          yield* unsummarize(base)
+          assert.deepStrictEqual(yield* answers, summarized)
+        })
+    )
+
+  it.effect(
+    "builds a day sealed before the summary at its first status pass, and reads it after",
+    () =>
+      Effect.gen(function* () {
+        const base = memorySql()
+        yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+        const relayDay = yield* tradingDay({ sql: base })
+        yield* relayDay.ajaibTrades(
+          yield* relayDay.relay,
+          numbers(1, 2_500).filter((number) => number !== 1_200),
+          "15:00:00"
+        )
+        yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+        yield* relayDay.alarm
+        yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
+        yield* relayDay.post(
+          "Ajaib",
+          numbers(1, 3_000).map((number) => [number, YP_CC, null] as const),
+          3_000
+        )
+        const statusOf = (day: typeof relayDay) =>
+          Effect.all([day.statusText, day.statusTextAfter("after=1500")])
+        const summarized = yield* statusOf(relayDay)
+        yield* unsummarize(base)
+
+        const { sql, tapeReads } = watched(base)
+        const day = yield* tradingDay({ sql })
+        yield* tapeReads
+        assert.deepStrictEqual(yield* statusOf(day), summarized)
+        assert.isAbove(yield* tapeReads, 0)
+        assert.deepStrictEqual(yield* statusOf(day), summarized)
+        assert.strictEqual(yield* tapeReads, 0)
+      })
+  )
+
+  it.effect("scans a relay day's tape before its seal", () =>
+    Effect.gen(function* () {
+      const base = memorySql()
+      const { sql, tapeReads } = watched(base)
+      yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+      const day = yield* tradingDay({ sql })
+      yield* day.ajaibTrades(yield* day.relay, numbers(1, 10), "15:00:00")
+      yield* TestClock.adjust("70 seconds")
+      yield* day.post(
+        "Ajaib",
+        numbers(1, 11).map((number) => [number, YP_CC, null] as const),
+        12
+      )
+      yield* tapeReads
+      assert.deepStrictEqual(yield* day.missing, [[11, 12]])
+      assert.isAbove(yield* tapeReads, 0)
+      assert.deepStrictEqual(
+        base.exec(
+          "SELECT (SELECT count(*) FROM tape_summary) AS rows, (SELECT count(*) FROM facts WHERE key = 'tape-summary') AS facts"
+        ),
+        [{ rows: 0, facts: 0 }]
+      )
+    })
+  )
+})
+
 // Spec apinrdw/kumora#437, "A History walk day becomes a recorded day".
 describe("a day with no tape", () => {
   const HISTORY = WibDate.make("2026-10-01")
@@ -1450,306 +1802,115 @@ describe("a day with no tape", () => {
   )
 })
 
-// Spec apinrdw/kumora#335, "TradingDay: index broker codes by broker for
-// whole-day filters".
-describe("the broker trades index", () => {
-  it.effect("holds a row per side of each trade a batch kept", () =>
-    Effect.gen(function* () {
-      yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
-      const day = yield* tradingDay()
-      yield* day.post("Ajaib", [
-        [1, YP_CC],
-        [2, codes("AK", "AK", "F", "F")],
-      ])
-      assert.deepStrictEqual(yield* day.index, [
-        ["YP", "D", "buy", 1],
-        ["CC", "F", "sell", 1],
-        ["AK", "F", "buy", 2],
-        ["AK", "F", "sell", 2],
-      ])
-    })
-  )
+// Spec apinrdw/kumora#554, "Dropping `broker_trades`" (ticket
+// apinrdw/kumora#561).
+describe("a day recorded with the broker trades index", () => {
+  const tables = (sql: Sql) =>
+    sql
+      .exec("SELECT name FROM sqlite_schema WHERE type = 'table'")
+      .map((row) => String(row.name))
 
-  it.effect(
-    "moves a trade's rows when Ajaib rewrites its codes, and writes none for an agreement or a resent batch",
-    () =>
-      Effect.gen(function* () {
-        yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
-        const day = yield* tradingDay()
-        yield* day.post("Ajaib", [[1, YP_CC]])
-        day.indexWrites.length = 0
-
-        yield* day.post("Stockbit", [[1, YP_CC]])
-        yield* day.post("Ajaib", [[1, YP_CC]])
-        yield* day.post("Stockbit", [[1, YP_CC]])
-        assert.deepStrictEqual(day.indexWrites, [])
-
-        yield* day.post("Ajaib", [[1, PD_KZ]])
-        assert.isNotEmpty(day.indexWrites)
-        assert.deepStrictEqual(yield* day.index, [
-          ["PD", "F", "buy", 1],
-          ["KZ", "D", "sell", 1],
-        ])
-
-        yield* day.post("Stockbit", [[1, YP_CC]])
-        assert.deepStrictEqual(yield* day.index, [
-          ["PD", "F", "buy", 1],
-          ["KZ", "D", "sell", 1],
-        ])
-
-        day.indexWrites.length = 0
-        yield* day.post("Ajaib", [[1, codes("PD", "AK", "F", "D")]])
-        assert.lengthOf(day.indexWrites, 2)
-        assert.deepStrictEqual(yield* day.index, [
-          ["PD", "F", "buy", 1],
-          ["AK", "D", "sell", 1],
-        ])
-      })
-  )
-
-  // Random batches over trades 1..2,500 (three chunks) and three brokers.
-  const Broker = Schema.Literals(["AK", "YP", "CC"])
-  const Type = Schema.Literals(["D", "F"])
-  const RandomBatch = Schema.Struct({
-    feed: Schema.Literals(["Ajaib", "Stockbit"]),
-    rows: Schema.Array(
-      Schema.Tuple([
-        Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 2_500 })),
-        Broker,
-        Type,
-        Broker,
-        Type,
-      ])
-    ),
-  })
-
-  it.effect.prop(
-    "equals the rows derived from the kept codes after any batches",
-    [Schema.Array(RandomBatch)],
-    ([batches]) =>
-      Effect.gen(function* () {
-        yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
-        const day = yield* tradingDay()
-        for (const batch of batches)
-          yield* day.post(
-            batch.feed,
-            batch.rows.map(
-              ([number, buyer, buyerType, seller, sellerType]) =>
-                [number, codes(buyer, seller, buyerType, sellerType)] as const
-            )
-          )
-        const derived: Array<Array<string | number>> = []
-        for (const number of numbers(1, 2_500)) {
-          const kept = yield* day.held(number)
-          if (Option.isNone(kept)) continue
-          const { buyer, buyerType, seller, sellerType } = kept.value.codes
-          derived.push([buyer, buyerType, "buy", number])
-          derived.push([seller, sellerType, "sell", number])
-        }
-        assert.deepStrictEqual(yield* day.index, derived)
-      }),
-    { arbitrary: { runs: 50 } }
-  )
-})
-
-describe("a day stored before the broker trades index", () => {
-  const HISTORY = WibDate.make("2026-10-01")
-  // One trade at the start of each of 150 chunks, past three rebuild pages.
-  const FIRSTS = Array.from({ length: 150 }, (_, chunk) => chunk * 1_000 + 1)
-
-  // The kept codes as index rows, read through the day's codes, not its
-  // index.
-  const derived = Effect.fnUntraced(function* (
-    day: Effect.Success<ReturnType<typeof tradingDay>>,
-    tradeNumbers: ReadonlyArray<number>
-  ) {
-    const rows: Array<Array<string | number>> = []
-    for (const number of tradeNumbers) {
-      const kept = yield* day.held(number)
-      if (Option.isNone(kept)) continue
-      const { buyer, buyerType, seller, sellerType } = kept.value.codes
-      rows.push([buyer, buyerType, "buy", number])
-      rows.push([seller, sellerType, "sell", number])
-    }
-    return rows
-  })
-
-  // A History day's codes, then its database as a release before the index
-  // left it: no index rows and no index fact.
-  const storedBefore = Effect.gen(function* () {
-    yield* TestClock.setTime(wib("19:00:00").epochMilliseconds)
-    const sql = memorySql()
-    const day = yield* tradingDay({ sql, date: HISTORY })
-    yield* day.post(
-      "Ajaib",
-      FIRSTS.map((number) => [number, YP_CC] as const)
-    )
-    sql.exec("DELETE FROM broker_trades")
-    sql.exec("DELETE FROM facts WHERE key = 'broker-trades'")
-    return sql
-  })
-
-  // Runs the day's alarm while it re-arms, after the `fired` wakes already
-  // run; how many times it ran.
-  const alarmsUntilQuiet = Effect.fnUntraced(function* (
-    day: Effect.Success<ReturnType<typeof tradingDay>>,
-    fired = 0
-  ) {
-    let runs = 0
-    while (day.alarms.length > fired + runs) {
-      runs++
-      yield* day.alarm
-    }
-    return runs
-  })
-
-  it.effect(
-    "arms the alarm at start and rebuilds the index a page a wake",
-    () =>
-      Effect.gen(function* () {
-        const sql = yield* storedBefore
-        const day = yield* tradingDay({ sql, date: HISTORY })
-        assert.lengthOf(day.alarms, 1)
-        assert.deepStrictEqual(yield* day.index, [])
-
-        yield* day.alarm
-        assert.lengthOf(yield* day.index, 64 * 2)
-        assert.strictEqual(1 + (yield* alarmsUntilQuiet(day, 1)), 3)
-        assert.deepStrictEqual(yield* day.index, yield* derived(day, FIRSTS))
-
-        assert.deepStrictEqual(day.indexed, [])
-        const restarted = yield* tradingDay({ sql, date: HISTORY })
-        assert.deepStrictEqual(restarted.alarms, [])
-        assert.deepStrictEqual(
-          sql.exec("SELECT value FROM facts WHERE key = 'sealed'"),
-          []
-        )
-      })
-  )
-
-  it.effect("a rebuild cut off after a page resumes from the next", () =>
-    Effect.gen(function* () {
-      const sql = yield* storedBefore
-      const first = yield* tradingDay({ sql, date: HISTORY })
-      yield* first.alarm
-      first.indexWrites.length = 0
-
-      const resumed = yield* tradingDay({ sql, date: HISTORY })
-      assert.lengthOf(resumed.alarms, 1)
-      assert.strictEqual(yield* alarmsUntilQuiet(resumed), 2)
-      assert.lengthOf(resumed.indexWrites, (150 - 64) * 2)
-      assert.deepStrictEqual(
-        yield* resumed.index,
-        yield* derived(resumed, FIRSTS)
-      )
-    })
-  )
-
-  it.effect("a batch between two pages leaves the index as the codes", () =>
-    Effect.gen(function* () {
-      const sql = yield* storedBefore
-      const day = yield* tradingDay({ sql, date: HISTORY })
-      yield* day.alarm
-      yield* day.post("Ajaib", [
-        [1, PD_KZ],
-        [100_001, PD_KZ],
-        [149_002, YP_CC],
-      ])
-      yield* alarmsUntilQuiet(day, 1)
-      assert.deepStrictEqual(
-        yield* day.index,
-        yield* derived(
-          day,
-          [...FIRSTS, 149_002].sort((a, b) => a - b)
-        )
-      )
-    })
-  )
-
-  it.effect("a day with no codes at start is never rebuilt", () =>
-    Effect.gen(function* () {
-      yield* TestClock.setTime(wib("19:00:00").epochMilliseconds)
-      const sql = memorySql()
-      yield* tradingDay({ sql, date: HISTORY })
-      sql.exec("DELETE FROM facts WHERE key = 'broker-trades'")
-      const restarted = yield* tradingDay({ sql, date: HISTORY })
-      assert.deepStrictEqual(restarted.alarms, [])
-    })
-  )
-
-  // Today's day of 30 Ajaib trades at 15:00 and their codes, its database
-  // as a release before the index left it; sealed at 17:00 first when asked.
-  const todayStoredBefore = Effect.fnUntraced(function* (sealFirst: boolean) {
+  // Today's day of 30 Ajaib trades and their codes, sealed at 17:00, then
+  // its database as a release before #561 left it: the index of every trade
+  // side, its rebuild's fact and a pending rebuild wake.
+  const recordedWithIndex = Effect.gen(function* () {
     yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
     const sql = memorySql()
     const recording = yield* tradingDay({ sql })
     const socket = yield* recording.relay
     yield* recording.ajaibTrades(socket, numbers(1, 30), "15:00:00")
     yield* recording.day.ingestClosed(socket)
-    if (sealFirst) {
-      yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
-      yield* recording.alarm
-      assert.lengthOf(recording.indexed, 1)
-      yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
-    }
+    yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+    yield* recording.alarm
+    assert.lengthOf(recording.indexed, 1)
+    yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
     yield* recording.post(
       "Ajaib",
       numbers(1, 30).map((number) => [number, YP_CC] as const)
     )
-    sql.exec("DELETE FROM broker_trades")
-    sql.exec("DELETE FROM facts WHERE key = 'broker-trades'")
-    return sql
+    sql.exec(
+      `CREATE TABLE broker_trades (
+        broker TEXT NOT NULL,
+        investor_type TEXT NOT NULL,
+        side TEXT NOT NULL,
+        number INTEGER NOT NULL,
+        PRIMARY KEY (broker, investor_type, side, number)
+      ) WITHOUT ROWID`
+    )
+    for (const number of numbers(1, 30)) {
+      sql.exec("INSERT INTO broker_trades VALUES ('YP', 'D', 'buy', ?)", number)
+      sql.exec(
+        "INSERT INTO broker_trades VALUES ('CC', 'F', 'sell', ?)",
+        number
+      )
+    }
+    sql.exec("INSERT INTO facts VALUES ('broker-trades', 'built')")
+    sql.exec(
+      "INSERT INTO facts VALUES ('index-wake', ?)",
+      String(wib("17:30:00").epochMilliseconds)
+    )
+    return { sql, recording }
+  })
+
+  // Every broker codes and sweep brokers view of the day, as the object
+  // answers it.
+  const views = Effect.fnUntraced(function* (
+    day: Effect.Success<ReturnType<typeof tradingDay>>
+  ) {
+    const resources: ReadonlyArray<RecordedResource> = [
+      { _tag: "BrokerCodes", at: wib("17:00:00") },
+      { _tag: "SweepBrokers", code: StockCode.make("BBCA") },
+    ]
+    const recordedAnswers = yield* Effect.forEach(resources, (resource) =>
+      Effect.gen(function* () {
+        const response = yield* day.day.recorded(resource)
+        return {
+          status: response.status,
+          headers: [...response.headers.entries()],
+          body: yield* Effect.promise(() => response.text()),
+        }
+      })
+    )
+    return {
+      recordedAnswers,
+      status: yield* day.statusText,
+      held: yield* Effect.forEach(numbers(1, 31), day.held),
+    }
   })
 
   it.effect(
-    "today's rebuild waits for the seal wake and seals on it as before",
+    "drops the index and its facts at start, and answers every broker codes and sweep brokers view as before",
     () =>
       Effect.gen(function* () {
-        const sql = yield* todayStoredBefore(false)
-        const day = yield* tradingDay({ sql })
-        assert.deepStrictEqual(day.alarms, [wib("17:00:00")])
+        const { sql, recording } = yield* recordedWithIndex
+        const before = yield* views(recording)
 
-        yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
-        yield* day.alarm
-        assert.lengthOf(day.indexed, 1)
+        const day = yield* tradingDay({ sql })
+        assert.notInclude(tables(sql), "broker_trades")
         assert.deepStrictEqual(
-          yield* day.index,
-          yield* derived(day, numbers(1, 30))
+          sql.exec(
+            "SELECT key FROM facts WHERE key IN ('broker-trades', 'index-wake')"
+          ),
+          []
+        )
+        assert.deepStrictEqual(day.alarms, [])
+        assert.deepStrictEqual(yield* views(day), before)
+
+        yield* day.post("Ajaib", [[1, PD_KZ]])
+        assert.deepStrictEqual(
+          Option.map(yield* day.held(1), (kept) => kept.codes),
+          Option.some(PD_KZ)
         )
       })
   )
 
-  it.effect(
-    "a sealed day's recorded answers stay byte-identical through the rebuild",
-    () =>
-      Effect.gen(function* () {
-        const sql = yield* todayStoredBefore(true)
-        const day = yield* tradingDay({ sql })
-        assert.deepStrictEqual(day.alarms, [wib("17:30:00")])
-        const resources: ReadonlyArray<RecordedResource> = [
-          { _tag: "Codes" },
-          { _tag: "Tape", at: wib("17:00:00") },
-          { _tag: "Candles", code: StockCode.make("BBCA") },
-          { _tag: "Gaps" },
-          { _tag: "BrokerCodes", at: wib("17:00:00") },
-        ]
-        const answers = Effect.forEach(resources, (resource) =>
-          Effect.gen(function* () {
-            const response = yield* day.day.recorded(resource)
-            return {
-              status: response.status,
-              headers: [...response.headers.entries()],
-              body: yield* Effect.promise(() => response.text()),
-            }
-          })
-        )
-        const before = yield* answers
-        yield* day.alarm
-        assert.deepStrictEqual(
-          yield* day.index,
-          yield* derived(day, numbers(1, 30))
-        )
-        assert.deepStrictEqual(yield* answers, before)
-      })
+  it.effect("a new day never makes the index", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
+      const sql = memorySql()
+      const day = yield* tradingDay({ sql })
+      yield* day.post("Ajaib", [[1, YP_CC]])
+      assert.notInclude(tables(sql), "broker_trades")
+    })
   )
 })

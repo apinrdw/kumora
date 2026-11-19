@@ -11,6 +11,7 @@
     "format:check": "oxfmt --check \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
     "test": "vitest run --passWithNoTests && node scripts/auth-migrations.ts --check",
+    "test:row-budgets": "vitest run --project row-budgets",
     "auth:migrations": "node scripts/auth-migrations.ts"
   },
   "dependencies": {
@@ -50,6 +51,7 @@
     "@vitejs/plugin-react": "^6",
     "happy-dom": "^21.0.4",
     "typescript": "7.0.2",
-    "vite": "^8"
+    "vite": "^8",
+    "workerd": "1.20261026.1"
   }
 }

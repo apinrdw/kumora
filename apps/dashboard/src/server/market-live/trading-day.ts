@@ -65,7 +65,11 @@ import { makeBubbleBook } from "./bubble-book.ts"
 import { makeLevelLedger } from "./level-ledger.ts"
 import { makeReadingsBook } from "./readings-book.ts"
 import { dayValuesAnswer, makePreviousValues } from "./previous-values.ts"
-import { makeBrokerCodes } from "./broker-codes.ts"
+import {
+  makeBrokerCodes,
+  summarizeTape,
+  summarizeAddedTrades,
+} from "./broker-codes.ts"
 import {
   BROKER_TOTALS_DUE,
   BROKER_TOTALS_STALE,
@@ -320,22 +324,6 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
   return prices
 })
 
-// Decision: the broker trades index rebuilds from the alarm, a page a wake,
-// never inside a request. A day still to seal waits for its seal wake, so
-// no page holds the turn while the market streams; any other starts now.
-// Through `arm`, so it never displaces the seal's wake. See
-// apinrdw/kumora#342.
-//
-// When the index rebuild first needs the alarm, for a day with no deadline
-// stored: none once built.
-const indexWakeAtStart = (
-  built: boolean,
-  sealWake: DateTime.Utc | undefined
-): Effect.Effect<DateTime.Utc | undefined> => {
-  if (built) return Effect.succeed(undefined)
-  return sealWake === undefined ? DateTime.now : Effect.succeed(sealWake)
-}
-
 // Decision: a batch that corrects a built day marks it stale and moves its
 // rebuild to this long after the batch, so a burst of corrections costs one
 // rebuild. See spec apinrdw/kumora#437, "When it runs".
@@ -460,6 +448,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     sql: options.sql,
     fact: store.fact,
     walkRowsHold: Effect.sync(() => source === "relay" || sealed),
+    sealed: Effect.sync(() => sealed),
   })
   // The one gate the build and a walk day's seal read (`buildable` in
   // broker-codes.ts).
@@ -1063,13 +1052,26 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ajaibBooks: [],
       facts: {
         [Fact.sealed]: DateTime.formatIso(now),
+        ...(yield* brokerCodes.codesCompleteFactForSeal),
         ...(due ? { [Fact.brokerTotals]: BROKER_TOTALS_DUE } : {}),
       },
     })
     sealed = true
     // The next GET builds the bubbles answer from the seal's last candles.
     bubblesBody = undefined
-    if (due) yield* wakes.set("build", now)
+  })
+
+  // What a sealed day's seal still owes past its marker: the build's wake,
+  // the tape summary and the storage line.
+  // Decision: the seal wake stays set until all of this is done, so a
+  // failure past the marker is retried a minute later, as one before it is.
+  // Each step is safe to run again; a summary that failed reads the tape
+  // again, about 1.46 M rows on a busy day. The build is armed first, from
+  // the stored fact: no later step's failure holds it back. See PR #564.
+  const finishSeal = Effect.fnUntraced(function* (now: DateTime.Utc) {
+    if ((yield* store.fact(Fact.brokerTotals)) === BROKER_TOTALS_DUE)
+      yield* wakes.set("build", now)
+    yield* summarizeTape(options.sql)
     yield* Effect.logInfo("Order flow storage").pipe(
       Effect.annotateLogs({
         ...(yield* store.orderFlowStorage),
@@ -1111,6 +1113,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         [Fact.tapeSource]: "walk",
         ...(yield* sweepBrokers.persisting(trades)),
       },
+      alsoWrites: summarizeAddedTrades(
+        options.sql,
+        trades.map((trade) => Number(trade.tradeNumber))
+      ),
     })
     source = "walk"
   })
@@ -1152,10 +1158,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   yield* wakes.restore(
     "seal",
     sealWakeAtStart(sealed, source, buildable, sealAt)
-  )
-  yield* wakes.restore(
-    "index",
-    indexWakeAtStart(brokerCodes.indexBuilt, yield* wakes.deadline("seal"))
   )
   yield* wakes.restore(
     "build",
@@ -1224,27 +1226,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   > = {
     // A walk day seals only once buildable; the batch that makes it so sets
     // the wake again (`walkSealDue`). An unknown day never seals.
+    // A day sealed with the wake still set finishes its seal (`finishSeal`).
     seal: Effect.fnUntraced(function* (now) {
       if (DateTime.isLessThan(now, sealAt))
         return yield* wakes.set("seal", sealAt)
-      if (
-        sealed ||
-        source === "unknown" ||
-        (source === "walk" && !(yield* buildable))
-      )
-        return yield* wakes.set("seal", undefined)
-      yield* seal(now).pipe(
+      if (!sealed) {
+        if (source === "unknown" || (source === "walk" && !(yield* buildable)))
+          return yield* wakes.set("seal", undefined)
+        yield* seal(now).pipe(retried("seal", "Day not sealed", now))
+        if (!sealed) return
+      }
+      yield* finishSeal(now).pipe(
         Effect.andThen(wakes.set("seal", undefined)),
-        retried("seal", "Day not sealed", now)
-      )
-    }),
-    // A page a wake, and none while the market streams.
-    index: Effect.fnUntraced(function* (now) {
-      if (!sealed && DateTime.isLessThan(now, sealAt))
-        return yield* wakes.set("index", sealAt)
-      yield* brokerCodes.indexPage.pipe(
-        Effect.flatMap((built) => wakes.set("index", built ? undefined : now)),
-        retried("index", "Broker trades not indexed", now)
+        retried("seal", "Seal not finished", now)
       )
     }),
     // A build that failed keeps the day's fact as it was.
@@ -1679,20 +1673,40 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
   })
 
+  // Decision: once a WIB day, an object that ran logs what its SQL adapter
+  // counted since its last line, after a callback it already takes: on its
+  // own date the seal's, else the date's first. No alarm wakes it for this.
+  // The date is a fact, read once, so a restart logs no second line. See
+  // apinrdw/kumora#558.
+  let usageLogged = yield* store.fact(Fact.usageLogged)
+  const usageLine = Effect.gen(function* () {
+    const date = yield* wibDateAt(yield* DateTime.now)
+    if (usageLogged === date || (date === options.date && !sealed)) return
+    const usage = yield* store.takeUsage
+    if (usage === undefined) return
+    yield* store.setFact(Fact.usageLogged, date)
+    usageLogged = date
+    yield* Effect.logInfo("Durable Object usage").pipe(
+      Effect.annotateLogs(usage)
+    )
+  })
+  // A callback, in the turn, ending with the day's usage line when due.
+  const turned = <A, E, R>(callback: Effect.Effect<A, E, R>) =>
+    turn.withPermit(Effect.tap(callback, () => usageLine))
+
   return {
-    ingestOpened: turn.withPermit(ingestOpened),
+    ingestOpened: turned(ingestOpened),
     ingestMessage: (socket: Peer, text: string) =>
-      turn.withPermit(ingestMessage(socket, text)),
+      turned(ingestMessage(socket, text)),
     viewerMessage: (socket: Peer, text: string) =>
-      turn.withPermit(viewerMessage(socket, text)),
-    viewerClosed: (socket: Peer) => turn.withPermit(viewerClosed(socket)),
-    ingestClosed: (socket: Peer) => turn.withPermit(ingestClosed(socket)),
-    endSessions: (held: HeldSessions) => turn.withPermit(endSessions(held)),
-    recorded: (resource: RecordedResource) =>
-      turn.withPermit(recorded(resource)),
-    alarm: turn.withPermit(alarm),
+      turned(viewerMessage(socket, text)),
+    viewerClosed: (socket: Peer) => turned(viewerClosed(socket)),
+    ingestClosed: (socket: Peer) => turned(ingestClosed(socket)),
+    endSessions: (held: HeldSessions) => turned(endSessions(held)),
+    recorded: (resource: RecordedResource) => turned(recorded(resource)),
+    alarm: turned(alarm),
     // Every code's value, for the next trading day's object.
-    dayValues: turn.withPermit(
+    dayValues: turned(
       Effect.suspend(() =>
         dayValuesAnswer(
           sealed,
@@ -1713,7 +1727,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       // and transaction, before its 200; one that changes none recomputes
       // nothing. See spec apinrdw/kumora#343, "When it is recomputed".
       post: (text: string) =>
-        turn.withPermit(
+        turned(
           brokerCodes.post(text, {
             taken: walkTapeOf,
             alongside: sweepBrokers.recompute,
@@ -1726,11 +1740,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
               ),
           })
         ),
-      status: (search: URLSearchParams) =>
-        turn.withPermit(brokerCodes.status(search)),
-      held: (tradeNumber: TradeNumber) =>
-        turn.withPermit(brokerCodes.held(tradeNumber)),
+      status: (search: URLSearchParams) => turned(brokerCodes.status(search)),
+      held: (tradeNumber: TradeNumber) => turned(brokerCodes.held(tradeNumber)),
     },
-    brokerTotals: { reconcile: turn.withPermit(reconcile) },
+    brokerTotals: { reconcile: turned(reconcile) },
   }
 })

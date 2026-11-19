@@ -778,14 +778,6 @@ const flakyDay = () => {
     sql,
     flaky,
     start: tradingDay(sql, [], db.layer),
-    // A release before the broker trades index: no rows, no fact.
-    dropIndex: Effect.sync(() => {
-      base.exec("DELETE FROM broker_trades")
-      base.exec("DELETE FROM facts WHERE key = 'broker-trades'")
-    }),
-    indexed: Effect.sync(
-      () => base.exec("SELECT 1 FROM broker_trades LIMIT 1").length > 0
-    ),
   }
   return fixture
 }
@@ -846,39 +838,6 @@ const WAKE_CASES: ReadonlyArray<{
         yield* day.evicted
       }),
     done: (_, day) => isSealed(day),
-  },
-  {
-    wake: "index, set for the seal",
-    deadline: "17:00:00",
-    arrange: (fixture) =>
-      Effect.gen(function* () {
-        yield* at("09:01:10")
-        const day = yield* fixture.start
-        yield* day.trades(TAPE)
-        yield* TestClock.adjust("70 seconds")
-        yield* day.brokerCodes("Ajaib", CODES, 7)
-        yield* day.evicted
-        yield* fixture.dropIndex
-        yield* at("12:00:00")
-        yield* (yield* fixture.start).evicted
-      }),
-    done: (fixture) => fixture.indexed,
-  },
-  {
-    wake: "index retried",
-    deadline: "17:46:00",
-    arrange: (fixture) =>
-      Effect.gen(function* () {
-        yield* (yield* builtDay(fixture.db, fixture.sql)).evicted
-        yield* fixture.dropIndex
-        yield* at("17:45:00")
-        const day = yield* fixture.start
-        fixture.flaky.failing = true
-        yield* day.alarm
-        fixture.flaky.failing = false
-        yield* day.evicted
-      }),
-    done: (fixture) => fixture.indexed,
   },
   {
     wake: "build retried",
@@ -959,6 +918,118 @@ describe("a failed broker totals build", () => {
         ],
       })
     })
+  )
+})
+
+// A day's database that fails each statement `fails` picks, as the Durable
+// Object's storage throws, and its broker totals DB.
+const cutDay = () => {
+  const base = memorySql()
+  const db = memoryBrokerTotalsDb()
+  const cut = { fails: (_query: string) => false }
+  const sql: Sql = {
+    ...base,
+    exec: (query, ...bindings) =>
+      cut.fails(query)
+        ? Effect.runSync(Effect.fail(new Error("Storage statement failed")))
+        : base.exec(query, ...bindings),
+  }
+  // The tape and every trade's codes held by 16:00, the clock left at the
+  // 17:00 seal.
+  const completeAtSeal = Effect.gen(function* () {
+    yield* at("09:01:10")
+    const day = yield* tradingDay(sql, [], db.layer)
+    yield* day.trades(TAPE)
+    yield* at("16:00:00")
+    yield* day.brokerCodes("Ajaib", CODES, 7)
+    yield* at("17:00:00")
+    return day
+  })
+  return { db, sql, cut, completeAtSeal }
+}
+
+// Review of spec apinrdw/kumora#554: a failure past the sealed marker left a
+// buildable day marked due with no build wake.
+describe("a seal cut off by a failed statement", () => {
+  it.effect(
+    "builds the day's broker totals on its retry alarm when the tape summary's insert failed",
+    () =>
+      Effect.gen(function* () {
+        const fixture = cutDay()
+        const day = yield* fixture.completeAtSeal
+        fixture.cut.fails = (query) => query.includes("INTO tape_summary")
+        yield* day.alarm
+        fixture.cut.fails = () => false
+        assert.deepStrictEqual(yield* read(fixture.db, UNTR), NOTHING)
+
+        yield* at("17:01:00")
+        yield* day.alarm
+        assert.deepStrictEqual(yield* read(fixture.db, UNTR), {
+          ...UNTR_BUILT,
+          builtDays: [
+            { ...UNTR_BUILT.builtDays[0], builtAt: "2026-11-09T10:01:00.000Z" },
+          ],
+        })
+      })
+  )
+
+  it.effect(
+    "builds the day in the seal's own wake when the tape summary's insert failed once",
+    () =>
+      Effect.gen(function* () {
+        const fixture = cutDay()
+        const day = yield* fixture.completeAtSeal
+        let failures = 1
+        fixture.cut.fails = (query) =>
+          query.includes("INTO tape_summary") && failures-- > 0
+        yield* day.alarm
+        assert.deepStrictEqual((yield* read(fixture.db, UNTR)).builtDays, [
+          { ...UNTR_BUILT.builtDays[0], builtAt: "2026-11-09T10:00:00.000Z" },
+        ])
+      })
+  )
+
+  it.effect(
+    "at any one statement of its wake ends sealed and built on its retry alarm, no wake left",
+    () =>
+      withLines("Order flow storage", (lines) =>
+        Effect.gen(function* () {
+          const uncut = cutDay()
+          const sealing = yield* uncut.completeAtSeal
+          const statements: Array<string> = []
+          uncut.cut.fails = (query) => {
+            statements.push(query)
+            return false
+          }
+          yield* sealing.alarm
+          assert.isAbove(statements.length, 0)
+
+          for (const [index, statement] of statements.entries()) {
+            const cutAt = `statement ${index}: ${statement}`
+            const fixture = cutDay()
+            const day = yield* fixture.completeAtSeal
+            let left = index
+            fixture.cut.fails = () => left-- === 0
+            const logged = lines.length
+            yield* day.alarm
+            yield* at("17:01:00")
+            yield* day.alarm
+
+            assert.isTrue(yield* isSealed(day), cutAt)
+            const built = yield* read(fixture.db, UNTR)
+            assert.lengthOf(built.builtDays, 1, cutAt)
+            assert.deepStrictEqual(built.totals, UNTR_BUILT.totals, cutAt)
+            assert.isAbove(lines.length, logged, cutAt)
+            yield* day.evicted
+            const restarted = yield* tradingDay(
+              fixture.sql,
+              [],
+              fixture.db.layer
+            )
+            assert.deepStrictEqual(restarted.alarms, [], cutAt)
+          }
+        })
+      )
   )
 })
 

@@ -125,6 +125,8 @@ export interface Flush {
   readonly chunks: ReadonlyArray<StoredChunk>
   readonly ajaibBooks: ReadonlyArray<StoredAjaibBook>
   readonly facts: Readonly<Record<string, string>>
+  // Further writes, run in the flush's transaction after its rows.
+  readonly alsoWrites?: () => void
   // The book events found since the last flush that landed.
   readonly bookEvents?: ReadonlyArray<BookEvent>
 }
@@ -242,6 +244,10 @@ export const Fact = {
   // cross-check walk.
   brokerCodesN: "broker-codes-n",
   crossCheck: "cross-check",
+  // Whether the day holds codes for every trade 1..N (broker-codes.ts,
+  // `codesComplete`): `true` or `false`, none on a day no batch or seal
+  // wrote it for.
+  codesComplete: "codes-complete",
   // The one-off build of a day's order flow rows (order-flow-build.ts): the
   // last minute it wrote, then ORDER_FLOW_BUILT.
   orderFlowBuilt: "order-flow-built",
@@ -249,15 +255,15 @@ export const Fact = {
   // last minute it wrote, then SWEEP_BROKERS_BUILT, each under
   // SWEEP_BROKERS_SHAPE.
   sweepBrokersBuilt: "sweep-brokers-built",
-  // The broker trades index's rebuild (broker-codes.ts): the last chunk it
-  // indexed, then BROKER_TRADES_BUILT.
-  brokerTrades: "broker-trades",
   // That the object recorded the day's book events (book-event-log.ts): a
   // day without it was recorded before them.
   bookEvents: "book-events",
   // Where the day's tape comes from (trading-day.ts): TapeSource's relay or
   // walk, none while unknown.
   tapeSource: "tape-source",
+  // Whether the broker codes store's tape summary stands for the tape
+  // (broker-codes.ts, `summarizeTape`): TAPE_SUMMARY_BUILT, none until then.
+  tapeSummary: "tape-summary",
   // The day's broker totals build (broker-totals.ts): BROKER_TOTALS_DUE once
   // the sealed day is buildable, then the build version that wrote them.
   brokerTotals: "broker-totals",
@@ -267,11 +273,13 @@ export const Fact = {
   // When each alarm duty is next due (wakes.ts): epoch millis, none once
   // done.
   sealWake: "seal-wake",
-  indexWake: "index-wake",
   buildWake: "build-wake",
+  // The WIB date of the object's last usage line (trading-day.ts,
+  // `usageLine`).
+  usageLogged: "usage-logged",
 } as const
 
-export const BROKER_TRADES_BUILT = "built"
+export const TAPE_SUMMARY_BUILT = "built"
 
 export const ORDER_FLOW_BUILT = "built"
 // Decision: the build's progress and finished value both name the rows'
@@ -432,6 +440,22 @@ export const makeDayStore = (
       return taken
     })
 
+    // What the database counted since the usage was last taken, and its
+    // size; none when it counts nothing. The counts start when the object
+    // wakes, so a restart's first take holds only its own.
+    let usageTaken = { rowsRead: 0, rowsWritten: 0 }
+    const takeUsage = Effect.sync(() => {
+      const usage = sql.usage?.()
+      if (usage === undefined) return undefined
+      const taken = {
+        rowsRead: usage.rowsRead - usageTaken.rowsRead,
+        rowsWritten: usage.rowsWritten - usageTaken.rowsWritten,
+        bytes: usage.bytes,
+      }
+      usageTaken = usage
+      return taken
+    })
+
     // Footprint and heatmap rows are encoded before the transaction, where an
     // Effect can't run.
     const footprintTexts = Effect.fnUntraced(function* (
@@ -559,6 +583,7 @@ export const makeDayStore = (
             JSON.stringify(detail)
           )
         }
+        flush.alsoWrites?.()
       })
       meter.bookEvents += flush.bookEvents?.length ?? 0
       meter.trades += flush.trades.length
@@ -1200,6 +1225,7 @@ export const makeDayStore = (
       chunkOfMinute,
       storedNothing,
       takeMeter,
+      takeUsage,
       orderFlowStorage,
       hasTrade,
       highestTrade,

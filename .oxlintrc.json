@@ -72,7 +72,7 @@
     {
       // The full Effect ban set, tests included. A workspace that moves to
       // Effect adds its globs here; an exception is a later override.
-      "files": ["scripts/**", "packages/server/src/**", "packages/server/tests/**", "packages/client/src/**", "packages/client/tests/**", "packages/deploy/src/**", "packages/deploy/tests/**", "packages/relay/src/**", "packages/relay/tests/**", "apps/extension/src/worker/**", "apps/extension/src/options/**", "apps/extension/tests/**", "apps/web/alchemy.run.ts", "apps/web/src/**", "apps/dashboard/alchemy.run.ts", "apps/dashboard/src/**", "apps/dashboard/tests/*.ts", "apps/dashboard/tests/lib/**", "apps/dashboard/tests/server/**", "apps/dashboard/tests/components/**/*.ts"],
+      "files": ["scripts/**", "packages/server/src/**", "packages/server/tests/**", "packages/client/src/**", "packages/client/tests/**", "packages/deploy/src/**", "packages/deploy/tests/**", "packages/relay/src/**", "packages/relay/tests/**", "apps/extension/src/worker/**", "apps/extension/src/options/**", "apps/extension/tests/**", "apps/web/alchemy.run.ts", "apps/web/src/**", "apps/dashboard/alchemy.run.ts", "apps/dashboard/src/**", "apps/dashboard/billing/**", "apps/dashboard/tests/*.ts", "apps/dashboard/tests/lib/**", "apps/dashboard/tests/server/**", "apps/dashboard/tests/components/**/*.ts"],
       "jsPlugins": ["./scripts/oxlint-plugin.mts"],
       "rules": {
         "no-restricted-imports": ["error", {"paths": [{"name": "cloudflare:workers", "message": "Use the WorkerEnv service from @workspace/server; only its bridge and its Workflow runner reach cloudflare:workers."}, {"name": "zod", "message": "Use Effect Schema (`import { Schema } from \"effect\"`); it is the only schema library."}, {"name": "@effect/schema", "message": "Effect v3 package. Use `Schema` from `effect` (v4)."}, {"name": "@effect/platform", "message": "Effect v3 package. Use the `effect/*` platform modules (v4), e.g. `effect/http/HttpClient`."}, {"name": "@effect/rpc", "message": "Effect v3 package. Use `effect/unstable/rpc` (v4)."}], "patterns": [{"group": ["**/repos/**", "repos/**"], "message": "repos/ is a read-only reference. Import the installed package instead."}, {"group": ["@effect/schema/*", "@effect/platform/*", "@effect/rpc/*"], "message": "Effect v3 package. Use the matching `effect/*` module (v4)."}, {"regex": "^(node:)?fs(/.*)?$", "message": "Use the FileSystem and Path services from `effect` (the platform services layer provides them)."}, {"regex": "^(node:)?child_process$", "message": "Use ChildProcess from `effect/process`. spawner.lines and spawner.string ignore the exit code, so await handle.exitCode."}]}],
@@ -118,7 +118,7 @@
       // reads an Effect accessor such as `Clock.use((now) => now)` as React's
       // `use` hook and fails it; agents hit this in three sessions. A new
       // React-free folder joins this list; until then the rule still runs there.
-      "files": ["scripts/**", "packages/client/**", "packages/deploy/**", "packages/relay/**", "packages/server/**", "apps/extension/src/worker/**", "apps/*/alchemy.run.ts", "apps/*/src/server/**", "apps/*/src/worker.ts", "apps/dashboard/src/routes/api/**"],
+      "files": ["scripts/**", "packages/client/**", "packages/deploy/**", "packages/relay/**", "packages/server/**", "apps/extension/src/worker/**", "apps/*/alchemy.run.ts", "apps/*/src/server/**", "apps/*/src/worker.ts", "apps/dashboard/billing/**", "apps/dashboard/src/routes/api/**"],
       "rules": {
         "react/rules-of-hooks": "off"
       }

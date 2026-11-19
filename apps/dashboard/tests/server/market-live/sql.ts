@@ -39,3 +39,20 @@ export const memorySql = (): Sql => {
     },
   }
 }
+
+// `sql` counting as Cloudflare's does: every row a statement returned as
+// read, and every write statement as one row written.
+export const counted = (sql: Sql): Sql => {
+  const usage = { rowsRead: 0, rowsWritten: 0, bytes: 0 }
+  return {
+    ...sql,
+    exec: (query, ...bindings) => {
+      const rows = sql.exec(query, ...bindings)
+      usage.rowsRead += rows.length
+      if (/^\s*(INSERT|DELETE|UPDATE|REPLACE)/i.test(query))
+        usage.rowsWritten += 1
+      return rows
+    },
+    usage: () => ({ ...usage }),
+  }
+}
