@@ -229,6 +229,10 @@ export const Fact = {
   // done.
   sealWake: "seal-wake",
   buildWake: "build-wake",
+  moveWake: "move-wake",
+  // A sealed day's move to R2 (cold-days.ts, `MoveProgress`): where it
+  // stopped, as JSON; none until it starts.
+  move: "move",
   // The codes whose order books the day records (recorded-books.ts): a JSON
   // array; none on a day recorded before it, which records every code's.
   recordedBooks: "recorded-books",
@@ -868,14 +872,38 @@ export const makeDayStore = (
       return rows
     })
 
+    // The codes a table keyed by (code, minute) holds rows of, ascending.
+    // Decision: a seek per code down the primary key, not a DISTINCT scan:
+    // about one row read a code, where the scan reads every row (about
+    // 13 K book chunks, or every candle). See spec apinrdw/kumora#556,
+    // "The move".
+    const codesOf = (table: "candles" | "book_chunks" | "heatmaps") =>
+      Effect.sync(() =>
+        sql
+          .exec(
+            `WITH RECURSIVE held(code) AS (
+               SELECT min(code) FROM ${table}
+               UNION ALL
+               SELECT (SELECT min(code) FROM ${table} WHERE code > held.code)
+               FROM held WHERE held.code IS NOT NULL
+             )
+             SELECT code FROM held WHERE code IS NOT NULL`
+          )
+          .map((row) => StockCode.make(String(row.code)))
+      )
+
     // The codes with a stored book chunk, and one code's chunks as stored,
     // ascending by minute: what a cold day's books are packed from
     // (cold-books.ts).
-    const bookCodes = Effect.sync(() =>
-      sql
-        .exec("SELECT DISTINCT code FROM book_chunks ORDER BY code")
-        .map((row) => StockCode.make(String(row.code)))
-    )
+    const bookCodes = codesOf("book_chunks")
+
+    // Every code the day holds a candle, book or heatmap of, ascending.
+    const dayCodes = Effect.gen(function* () {
+      const codes = new Set<StockCode>()
+      for (const table of ["candles", "book_chunks", "heatmaps"] as const)
+        for (const code of yield* codesOf(table)) codes.add(code)
+      return [...codes].sort()
+    })
     const storedChunksOf = (code: StockCode) =>
       Effect.sync(() =>
         sql
@@ -957,6 +985,7 @@ export const makeDayStore = (
       livePrice,
       chunkAt,
       bookCodes,
+      dayCodes,
       storedChunksOf,
       heatmapOf,
       latestChunks,

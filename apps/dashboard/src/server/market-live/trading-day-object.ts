@@ -20,11 +20,12 @@ import { brokerTotalsDbD1 } from "../broker-totals/db.ts"
 import { durableSql } from "./durable-sql.ts"
 import { marketClockOffset, withMarketClock } from "./market-clock.ts"
 import type { CodeListStore } from "./code-list.ts"
+import { coldDay, type ColdDay } from "./cold-days.ts"
 import { respond } from "./respond.ts"
-import { objectMove } from "./test-move.ts"
 import {
   AccountId,
   DAY_INDEX,
+  DayIndexColdPath,
   DayIndexPath,
   HeldSessions,
   ObjectPath,
@@ -240,12 +241,61 @@ const recordDay = Effect.fnUntraced(function* (day: RecordedDay) {
     return yield* new IndexRefusedDay({ status: response.status })
 })
 
+// The index didn't take the cold mark; the move's last step is retried.
+class IndexRefusedCold extends Schema.TaggedError<IndexRefusedCold>()(
+  "IndexRefusedCold",
+  { status: Schema.Int }
+) {}
+
+// Marks `date` cold in the day index, once its manifest is written.
+const markCold = Effect.fnUntraced(function* (date: WibDate) {
+  const env = yield* WorkerEnv
+  const index = env.MARKET_LIVE_INDEX.getByName(DAY_INDEX)
+  const response = yield* Effect.tryPromise((): Promise<Response> =>
+    index.fetch(new URL(DayIndexColdPath, "https://day-index.invalid"), {
+      method: "POST",
+      body: date,
+    })
+  )
+  if (!response.ok)
+    return yield* new IndexRefusedCold({ status: response.status })
+})
+
+// Asks `date`'s object to move, if it is due (ObjectPath.move).
+const askMove = Effect.fnUntraced(function* (date: WibDate) {
+  const object = (yield* WorkerEnv).TRADING_DAY.getByName(date)
+  yield* Effect.tryPromise((): Promise<Response> =>
+    object.fetch(new URL(ObjectPath.move, "https://trading-day.invalid"), {
+      method: "POST",
+    })
+  )
+})
+
+// The one storage key an emptied object keeps: its day moved to R2.
+const COLD = "cold"
+
+// Empties the object's storage and keeps the cold mark.
+// Decision: deleteAll() and the mark's put go out with no await between
+// them, so the output gate writes them as one: a restart finds either the
+// day whole or the mark. The alarm goes first, so nothing wakes the emptied
+// object. See spec apinrdw/kumora#556, "The move".
+const emptied = Effect.fnUntraced(function* (storage: DurableObjectStorage) {
+  yield* Effect.promise(() => storage.deleteAlarm())
+  const [deleted, marked] = yield* Effect.sync(
+    () => [storage.deleteAll(), storage.put(COLD, true)] as const
+  )
+  yield* Effect.promise(() => deleted)
+  yield* Effect.promise(() => marked)
+})
+
 // Decision: a plain class, not `DurableObject` from `cloudflare:workers`: the
 // object needs no RPC, and only the bridge may import that module. Each
 // callback runs through the bridge's result runner, which logs any failure.
 export class TradingDayObject {
   private day!: Effect.Success<ReturnType<typeof makeTradingDay>>
   private peerFor!: PeerLookup
+  // An emptied object's answers, its day moved to R2; none while it is hot.
+  private cold: ColdDay | undefined
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -300,20 +350,66 @@ export class TradingDayObject {
             ),
           recordDay,
           brokerTotalsDb: brokerTotalsDbD1,
+          cold: {
+            bucket: env.DAYS_BUCKET,
+            markCold: markCold(date),
+            empty: emptied(ctx.storage),
+            askMove,
+            anyHour: env.MARKET_LIVE_MOVES_ANY_HOUR !== undefined,
+          },
         })
       )
       return { day, peerFor }
+    })
+    // An emptied object makes no day: its store is gone, and a day made on
+    // it would make its tables again.
+    const started = Effect.gen(function* () {
+      if (
+        (yield* Effect.promise(() => ctx.storage.get<boolean>(COLD))) === true
+      )
+        return { cold: coldDay(date, env.DAYS_BUCKET) }
+      return yield* start
     })
     // Cloudflare holds every event until the day is made; a failure resets
     // the object.
     void ctx.blockConcurrencyWhile(() =>
       runServerEffect(
-        start.pipe(Scope.provide(scope), Effect.provide(workerEnv))
-      ).then(({ day, peerFor }) => {
-        this.day = day
-        this.peerFor = peerFor
+        started.pipe(Scope.provide(scope), Effect.provide(workerEnv))
+      ).then((made) => {
+        if ("cold" in made) this.cold = made.cold
+        else {
+          this.day = made.day
+          this.peerFor = made.peerFor
+        }
       })
     )
+  }
+
+  // An emptied object's answer: recorded day GETs from R2, a broker codes
+  // batch taken but not written, the status as the move stored it; to a
+  // poke (a session end, the reconcile cron's build, a move) nothing to do;
+  // and no socket.
+  private coldFetch(cold: ColdDay, request: Request, url: URL) {
+    const recorded = Effect.runSync(recordedDayRequest(url))
+    if (Option.isSome(recorded))
+      return respond(cold.recorded(recorded.value.resource))
+    if (url.pathname === ObjectPath.brokerCodes)
+      return respond(
+        request.method === "POST"
+          ? Effect.flatMap(
+              Effect.promise(() => request.text()),
+              cold.post
+            )
+          : cold.status(url.searchParams)
+      )
+    const poked: ReadonlyArray<string> = [
+      ObjectPath.endSessions,
+      ObjectPath.brokerTotals,
+      ObjectPath.move,
+    ]
+    return new Response(null, {
+      status: poked.includes(url.pathname) ? 204 : 410,
+    })
   }
 
   // Accepts the socket the Worker entry routed here, a viewer's already
@@ -324,6 +420,7 @@ export class TradingDayObject {
   // the reconcile cron's pokes.
   fetch(request: Request): Response | Promise<Response> {
     const url = new URL(request.url)
+    if (this.cold !== undefined) return this.coldFetch(this.cold, request, url)
     const { pathname } = url
     const recorded = Effect.runSync(recordedDayRequest(url))
     if (Option.isSome(recorded))
@@ -352,10 +449,15 @@ export class TradingDayObject {
         )
       )
     }
-    // The Test stage's move route (test-move.ts), the token already checked.
+    // A newer day's seal, or the reconcile cron, asks the day to move.
     if (pathname === ObjectPath.move)
       return respond(
-        withMarketClock(objectMove(decodeDate(this.ctx.id.name), this.day.move))
+        withMarketClock(
+          Effect.map(
+            this.day.move,
+            (moves) => new Response(null, { status: moves ? 202 : 204 })
+          )
+        )
       )
     // The reconcile cron's poke: 202 when the day will build, else 204.
     if (pathname === ObjectPath.brokerTotals)
@@ -393,6 +495,7 @@ export class TradingDayObject {
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
+    if (this.cold !== undefined) return socket.close(1001, "Day moved")
     const text =
       typeof message === "string" ? message : new TextDecoder().decode(message)
     const { day } = this
@@ -411,6 +514,7 @@ export class TradingDayObject {
   // Both the closing socket's state and the others' are read from their
   // attachments, so the first event after hibernation decides the same way.
   webSocketClose(socket: WebSocket) {
+    if (this.cold !== undefined) return undefined
     const tags = this.ctx.getTags(socket)
     if (tags.includes(VIEWER))
       return runServerEffectResult(
@@ -430,8 +534,10 @@ export class TradingDayObject {
     return this.webSocketClose(socket)
   }
 
-  // Set for the seal, 17:00 WIB (trading-day.ts `alarm`).
+  // Set for the seal, 17:00 WIB, and its duties after it (trading-day.ts
+  // `alarm`). An emptied object deleted its alarm.
   alarm() {
+    if (this.cold !== undefined) return undefined
     return runServerEffectResult(withMarketClock(this.day.alarm))
   }
 }

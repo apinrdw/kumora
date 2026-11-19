@@ -4,7 +4,6 @@
 // trade shape.
 import { assert, describe, it } from "@effect/vitest"
 import { TradeNumber, WibDate, type RecordedResource } from "@workspace/relay"
-import { WorkerEnv } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
@@ -101,7 +100,12 @@ const RESOURCES = INSTANTS.flatMap(([time, before]) => [
 // index; the bucket the move writes to.
 const sealedDay = Effect.fnUntraced(function* (sql: Sql) {
   yield* at("09:30:00")
-  const day = yield* tradingDay(sql)
+  const index = yield* makeDayIndex(memorySql())
+  const days = memoryDayBucket()
+  const day = yield* tradingDay(sql, [], undefined, {
+    bucket: days.bucket,
+    markCold: index.markCold(DAY),
+  })
   yield* day.trades(TAPED.map(tradeOf))
   yield* at("17:00:00")
   yield* day.alarm
@@ -115,9 +119,7 @@ const sealedDay = Effect.fnUntraced(function* (sql: Sql) {
         .slice(from, from + 5_000)
         .map((number) => [number, codesOf(number)] as const)
     )
-  const index = yield* makeDayIndex(memorySql())
   yield* index.record({ day: DAY, trades: TAPED.length, gap: true })
-  const days = memoryDayBucket()
   return { day, index, days }
 })
 
@@ -126,14 +128,6 @@ const textOf = (response: Response) => Effect.promise(() => response.text())
 const answered = Effect.fnUntraced(function* (response: Response) {
   return `${response.status} ${yield* textOf(response)}`
 })
-
-// The day's move, with no binding for the index's mark.
-const moved = (sealed: Effect.Success<ReturnType<typeof sealedDay>>) =>
-  sealed.day.day
-    .move({ bucket: sealed.days.bucket, markCold: sealed.index.markCold(DAY) })
-    .pipe(
-      Effect.provideService(WorkerEnv, {} as unknown as WorkerEnv["Service"])
-    )
 
 describe("a cold day's tape and broker codes", () => {
   for (const [shape, sql] of [
@@ -151,7 +145,7 @@ describe("a cold day's tape and broker codes", () => {
           assert.include(hot.at(-4), '"tradeNumber":"10400"')
           assert.include(hot.at(-3), '"buyer":"AK"')
 
-          assert.isTrue(yield* moved(sealed))
+          assert.isTrue(yield* sealed.day.movedToR2)
 
           const blockReads: Array<number> = []
           const cold: Array<string> = []

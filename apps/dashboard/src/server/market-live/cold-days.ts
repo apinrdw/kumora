@@ -1,19 +1,24 @@
 // Cold days in R2 (spec apinrdw/kumora#556, "The layout" and "The move"): a
 // sealed day's finished answers, gzipped, in the stage's recorded days bucket
-// (DAYS_BUCKET in alchemy.run.ts). This module holds the key layout, the move
-// that writes a day's answers and marks it cold, and the read the Worker
-// answers a cold day's GET with (days.ts).
+// (DAYS_BUCKET in alchemy.run.ts). This module holds the key layout, the
+// move's steps that write a day's answers and mark it cold, the read the
+// Worker answers a cold day's GET with (days.ts), and the emptied object's
+// answers (`coldDay`).
 import { gzipSync } from "node:zlib"
 
 import {
   MINUTE_MS,
+  TradeNumber,
+  brokerCodesAfter,
+  decodeBrokerCodesStatus,
+  encodeBrokerCodesStatus,
   ViewerProtocolVersion,
   type RecordedResource,
   type StockCode,
   type WibDate,
 } from "@workspace/relay"
 import type { WorkerEnv } from "@workspace/server"
-import { DateTime, Effect, Schema } from "effect"
+import { DateTime, Effect, Option, Schema } from "effect"
 
 import {
   BOOK_INDEX_BYTES,
@@ -21,7 +26,13 @@ import {
   packBook,
   type StoredBookChunk,
 } from "./cold-books.ts"
-import { coldTapeAnswer, writeTape, type TapeSource } from "./cold-tape.ts"
+import {
+  TapeProgress,
+  coldTapeAnswer,
+  writeTapeRun,
+  type TapeSource,
+} from "./cold-tape.ts"
+import { checkedBatch, noStoreAnswer } from "./broker-codes.ts"
 import { SEALED_CACHE } from "./routes.ts"
 
 // The binding's members the move and the read use; R2Bucket meets this shape
@@ -124,28 +135,15 @@ export interface ColdTarget {
   readonly markCold: Effect.Effect<void, unknown, WorkerEnv>
 }
 
-// Moves a sealed day's answers to R2: each answer, the tape's blocks and
-// index (cold-tape.ts), each code's book (cold-books.ts), then `status.json`,
-// then `manifest.json`, then the index marks the day cold. Each step rewrites the
-// same key, so a move that fails partway leaves the day hot, and a retry is
-// safe. An answer that isn't a 200 (a day with no code list) is not written,
-// so the cold read answers it 404.
-// Decision: per-code views are written for each code the day's list names,
-// the only ones the page asks for; another code answers 404 once cold.
-// SweepBrokers is stored as found, its `complete` included, and cached for
-// good like every cold answer: a cold day takes no more broker codes. See
-// spec apinrdw/kumora#556, "Routing and caching".
-export const moveDay = Effect.fnUntraced(function* (options: {
-  readonly date: WibDate
-  readonly target: ColdTarget
-  // The day's own answer to a recorded day GET (recorded-answers.ts).
+// What a move reads its day through: the day's own answers
+// (recorded-answers.ts), its broker codes status, its tape and its books.
+export interface DayToMove {
   readonly answer: (
     resource: RecordedResource
   ) => Effect.Effect<Response, unknown, WorkerEnv>
-  // The day's broker codes status answer.
   readonly status: Effect.Effect<Response, unknown>
-  // The codes the day's code list names; their views are stored per code.
-  readonly codes: ReadonlyArray<StockCode>
+  // Every code with a view to store, ascending.
+  readonly codes: Effect.Effect<ReadonlyArray<StockCode>, unknown>
   readonly tape: TapeSource
   // The day's stored book chunks, by code (day-store.ts).
   readonly books: {
@@ -154,43 +152,157 @@ export const moveDay = Effect.fnUntraced(function* (options: {
       code: StockCode
     ) => Effect.Effect<ReadonlyArray<StoredBookChunk>>
   }
-}) {
-  const { date, target } = options
-  for (const resource of [
-    ...DAY_RESOURCES,
-    ...options.codes.flatMap(codeResources),
-  ]) {
-    const key = answerKey(date, resource)
-    if (key === undefined) continue
-    const response = yield* options.answer(resource)
-    const text = yield* Effect.promise(() => response.text())
-    if (response.status !== 200) continue
-    yield* put(target.bucket, key, gzipSync(text), "application/json")
+}
+
+// Where a move stopped: the step it runs next and, in a step that walks
+// codes, the last code it wrote. Kept as a fact of the day (trading-day.ts).
+export const MoveProgress = Schema.Union([
+  Schema.TaggedStruct("Answers", { after: Schema.optionalKey(Schema.String) }),
+  Schema.TaggedStruct("Tape", { tape: TapeProgress }),
+  Schema.TaggedStruct("Books", { after: Schema.optionalKey(Schema.String) }),
+  Schema.TaggedStruct("Finish", {}),
+])
+export type MoveProgress = typeof MoveProgress.Type
+
+// Decision: a step per alarm, well under its 30 s of CPU: 250 codes' views
+// (1,000 answers), 50 tape segments (500,000 trades) or 20 codes' books. The
+// busy day moves in 9 runs, about 1.5 s each, 385 K rows read and 19 written
+// (row-budgets.workerd.test.ts). See spec apinrdw/kumora#556, "The move".
+const CODES_PER_RUN = 250
+const SEGMENTS_PER_RUN = 50
+const BOOKS_PER_RUN = 20
+
+// The codes after `after`, at most `limit`, and whether any is left past
+// them.
+const slice = (
+  codes: ReadonlyArray<StockCode>,
+  after: string | undefined,
+  limit: number
+) => {
+  const from =
+    after === undefined ? codes : codes.filter((code) => code > after)
+  return { run: from.slice(0, limit), more: from.length > limit }
+}
+
+// One step of a sealed day's move to R2 from `progress`, answering where
+// the next starts; "Cold" once the index marked it. The steps: the day's
+// answers and each code's views, the tape's blocks and index (cold-tape.ts),
+// each code's book (cold-books.ts), then `status.json`, then
+// `manifest.json`, then the index marks the day cold. Each step rewrites
+// the same keys, so a move that fails partway leaves the day hot, and a
+// retry is safe. An answer that isn't a 200 (a day with no code list) is
+// not written, so the cold read answers it 404.
+// Decision: views are written for each code listed, traded or booked: a
+// walk day has no list, and every day replays with every view; another code
+// answers 404 once cold. SweepBrokers is stored as found, cached for good:
+// a cold day takes no more broker codes. See spec apinrdw/kumora#556,
+// "Routing and caching".
+export const moveStep = (
+  date: WibDate,
+  target: ColdTarget,
+  day: DayToMove,
+  progress: MoveProgress
+) => {
+  const step = { date, bucket: target.bucket, day }
+  switch (progress._tag) {
+    case "Answers":
+      return writeAnswers(step, progress.after)
+    case "Tape":
+      return writeTape(step, progress.tape)
+    case "Books":
+      return writeBooks(step, progress.after)
+    case "Finish":
+      return finish(step, target.markCold)
   }
-  yield* writeTape(answerFolder(date), options.tape, (key, body) =>
-    put(target.bucket, key, body, "application/octet-stream")
+}
+
+// What each step of a move writes from and to.
+interface MoveStep {
+  readonly date: WibDate
+  readonly bucket: DayBucket
+  readonly day: DayToMove
+}
+
+// The day's answers on its first run, and the views of the codes after
+// `after`.
+const writeAnswers = Effect.fnUntraced(function* (
+  { date, bucket, day }: MoveStep,
+  after: string | undefined
+) {
+  const writeAnswer = Effect.fnUntraced(function* (resource: RecordedResource) {
+    const key = answerKey(date, resource)
+    if (key === undefined) return
+    const response = yield* day.answer(resource)
+    const text = yield* Effect.promise(() => response.text())
+    if (response.status !== 200) return
+    yield* put(bucket, key, gzipSync(text), "application/json")
+  })
+  if (after === undefined)
+    for (const resource of DAY_RESOURCES) yield* writeAnswer(resource)
+  const { run, more } = slice(yield* day.codes, after, CODES_PER_RUN)
+  for (const code of run)
+    for (const resource of codeResources(code)) yield* writeAnswer(resource)
+  const next: MoveProgress = more
+    ? { _tag: "Answers", after: run.at(-1)! }
+    : { _tag: "Tape", tape: { segments: [] } }
+  return next
+})
+
+const writeTape = Effect.fnUntraced(function* (
+  { date, bucket, day }: MoveStep,
+  progress: TapeProgress
+) {
+  const tape = yield* writeTapeRun(
+    answerFolder(date),
+    day.tape,
+    (key, body) => put(bucket, key, body, "application/octet-stream"),
+    progress,
+    SEGMENTS_PER_RUN
   )
-  for (const code of yield* options.books.codes)
+  const next: MoveProgress =
+    tape === undefined ? { _tag: "Books" } : { _tag: "Tape", tape }
+  return next
+})
+
+// The books of the codes after `after`.
+const writeBooks = Effect.fnUntraced(function* (
+  { date, bucket, day }: MoveStep,
+  after: string | undefined
+) {
+  const { run, more } = slice(yield* day.books.codes, after, BOOKS_PER_RUN)
+  for (const code of run)
     yield* put(
-      target.bucket,
+      bucket,
       bookKey(date, code),
-      packBook(yield* options.books.chunksOf(code)),
+      packBook(yield* day.books.chunksOf(code)),
       "application/octet-stream"
     )
-  const status = yield* options.status
+  const next: MoveProgress = more
+    ? { _tag: "Books", after: run.at(-1)! }
+    : { _tag: "Finish" }
+  return next
+})
+
+// `status.json`, then `manifest.json`, then the index's mark.
+const finish = Effect.fnUntraced(function* (
+  { date, bucket, day }: MoveStep,
+  markCold: ColdTarget["markCold"]
+) {
+  const status = yield* day.status
   yield* put(
-    target.bucket,
+    bucket,
     statusKey(date),
     yield* Effect.promise(() => status.text()),
     "application/json"
   )
   yield* put(
-    target.bucket,
+    bucket,
     manifestKey(date),
     yield* encodeManifest({ viewerProtocol: ViewerProtocolVersion }),
     "application/json"
   )
-  yield* target.markCold
+  yield* markCold
+  return "Cold" as const
 })
 
 // The stored bytes, sent as they are: the browser decodes the gzip.
@@ -269,3 +381,68 @@ export const coldAnswer = Effect.fnUntraced(function* (
   const stored = yield* Effect.promise(() => bucket.get(key))
   return stored === null ? yield* notStored : yield* storedGzip(stored.body)
 })
+
+// The broker codes status a cold day's status GET answers: the stored final
+// status, its missing ranges listed past `after` as the hot status lists
+// them. None when the move stored none.
+// Decision: the stored status lists the day's first MISSING_RANGES ranges,
+// so past them a cold day lists none: a cold day takes no batch, so its
+// missing ranges only say what will stay missing. See spec
+// apinrdw/kumora#556, "Hot and cold days".
+const storedStatus = Effect.fnUntraced(function* (
+  bucket: DayBucket,
+  date: WibDate,
+  after: number
+) {
+  const stored = yield* Effect.promise(() => bucket.get(statusKey(date)))
+  if (stored === null) return undefined
+  const status = yield* decodeBrokerCodesStatus(
+    yield* Effect.promise(() => new Response(stored.body).text())
+  )
+  return {
+    ...status,
+    missing: status.missing.flatMap(([first, last]) =>
+      Number(last) > after
+        ? [
+            [
+              Number(first) > after
+                ? first
+                : TradeNumber.make(String(after + 1)),
+              last,
+            ] as const,
+          ]
+        : []
+    ),
+  }
+}, Effect.orDie)
+
+// A cold day's object, emptied once its move marked it cold: it answers
+// recorded day GETs from R2, a broker codes batch as taken while writing
+// nothing, and the status GET from the final status the move stored.
+// Decision: the emptied object answers from R2 itself, so a Worker isolate
+// that still counts the day hot for a minute (COLD_DAYS_KEPT_MS in days.ts)
+// reaches the same answers, and the move empties the object as soon as the
+// index marks it cold. See spec apinrdw/kumora#556, "The move".
+export const coldDay = (date: WibDate, bucket: DayBucket) => ({
+  recorded: (resource: RecordedResource) =>
+    Effect.flatMap(coldAnswer(bucket, date, resource), (answer) =>
+      answer === undefined ? notStored : Effect.succeed(answer)
+    ),
+  post: Effect.fnUntraced(function* (text: string) {
+    const batch = yield* checkedBatch(text, date)
+    return batch instanceof Response ? batch : yield* noStoreAnswer(200)
+  }),
+  status: Effect.fnUntraced(function* (search: URLSearchParams) {
+    const after = yield* brokerCodesAfter(search)
+    if (Option.isNone(after)) return yield* noStoreAnswer(400, "Bad after")
+    const status = yield* storedStatus(bucket, date, after.value)
+    if (status === undefined) return yield* noStoreAnswer(404, "Not recorded")
+    return yield* noStoreAnswer(
+      200,
+      yield* Effect.orDie(encodeBrokerCodesStatus(status)),
+      { "Content-Type": "application/json" }
+    )
+  }),
+})
+
+export type ColdDay = ReturnType<typeof coldDay>

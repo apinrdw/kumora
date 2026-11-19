@@ -225,6 +225,35 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
   }
 )
 
+// A move empties the object, so it runs on a busy day of its own.
+layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
+  "row budgets of a move",
+  (it) => {
+    // Spec apinrdw/kumora#556, "Testing Decisions". Measured on the busy
+    // day's chunked tape: 9 alarm runs, 384,945 rows read and 19 written
+    // (a progress fact and a wake a run). Its deleteAll() ran no SQL
+    // statement, so no cursor counted a row: it dropped 352,672 rows, the
+    // database from 84,951,040 bytes to 4,096. The move takes about 13 s
+    // here, about 1.5 s a run, so it gets 60 s on CI's 2 cores.
+    it.effect(
+      "a busy day's move to R2 reads at most 3 M rows and writes at most 50, and its deleteAll() bills no row",
+      () =>
+        Effect.gen(function* () {
+          const { rows, status, answer, tables } =
+            yield* (yield* BusyDay).billed("move")
+          assert.strictEqual(status, 200, answer)
+          const emptied = JSON.parse(answer)
+          assert.isAtMost(rows.rowsRead, 3_000_000)
+          assert.isAtMost(rows.rowsWritten, 50)
+          assert.strictEqual(emptied.rowsRead, 0)
+          assert.strictEqual(emptied.rowsWritten, 0)
+          assert.deepStrictEqual(tables, [])
+        }),
+      60_000
+    )
+  }
+)
+
 // A flush writes trades, so it runs on a busy day of its own.
 layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
   "row budgets of a live flush",

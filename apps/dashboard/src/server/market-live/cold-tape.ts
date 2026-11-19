@@ -80,18 +80,29 @@ export interface TapeSource {
   readonly complete: Effect.Effect<boolean, unknown>
 }
 
-// Writes the day's tape blocks a segment at a time, from the last trade back,
-// then its index. Each put rewrites the same key, so a retry is safe.
-export const writeTape = Effect.fnUntraced(function* (
+// Where a move stopped in the tape: below `before` (from the day's last
+// trade when none), each segment written so far, newest first.
+export const TapeProgress = Schema.Struct({
+  before: Schema.optionalKey(TradeNumber),
+  segments: Schema.Array(Schema.Array(BlockEntry)),
+})
+export type TapeProgress = typeof TapeProgress.Type
+
+// Writes at most `segments` of the day's tape segments from where `progress`
+// stopped, from the last trade back; once the first trade is written, the
+// tape index. Answers where it stopped, none once the index is written.
+// Each put rewrites the same key, so a retry is safe.
+export const writeTapeRun = Effect.fnUntraced(function* (
   folder: string,
   tape: TapeSource,
   put: (
     key: string,
     body: Uint8Array | string
-  ) => Effect.Effect<unknown, unknown>
+  ) => Effect.Effect<unknown, unknown>,
+  progress: TapeProgress,
+  segments: number
 ) {
-  // Each written segment's blocks, ascending; the segments newest first.
-  const segments: Array<Array<BlockEntry>> = []
+  const written = [...progress.segments]
   // The blocks read since the last segment, newest first.
   let held: Array<{ bytes: Uint8Array; first: number; firstTime: number }> = []
   const writeHeld = Effect.gen(function* () {
@@ -115,10 +126,10 @@ export const writeTape = Effect.fnUntraced(function* (
       offset += block.bytes.length
     }
     yield* put(segmentKey(folder, segment), body)
-    segments.push(entries)
+    written.push(entries)
   })
-  let before: TradeNumber | undefined
-  for (;;) {
+  let before = progress.before
+  for (let run = 0; run < segments;) {
     const trades = yield* tape.below(before, TAPE_BLOCK)
     const first = trades[0]
     if (first === undefined) break
@@ -128,18 +139,24 @@ export const writeTape = Effect.fnUntraced(function* (
       first: Number(first.tradeNumber),
       firstTime: DateTime.toEpochMillis(first.time),
     })
-    if (held.length === BLOCKS_PER_SEGMENT) yield* writeHeld
     if (trades.length < TAPE_BLOCK) break
     before = first.tradeNumber
+    if (held.length === BLOCKS_PER_SEGMENT) {
+      yield* writeHeld
+      run++
+      if (run === segments)
+        return { before, segments: written } satisfies TapeProgress
+    }
   }
   if (held.length > 0) yield* writeHeld
   yield* put(
     indexKey(folder),
     yield* encodeIndex({
       complete: yield* tape.complete,
-      blocks: segments.reverse().flat(),
+      blocks: written.reverse().flat(),
     })
   )
+  return undefined
 })
 
 // Each bucket's tape indexes read so far, by key: a cold day's never change.
