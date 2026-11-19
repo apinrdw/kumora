@@ -8,6 +8,7 @@ import { gzipSync } from "node:zlib"
 import {
   ViewerProtocolVersion,
   type RecordedResource,
+  type StockCode,
   type WibDate,
 } from "@workspace/relay"
 import type { WorkerEnv } from "@workspace/server"
@@ -48,15 +49,22 @@ const Manifest = Schema.Struct({ viewerProtocol: Schema.Int })
 const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(Manifest))
 
 // The key of a resource answered by one stored object; none for a resource
-// still answered by the day's object.
-// #577 adds Candles, Sweeps, SweepBrokers and Heatmap here, one object per
-// code; Tape, BrokerCodes (#578) and Book (#579) read ranges instead.
+// still answered by the day's object. Tape, BrokerCodes (#578) and Book
+// (#579) read ranges instead.
 const answerKey = (date: WibDate, resource: RecordedResource) => {
   switch (resource._tag) {
     case "Codes":
       return `${answerFolder(date)}/codes.json.gz`
     case "Gaps":
       return `${answerFolder(date)}/gaps.json.gz`
+    case "Candles":
+      return `${answerFolder(date)}/candles/${resource.code}.json.gz`
+    case "Sweeps":
+      return `${answerFolder(date)}/sweeps/${resource.code}.json.gz`
+    case "SweepBrokers":
+      return `${answerFolder(date)}/sweep-brokers/${resource.code}.json.gz`
+    case "Heatmap":
+      return `${answerFolder(date)}/heatmap/${resource.code}.json.gz`
     default:
       return undefined
   }
@@ -66,6 +74,14 @@ const answerKey = (date: WibDate, resource: RecordedResource) => {
 const DAY_RESOURCES: ReadonlyArray<RecordedResource> = [
   { _tag: "Codes" },
   { _tag: "Gaps" },
+]
+
+// Each code's resources the move writes, one object per view and code.
+const codeResources = (code: StockCode): ReadonlyArray<RecordedResource> => [
+  { _tag: "Candles", code },
+  { _tag: "Sweeps", code },
+  { _tag: "SweepBrokers", code },
+  { _tag: "Heatmap", code },
 ]
 
 // R2 refused a write; the move stops before the day is marked cold.
@@ -97,6 +113,11 @@ export interface ColdTarget {
 // same key, so a move that fails partway leaves the day hot, and a retry is
 // safe. An answer that isn't a 200 (a day with no code list) is not written,
 // so the cold read answers it 404.
+// Decision: per-code views are written for each code the day's list names,
+// the only ones the page asks for; another code answers 404 once cold.
+// SweepBrokers is stored as found, its `complete` included, and cached for
+// good like every cold answer: a cold day takes no more broker codes. See
+// spec apinrdw/kumora#556, "Routing and caching".
 export const moveDay = Effect.fnUntraced(function* (options: {
   readonly date: WibDate
   readonly target: ColdTarget
@@ -106,9 +127,14 @@ export const moveDay = Effect.fnUntraced(function* (options: {
   ) => Effect.Effect<Response, unknown, WorkerEnv>
   // The day's broker codes status answer.
   readonly status: Effect.Effect<Response, unknown>
+  // The codes the day's code list names; their views are stored per code.
+  readonly codes: ReadonlyArray<StockCode>
 }) {
   const { date, target } = options
-  for (const resource of DAY_RESOURCES) {
+  for (const resource of [
+    ...DAY_RESOURCES,
+    ...options.codes.flatMap(codeResources),
+  ]) {
     const key = answerKey(date, resource)
     if (key === undefined) continue
     const response = yield* options.answer(resource)

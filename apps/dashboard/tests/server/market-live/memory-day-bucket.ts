@@ -1,5 +1,6 @@
 // The recorded days bucket (cold-days.ts) in memory: `objects` holds each
-// key's stored bytes, and a key in `refused` fails its put, as R2 down.
+// key's stored bytes, `reads` each key read, in order, and a key in
+// `refused` fails its put, as R2 down.
 import { gunzipSync } from "node:zlib"
 
 import { Effect } from "effect"
@@ -9,6 +10,7 @@ import type { DayBucket } from "@/server/market-live/cold-days"
 export const memoryDayBucket = () => {
   const objects = new Map<string, Uint8Array<ArrayBuffer>>()
   const refused = new Set<string>()
+  const reads: Array<string> = []
   const bucket: DayBucket = {
     put: (key, body) =>
       Effect.runPromise(
@@ -26,6 +28,7 @@ export const memoryDayBucket = () => {
     get: (key) =>
       Effect.runPromise(
         Effect.sync(() => {
+          reads.push(key)
           const stored = objects.get(key)
           return stored === undefined
             ? null
@@ -39,5 +42,5 @@ export const memoryDayBucket = () => {
     if (stored === undefined) return undefined
     return new TextDecoder().decode(gzipped ? gunzipSync(stored) : stored)
   }
-  return { bucket, objects, refused, text }
+  return { bucket, objects, refused, reads, text }
 }
