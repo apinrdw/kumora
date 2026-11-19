@@ -170,11 +170,11 @@ export const makeNewestWins = Effect.sync(() => {
 // apps/dashboard/src/lib/sweeps.ts).
 export const CODES_RECHECK = Duration.seconds(30)
 
-// Decision: a cold day's shown answer is never asked again, complete or not:
-// it is fixed in R2 for good. Cold is read at each recheck from the
-// browser's copy of the strip, so a day that turned cold after that copy is
-// rechecked until it expires at the next seal; a strip that fails to load
-// counts the day hot. See spec apinrdw/kumora#556, "Routing and caching".
+// Decision: a follower stops once an answer it shows is final: complete, or
+// fetched after the strip named the day cold, so served from R2. A hot
+// answer keeps it rechecking; the first recheck that finds cold fetches once
+// more and stops. Cold is read before each fetch from the browser's strip; a
+// strip that fails counts the day hot. See apinrdw/kumora#556 and PR #585.
 const isColdDay = (date: WibDate) =>
   fetchDayStrip().pipe(
     Effect.map((days) => days.some((day) => day.day === date && day.cold)),
@@ -185,13 +185,26 @@ const isColdDay = (date: WibDate) =>
     )
   )
 
+// `fetch`'s answer, and whether it is final: `ends` says so, or the strip
+// named the day cold before the fetch.
+const fetchFinal = <A, E, R>(
+  date: WibDate,
+  fetch: Effect.Effect<A, E, R>,
+  ends: (answer: A) => boolean
+) =>
+  Effect.gen(function* () {
+    const cold = yield* isColdDay(date)
+    const answer = yield* fetch
+    return { answer, final: cold || ends(answer) }
+  })
+
 /**
  * Follows a recorded day's broker codes beside its tape. `ask` fetches the
  * codes for a cursor the tape was just asked for, and shows them unless a
  * later ask's answer is already shown. `recheck` asks again for the latest
- * cursor every 30 s, past the browser's copy, until an answer shown says the
- * day is complete; a failed recheck other than a 401 is logged and the next
- * one goes ahead. A cold day stops at its first answer shown.
+ * cursor every 30 s, past the browser's copy, until an answer shown is
+ * final; a failed recheck other than a 401 is logged and the next one goes
+ * ahead.
  */
 export const makeBrokerCodesFollower = (
   date: WibDate,
@@ -199,24 +212,27 @@ export const makeBrokerCodesFollower = (
 ) =>
   Effect.gen(function* () {
     const newest = yield* makeNewestWins
-    const cold = isColdDay(date)
-    let complete = false
-    let shown = false
+    let final = false
     let latest: DateTime.Utc | undefined
     const ask = (at: DateTime.Utc, fresh = false) =>
       Effect.suspend(() => {
         latest = at
-        return newest(fetchRecordedBrokerCodes(date, at, fresh), (answer) => {
-          complete = answer.complete
-          shown = true
-          show(new Map(answer.codes))
-        })
+        return newest(
+          fetchFinal(
+            date,
+            fetchRecordedBrokerCodes(date, at, fresh),
+            (codes) => codes.complete
+          ),
+          (shown) => {
+            final ||= shown.final
+            show(new Map(shown.answer.codes))
+          }
+        )
       })
     const recheck = Effect.gen(function* () {
-      while (!complete) {
+      while (!final) {
         yield* Effect.sleep(CODES_RECHECK)
-        if (complete || latest === undefined) continue
-        if (shown && (yield* cold)) return
+        if (final || latest === undefined) continue
         yield* ask(latest, true).pipe(
           Effect.catchIf(
             (error) => !Predicate.isTagged(error, "SignInRequired"),
@@ -230,12 +246,11 @@ export const makeBrokerCodesFollower = (
 
 /**
  * Follows one code's sweep brokers on a recorded day: shows the answer, then
- * while it says the day's codes are incomplete asks again every 30 s, past
- * the browser's copy, showing each answer, until one is complete. None
- * answered (a day not recorded) ends it, and so does a cold day's first
- * answer. `show` is told whether another ask follows the answer. A failed
- * ask other than a 401, the first one included, is logged and the next one
- * goes ahead 30 s later.
+ * until an answer is final asks again every 30 s, past the browser's copy,
+ * showing each answer. None answered (a day not recorded) ends it too.
+ * `show` is told whether another ask follows the answer. A failed ask other
+ * than a 401, the first one included, is logged and the next one goes ahead
+ * 30 s later.
  */
 export const followSweepBrokers = (
   date: WibDate,
@@ -243,20 +258,16 @@ export const followSweepBrokers = (
   show: (answer: RecordedSweepBrokers, asksAgain: boolean) => void
 ) =>
   Effect.gen(function* () {
-    const cold = isColdDay(date)
-    let done = false
+    let final = false
     const ask = (fresh: boolean) =>
-      fetchRecordedSweepBrokers(date, code, fresh).pipe(
-        Effect.flatMap((answer) => {
-          if (Option.isNone(answer)) return Effect.succeed(true)
-          const { value } = answer
-          return Effect.tap(
-            value.complete ? Effect.succeed(true) : cold,
-            (ends) => Effect.sync(() => show(value, !ends))
-          )
-        }),
-        Effect.map((ends) => {
-          done = ends
+      fetchFinal(
+        date,
+        fetchRecordedSweepBrokers(date, code, fresh),
+        Option.match({ onNone: () => true, onSome: (value) => value.complete })
+      ).pipe(
+        Effect.map((shown) => {
+          final = shown.final
+          if (Option.isSome(shown.answer)) show(shown.answer.value, !final)
         }),
         Effect.catchIf(
           (error) => !Predicate.isTagged(error, "SignInRequired"),
@@ -264,7 +275,7 @@ export const followSweepBrokers = (
         )
       )
     yield* ask(false)
-    while (!done) {
+    while (!final) {
       yield* Effect.sleep(CODES_RECHECK)
       yield* ask(true)
     }
