@@ -337,6 +337,30 @@ describe("following a recorded day's broker codes", () => {
     }
   )
 
+  it.effect(
+    "asks once more past the browser's copy for a day that turns cold as its answer comes back",
+    () => {
+      const codesFrom = codesWorker({ delay: () => Duration.seconds(5) })
+      return Effect.gen(function* () {
+        const shown: Array<RecordedTradeCodes> = []
+        const codes = yield* makeBrokerCodesFollower(DAY, (answer) =>
+          shown.push(answer)
+        )
+        yield* Effect.forkChild(codes.recheck)
+        yield* Effect.forkChild(codes.ask(second(1)))
+        yield* TestClock.adjust("1 second")
+        codesFrom.turnCold()
+        yield* TestClock.adjust("30 seconds")
+        yield* TestClock.adjust("5 minutes")
+        assert.deepStrictEqual(codesFrom.asked, [
+          { at: DateTime.toEpochMillis(second(1)), fresh: false },
+          { at: DateTime.toEpochMillis(second(1)), fresh: true },
+        ])
+        assert.deepStrictEqual(buyersShown(shown), ["BK", "BK"])
+      }).pipe(Effect.provideService(HttpClient.HttpClient, codesFrom.client))
+    }
+  )
+
   it.effect("a failed first ask is asked again by the recheck", () => {
     const codesFrom = codesWorker({ completeFrom: 2, failing: 1 })
     return Effect.gen(function* () {
