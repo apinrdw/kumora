@@ -22,12 +22,16 @@ import { holdingsDbD1 } from "../holdings/db.ts"
 import { sectorsRoute } from "../sectors/map.ts"
 import { specialBoardRoute } from "../special-board/list.ts"
 import { brokerCodesRoute } from "./broker-codes-route.ts"
-import { dayStripRoute, recordedDayRoute } from "./days.ts"
+import { dayStripRoute, makeColdDays, recordedDayRoute } from "./days.ts"
 import { gateLiveViewer } from "./gate.ts"
 import { marketClockOffset, marketToday } from "./market-clock.ts"
 import { ObjectPath, SessionEnd, ViewerHeader } from "./routes.ts"
 
 const encodeSessionEnd = Schema.encodeSync(SessionEnd)
+
+// The isolate's cold days, kept across its requests (days.ts). Plain data,
+// no I/O object, so it outlives the request that loaded it.
+const coldDays = Effect.runSync(makeColdDays)
 
 const toTradingDay = Effect.fnUntraced(function* (
   path: (typeof ObjectPath)[keyof typeof ObjectPath],
@@ -121,9 +125,13 @@ export const marketLiveRoute = Effect.fnUntraced(function* (request: Request) {
   const recorded = yield* recordedDayRequest(url)
   if (Option.isSome(recorded))
     return Option.some(
-      recordedDayRoute(request, url, recorded.value.date).pipe(
-        Effect.provide(Auth.layer)
-      )
+      recordedDayRoute(
+        request,
+        url,
+        recorded.value.date,
+        recorded.value.resource,
+        coldDays
+      ).pipe(Effect.provide(Auth.layer))
     )
   return Option.none()
 })

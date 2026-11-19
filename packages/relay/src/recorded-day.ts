@@ -562,7 +562,10 @@ export const bookAt = (chunk: BookChunk, cursor: DateTime.Utc) =>
 // One sealed day in the strip: IHSG's close and change when the day had an
 // IHSG frame whose change was known (an index's frames carry no previous
 // close, so one with neither a change nor a previous close records nothing),
-// how many trades it recorded, and whether it had a relay gap.
+// how many trades it recorded, whether it had a relay gap, and whether it is
+// a cold day, its answers in R2: absent while it is hot. The day index sets
+// `cold` in SQL as it reads the strip (`strip` in
+// apps/dashboard/src/server/market-live/day-index.ts).
 const RecordedDay = Schema.Struct({
   day: WibDate,
   ihsg: Schema.optionalKey(
@@ -574,6 +577,7 @@ const RecordedDay = Schema.Struct({
   ),
   trades: Schema.Int,
   gap: Schema.Boolean,
+  cold: Schema.optionalKey(Schema.Literal(true)),
 })
 export type RecordedDay = typeof RecordedDay.Type
 

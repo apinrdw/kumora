@@ -257,6 +257,84 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
   }
 )
 
+// A move empties the object, so it runs on a busy day of its own. It moves
+// to alchemy's local R2 (Miniflare's R2, as `alchemy dev` runs it).
+layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
+  "row budgets of a move",
+  (it) => {
+    // Spec apinrdw/kumora#556, "Testing Decisions". Measured on the busy
+    // day's chunked tape: 9 alarm runs, 384,945 rows read and 19 written
+    // (a progress fact and a wake a run). Its deleteAll() ran no SQL
+    // statement, so no cursor counted a row: it dropped 352,672 rows, the
+    // database from 84,951,040 bytes to 4,096. The move takes about 13 s
+    // here, about 1.5 s a run, so it gets 60 s on CI's 2 cores.
+    // Spec apinrdw/kumora#556: for a day moved to a local R2, every
+    // recorded-day answer from R2 equals the object's answer, the tape's read
+    // by range.
+    it.effect(
+      "a busy day's move to R2 reads at most 3 M rows and writes at most 50, its deleteAll() bills no row, and R2 answers as the object did",
+      () =>
+        Effect.gen(function* () {
+          const { rows, emptied, tables, checks, values } =
+            yield* (yield* BusyDay).moved
+          assert.isAtMost(rows.rowsRead, 3_000_000)
+          assert.isAtMost(rows.rowsWritten, 50)
+          assert.strictEqual(emptied.rowsRead, 0)
+          assert.strictEqual(emptied.rowsWritten, 0)
+          assert.deepStrictEqual(tables, [])
+          // A 404 is sent as Not recorded, whatever the object said: the
+          // busy day has no code list, which its object answers in its own
+          // words, and the move stores no answer but a 200 (cold-days.ts).
+          for (const { resource, hot, cold } of checks)
+            if (hot.status === 200) assert.deepStrictEqual(cold, hot, resource)
+            else assert.strictEqual(cold.status, hot.status, resource)
+          assert.deepStrictEqual(
+            checks.map(({ resource, hot }) => `${resource} ${hot.status}`),
+            [
+              "Codes 404",
+              "Gaps 200",
+              "Tape 200",
+              "Tape 200",
+              "Tape 200",
+              "BrokerCodes 200",
+              "BrokerCodes 200",
+              "Candles 200",
+              "Sweeps 200",
+              "SweepBrokers 200",
+              "Heatmap 200",
+              "Book 200",
+              "Book 200",
+              "Book 404",
+              "BookEvents 200",
+            ]
+          )
+          // The busy day's codes each found book events (PR #588's 30 a
+          // code), so this answer comes from the code's own stored object.
+          assert.include(checks[14]!.cold.body, '"recorded":true,"events":[{')
+          assert.strictEqual(values.hot.status, 200)
+          assert.deepStrictEqual(values.cold, values.hot)
+          assert.include(checks[2]!.cold.body, '"tradeNumber":"1460000"')
+          // Each tape answer reads the index once, kept after, and its
+          // blocks by range: at most two.
+          for (const { resource, gets } of checks.filter((check) =>
+            ["Tape", "BrokerCodes"].includes(check.resource)
+          )) {
+            const ranged = gets.filter((get) => get.includes("+"))
+            assert.isAtLeast(ranged.length, 1, resource)
+            assert.isAtMost(ranged.length, 2, resource)
+          }
+          assert.lengthOf(
+            checks.flatMap(({ gets }) =>
+              gets.filter((get) => get.endsWith("tape/index.json"))
+            ),
+            1
+          )
+        }),
+      60_000
+    )
+  }
+)
+
 // A flush writes trades, so it runs on a busy day of its own.
 layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
   "row budgets of a live flush",

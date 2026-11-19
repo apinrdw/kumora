@@ -1,13 +1,19 @@
 // The row budgets' day object in workerd, where every SQL cursor counts the
 // rows Cloudflare bills (docs/research/do-sql-billing.md on branch
 // research/do-sql-billing, "How the counters work"). The layer bundles
-// billing/worker.ts, runs it in the installed workerd on a temporary disk,
-// builds the busy day (billing/busy-day.ts) once, and stops workerd when the
-// tests are done.
+// billing/worker.ts, runs it in the installed workerd on a temporary disk
+// beside alchemy's local R2 (the one `alchemy dev` runs), builds the busy day
+// (billing/busy-day.ts) once, and stops workerd when the tests are done.
 import { request as httpRequest } from "node:http"
 import { createServer } from "node:net"
 
 import { NodeServices } from "@effect/platform-node"
+import { loadInternalWorker } from "@alchemy.run/cloudflare-runtime/core/internal/internal-worker"
+import {
+  BINDING_R2_BLOBS,
+  BINDING_R2_OBJECT,
+  R2_OBJECT_CLASS_NAME,
+} from "@alchemy.run/cloudflare-runtime/core/bindings/r2-bucket/R2BucketOptions"
 import {
   Context,
   Effect,
@@ -68,6 +74,31 @@ const decodeWholeDay = Schema.decodeUnknownEffect(
   Schema.fromJsonString(WholeDay)
 )
 
+// An answer as the browser reads it: its status and body.
+const ReadBack = Schema.Struct({ status: Schema.Number, body: Schema.String })
+
+// What a move to R2 billed: its rows and alarm runs, what its deleteAll()
+// billed, the tables left, and each checked resource's answer from the
+// object before the move and from R2 after it, with the gets R2 served for
+// it (`key` or `key offset+length`), and its values before and after.
+const Moved = Schema.Struct({
+  rows: Rows,
+  runs: Schema.Number,
+  emptied: Schema.Record(Schema.String, Schema.Number),
+  tables: Schema.Array(Schema.String),
+  checks: Schema.Array(
+    Schema.Struct({
+      resource: Schema.String,
+      hot: ReadBack,
+      cold: ReadBack,
+      gets: Schema.Array(Schema.String),
+    })
+  ),
+  // The day's answer to the next trading day's ask for its values.
+  values: Schema.Struct({ hot: ReadBack, cold: ReadBack }),
+})
+
+const decodeMoved = Schema.decodeUnknownEffect(Schema.fromJsonString(Moved))
 const decodeBilled = Schema.decodeUnknownEffect(Schema.fromJsonString(Billed))
 const decodeBuilt = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Struct({ ms: Schema.Number }))
@@ -114,16 +145,23 @@ const freePort = Effect.callback<number>((resume) => {
   })
 })
 
+// The local R2 worker's one module, as alchemy ships it.
+const R2_MODULE = "r2/R2Bucket.worker.mjs"
+
 // Decision: the research harness's config: one SQLite-backed namespace on a
 // local disk, since in-memory storage is not SQLite-backed. The compatibility
-// date is the installed workerd's own, which has nodejs_compat on.
+// date is the installed workerd's own, which has nodejs_compat on. The DAYS
+// bucket is alchemy's local R2 service, wired as its R2Bucket.ts wires it: a
+// Durable Object for each bucket's keys and a disk for their bodies.
 const config = (
   port: number
 ) => `using Workerd = import "/workerd/workerd.capnp";
 
 const config :Workerd.Config = (
   services = [ (name = "main", worker = .billing),
-               (name = "disk", disk = (path = "dodata", writable = true)) ],
+               (name = "disk", disk = (path = "dodata", writable = true)),
+               (name = "r2", worker = .r2),
+               (name = "r2-storage", disk = (path = "r2data", writable = true)) ],
   sockets = [ (name = "http", address = "127.0.0.1:${port}", http = (), service = "main") ],
 );
 
@@ -132,7 +170,17 @@ const billing :Workerd.Worker = (
   compatibilityDate = "${compatibilityDate}",
   durableObjectNamespaces = [ (className = "BillingDay", uniqueKey = "billing", enableSql = true) ],
   durableObjectStorage = (localDisk = "disk"),
-  bindings = [ (name = "DAY", durableObjectNamespace = "BillingDay") ],
+  bindings = [ (name = "DAY", durableObjectNamespace = "BillingDay"),
+               (name = "DAYS", r2Bucket = (name = "r2", props = (json = "{\\"bucketName\\":\\"days\\"}"))) ],
+);
+
+const r2 :Workerd.Worker = (
+  modules = [ (name = "r2", esModule = embed "${R2_MODULE}") ],
+  compatibilityDate = "${compatibilityDate}",
+  durableObjectNamespaces = [ (className = "${R2_OBJECT_CLASS_NAME}", uniqueKey = "r2", enableSql = true, preventEviction = true) ],
+  durableObjectStorage = (localDisk = "r2-storage"),
+  bindings = [ (name = "${BINDING_R2_OBJECT}", durableObjectNamespace = "${R2_OBJECT_CLASS_NAME}"),
+               (name = "${BINDING_R2_BLOBS}", service = "r2-storage") ],
 );
 `
 
@@ -152,6 +200,8 @@ export class BusyDay extends Context.Service<
     // A whole busy day recorded on an object of its own
     // (billing/whole-day.ts), and what it billed.
     readonly wholeDay: Effect.Effect<typeof WholeDay.Type>
+    // The busy day moved to the local R2: it empties the busy day's object.
+    readonly moved: Effect.Effect<typeof Moved.Type>
   }
 >()("BusyDay") {
   static readonly layer = Layer.effect(
@@ -162,6 +212,17 @@ export class BusyDay extends Context.Service<
       const dir = yield* fs.makeTempDirectoryScoped({ prefix: "row-budgets-" })
       yield* bundle(path.join(dir, "out"))
       yield* fs.makeDirectory(path.join(dir, "dodata"))
+      yield* fs.makeDirectory(path.join(dir, "r2data"))
+      yield* fs.makeDirectory(path.join(dir, "r2"))
+      const r2Worker = yield* Effect.promise(() =>
+        loadInternalWorker(
+          "#cloudflare-runtime-core-worker/bindings/r2-bucket/R2Bucket.worker"
+        )
+      )
+      yield* fs.writeFileString(
+        path.join(dir, R2_MODULE),
+        r2Worker.modules[r2Worker.main]!
+      )
       const port = yield* freePort
       yield* fs.writeFileString(path.join(dir, "config.capnp"), config(port))
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -199,6 +260,10 @@ export class BusyDay extends Context.Service<
       )
       return {
         builtInMs: built.ms,
+        moved: ask("/moved", { method: "POST" }).pipe(
+          Effect.flatMap(decodeMoved),
+          Effect.orDie
+        ),
         billed: (operation: OperationName) =>
           ask(`/billed?operation=${encodeURIComponent(operation)}`).pipe(
             Effect.flatMap(decodeBilled),

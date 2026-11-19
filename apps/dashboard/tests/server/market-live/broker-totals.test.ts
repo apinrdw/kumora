@@ -608,9 +608,7 @@ describe("a built day's correction", () => {
         yield* at("18:05:00")
         yield* day.alarm
         const restarted = yield* tradingDay(sql, [], db.layer)
-        const status = yield* restarted.day.brokerCodes.status(
-          new URLSearchParams()
-        )
+        const status = yield* restarted.status()
         const answer = yield* decodeBrokerCodesStatus(
           yield* Effect.promise(() => status.text())
         )

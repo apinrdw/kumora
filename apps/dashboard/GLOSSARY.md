@@ -309,6 +309,17 @@ _Avoid_: Market status, session (for the whole day)
 A past trading day the terminal kept, fixed after the day closes, that a viewer can replay.
 _Avoid_: History, archive day
 
+**Hot day**:
+A recorded day whose broker codes can still change: not yet complete, and among the newest ten trading days.
+
+**Cold day**:
+A recorded day whose walk is done, or one older than ten trading days. It is fixed for good, takes no more broker codes, and is replayed the same way.
+_Avoid_: Archive day, archived day
+
+**Move**:
+How a hot day turns cold: after the day ends and outside streaming hours, its views are stored as they will be replayed, then it is marked cold. From the moment its move starts it takes no more broker codes. Each night the newest hot days are asked to move, then a few older ones, oldest first; a day not yet due is asked again the next night.
+_Avoid_: archiving, migration
+
 **Relay gap**:
 A stretch of a market phase that expects trades during which no feed was arriving, so the terminal holds no trades for it. Shown as not recorded, both live and on a recorded day. "Not recorded" also marks a code's order book and book heatmap on a day that never recorded that code's order book: that is not a relay gap. One feed dropping while the other still arrives is not a relay gap, and neither is a delayed feed.
 _Avoid_: Outage, missing data

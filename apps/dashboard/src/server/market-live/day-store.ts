@@ -18,6 +18,7 @@ import {
 import { DateTime, Effect, Schema } from "effect"
 
 import type { DaySums, MinuteFigures, StoredBubbles } from "./bubble-book.ts"
+import type { StoredBookChunk } from "./cold-books.ts"
 import type {
   FootprintRow,
   StoredCandle,
@@ -273,6 +274,10 @@ export const Fact = {
   // done.
   sealWake: "seal-wake",
   buildWake: "build-wake",
+  moveWake: "move-wake",
+  // A sealed day's move to R2 (cold-days.ts, `MoveProgress`): where it
+  // stopped, as JSON; none until it starts.
+  move: "move",
   // The codes whose order books the day records (recorded-books.ts): a JSON
   // array; none on a day recorded before it, which records every code's.
   recordedBooks: "recorded-books",
@@ -995,6 +1000,62 @@ export const makeDayStore = (
       return rows
     })
 
+    // The codes a table keyed by code first holds rows of, ascending.
+    // Decision: a seek per code down the primary key, not a DISTINCT scan:
+    // about one row read a code, where the scan reads every row (about
+    // 13 K book chunks, or every candle). See spec apinrdw/kumora#556,
+    // "The move".
+    const codesOf = (
+      table: "candles" | "book_chunks" | "heatmaps" | "book_events"
+    ) =>
+      Effect.sync(() =>
+        sql
+          .exec(
+            `WITH RECURSIVE held(code) AS (
+               SELECT min(code) FROM ${table}
+               UNION ALL
+               SELECT (SELECT min(code) FROM ${table} WHERE code > held.code)
+               FROM held WHERE held.code IS NOT NULL
+             )
+             SELECT code FROM held WHERE code IS NOT NULL`
+          )
+          .map((row) => StockCode.make(String(row.code)))
+      )
+
+    // The codes with a stored book chunk, and one code's chunks as stored,
+    // ascending by minute: what a cold day's books are packed from
+    // (cold-books.ts).
+    const bookCodes = codesOf("book_chunks")
+
+    // The codes with a stored book event, ascending.
+    const bookEventCodes = codesOf("book_events")
+
+    // Every code the day holds a candle, book, heatmap or book event of,
+    // ascending.
+    const dayCodes = Effect.gen(function* () {
+      const codes = new Set<StockCode>()
+      for (const table of [
+        "candles",
+        "book_chunks",
+        "heatmaps",
+        "book_events",
+      ] as const)
+        for (const code of yield* codesOf(table)) codes.add(code)
+      return [...codes].sort()
+    })
+    const storedChunksOf = (code: StockCode) =>
+      Effect.sync(() =>
+        sql
+          .exec(
+            "SELECT minute, chunk FROM book_chunks WHERE code = ? ORDER BY minute",
+            code
+          )
+          .map((row): StoredBookChunk => ({
+            minute: Number(row.minute),
+            chunk: row.chunk as Uint8Array,
+          }))
+      )
+
     // Every code's latest chunk: the books a restarted object starts from.
     const latestChunks = Effect.suspend(() =>
       Effect.forEach(
@@ -1071,6 +1132,10 @@ export const makeDayStore = (
       livePrices,
       livePrice,
       chunkAt,
+      bookCodes,
+      bookEventCodes,
+      dayCodes,
+      storedChunksOf,
       heatmapOf,
       bookEventsOf,
       newestBookEvents,

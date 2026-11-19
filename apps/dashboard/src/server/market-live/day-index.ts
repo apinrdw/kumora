@@ -8,6 +8,7 @@ import {
   sealInstant,
   wibDateAt,
   type RecordedDay,
+  type WibDate,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
@@ -30,6 +31,13 @@ export const makeDayIndex = (sql: Sql) =>
     sql.exec(
       "CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, row TEXT NOT NULL) WITHOUT ROWID"
     )
+    // Decision: the cold days in a table of their own, not a field of the
+    // seal's row, so a retried seal that replaces the row keeps the flag,
+    // and the days table needs no new column. See spec apinrdw/kumora#556,
+    // "Routing and caching".
+    sql.exec(
+      "CREATE TABLE IF NOT EXISTS cold_days (day TEXT PRIMARY KEY) WITHOUT ROWID"
+    )
 
     // A day's row, as its seal wrote it; a retried seal replaces it.
     const record = Effect.fnUntraced(function* (day: RecordedDay) {
@@ -37,9 +45,19 @@ export const makeDayIndex = (sql: Sql) =>
       sql.exec("INSERT OR REPLACE INTO days VALUES (?, ?)", day.day, encoded)
     })
 
-    // Every sealed day, newest first.
+    // A day whose move to R2 wrote its manifest (cold-days.ts); marking it
+    // again changes nothing.
+    const markCold = (day: WibDate) =>
+      Effect.sync(() => {
+        sql.exec("INSERT OR IGNORE INTO cold_days VALUES (?)", day)
+      })
+
+    // Every sealed day, newest first, a cold one carrying `cold`, the strip
+    // field `RecordedDay` names in packages/relay/src/recorded-day.ts.
     const strip = Effect.gen(function* () {
-      const rows = sql.exec("SELECT row FROM days ORDER BY day DESC")
+      const rows = sql.exec(
+        "SELECT CASE WHEN cold_days.day IS NULL THEN days.row ELSE json_set(days.row, '$.cold', json('true')) END AS row FROM days LEFT JOIN cold_days USING (day) ORDER BY days.day DESC"
+      )
       const now = yield* DateTime.now
       const expires = yield* stripExpiresAfter(now)
       const body = `{"days":[${rows.map((row) => String(row.row)).join(",")}]}`
@@ -51,5 +69,5 @@ export const makeDayIndex = (sql: Sql) =>
       })
     })
 
-    return { record, strip }
+    return { record, markCold, strip }
   })

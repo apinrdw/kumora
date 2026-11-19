@@ -107,7 +107,7 @@ const answersOf = Effect.fnUntraced(function* (
       `${JSON.stringify(resource)} ${response.status} ${yield* Effect.promise(() => response.text())}`
     )
   }
-  const status = yield* day.day.brokerCodes.status(new URLSearchParams())
+  const status = yield* day.status()
   answers.push(`status ${yield* Effect.promise(() => status.text())}`)
   return answers
 })

@@ -142,7 +142,9 @@ const tradingDay = Effect.fnUntraced(function* (
   })
   // The status GET's answer, with the GET's query.
   const statusAnswer = Effect.fnUntraced(function* (search = "") {
-    const response = yield* day.brokerCodes.status(new URLSearchParams(search))
+    const response = yield* day.brokerCodes
+      .status(new URLSearchParams(search))
+      .pipe(Effect.provide(env))
     assert.strictEqual(response.headers.get("Cache-Control"), "no-store")
     return {
       code: response.status,
@@ -700,7 +702,9 @@ describe("a sealed day", () => {
         ]
         const answers = Effect.forEach(resources, (resource) =>
           Effect.gen(function* () {
-            const response = yield* day.day.recorded(resource)
+            const response = yield* day.day
+              .recorded(resource)
+              .pipe(Effect.provide(env))
             return {
               status: response.status,
               headers: [...response.headers.entries()],
@@ -709,10 +713,12 @@ describe("a sealed day", () => {
           })
         )
         const before = yield* answers
-        const codesAt = day.day.recorded({
-          _tag: "BrokerCodes",
-          at: wib("17:00:00"),
-        })
+        const codesAt = day.day
+          .recorded({
+            _tag: "BrokerCodes",
+            at: wib("17:00:00"),
+          })
+          .pipe(Effect.provide(env))
         yield* codesAt
 
         yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
@@ -774,10 +780,12 @@ describe("the trades a sealed tape lacks", () => {
     )
   const codesComplete = (day: Effect.Success<typeof holedDay>) =>
     Effect.gen(function* () {
-      const response = yield* day.day.recorded({
-        _tag: "BrokerCodes",
-        at: wib("17:00:00"),
-      })
+      const response = yield* day.day
+        .recorded({
+          _tag: "BrokerCodes",
+          at: wib("17:00:00"),
+        })
+        .pipe(Effect.provide(env))
       const text = yield* Effect.promise(() => response.text())
       return (yield* decodeRecordedBrokerCodes(text)).complete
     })
@@ -868,7 +876,7 @@ describe("a recorded day's broker codes answer", () => {
     day: SealedDay,
     resource: RecordedResource
   ) {
-    const response = yield* day.day.recorded(resource)
+    const response = yield* day.day.recorded(resource).pipe(Effect.provide(env))
     assert.strictEqual(response.status, 200)
     return {
       cache: response.headers.get("Cache-Control"),
@@ -1018,10 +1026,12 @@ describe("a day's codes-complete fact", () => {
   const completeOf = Effect.fnUntraced(function* (
     day: Effect.Success<ReturnType<typeof tradingDay>>
   ) {
-    const response = yield* day.day.recorded({
-      _tag: "BrokerCodes",
-      at: CURSOR,
-    })
+    const response = yield* day.day
+      .recorded({
+        _tag: "BrokerCodes",
+        at: CURSOR,
+      })
+      .pipe(Effect.provide(env))
     const text = yield* Effect.promise(() => response.text())
     return (yield* decodeRecordedBrokerCodes(text)).complete
   })
@@ -1410,7 +1420,7 @@ describe("a day with no tape", () => {
     day: HistoryDay,
     resource: RecordedResource
   ) {
-    const response = yield* day.day.recorded(resource)
+    const response = yield* day.day.recorded(resource).pipe(Effect.provide(env))
     return {
       status: response.status,
       text: yield* Effect.promise(() => response.text()),
@@ -1750,10 +1760,12 @@ describe("a day with no tape", () => {
         const tapeNumbers = Effect.fnUntraced(function* (
           day: Effect.Success<ReturnType<typeof tradingDay>>
         ) {
-          const response = yield* day.day.recorded({
-            _tag: "Tape",
-            at: wib("17:00:00"),
-          })
+          const response = yield* day.day
+            .recorded({
+              _tag: "Tape",
+              at: wib("17:00:00"),
+            })
+            .pipe(Effect.provide(env))
           const text = yield* Effect.promise(() => response.text())
           return (yield* decodeRecordedTape(text)).trades.map(
             (trade) => `${trade.tradeNumber} ${trade.feeds.join()}`
@@ -1787,10 +1799,12 @@ describe("a day with no tape", () => {
         const tapeCache = Effect.fnUntraced(function* (
           day: Effect.Success<ReturnType<typeof tradingDay>>
         ) {
-          const response = yield* day.day.recorded({
-            _tag: "Tape",
-            at: wib("17:00:00"),
-          })
+          const response = yield* day.day
+            .recorded({
+              _tag: "Tape",
+              at: wib("17:00:00"),
+            })
+            .pipe(Effect.provide(env))
           return response.headers.get("Cache-Control")
         })
         yield* TestClock.setTime(wib("12:00:00").epochMilliseconds)
@@ -1955,7 +1969,9 @@ describe("a day recorded with the broker trades index", () => {
     ]
     const recordedAnswers = yield* Effect.forEach(resources, (resource) =>
       Effect.gen(function* () {
-        const response = yield* day.day.recorded(resource)
+        const response = yield* day.day
+          .recorded(resource)
+          .pipe(Effect.provide(env))
         return {
           status: response.status,
           headers: [...response.headers.entries()],

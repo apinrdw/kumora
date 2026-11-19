@@ -7,7 +7,11 @@ import { WibDate, recordedDayRequest } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
 import { Effect, Layer, Option } from "effect"
 
-import { dayStripRoute, recordedDayRoute } from "@/server/market-live/days"
+import {
+  dayStripRoute,
+  makeColdDays,
+  recordedDayRoute,
+} from "@/server/market-live/days"
 
 import { cookiesFrom, linkIn, seam, send, signUp } from "../auth/seam.ts"
 
@@ -20,17 +24,28 @@ const BUBBLES = "/market-live/days/2026-11-06/bubbles"
 // A sealed answer, as the object sends it.
 const SEALED = "private, max-age=31536000, immutable"
 
-const objects = () => {
+// The index's strip GET, as it reaches the index object.
+const STRIP = {
+  name: "MARKET_LIVE_INDEX:index",
+  url: "https://market-live.invalid/days",
+}
+
+// The day's object and the index; the index's fetch rejects, as during a
+// reset, when `indexRejects` says so.
+const objects = (indexRejects: boolean) => {
   const reached: Array<{ readonly name: string; readonly url: string }> = []
   const stub = (binding: string) => ({
     getByName: (name: string) => ({
       fetch: (url: URL) => {
         reached.push({ name: `${binding}:${name}`, url: url.href })
+        if (indexRejects && binding === "MARKET_LIVE_INDEX")
+          return Effect.runPromise(Effect.fail(new Error("Object reset")))
         return Effect.runPromise(
           Effect.succeed(
-            new Response('{"trades":[]}', {
-              headers: { "Cache-Control": SEALED },
-            })
+            new Response(
+              binding === "MARKET_LIVE_INDEX" ? '{"days":[]}' : '{"trades":[]}',
+              { headers: { "Cache-Control": SEALED } }
+            )
           )
         )
       },
@@ -43,23 +58,26 @@ const objects = () => {
   return { reached, env }
 }
 
-const setup = Effect.fnUntraced(function* () {
+const setup = Effect.fnUntraced(function* (indexRejects = false) {
   const { layer, mails } = seam()
-  const { reached, env } = objects()
+  const { reached, env } = objects(indexRejects)
   const layers = Layer.merge(layer, env)
-  const get = (
+  const coldDays = yield* makeColdDays
+  const get = Effect.fnUntraced(function* (
     path: string,
     headers: Record<string, string> = {},
     method = "GET"
-  ) => {
+  ) {
     const request = new Request(`https://kumora.test${path}`, {
       method,
       headers,
     })
-    return recordedDayRoute(request, new URL(request.url), DAY).pipe(
+    const url = new URL(request.url)
+    const { resource } = Option.getOrThrow(yield* recordedDayRequest(url))
+    return yield* recordedDayRoute(request, url, DAY, resource, coldDays).pipe(
       Effect.provide(layers)
     )
-  }
+  })
   const tape = (headers: Record<string, string> = {}, method = "GET") =>
     get(TAPE, headers, method)
   const strip = (headers: Record<string, string> = {}) =>
@@ -100,7 +118,9 @@ describe("a recorded day GET", () => {
         assert.strictEqual(response.headers.get("Cache-Control"), SEALED)
         assert.deepStrictEqual(response.headers.getSetCookie(), [])
         assert.strictEqual((yield* strip({ cookie })).status, 200)
+        // The strip first, for whether the day is cold.
         assert.deepStrictEqual(reached, [
+          STRIP,
           {
             name: "TRADING_DAY:2026-11-06",
             url: `https://market-live.invalid${TAPE}`,
@@ -110,6 +130,22 @@ describe("a recorded day GET", () => {
             url: "https://market-live.invalid/days",
           },
         ])
+      })
+  )
+
+  it.effect(
+    "with the index's fetch rejecting reaches the day's object, and asks the index again next time",
+    () =>
+      Effect.gen(function* () {
+        const { reached, tape, signedIn } = yield* setup(true)
+        const cookie = yield* signedIn
+        for (const _ of [1, 2])
+          assert.strictEqual((yield* tape({ cookie })).status, 200)
+        const day = {
+          name: "TRADING_DAY:2026-11-06",
+          url: `https://market-live.invalid${TAPE}`,
+        }
+        assert.deepStrictEqual(reached, [STRIP, day, STRIP, day])
       })
   )
 
@@ -136,7 +172,9 @@ describe("a recorded day GET", () => {
         const cookie = yield* signedIn
         for (const path of [BROKER_CODES, BUBBLES])
           assert.strictEqual((yield* get(path, { cookie })).status, 200)
+        // The isolate's cold days read the strip once.
         assert.deepStrictEqual(reached, [
+          STRIP,
           {
             name: "TRADING_DAY:2026-11-06",
             url: `https://market-live.invalid${BROKER_CODES}`,

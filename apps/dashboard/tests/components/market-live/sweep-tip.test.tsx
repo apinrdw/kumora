@@ -35,7 +35,7 @@ const buy: Sweep = {
 test("an open tooltip shows a sweep's brokers once a recheck brings them", async () => {
   const store = Effect.runSync(makeSweepStore(BBCA))
   store.answer(0, { code: BBCA, sweeps: [buy] })
-  store.answerBrokers({ code: BBCA, sweeps: [], complete: false })
+  store.answerBrokers({ code: BBCA, sweeps: [], complete: false }, true)
   const root = createRoot(
     document.body.appendChild(document.createElement("div"))
   )
@@ -53,26 +53,29 @@ test("an open tooltip shows a sweep's brokers once a recheck brings them", async
   expect(tip()).toContain("Brokers show once every trade")
 
   await act(() =>
-    store.answerBrokers({
-      code: BBCA,
-      sweeps: [
-        {
-          firstTrade: buy.firstTrade,
-          pieces: [
-            {
-              ...buy,
-              aggressor: [
-                { code: BrokerCode.make("AK"), investorType: "F", lots: 30 },
-              ],
-              other: [
-                { code: BrokerCode.make("CC"), investorType: "D", lots: 30 },
-              ],
-            },
-          ],
-        },
-      ],
-      complete: true,
-    })
+    store.answerBrokers(
+      {
+        code: BBCA,
+        sweeps: [
+          {
+            firstTrade: buy.firstTrade,
+            pieces: [
+              {
+                ...buy,
+                aggressor: [
+                  { code: BrokerCode.make("AK"), investorType: "F", lots: 30 },
+                ],
+                other: [
+                  { code: BrokerCode.make("CC"), investorType: "D", lots: 30 },
+                ],
+              },
+            ],
+          },
+        ],
+        complete: true,
+      },
+      true
+    )
   )
   expect(tip()).toContain("AK [F]")
   expect(tip()).toContain("CC [D]")
@@ -89,16 +92,19 @@ test("a sweep with more brokers than fit stays inside the viewport, and pinned, 
     investorType: "D" as const,
     lots: 60 - at,
   }))
-  store.answerBrokers({
-    code: BBCA,
-    sweeps: [
-      {
-        firstTrade: buy.firstTrade,
-        pieces: [{ ...buy, aggressor: many, other: many }],
-      },
-    ],
-    complete: true,
-  })
+  store.answerBrokers(
+    {
+      code: BBCA,
+      sweeps: [
+        {
+          firstTrade: buy.firstTrade,
+          pieces: [{ ...buy, aggressor: many, other: many }],
+        },
+      ],
+      complete: true,
+    },
+    true
+  )
   const root = createRoot(
     document.body.appendChild(document.createElement("div"))
   )
@@ -136,26 +142,29 @@ test("a tooltip open on a sweep the replay cursor moves back before hides, and s
   }
   const store = Effect.runSync(makeSweepStore(BBCA))
   store.answer(0, { code: BBCA, sweeps: [buy, late] })
-  store.answerBrokers({
-    code: BBCA,
-    sweeps: [
-      {
-        firstTrade: late.firstTrade,
-        pieces: [
-          {
-            ...late,
-            aggressor: [
-              { code: BrokerCode.make("AK"), investorType: "F", lots: 30 },
-            ],
-            other: [
-              { code: BrokerCode.make("CC"), investorType: "D", lots: 30 },
-            ],
-          },
-        ],
-      },
-    ],
-    complete: true,
-  })
+  store.answerBrokers(
+    {
+      code: BBCA,
+      sweeps: [
+        {
+          firstTrade: late.firstTrade,
+          pieces: [
+            {
+              ...late,
+              aggressor: [
+                { code: BrokerCode.make("AK"), investorType: "F", lots: 30 },
+              ],
+              other: [
+                { code: BrokerCode.make("CC"), investorType: "D", lots: 30 },
+              ],
+            },
+          ],
+        },
+      ],
+      complete: true,
+    },
+    true
+  )
   const cursor = await Effect.runPromise(
     Effect.flatMap(marketPhases(DAY), (phases) =>
       Effect.flatMap(replayDay(DAY, phases), makeReplayCursor)
