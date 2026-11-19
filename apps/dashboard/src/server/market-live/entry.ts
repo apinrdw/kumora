@@ -22,7 +22,8 @@ import { brokerCodesRoute } from "./broker-codes-route.ts"
 import { dayStripRoute, makeColdDays, recordedDayRoute } from "./days.ts"
 import { gateLiveViewer } from "./gate.ts"
 import { marketClockOffset, marketToday } from "./market-clock.ts"
-import { ObjectPath, SessionEnd, ViewerHeader } from "./routes.ts"
+import { ObjectPath, SessionEnd, TestMovePath, ViewerHeader } from "./routes.ts"
+import { testMoveRoute } from "./test-move.ts"
 
 const encodeSessionEnd = Schema.encodeSync(SessionEnd)
 
@@ -111,6 +112,8 @@ export const marketLiveRoute = Effect.fnUntraced(function* (request: Request) {
         Effect.provide(Layer.merge(Auth.layer, holdingsDbD1))
       )
     )
+  if (pathname.startsWith(TestMovePath))
+    return Option.some(testMoveRoute(request, pathname))
   if (pathname === DayStripPath)
     return Option.some(dayStripRoute(request).pipe(Effect.provide(Auth.layer)))
   const recorded = yield* recordedDayRequest(url)
