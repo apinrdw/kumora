@@ -33,26 +33,14 @@ export interface Operation {
   // Whether the object has a broker totals DB, which a batch's buildable
   // check runs for. The operation never reaches it: a build runs on the alarm.
   readonly brokerTotals?: boolean
-  // Whether the day moves to R2: to a bucket in the worker's memory, its
-  // object emptied by a measured deleteAll() (worker.ts), at midnight ten
-  // trading days after it.
-  readonly moves?: boolean
   // What the object did since it woke, before the count starts.
   readonly before?: (
     day: TradingDay
   ) => Effect.Effect<unknown, unknown, WorkerEnv>
   readonly measure: (
     day: TradingDay,
-    sql: Sql,
-    moving: Moving
+    sql: Sql
   ) => Effect.Effect<Response, unknown, WorkerEnv>
-}
-
-// What a moving day's deleteAll() billed, once it ran: its rows as the
-// adapter counts them, the rows its tables held and its bytes before and
-// after.
-interface Moving {
-  readonly emptied: Effect.Effect<Record<string, number> | undefined>
 }
 
 // Every trade's broker codes status, as the extension's status GET asks it.
@@ -200,19 +188,6 @@ const correctingPost = (day: TradingDay) =>
 const heatmapGet = (day: TradingDay) =>
   day.recorded({ _tag: "Heatmap", code: StockCode.make(BUSY_DAY.bookCode) })
 
-// The busy day asked to move, and its alarm run until its move emptied it:
-// answers what deleteAll() billed and how many alarm runs the move took.
-const moveWhole = (day: TradingDay, _sql: Sql, moving: Moving) =>
-  Effect.gen(function* () {
-    if (!(yield* day.move)) return new Response("Not due", { status: 409 })
-    for (let runs = 1; runs <= 100; runs++) {
-      yield* day.alarm
-      const emptied = yield* moving.emptied
-      if (emptied !== undefined) return Response.json({ runs, ...emptied })
-    }
-    return new Response("Not moved", { status: 500 })
-  })
-
 export const operations = {
   "status pass": { measure: statusPass },
   // An object that answered a status since it woke, so it knows whether its
@@ -239,8 +214,6 @@ export const operations = {
   // Writes trades: its budget gets a busy day of its own.
   "live flush": { measure: liveFlush },
   "heatmap GET": { measure: heatmapGet },
-  // Empties the object: its budget gets a busy day of its own.
-  move: { moves: true, measure: moveWhole },
 } satisfies Record<string, Operation>
 
 export type OperationName = keyof typeof operations

@@ -27,5 +27,6 @@ catalog:
   "@effect/vitest": *effect
   alchemy: &alchemy 2.0.0-beta.85
   "@alchemy.run/cloudflare": *alchemy
+  "@alchemy.run/cloudflare-runtime": *alchemy
   "@alchemy.run/frontend-frameworks": *alchemy
   "@alchemy.run/infisical": *alchemy

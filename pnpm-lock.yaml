@@ -9,6 +9,9 @@ catalogs:
     '@alchemy.run/cloudflare':
       specifier: 2.0.0-beta.85
       version: 2.0.0-beta.85
+    '@alchemy.run/cloudflare-runtime':
+      specifier: 2.0.0-beta.85
+      version: 2.0.0-beta.85
     '@alchemy.run/frontend-frameworks':
       specifier: 2.0.0-beta.85
       version: 2.0.0-beta.85
@@ -157,6 +160,9 @@ importers:
         specifier: ^4
         version: 4.3.3
     devDependencies:
+      '@alchemy.run/cloudflare-runtime':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.85(@distilled.cloud/cloudflare@1.0.0-rc.18(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1))(@types/node@22.20.5)(effect@4.1.2)(rolldown@1.2.13)(typescript@7.0.2)(vite@8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))
       '@cloudflare/workers-types':
         specifier: ^5.20261104.1
         version: 5.20261104.1
