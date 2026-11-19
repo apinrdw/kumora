@@ -13,7 +13,6 @@ import {
 import { Clock, DateTime, Effect } from "effect"
 
 import type { StoredChunk } from "./day-store.ts"
-import { chunkSlices } from "./heat-rows.ts"
 
 interface Open {
   readonly minute: number
@@ -67,25 +66,53 @@ export const makeBookChunks = Effect.sync(() => {
       open.delete(code)
     })
 
-  // A book viewers were sent.
-  // Decision: a frame joins the chunk of the minute it was served in, by the
-  // object's clock, not by the book's as-of, so a code's deltas follow the
-  // viewers' timeline. See apinrdw/kumora#157.
-  const record = Effect.fnUntraced(function* (book: OrderBook) {
-    const now = yield* Clock.currentTimeMillis
+  // `code`'s chunk taking frames served at `now`, opened from `start`, the
+  // book in force, when the minute's has not.
+  const openAt = Effect.fnUntraced(function* (
+    code: StockCode,
+    now: number,
+    start: OrderBook | undefined
+  ) {
     const minute = Math.floor(now / MINUTE_MS) * MINUTE_MS
-    let held = open.get(book.code)
+    let held = open.get(code)
     if (held !== undefined && minute > held.minute) {
-      yield* close(book.code, held)
+      yield* close(code, held)
       held = undefined
     }
     if (held === undefined) {
-      held = { minute, start: last.get(book.code), deltas: [] }
-      open.set(book.code, held)
+      held = { minute, start, deltas: [] }
+      open.set(code, held)
     }
-    held.deltas.push(
-      yield* deltaOf(DateTime.makeUnsafe(now), last.get(book.code), book)
-    )
+    return held
+  })
+
+  // A book viewers were sent, kept in a chunk when the day records its
+  // code's books (recorded-books.ts).
+  // Decision: a frame joins the chunk of the minute it was served in, by the
+  // object's clock, not by the book's as-of, so a code's deltas follow the
+  // viewers' timeline. See apinrdw/kumora#157.
+  const record = Effect.fnUntraced(function* (
+    book: OrderBook,
+    recorded: boolean
+  ) {
+    if (recorded) {
+      const now = yield* Clock.currentTimeMillis
+      const held = yield* openAt(book.code, now, last.get(book.code))
+      held.deltas.push(
+        yield* deltaOf(DateTime.makeUnsafe(now), last.get(book.code), book)
+      )
+    }
+    last.set(book.code, book)
+  })
+
+  // A code the day just began recording: its chunk opens now from `book`,
+  // the one its viewer was just served, so the minute it joined replays
+  // that book before any frame. The next frame's delta is against it.
+  // Decision: the served book, not the last recorded frame, opens it: a
+  // restored Ajaib book is served with no frame before it. See
+  // apinrdw/kumora#574.
+  const begin = Effect.fnUntraced(function* (book: OrderBook) {
+    yield* openAt(book.code, yield* Clock.currentTimeMillis, book)
     last.set(book.code, book)
   })
 
@@ -108,7 +135,6 @@ export const makeBookChunks = Effect.sync(() => {
           ...(held.start === undefined ? {} : { start: held.start }),
           deltas: held.deltas,
         }),
-        slices: yield* chunkSlices(held),
       })
     return chunks
   })
@@ -133,5 +159,5 @@ export const makeBookChunks = Effect.sync(() => {
       for (const book of books) last.set(book.code, book)
     })
 
-  return { record, take, held, hasOpen, restore }
+  return { record, begin, take, held, hasOpen, restore }
 })

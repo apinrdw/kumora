@@ -30,13 +30,18 @@ import { TestClock } from "effect/testing"
 
 import type { Sql } from "@/server/market-live/day-store"
 import {
+  TRADE_CODES_FACT,
+  emptyRecords,
+  putRecord,
+} from "@/server/market-live/tape-chunks"
+import {
   makeTradingDay,
   type Peer,
   type PeerState,
 } from "@/server/market-live/trading-day"
 
 import recorded from "./fixtures/ajaib-trades-2026-11-09.json"
-import { memorySql } from "./sql"
+import { counted, memorySql, rowShapedSql } from "./sql"
 
 const TOKEN = "e2e-ingest-token"
 const DAY = WibDate.make("2026-11-09")
@@ -137,7 +142,9 @@ const tradingDay = Effect.fnUntraced(function* (
   })
   // The status GET's answer, with the GET's query.
   const statusAnswer = Effect.fnUntraced(function* (search = "") {
-    const response = yield* day.brokerCodes.status(new URLSearchParams(search))
+    const response = yield* day.brokerCodes
+      .status(new URLSearchParams(search))
+      .pipe(Effect.provide(env))
     assert.strictEqual(response.headers.get("Cache-Control"), "no-store")
     return {
       code: response.status,
@@ -314,19 +321,30 @@ describe("a day's broker codes", () => {
         const chunk = new Uint8Array(7_000)
         const record = new TextEncoder().encode("YPDCCFA")
         for (let slot = 0; slot < 1_000; slot += 2) chunk.set(record, slot * 7)
+        const taped = emptyRecords()
+        for (let slot = 0; slot < 1_000; slot += 2)
+          putRecord(taped, slot, {
+            time: 0,
+            code: 0,
+            price: 8_000,
+            lots: 1,
+            side: "buy",
+            board: "RG",
+            feeds: ["Ajaib"],
+          })
         sql.transaction(() => {
-          for (let index = 0; index < 1_500; index++)
+          for (let index = 0; index < 1_500; index++) {
             sql.exec(
               "INSERT INTO broker_code_chunks VALUES (?, ?)",
               index,
               chunk
             )
+            sql.exec("INSERT INTO trade_chunks VALUES (?, ?)", index, taped)
+          }
           sql.exec(
-            `WITH RECURSIVE odd(number) AS (
-              SELECT 1 UNION ALL SELECT number + 2 FROM odd WHERE number < 1499999
-            )
-            INSERT INTO trades
-            SELECT number, 0, 'BBCA', 8000, 1, 'buy', 'RG', '["Ajaib"]' FROM odd`
+            "INSERT INTO facts VALUES (?, ?)",
+            TRADE_CODES_FACT,
+            '["BBCA"]'
           )
         })
         yield* day.post("Ajaib", [], 1_500_000)
@@ -350,6 +368,80 @@ describe("a day's broker codes", () => {
     // Each status reads the 750,000 runs between the tape's numbers.
     { timeout: 10_000 }
   )
+
+  // CODING_STANDARDS.md, "Bounded memory on a Worker": a batch's fields are
+  // checked against the tape for its own numbers, not every number between
+  // its lowest and highest. Its tape is written straight into the table.
+  const BUSY = 1_460_000
+  // A trade every 10 ms from 09:00, as a busy day's tape runs.
+  const OPEN = DateTime.toEpochMillis(wib("09:00:00"))
+  // The most rows the batch reads: it reads its trades' minutes for their
+  // sweeps, 6 chunks or 6,000 rows a minute here, and its fields' checks.
+  for (const [shape, tapeSql, budget, fill] of [
+    [
+      "trade chunks",
+      memorySql,
+      100,
+      (sql: Sql) => {
+        for (let index = 0; index < BUSY / 1_000; index++) {
+          const taped = emptyRecords()
+          for (let slot = 0; slot < 1_000; slot++)
+            putRecord(taped, slot, {
+              time: OPEN + (index * 1_000 + slot) * 10,
+              code: 0,
+              price: 8_000,
+              lots: 1,
+              side: "buy",
+              board: "RG",
+              feeds: ["Ajaib"],
+            })
+          sql.exec(
+            "INSERT OR REPLACE INTO trade_chunks VALUES (?, ?)",
+            index,
+            taped
+          )
+        }
+        sql.exec(
+          "INSERT OR REPLACE INTO facts VALUES (?, ?)",
+          TRADE_CODES_FACT,
+          '["BBCA"]'
+        )
+      },
+    ],
+    [
+      "a row per trade",
+      rowShapedSql,
+      10_000,
+      (sql: Sql) =>
+        sql.exec(
+          `WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < ?)
+          INSERT OR IGNORE INTO trades
+          SELECT x, ? + (x - 1) * 10, 'BBCA', 8000, 1, 'buy', 'RG', 'Ajaib' FROM n`,
+          BUSY,
+          OPEN
+        ),
+    ],
+  ] as const)
+    it.effect(
+      `checks a sparse batch's fields against its own trades on ${shape}`,
+      () =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+          const sql = counted(tapeSql())
+          const day = yield* tradingDay({ sql })
+          yield* day.ajaibTrades(yield* day.relay, [1], "15:00:00")
+          sql.transaction(() => fill(sql))
+          const before = sql.usage!().rowsRead
+          yield* day.post("Stockbit", [
+            [1, YP_CC],
+            [BUSY, YP_CC],
+          ])
+          // One range read of the span between its two trades read the
+          // whole busy tape.
+          assert.isBelow(sql.usage!().rowsRead - before, budget)
+        }),
+      { timeout: 30_000 }
+    )
 
   it.effect(
     "after lists the ranges past it, clipped to start after it, and a bad one answers 400",
@@ -610,7 +702,9 @@ describe("a sealed day", () => {
         ]
         const answers = Effect.forEach(resources, (resource) =>
           Effect.gen(function* () {
-            const response = yield* day.day.recorded(resource)
+            const response = yield* day.day
+              .recorded(resource)
+              .pipe(Effect.provide(env))
             return {
               status: response.status,
               headers: [...response.headers.entries()],
@@ -619,10 +713,12 @@ describe("a sealed day", () => {
           })
         )
         const before = yield* answers
-        const codesAt = day.day.recorded({
-          _tag: "BrokerCodes",
-          at: wib("17:00:00"),
-        })
+        const codesAt = day.day
+          .recorded({
+            _tag: "BrokerCodes",
+            at: wib("17:00:00"),
+          })
+          .pipe(Effect.provide(env))
         yield* codesAt
 
         yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
@@ -684,10 +780,12 @@ describe("the trades a sealed tape lacks", () => {
     )
   const codesComplete = (day: Effect.Success<typeof holedDay>) =>
     Effect.gen(function* () {
-      const response = yield* day.day.recorded({
-        _tag: "BrokerCodes",
-        at: wib("17:00:00"),
-      })
+      const response = yield* day.day
+        .recorded({
+          _tag: "BrokerCodes",
+          at: wib("17:00:00"),
+        })
+        .pipe(Effect.provide(env))
       const text = yield* Effect.promise(() => response.text())
       return (yield* decodeRecordedBrokerCodes(text)).complete
     })
@@ -778,7 +876,7 @@ describe("a recorded day's broker codes answer", () => {
     day: SealedDay,
     resource: RecordedResource
   ) {
-    const response = yield* day.day.recorded(resource)
+    const response = yield* day.day.recorded(resource).pipe(Effect.provide(env))
     assert.strictEqual(response.status, 200)
     return {
       cache: response.headers.get("Cache-Control"),
@@ -928,10 +1026,12 @@ describe("a day's codes-complete fact", () => {
   const completeOf = Effect.fnUntraced(function* (
     day: Effect.Success<ReturnType<typeof tradingDay>>
   ) {
-    const response = yield* day.day.recorded({
-      _tag: "BrokerCodes",
-      at: CURSOR,
-    })
+    const response = yield* day.day
+      .recorded({
+        _tag: "BrokerCodes",
+        at: CURSOR,
+      })
+      .pipe(Effect.provide(env))
     const text = yield* Effect.promise(() => response.text())
     return (yield* decodeRecordedBrokerCodes(text)).complete
   })
@@ -1094,7 +1194,7 @@ describe("a sealed relay day's tape summary", () => {
         statements.length = 0
         const summarized = yield* answers
         assert.deepStrictEqual(
-          statements.filter((query) => /\bFROM trades\b/.test(query)),
+          statements.filter((query) => /\bFROM trade(s|_chunks)\b/.test(query)),
           []
         )
         assert.deepStrictEqual(yield* day.missing, [
@@ -1125,7 +1225,9 @@ describe("the tape summary of other days", () => {
       transaction: (write) => base.transaction(write),
     }
     const tapeReads = Effect.sync(() => {
-      const reads = statements.filter((query) => /\bFROM trades\b/.test(query))
+      const reads = statements.filter((query) =>
+        /\bFROM trade(s|_chunks)\b/.test(query)
+      )
       statements.length = 0
       return reads.length
     })
@@ -1318,7 +1420,7 @@ describe("a day with no tape", () => {
     day: HistoryDay,
     resource: RecordedResource
   ) {
-    const response = yield* day.day.recorded(resource)
+    const response = yield* day.day.recorded(resource).pipe(Effect.provide(env))
     return {
       status: response.status,
       text: yield* Effect.promise(() => response.text()),
@@ -1658,10 +1760,12 @@ describe("a day with no tape", () => {
         const tapeNumbers = Effect.fnUntraced(function* (
           day: Effect.Success<ReturnType<typeof tradingDay>>
         ) {
-          const response = yield* day.day.recorded({
-            _tag: "Tape",
-            at: wib("17:00:00"),
-          })
+          const response = yield* day.day
+            .recorded({
+              _tag: "Tape",
+              at: wib("17:00:00"),
+            })
+            .pipe(Effect.provide(env))
           const text = yield* Effect.promise(() => response.text())
           return (yield* decodeRecordedTape(text)).trades.map(
             (trade) => `${trade.tradeNumber} ${trade.feeds.join()}`
@@ -1695,10 +1799,12 @@ describe("a day with no tape", () => {
         const tapeCache = Effect.fnUntraced(function* (
           day: Effect.Success<ReturnType<typeof tradingDay>>
         ) {
-          const response = yield* day.day.recorded({
-            _tag: "Tape",
-            at: wib("17:00:00"),
-          })
+          const response = yield* day.day
+            .recorded({
+              _tag: "Tape",
+              at: wib("17:00:00"),
+            })
+            .pipe(Effect.provide(env))
           return response.headers.get("Cache-Control")
         })
         yield* TestClock.setTime(wib("12:00:00").epochMilliseconds)
@@ -1863,7 +1969,9 @@ describe("a day recorded with the broker trades index", () => {
     ]
     const recordedAnswers = yield* Effect.forEach(resources, (resource) =>
       Effect.gen(function* () {
-        const response = yield* day.day.recorded(resource)
+        const response = yield* day.day
+          .recorded(resource)
+          .pipe(Effect.provide(env))
         return {
           status: response.status,
           headers: [...response.headers.entries()],

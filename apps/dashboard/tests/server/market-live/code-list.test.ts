@@ -101,7 +101,9 @@ describe("the stock code list", () => {
   it.effect("a day with no list yet answers 404, uncached", () =>
     Effect.gen(function* () {
       const { day } = yield* tradingDay()
-      const response = yield* day.recorded({ _tag: "Codes" })
+      const response = yield* day
+        .recorded({ _tag: "Codes" })
+        .pipe(Effect.provide(env))
       assert.strictEqual(response.status, 404)
       assert.strictEqual(response.headers.get("Cache-Control"), "no-store")
     })
@@ -115,7 +117,9 @@ describe("the stock code list", () => {
         const { day, relay } = yield* tradingDay()
         const send = yield* relay
         yield* send(recorded.body)
-        const response = yield* day.recorded({ _tag: "Codes" })
+        const response = yield* day
+          .recorded({ _tag: "Codes" })
+          .pipe(Effect.provide(env))
         assert.strictEqual(response.status, 200)
         const { codes } = yield* listOf(response)
         // Ajaib's one empty entry is dropped; the three indices are added.
@@ -160,7 +164,9 @@ describe("the stock code list", () => {
       yield* (yield* first.relay)(recorded.body)
       yield* TestClock.adjust("1 day")
       const restarted = yield* tradingDay(first.stored)
-      const response = yield* restarted.day.recorded({ _tag: "Codes" })
+      const response = yield* restarted.day
+        .recorded({ _tag: "Codes" })
+        .pipe(Effect.provide(env))
       assert.strictEqual(
         response.headers.get("Cache-Control"),
         "private, max-age=31536000, immutable"
@@ -179,7 +185,9 @@ describe("the stock code list", () => {
           results: [{ code: "BBCA", name: "Bank Central Asia" }],
         })
       )
-      const { codes } = yield* listOf(yield* day.recorded({ _tag: "Codes" }))
+      const { codes } = yield* listOf(
+        yield* day.recorded({ _tag: "Codes" }).pipe(Effect.provide(env))
+      )
       assert.deepStrictEqual(
         codes.map(({ code }) => code),
         ["BBCA", "IHSG", "TN.IHSG", "NG.IHSG"]
@@ -195,7 +203,9 @@ describe("the stock code list", () => {
       yield* send("<html>Service unavailable</html>")
       yield* send(JSON.stringify({ results: [{ ticker: "BBCA" }] }))
       assert.lengthOf(
-        (yield* listOf(yield* day.recorded({ _tag: "Codes" }))).codes,
+        (yield* listOf(
+          yield* day.recorded({ _tag: "Codes" }).pipe(Effect.provide(env))
+        )).codes,
         16
       )
     })
@@ -210,7 +220,9 @@ describe("the stock code list", () => {
       }))
       yield* (yield* relay)(JSON.stringify({ results }))
       assert.lengthOf(
-        (yield* listOf(yield* day.recorded({ _tag: "Codes" }))).codes,
+        (yield* listOf(
+          yield* day.recorded({ _tag: "Codes" }).pipe(Effect.provide(env))
+        )).codes,
         3_409
       )
     })
@@ -226,7 +238,11 @@ describe("the stock code list", () => {
         body: recorded.body,
       })
       yield* day.ingestMessage(relaySocket(), text).pipe(Effect.provide(env))
-      assert.strictEqual((yield* day.recorded({ _tag: "Codes" })).status, 404)
+      assert.strictEqual(
+        (yield* day.recorded({ _tag: "Codes" }).pipe(Effect.provide(env)))
+          .status,
+        404
+      )
     })
   )
 
@@ -238,7 +254,9 @@ describe("the stock code list", () => {
       yield* seal
       yield* send(recorded.body)
       assert.lengthOf(
-        (yield* listOf(yield* day.recorded({ _tag: "Codes" }))).codes,
+        (yield* listOf(
+          yield* day.recorded({ _tag: "Codes" }).pipe(Effect.provide(env))
+        )).codes,
         16
       )
     })
@@ -257,7 +275,9 @@ describe("the stock code list", () => {
         })
       )
       assert.lengthOf(
-        (yield* listOf(yield* day.recorded({ _tag: "Codes" }))).codes,
+        (yield* listOf(
+          yield* day.recorded({ _tag: "Codes" }).pipe(Effect.provide(env))
+        )).codes,
         16
       )
     })

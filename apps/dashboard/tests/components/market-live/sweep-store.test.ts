@@ -308,7 +308,7 @@ describe("a recorded day's sweeps as their brokers land", () => {
       Effect.gen(function* () {
         const store = yield* makeSweepStore(UNTR)
         store.answer(0, answerOf([whole, after]))
-        store.answerBrokers({ code: UNTR, sweeps: [], complete: false })
+        store.answerBrokers({ code: UNTR, sweeps: [], complete: false }, true)
         store.select(whole.firstTrade, "log")
         store.tip.set({
           id: whole.firstTrade,
@@ -317,7 +317,7 @@ describe("a recorded day's sweeps as their brokers land", () => {
           from: "log",
           pinned: true,
         })
-        store.answerBrokers(split)
+        store.answerBrokers(split, true)
         expect(store.sweeps().map(shape)).toEqual([
           ["101", "sell", 6, 1],
           ["102", "sell", 8, 1],
@@ -343,9 +343,9 @@ describe("a recorded day's sweeps as their brokers land", () => {
       Effect.gen(function* () {
         const store = yield* makeSweepStore(UNTR)
         store.answer(0, answerOf([whole, after]))
-        store.answerBrokers(split)
+        store.answerBrokers(split, true)
         store.select(whole.firstTrade, "chart")
-        store.answerBrokers({ ...split, complete: true })
+        store.answerBrokers({ ...split, complete: true }, true)
         expect(store.selected()).toBe("101")
       })
   )
@@ -356,7 +356,7 @@ describe("a recorded day's sweeps as their brokers land", () => {
       Effect.gen(function* () {
         const store = yield* makeSweepStore(UNTR)
         store.answer(0, answerOf([whole, after]))
-        store.answerBrokers(split)
+        store.answerBrokers(split, true)
         store.select(TradeNumber.make("102"), "chart")
         store.tip.set({
           id: TradeNumber.make("102"),
@@ -366,15 +366,18 @@ describe("a recorded day's sweeps as their brokers land", () => {
           pinned: true,
         })
         // A cross-check finds 102 was FZ's too, so the sweep is one piece.
-        store.answerBrokers({
-          ...split,
-          sweeps: [
-            {
-              firstTrade: whole.firstTrade,
-              pieces: [piece(101, "09:00:10.100", 14, "FZ")],
-            },
-          ],
-        })
+        store.answerBrokers(
+          {
+            ...split,
+            sweeps: [
+              {
+                firstTrade: whole.firstTrade,
+                pieces: [piece(101, "09:00:10.100", 14, "FZ")],
+              },
+            ],
+          },
+          true
+        )
         expect(store.sweeps().map(shape)).toEqual([
           ["101", "sell", 14, 1],
           ["104", "buy", 2, 1],

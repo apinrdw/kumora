@@ -16,6 +16,8 @@ export interface HeatmapStore {
   readonly slices: () => ReadonlyArray<HeatSlice>
   // A recorded day's heatmap GET answer, the whole day.
   readonly seed: (answer: RecordedHeatmap) => void
+  // Whether the GET said the day did not record the code's book.
+  readonly notRecorded: () => boolean
   // Live: the ask the heatmap GET must answer next, or undefined once it
   // answered; `answer` hands its answer back for that ask, and the slices
   // go on from the slice time it names, built from the books this store
@@ -56,6 +58,7 @@ export const makeHeatmapStore = (
     // slice. None until a live day's GET answers.
     let from: number | undefined
     let live = true
+    let notRecorded = false
     let ask = 0
     let waiting = false
     // The books heard, ascending: from the one in force at `from` on.
@@ -126,11 +129,13 @@ export const makeHeatmapStore = (
       slices: () => shown,
       seed: (answer) => {
         live = false
+        notRecorded = answer.notRecorded === true
         settled = [...answer.slices]
         shown = settled
         changes = []
         emit()
       },
+      notRecorded: () => notRecorded,
       awaiting: () => (waiting ? ask : undefined),
       answer: (asked, answer) => {
         if (!live || answer.code !== code || asked !== ask) return

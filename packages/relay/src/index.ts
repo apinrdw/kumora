@@ -36,6 +36,7 @@ export {
   ajaibSequence,
   ajaibTradeNumber,
   Backfill,
+  Board,
   boardOf,
   CodeList,
   Connection,
@@ -49,9 +50,11 @@ export {
   MarketLivePath,
   OnDemandCodes,
   ProtocolVersionMismatch,
+  RunningTrade,
   Select,
   Side,
   StockbitFrames,
+  TradeSource,
   TradeNumber,
   TradeNumberOrder,
   TradeNumberValue,
@@ -78,7 +81,6 @@ export type {
   IngestDown,
   IngestUp,
   MinuteSweeps,
-  RunningTrade,
   Sweep,
   AlertSide,
   SweepAlert,
@@ -195,13 +197,13 @@ export {
   encodeBrokerCodesStatus,
   stockbitRowCodes,
   stockbitRowFields,
+  TradeCodes,
 } from "./broker-codes.ts"
 export type {
   BatchRow,
   BrokerCodesBatch,
   BrokerCodesStatus,
   CrossCheck,
-  TradeCodes,
   TradeFields,
 } from "./broker-codes.ts"
 export type { RecordedSweeps } from "./sweeps.ts"

@@ -8,8 +8,8 @@ import {
   BrokerCode,
   BrokerCodesProtocolVersion,
   MISSING_RANGES,
-  StockCode,
   TradeNumber,
+  type StockCode,
   brokerCodesAfter,
   decodeBrokerCodesBatch,
   encodeBrokerCodesStatus,
@@ -30,6 +30,9 @@ import {
   type Sql,
   type SqlValue,
 } from "./day-store.ts"
+import type { Tape } from "./tape-backing.ts"
+import { TRADE_CHUNK } from "./tape-chunks.ts"
+import { fieldsOf, makeTape } from "./tape.ts"
 
 // Decision: chunk k holds trades 1000k+1 .. 1000k+1000 as 1,000 fixed 7-byte
 // records: buyer code, buyer type, seller code, seller type, and the source.
@@ -137,7 +140,7 @@ const holesOf = (row: Record<string, SqlValue>) =>
 // Decision: the runs are worked out here, not in SQL: one statement that
 // grouped the tape by chunk over lag() billed 5 rows read a trade in workerd,
 // its window's and grouping's temporary tables counted, against 1 here.
-const summarizeChunks = (sql: Sql, first: number, last: number) => {
+const summarizeChunks = (sql: Sql, tape: Tape, first: number, last: number) => {
   let chunk = -1
   let taped = 0
   // The lowest number of `chunk` not yet accounted for.
@@ -148,12 +151,10 @@ const summarizeChunks = (sql: Sql, first: number, last: number) => {
     if (next <= (chunk + 1) * CHUNK) holes.push([next, (chunk + 1) * CHUNK])
     writeSummaryRow(sql, chunk, taped, holes)
   }
-  for (const row of sql.exec(
-    "SELECT number FROM trades WHERE number BETWEEN ? AND ? ORDER BY number",
+  for (const number of tape.numbersBetween(
     first * CHUNK + 1,
     (last + 1) * CHUNK
   )) {
-    const number = Number(row.number)
     const at = Math.floor((number - 1) / CHUNK)
     if (at !== chunk) {
       written()
@@ -177,10 +178,10 @@ const summaryBuilt = (sql: Sql) =>
 // a transaction. It reads SCAN_PAGE chunks' trades at a time, so the whole
 // tape's numbers never sit in memory at once.
 const summarizeWhole = (sql: Sql) => {
-  const [top] = sql.exec("SELECT max(number) AS number FROM trades")
-  const chunks = Math.ceil(Number(top?.number ?? 0) / CHUNK)
+  const tape = makeTape(sql)
+  const chunks = Math.ceil((tape.highestNumber() ?? 0) / CHUNK)
   for (let first = 0; first < chunks; first += SCAN_PAGE)
-    summarizeChunks(sql, first, first + SCAN_PAGE - 1)
+    summarizeChunks(sql, tape, first, first + SCAN_PAGE - 1)
   sql.exec(
     "INSERT OR REPLACE INTO facts VALUES (?, ?)",
     Fact.tapeSummary,
@@ -188,11 +189,12 @@ const summarizeWhole = (sql: Sql) => {
   )
 }
 
+// A seal cut off before the summary summarizes on its retry (`finishSeal`,
+// trading-day.ts), or at a status pass before it (`scan`). A tape its walk
+// batches kept summarized isn't again.
 // Decision: the seal summarizes the tape in its own transaction, after the
-// sealed marker: about 1.46 M rows read and 1,460 written on a busy day
-// (row-budgets.workerd.test.ts). A seal cut off between them summarizes on
-// its retry (`finishSeal`, trading-day.ts), or at a status pass before it
-// (`scan`). A tape its walk batches kept summarized isn't again.
+// sealed marker: on a busy day 5.9 K rows read and 1,460 written from trade
+// chunks, 1.46 M read from a row per trade (row-budgets.workerd.test.ts).
 export const summarizeTape = (sql: Sql) =>
   Effect.sync(() =>
     sql.transaction(() => {
@@ -218,7 +220,7 @@ const runsOf = (chunk: number, marks: Uint8Array) => {
 // as a sealed day's does. In workerd a page of 5,000 trades in 5 chunks
 // billed 11 rows read and 5 written here, against 5,000 reading the chunks'
 // trades. A tape stored before the summary is summarized whole at its first
-// such write: the 1.46 M rows read of `summarizeTape`'s Decision.
+// such write, as `summarizeTape`'s Decision bills it.
 export const summarizeAddedTrades =
   (sql: Sql, numbers: ReadonlyArray<number>) => () => {
     if (numbers.length === 0) return
@@ -550,6 +552,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   readonly sealed: Effect.Effect<boolean>
 }) {
   const { sql, fact } = options
+  const tape = makeTape(sql)
   yield* Effect.sync(() => {
     for (const statement of SCHEMA) sql.exec(statement)
   })
@@ -671,30 +674,40 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return merged
   })
 
+  // The batch's `numbers` the tape holds, read a trade chunk's span at a
+  // time, so one chunk row each on a chunked day.
+  const tapedOf = (numbers: ReadonlyArray<number>) => {
+    const asked = new Set(numbers)
+    const sorted = [...asked].sort((a, b) => a - b)
+    const taped = new Set<number>()
+    for (let at = 0; at < sorted.length;) {
+      const low = sorted[at]!
+      const end = (Math.floor((low - 1) / TRADE_CHUNK) + 1) * TRADE_CHUNK
+      let high = low
+      while (at < sorted.length && sorted[at]! <= end) high = sorted[at++]!
+      for (const number of tape.numbersBetween(low, high))
+        if (asked.has(number)) taped.add(number)
+    }
+    return taped
+  }
+
   // Decision: a batch's fields land only for the trades the tape lacks as
   // it is written, in the codes' transaction: one statement over the rows,
-  // checked against one range read of the tape's numbers the batch spans.
-  // A trade already in walk_trades keeps its first row. Whether it filled
-  // any trade's fields.
+  // checked against the tape a chunk's span at a time (`tapedOf`), so a
+  // sparse batch never reads the numbers between its trades. A trade
+  // already in walk_trades keeps its first row. Whether it filled any.
   const writeFields = (fields: Merged["fields"]) => {
     if (fields.length === 0) return false
-    let low = Number.MAX_SAFE_INTEGER
-    let high = 0
-    for (const [number] of fields) {
-      low = Math.min(low, number)
-      high = Math.max(high, number)
-    }
+    const taped = tapedOf(fields.map(([number]) => number))
+    const lacking = fields.filter(([number]) => !taped.has(number))
+    if (lacking.length === 0) return false
     const filled = sql.exec(
       `INSERT OR IGNORE INTO walk_trades (number, code, price, lots, board)
       SELECT row.value ->> 0, row.value ->> 1, row.value ->> 2,
         row.value ->> 3, row.value ->> 4
       FROM json_each(?) AS row
-      WHERE row.value ->> 0 NOT IN
-        (SELECT number FROM trades WHERE number BETWEEN ? AND ?)
       RETURNING number`,
-      JSON.stringify(fields),
-      low,
-      high
+      JSON.stringify(lacking)
     )
     return filled.length > 0
   }
@@ -874,38 +887,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       }
     })
 
-  // The same, read from the tape itself.
-  // Decision: a span the tape holds whole is known from its count; any other
-  // reads the runs between the tape's numbers, so no row per taped trade sits
-  // in memory. A 1.5M-trade day's status scan took 152 ms in Node's SQLite,
-  // against 118 ms for codes alone and 850 ms reading the runs everywhere.
+  // The same, read from the tape itself (tape.ts, `markLacking`).
   const tapeHoles = (first: number, last: number, unfielded: Uint8Array) =>
-    Effect.sync(() => {
-      const low = first * CHUNK + 1
-      const high = (last + 1) * CHUNK
-      const [taped] = sql.exec(
-        "SELECT count(*) AS count FROM trades WHERE number BETWEEN ? AND ?",
-        low,
-        high
-      )
-      if (Number(taped?.count) === unfielded.length) return
-      for (const row of sql.exec(
-        `SELECT prev + 1 AS first, number - 1 AS last FROM (
-          SELECT number, lag(number, 1, ?) OVER (ORDER BY number) AS prev
-          FROM trades WHERE number BETWEEN ? AND ?
-        ) WHERE number > prev + 1`,
-        low - 1,
-        low,
-        high
-      ))
-        unfielded.fill(1, Number(row.first) - low, Number(row.last) - low + 1)
-      const [tapeHigh] = sql.exec(
-        "SELECT max(number) AS number FROM trades WHERE number BETWEEN ? AND ?",
-        low,
-        high
-      )
-      unfielded.fill(1, Number(tapeHigh?.number ?? low - 1) - low + 1)
-    })
+    tape.markLacking(first * CHUNK + 1, (last + 1) * CHUNK, unfielded)
 
   // The trades of chunks first..last that neither the tape nor, when
   // `walkRowsHold`, walk_trades holds, marked 1 from the first chunk's first
@@ -1069,13 +1053,22 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // Decision: a held trade's fields are the tape's, else its walk row's: the
   // tape can gain a trade after a walk row was stored for it, and walk rows
   // are never deleted. See apinrdw/kumora#425.
-  const FIELDS_BETWEEN = `SELECT number, code, price, lots, board FROM trades
-    WHERE number BETWEEN ? AND ?
-    UNION ALL
-    SELECT number, code, price, lots, board FROM walk_trades
-    WHERE number BETWEEN ? AND ?
-      AND number NOT IN (SELECT number FROM trades WHERE number BETWEEN ? AND ?)
-    ORDER BY number`
+  const fieldsBetween = (low: number, high: number) =>
+    Effect.gen(function* () {
+      const taped = yield* tape.fieldsBetween(low, high)
+      const tapedNumbers = new Set(taped.map(({ number }) => number))
+      const walked = yield* Effect.forEach(
+        sql
+          .exec(
+            "SELECT number, code, price, lots, board FROM walk_trades WHERE number BETWEEN ? AND ?",
+            low,
+            high
+          )
+          .filter((row) => !tapedNumbers.has(Number(row.number))),
+        fieldsOf
+      )
+      return [...taped, ...walked].sort((a, b) => a.number - b.number)
+    })
 
   // The trades of the SCAN_PAGE chunks after chunk `after` that the day
   // holds codes and fields for, in trade number order, and the last chunk
@@ -1093,22 +1086,16 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       rows.map((row) => [Number(row.chunk), row.codes as Uint8Array])
     )
     const last = Number(rows.at(-1)!.chunk)
-    const span = [Number(rows[0]!.chunk) * CHUNK + 1, (last + 1) * CHUNK]
-    const fields = yield* Effect.sync(() =>
-      sql.exec(FIELDS_BETWEEN, ...span, ...span, ...span)
+    const fields = yield* fieldsBetween(
+      Number(rows[0]!.chunk) * CHUNK + 1,
+      (last + 1) * CHUNK
     )
     const trades: Array<HeldTrade> = []
-    for (const row of fields) {
-      const { chunk, at } = yield* placeOf(Number(row.number))
+    for (const { number, code, price, lots, board } of fields) {
+      const { chunk, at } = yield* placeOf(number)
       const record = chunks.get(chunk)?.subarray(at, at + RECORD)
       if (record === undefined || !record[SOURCE]) continue
-      trades.push({
-        code: StockCode.make(String(row.code)),
-        price: Number(row.price),
-        lots: Number(row.lots),
-        board: String(row.board) as RunningTrade["board"],
-        codes: yield* codesOf(record),
-      })
+      trades.push({ code, price, lots, board, codes: yield* codesOf(record) })
     }
     return { trades, last }
   })

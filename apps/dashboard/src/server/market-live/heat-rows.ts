@@ -1,8 +1,9 @@
 // A stock code's book heatmap row for one minute (spec apinrdw/kumora#263,
 // "The trading-day Durable Object"): the six 10-second slices of its book
-// chunk, worked out when the chunk closes (book-chunks.ts) and stored beside
-// it (day-store.ts). A minute with no frame has no chunk and no row: the
-// heatmap GET's answer fills it from the chunk before.
+// chunk (book-chunks.ts), worked out on read (day-store.ts, `heatmapOf`). A
+// day recorded before that stored them beside each chunk. A minute with no
+// frame has no chunk and no row: the heatmap GET's answer fills it from the
+// chunk before.
 import {
   HEAT_SLICE_MS,
   decodeBookChunk,
@@ -80,21 +81,8 @@ export const chunkSlices = Effect.fnUntraced(function* (
   return yield* heatSlices(yield* changesOf(chunk), chunk.minute, end)
 })
 
-// The stored text of a minute's slices: [slice index, levels] for each slice
-// with lots.
-export const slicesText = Effect.fnUntraced(function* (
-  minute: number,
-  slices: ReadonlyArray<HeatSlice>
-) {
-  return JSON.stringify(
-    slices.map((slice) => [
-      (DateTime.toEpochMillis(slice.at) - minute) / HEAT_SLICE_MS,
-      slice.levels,
-    ])
-  )
-})
-
-// The store's own write, read back without a decode.
+// A stored row's slices, [slice index, levels] for each slice with lots: the
+// store's own write, read back without a decode.
 export const slicesFromText = Effect.fnUntraced(function* (
   minute: number,
   text: string
@@ -144,7 +132,8 @@ const withFramelessMinutes = Effect.fnUntraced(function* (
 // slices stop (`heatEndOf`). A sealed day answers its stored rows through
 // `end`. A live day answers up to the start of the slice `now` is in: the
 // stored rows, then the held chunks' whole slices, which replace a stored
-// minute of theirs.
+// minute of theirs. A code whose book the day did not record, `notRecorded`,
+// answers no slices and says so.
 export const heatmapAnswer = Effect.fnUntraced(function* (
   code: StockCode,
   stored: ReadonlyArray<HeatRow>,
@@ -156,7 +145,8 @@ export const heatmapAnswer = Effect.fnUntraced(function* (
           through: number
         ) => Effect.Effect<ReadonlyArray<HeatRow>>
       }
-    | undefined
+    | undefined,
+  notRecorded = false
 ) {
   const through =
     live === undefined
@@ -175,5 +165,6 @@ export const heatmapAnswer = Effect.fnUntraced(function* (
     slices: slices.filter(
       (slice) => DateTime.toEpochMillis(slice.at) < through
     ),
+    ...(notRecorded ? { notRecorded: true as const } : {}),
   })
 })

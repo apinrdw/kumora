@@ -16,6 +16,10 @@ export const ObjectPath = {
   // The reconcile cron's poke (POST) to build the day's broker totals
   // (src/server/broker-totals/reconcile.ts). No Worker route reaches it.
   brokerTotals: "/broker-totals",
+  // A newer day's seal, or the reconcile cron (cold-moves.ts), asks the day
+  // to move to R2 (POST): 202 when it moves, else 204. No Worker route
+  // reaches it.
+  move: "/move",
   // A sealed day's every code's value (GET), asked by the next trading
   // day's object (previous-values.ts). No Worker route reaches it.
   dayValues: "/day-values",
@@ -26,6 +30,9 @@ export const ObjectPath = {
 // from it.
 export const DAY_INDEX = "index"
 export const DayIndexPath = "/days"
+// A day's move to R2 POSTs its date here once its manifest is written
+// (cold-days.ts): the strip then carries it as cold.
+export const DayIndexColdPath = "/cold"
 
 // An account's id and one of its sessions' ids, as Better Auth names them.
 export const AccountId = Schema.NonEmptyString.pipe(Schema.brand("AccountId"))

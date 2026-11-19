@@ -11,6 +11,9 @@ export const SWITCH = "E2E_VIDEO"
 /** The specs the config's trading-day project runs. */
 export const TRADING_DAY_SPECS = /market-live[\w-]*\.spec\.ts$/
 
+/** The spec the config's cold-day project runs. */
+export const COLD_DAY_SPEC = /cold-day\.spec\.ts$/
+
 /** The spec the config's relay-load project runs. */
 export const RELAY_LOAD_SPEC = /relay-load\.spec\.ts$/
 
@@ -52,9 +55,11 @@ export function recording(
     chromium: picked.filter(
       (file) =>
         !TRADING_DAY_SPECS.test(file) &&
+        !COLD_DAY_SPEC.test(file) &&
         !TIMED_SPECS.some((spec) => spec.test(file))
     ),
     tradingDay: picked.some((file) => TRADING_DAY_SPECS.test(file)),
+    coldDay: picked.some((file) => COLD_DAY_SPEC.test(file)),
   }
 }
 

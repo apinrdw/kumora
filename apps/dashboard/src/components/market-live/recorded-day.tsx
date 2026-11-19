@@ -36,6 +36,8 @@ import { TAPE_INTERVAL_MS, gapAt, replayDay, tapeInstant } from "@/lib/replay"
 
 import type { CandleStore } from "./candle-store"
 import type { DayStateStore } from "./day-state-store"
+import type { HeatmapStore } from "./heatmap-store"
+import { useHeatmapNotRecorded } from "./use-heatmap"
 import { TAPE_HEIGHT, TapeSection } from "./live-tape"
 import { PhaseLabel } from "./market-conditions"
 import { OrderBookPanel } from "./order-book-panel"
@@ -353,14 +355,17 @@ export function RecordedTape({
 }
 
 // The selected code's stored book frame at the cursor, or "Not recorded"
-// while the cursor is inside a relay gap.
+// while the cursor is inside a relay gap, or all day when the day did not
+// record the code's book, as its heatmap answer says.
 export function RecordedOrderBook({
   store,
+  heatmap,
   cursor,
   gaps,
   marks,
 }: {
   store: OrderBookStore
+  heatmap: HeatmapStore
   cursor: ReplayCursor
   gaps: ReadonlyArray<RelayGap>
   marks?: ReadonlyArray<BookEvent> | undefined
@@ -369,8 +374,14 @@ export function RecordedOrderBook({
     cursor,
     ({ at }) => Effect.runSync(gapAt(gaps, at)) !== undefined
   )
+  const notRecorded = useHeatmapNotRecorded(heatmap)
   return (
-    <OrderBookPanel store={store} recorded notRecorded={inGap} marks={marks} />
+    <OrderBookPanel
+      store={store}
+      recorded
+      notRecorded={inGap || notRecorded}
+      marks={marks}
+    />
   )
 }
 

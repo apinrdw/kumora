@@ -72,7 +72,13 @@ export interface SweepStore {
   // Whether the day's codes are complete, as the sweep brokers GET last
   // answered; true until it answers otherwise, so live shows no note.
   readonly brokersComplete: () => boolean
-  readonly answerBrokers: (answer: RecordedSweepBrokers) => void
+  // Whether the page asks the sweep brokers GET again after its last
+  // answer: not once that answer is final.
+  readonly brokersAskedAgain: () => boolean
+  readonly answerBrokers: (
+    answer: RecordedSweepBrokers,
+    asksAgain: boolean
+  ) => void
   // The broker the log and the candle chart's bubbles are filtered to, or
   // none for all.
   // Decision: it lives here, per code and per page, not in the URL or the
@@ -123,6 +129,7 @@ export const makeSweepStore = (code: StockCode) =>
     let shown: ReadonlyArray<Sweep> = []
     let pieces: ReadonlyMap<TradeNumber, SweepPiece> = new Map()
     let brokersComplete = true
+    let brokersAskedAgain = false
     let ask = 0
     let asking = false
     let topN = TOP_N_DEFAULT
@@ -202,9 +209,11 @@ export const makeSweepStore = (code: StockCode) =>
       entries: () => entries,
       pieces: () => pieces,
       brokersComplete: () => brokersComplete,
-      answerBrokers: (answer) => {
+      brokersAskedAgain: () => brokersAskedAgain,
+      answerBrokers: (answer, asksAgain) => {
         if (answer.code !== code) return
         brokersComplete = answer.complete
+        brokersAskedAgain = asksAgain
         const before = entries
         entries = new Map(
           answer.sweeps.map((sweep) => [sweep.firstTrade, sweep])

@@ -82,6 +82,7 @@ import { makeKeptAlerts } from "./kept-alerts.ts"
 import { newerThanHeld } from "./late-frames.ts"
 import {
   memoryCodeListStore,
+  listedCodes,
   storeCodeList,
   type CodeListStore,
 } from "./code-list.ts"
@@ -94,12 +95,24 @@ import { makeGaps } from "./gaps.ts"
 import { makeMarketConditions } from "./market-conditions.ts"
 import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
-import { chunkSlices, endBookOf, storedEndBook } from "./heat-rows.ts"
+import { makeRecordedBooks } from "./recorded-books.ts"
+import { makeSessionBooks } from "./session-books.ts"
+import { chunkSlices, endBookOf, heldChunkOf } from "./heat-rows.ts"
 import {
   buildOrderFlow,
   buildWalkedDay,
   orderFlowBuiltAtStart,
 } from "./order-flow-build.ts"
+import type { DayBucket } from "./cold-bucket.ts"
+import {
+  MoveProgress,
+  coldDay,
+  moveStep,
+  takenUnwritten,
+  type ColdDay,
+  type DayToMove,
+} from "./cold-days.ts"
+import { leavingAt, outsideStreaming, pastWindow } from "./cold-window.ts"
 import {
   SNAPSHOT_TRADES,
   bubblesAnswer,
@@ -195,6 +208,17 @@ const ihsgOf = Effect.fnUntraced(function* (price: LivePrice | undefined) {
 
 const IHSG = StockCode.make("IHSG")
 
+// An instant after any trade a day holds: a tape cursor there reads by
+// trade number alone, as the move walks the tape back (cold-tape.ts).
+const AFTER_EVERY_TRADE = DateTime.makeUnsafe(8_640_000_000_000_000)
+
+// A move's progress as its fact holds it; the day wrote every one it reads.
+const MoveJson = Schema.fromJsonString(MoveProgress)
+const encodeMove = (progress: MoveProgress) =>
+  Effect.orDie(Schema.encodeEffect(MoveJson)(progress))
+const decodeMove = (text: string) =>
+  Effect.orDie(Schema.decodeUnknownEffect(MoveJson)(text))
+
 // One row per code from two flushes' rows, the later flush's replacing the
 // earlier's.
 const latestByCode = <T extends { readonly code: StockCode }>(
@@ -273,6 +297,73 @@ const encodeConditions = Schema.encodeEffect(
   Schema.fromJsonString(MarketConditions)
 )
 
+// Each code's last book served in a session, as the store kept it.
+const storedSessionEnds = Effect.fnUntraced(function* (
+  store: Effect.Success<ReturnType<typeof makeDayStore>>
+) {
+  const ended = new Map<StockCode, OrderBook>()
+  for (const text of yield* store.sessionBooks) {
+    const start = (yield* decodeBookChunk(text)).start
+    if (start !== undefined) ended.set(start.code, start)
+  }
+  return ended
+})
+
+// Keeps `book` as its code's latest in `latest` unless one held is newer.
+const keepLatest = (latest: Map<StockCode, OrderBook>, book: OrderBook) =>
+  Effect.sync(() => {
+    const held = latest.get(book.code)
+    if (held === undefined || !DateTime.isLessThan(book.at, held.at))
+      latest.set(book.code, book)
+  })
+
+// Each code's served book, rebuilt after a restart, and its readings.
+// Decision: an unviewed code has no chunk, so its book comes back from the
+// last session's end (session-books.ts): one served after it is missing
+// until its next frame, its Ajaib book served meanwhile. See spec
+// apinrdw/kumora#555, "Books only for viewed codes".
+const restoreBooks = Effect.fnUntraced(function* (day: {
+  readonly store: Effect.Success<ReturnType<typeof makeDayStore>>
+  readonly books: Effect.Success<ReturnType<typeof makeOrderBooks>>
+  readonly bookChunks: Effect.Success<typeof makeBookChunks>
+  readonly readings: Effect.Success<ReturnType<typeof makeReadingsBook>>
+}) {
+  // The book as of the last session's end, then the newer recorded chunk's:
+  // a day recorded before the session books restores from its chunks alone.
+  const sessionEnds = yield* storedSessionEnds(day.store)
+  const latest = new Map(sessionEnds)
+  for (const text of yield* day.store.latestChunks) {
+    const chunk = yield* decodeBookChunk(text)
+    const book = yield* bookAt(chunk, DateTime.makeUnsafe(8.64e15))
+    if (book !== undefined) yield* keepLatest(latest, book)
+  }
+  for (const book of latest.values()) yield* day.books.restore(book)
+  yield* day.bookChunks.restore([...latest.values()])
+  const ajaib = yield* day.store.ajaibBooks
+  yield* day.books.restoreAjaib(ajaib)
+  for (const { code } of ajaib) {
+    const book = yield* day.books.bookOf(code, false)
+    if (book?._tag === "OrderBook" && book.provenance === "Ajaib")
+      yield* keepLatest(latest, book)
+  }
+  // The book in force at `at`: its recorded chunk's, or else the last
+  // session end's, when that was served by then.
+  const bookOfAt = Effect.fnUntraced(function* (
+    code: StockCode,
+    at: DateTime.Utc
+  ) {
+    const stored = yield* day.store.chunkAt(code, yield* minuteOf(at))
+    if (stored !== undefined)
+      return yield* bookAt(yield* decodeBookChunk(stored), at)
+    const ended = sessionEnds.get(code)
+    return ended !== undefined && DateTime.isLessThanOrEqualTo(ended.at, at)
+      ? ended
+      : undefined
+  })
+  for (const book of latest.values())
+    yield* day.readings.restore(book, bookOfAt)
+})
+
 // The last-frame cache, rebuilt from the store after a restart: each code's
 // last `liveprice` frame and its last served order book. Returns the frames.
 const restoreLastFrames = Effect.fnUntraced(function* (day: {
@@ -304,23 +395,7 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
       DateTime.makeUnsafe(minute + MINUTE_MS - 1)
     ))
       yield* day.dayStates.trade(undefined, trade)
-  for (const text of yield* day.store.latestChunks) {
-    const chunk = yield* decodeBookChunk(text)
-    const book = yield* bookAt(chunk, DateTime.makeUnsafe(8.64e15))
-    if (book === undefined) continue
-    yield* day.books.restore(book)
-    yield* day.bookChunks.restore([book])
-    yield* day.readings.restore(
-      book,
-      Effect.fnUntraced(function* (code, at) {
-        const stored = yield* day.store.chunkAt(code, yield* minuteOf(at))
-        return stored === undefined
-          ? undefined
-          : yield* bookAt(yield* decodeBookChunk(stored), at)
-      })
-    )
-  }
-  yield* day.books.restoreAjaib(yield* day.store.ajaibBooks)
+  yield* restoreBooks(day)
   return prices
 })
 
@@ -407,6 +482,29 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // The broker totals DB the day's build writes to. A day without one never
   // builds.
   readonly brokerTotalsDb?: Layer.Layer<BrokerTotalsDb, never, WorkerEnv>
+  // Where the day moves once its walk is done (cold-days.ts). A day without
+  // it never moves.
+  readonly cold?: {
+    // Read in each step of the move and each answer once emptied, from the
+    // request it runs in.
+    readonly bucket: Effect.Effect<DayBucket, never, WorkerEnv>
+    // Marks the day cold in the day index.
+    readonly markCold: Effect.Effect<void, unknown, WorkerEnv>
+    // Empties the object for good, keeping only a mark that it is cold
+    // (trading-day-object.ts).
+    readonly empty: Effect.Effect<void, unknown>
+    // Whether the day index lists `date`: a day that was recorded.
+    readonly listed: (
+      date: WibDate
+    ) => Effect.Effect<boolean, unknown, WorkerEnv>
+    // Asks another day's object to move, if it is due.
+    readonly askMove: (
+      date: WibDate
+    ) => Effect.Effect<unknown, unknown, WorkerEnv>
+    // Moves run in Streaming hours too: the Test stage's, whose market clock
+    // reads session 1 (apps/e2e/support/clock.ts).
+    readonly anyHour?: Effect.Effect<boolean, never, WorkerEnv>
+  }
   // Asks the named day's object for its values (previous-values.ts). Never
   // asked by default.
   readonly previousDayValues?: (
@@ -422,6 +520,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // never inside, so nothing under it waits on it. See apinrdw/kumora#159.
   const turn = yield* Semaphore.make(1)
   const codeListStore = options.codeList ?? (yield* memoryCodeListStore)
+  // The codes the stored list names, read on the first Select after it
+  // changed; none while the day holds no list.
+  let listed: ReadonlySet<StockCode> | undefined
+  const storeList = Effect.fnUntraced(function* (body: string) {
+    yield* storeCodeList(codeListStore, body)
+    listed = undefined
+  })
   const todayDate = yield* wibDateAt(yield* DateTime.now)
   const today = todayDate === options.date
   const store = yield* makeDayStore(options.sql, { today })
@@ -508,6 +613,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     fetchDay: options.previousDayValues,
   })
   const bookChunks = yield* makeBookChunks
+  const recordedBooks = yield* makeRecordedBooks(store)
+  const sessionBooks = yield* makeSessionBooks
   const ledger = yield* makeLevelLedger
   const bookEvents = yield* makeBookEventLog(store)
   // The market phase and relay gaps the ledger last read under.
@@ -535,7 +642,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   let writtenDowns = storedDowns
   // What a flush took whose write failed, apart from the trades and candles
   // the candle book keeps; the next flush writes it.
-  let unwritten: Pick<Flush, "livePrices" | "chunks" | "ajaibBooks"> | undefined
+  let unwritten:
+    | Pick<Flush, "livePrices" | "chunks" | "sessionBooks" | "ajaibBooks">
+    | undefined
 
   // The feeds' down stretches read back from the store, before the relay's
   // token or close changes them.
@@ -813,10 +922,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const changed = yield* candles.takeChanged(selected)
     const live = yield* stockbitLive
     const changedBooks = yield* books.takeChanged(live)
-    for (const book of changedBooks) yield* bookChunks.record(book)
+    for (const book of changedBooks)
+      yield* bookChunks.record(book, yield* recordedBooks.has(book.code))
     const states = yield* dayStates.takeChanged(live, yield* onDemand.watched)
     const conditions = yield* market.conditions
     const bookReadings = yield* readings.read(changedBooks, conditions.phase)
+    yield* sessionBooks.served(changedBooks, conditions.phase)
     yield* readLedger(changedBooks, conditions)
     // Decision: a delta carries whole books only for codes some viewer
     // selected, as footprints do: a page reads only its selected code's, and
@@ -916,10 +1027,15 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* feedLags.logEnded
     const settled = yield* candles.takeSettled(final)
     const chunks = yield* bookChunks.take(final)
+    const endedSession = yield* sessionBooks.take(
+      (yield* market.conditions).phase,
+      final
+    )
     const livePrices = [...livePricesChanged.values()]
     livePricesChanged = new Map()
     const events = yield* bookEvents.toFlush
     const ajaibBooks = yield* books.takeAjaibBooks
+    const recordedCodes = yield* recordedBooks.unwritten
     const marking = bookEventsRead && !bookEventsMarked
     const retained = unwritten
     const payload: Flush = {
@@ -928,10 +1044,15 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       footprints: settled.footprints,
       livePrices: yield* latestByCode(retained?.livePrices ?? [], livePrices),
       chunks: [...(retained?.chunks ?? []), ...chunks],
+      sessionBooks: yield* latestByCode(
+        retained?.sessionBooks ?? [],
+        endedSession
+      ),
       ajaibBooks: yield* latestByCode(retained?.ajaibBooks ?? [], ajaibBooks),
       facts: {
         [Fact.feedDowns]: JSON.stringify(yield* market.record),
         ...(yield* sweepBrokers.persisting(settled.trades)),
+        ...recordedCodes,
         ...(marking ? { [Fact.bookEvents]: "recorded" } : {}),
         ...facts,
       },
@@ -939,6 +1060,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
     unwritten = payload
     yield* store.write(payload)
+    yield* recordedBooks.wrote(recordedCodes)
     yield* Effect.logInfo("Rows written").pipe(
       Effect.annotateLogs({ ...(yield* store.takeMeter) })
     )
@@ -979,13 +1101,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       (yield* candles.hasUnflushed) ||
       (yield* bookChunks.hasOpen) ||
       (yield* books.hasUnflushedAjaib) ||
+      (yield* recordedBooks.hasUnwritten) ||
+      (yield* sessionBooks.due((yield* market.conditions).phase)) ||
       JSON.stringify(yield* market.record) !== writtenDowns
     )
   })
 
   // One flush a minute while anything is left to write, a failed one
-  // included, or a feed lag line to log. A wake with nothing to write only
-  // logs, so the lines add no transaction.
+  // included, a feed lag line to log, or a session's books to write at its
+  // end. A wake with nothing to write only logs, so the lines add no
+  // transaction.
   // Decision: feed lag lines are logged on this flush, 5 s past the minute, as
   // structured Effect logs that Workers Logs keeps: no binding, metric store
   // or alert. A minute's timed trades keep the flush armed until its lines
@@ -1020,11 +1145,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
                 Effect.logError("Bubbles not built", cause)
               )
             )
-          }).pipe(Effect.andThen(Effect.all([unflushed, feedLags.hasUnlogged])))
+          }).pipe(
+            Effect.andThen(
+              Effect.all([
+                unflushed,
+                feedLags.hasUnlogged,
+                sessionBooks.hasUnwritten,
+              ])
+            )
+          )
         )
       ),
-      Effect.flatMap(([more, logging]) =>
-        more || logging ? armFlush : Effect.void
+      Effect.flatMap(([more, logging, sessionOpen]) =>
+        more || logging || sessionOpen ? armFlush : Effect.void
       ),
       Effect.forkIn(scope),
       Effect.asVoid
@@ -1093,6 +1226,18 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         ...(yield* sweepBrokers.storage),
       })
     )
+    // The day leaving the window at this seal is asked to move, if the index
+    // lists it: asking a day never recorded would make an empty object for
+    // it. A failed ask waits for the reconcile cron (cold-moves.ts).
+    if (today && options.cold !== undefined) {
+      const { cold } = options
+      const leaving = yield* leavingAt(options.date)
+      yield* Effect.gen(function* () {
+        if (yield* cold.listed(leaving)) yield* cold.askMove(leaving)
+      }).pipe(
+        Effect.catchCause((cause) => Effect.logError("Move not asked", cause))
+      )
+    }
   })
 
   // A batch's rows with fields as tape trades, marked walk and their
@@ -1157,6 +1302,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // displaces an earlier one. The Durable Object keeps the alarm itself
   // across hibernation; the day's start arms it again from its deadlines.
   let armed: DateTime.Utc | undefined
+  // The emptied cold day's answers (cold-days.ts `coldDay`), once the move
+  // emptied the object: from then on nothing reads its store.
+  let gone: ColdDay | undefined
   const arm = (at: DateTime.Utc) =>
     Effect.suspend(() => {
       if (armed !== undefined && !DateTime.isLessThan(at, armed))
@@ -1264,6 +1412,34 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         Effect.andThen(wakes.set("build", undefined)),
         retried("build", "Broker totals not built", now)
       )
+      if ((yield* wakes.deadline("build")) === undefined) yield* moveAfter
+    }),
+    // One step of the move a run, the next due at once; a failed step is
+    // run again a minute later.
+    move: Effect.fnUntraced(function* (now) {
+      const stored = yield* store.fact(Fact.move)
+      if (options.cold === undefined || stored === undefined)
+        return yield* wakes.set("move", undefined)
+      const cold = options.cold
+      if (cold.anyHour === undefined || !(yield* cold.anyHour)) {
+        const at = yield* outsideStreaming(now)
+        if (DateTime.isLessThan(now, at)) return yield* wakes.set("move", at)
+      }
+      yield* Effect.gen(function* () {
+        const next = yield* moveStep(
+          options.date,
+          { bucket: yield* cold.bucket, markCold: cold.markCold },
+          dayToMove,
+          yield* decodeMove(stored)
+        )
+        if (next === "Cold") {
+          yield* cold.empty
+          gone = coldDay(options.date, cold.bucket)
+          return
+        }
+        yield* store.setFact(Fact.move, yield* encodeMove(next))
+        yield* wakes.set("move", now)
+      }).pipe(retried("move", "Day not moved", now))
     }),
   }
 
@@ -1277,7 +1453,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const now = yield* DateTime.now
     for (const wake of WAKES)
       if (yield* wakes.due(wake, now)) yield* duties[wake](now)
-    yield* sweepIngests
+    if (gone === undefined) yield* sweepIngests
   })
 
   // The batch that makes a walk day buildable sets its seal for now, unless
@@ -1454,12 +1630,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           message._tag === "CodeList" &&
           Option.isNone(yield* codeListStore.read)
         )
-          yield* storeCodeList(codeListStore, message.body)
+          yield* storeList(message.body)
         return
       }
       yield* market.ingest(message)
-      if (message._tag === "CodeList")
-        return yield* storeCodeList(codeListStore, message.body)
+      if (message._tag === "CodeList") return yield* storeList(message.body)
       // A page fills only numbers the day lacks: a held trade keeps the feeds
       // that saw it live.
       if (message._tag === "BackfillPage")
@@ -1482,6 +1657,23 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )
   )
 
+  // Codes a viewer watches join the recorded books if listed, each recorded
+  // from now to the close. A sealed day's recorded books are fixed: a code viewed
+  // after the seal gets its live book but stays not recorded.
+  // Each joining code's chunk opens from the book its viewer is served.
+  const recordWatched = Effect.fnUntraced(function* (
+    watching: ReadonlyArray<StockCode>,
+    live: boolean
+  ) {
+    if (sealed) return
+    if (listed === undefined) listed = yield* listedCodes(codeListStore)
+    for (const code of watching) {
+      if (!(yield* recordedBooks.join(code, listed))) continue
+      const book = yield* books.bookOf(code, live)
+      if (book?._tag === "OrderBook") yield* bookChunks.begin(book)
+    }
+  })
+
   // The page's Select, on open and on every change, in a message no longer
   // than VIEWER_MESSAGE_LIMIT: answered with a snapshot, after which the
   // socket gets deltas. A longer message is closed with 1011 unread. A Select
@@ -1503,6 +1695,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       const orderBook = yield* books.bookOf(selected, live)
       // The selected code first: on-demand.ts reads it back as the selection.
       const watching = [...new Set([selected, ...watchlist])]
+      yield* recordWatched(watching, live)
       const states: Array<DayState> = []
       const indicative: Array<IndicativePrice> = []
       for (const code of watching) {
@@ -1600,15 +1793,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     code: StockCode,
     through: number
   ) {
-    const unwrittenRows = (unwritten?.chunks ?? [])
-      .filter((chunk) => chunk.code === code)
-      .map((chunk) => ({
-        minute: chunk.minute,
-        slices: chunk.slices,
-        endBook: storedEndBook(chunk.chunk),
-      }))
-    const heldRows = yield* Effect.forEach(
-      yield* bookChunks.held(code),
+    // The object encoded them itself.
+    const unwrittenChunks = yield* Effect.forEach(
+      (unwritten?.chunks ?? []).filter((chunk) => chunk.code === code),
+      (chunk) => Effect.orDie(heldChunkOf(chunk.chunk))
+    )
+    return yield* Effect.forEach(
+      [...unwrittenChunks, ...(yield* bookChunks.held(code))],
       Effect.fnUntraced(function* (chunk) {
         return {
           minute: chunk.minute,
@@ -1617,7 +1808,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         }
       })
     )
-    return [...unwrittenRows, ...heldRows]
   })
 
   // A sealed day's order flow GET, and any day's sweep brokers GET, builds
@@ -1629,12 +1819,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const builtFirst = Effect.fnUntraced(function* (resource: RecordedResource) {
     if (resource._tag === "SweepBrokers") return yield* sweepBrokers.builtFirst
     if (!sealed || orderFlowBuilt) return
-    if (
-      resource._tag !== "Candles" &&
-      resource._tag !== "Sweeps" &&
-      resource._tag !== "Heatmap"
-    )
-      return
+    if (resource._tag !== "Candles" && resource._tag !== "Sweeps") return
     yield* buildOrderFlow(store)
     orderFlowBuilt = true
   })
@@ -1667,6 +1852,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
               (conditions) => conditions.gaps
             ),
             heldHeat,
+            booksNotRecorded: recordedBooks.notRecorded,
             sweeps: candles.sweepsOf,
             bookEvents: Effect.fnUntraced(function* (code: StockCode) {
               return {
@@ -1676,6 +1862,93 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
             }),
           })
         )
+
+  // Every code's value, once sealed (previous-values.ts).
+  const dayValues = Effect.suspend(() =>
+    dayValuesAnswer(
+      sealed,
+      Effect.map(store.storedBubbles(0), ({ days }) =>
+        days.map(({ code, sums }) => ({ code, value: sums.value }))
+      )
+    )
+  )
+
+  // What a sealed day's move to R2 reads (cold-days.ts): its answers as
+  // `recorded` builds them, for every code its list names or it holds data
+  // of.
+  const dayToMove = {
+    answer: recorded,
+    status: brokerCodes.status(new URLSearchParams()),
+    dayValues,
+    bookEvents: {
+      recorded: Effect.sync(() => today || bookEventsMarked),
+      codes: store.bookEventCodes,
+    },
+    codes: Effect.gen(function* () {
+      const codes = new Set(yield* store.dayCodes)
+      for (const code of (yield* listedCodes(codeListStore)) ?? [])
+        codes.add(code)
+      return [...codes].sort()
+    }),
+    tape: {
+      below: (before, limit) =>
+        store.tradesAt(
+          before === undefined
+            ? { at: AFTER_EVERY_TRADE }
+            : { at: AFTER_EVERY_TRADE, before },
+          limit
+        ),
+      codes: (tradeNumbers) => brokerCodes.heldCodes(tradeNumbers),
+      complete: brokerCodes.codesComplete,
+    },
+    books: { codes: store.bookCodes, chunksOf: store.storedChunksOf },
+  } satisfies DayToMove
+
+  // Whether the day is due to move: sealed, no build pending, and its walk
+  // done (its codes complete and its broker totals built at this version)
+  // or out of the window.
+  const moveDue = Effect.gen(function* () {
+    if (!sealed || options.cold === undefined) return false
+    if ((yield* wakes.deadline("build")) !== undefined) return false
+    if (
+      (yield* brokerCodes.codesComplete) &&
+      (yield* store.fact(Fact.brokerTotals)) === String(BROKER_TOTALS_VERSION)
+    )
+      return true
+    return yield* pastWindow(options.date, yield* DateTime.now)
+  })
+
+  // Starts the day's move when it is due; whether the day moves.
+  // Decision: a move starts at midnight after its day at the earliest:
+  // until then the object serves the live day's viewers, which an emptied
+  // one could not. A day that started its move takes no more broker codes
+  // (`brokerCodes.post`), so its stored answers match what it held. See
+  // spec apinrdw/kumora#556, "Hot and cold days".
+  const startMove = Effect.gen(function* () {
+    if (options.cold === undefined) return false
+    if ((yield* store.fact(Fact.move)) !== undefined) return true
+    if (!(yield* moveDue)) return false
+    const now = yield* DateTime.now
+    yield* store.setFact(Fact.move, yield* encodeMove({ _tag: "Answers" }))
+    yield* wakes.set(
+      "move",
+      DateTime.toEpochMillis(now) < dayEnd ? DateTime.makeUnsafe(dayEnd) : now
+    )
+    return true
+  })
+  // The build's and a batch's start: one that failed waits for the next
+  // batch, build or reconcile cron (cold-moves.ts).
+  const moveAfter = startMove.pipe(
+    Effect.catchCause((cause) => Effect.logError("Move not started", cause)),
+    Effect.asVoid
+  )
+
+  // Once the move started, a batch is answered as taken and writes nothing,
+  // as an emptied object's (cold-days.ts `takenUnwritten`).
+  const moving = Effect.map(
+    store.fact(Fact.move),
+    (progress) => progress !== undefined
+  )
 
   yield* sweepIngests
 
@@ -1698,6 +1971,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // apinrdw/kumora#558.
   let usageLogged = yield* store.fact(Fact.usageLogged)
   const usageLine = Effect.gen(function* () {
+    if (gone !== undefined) return
     const date = yield* wibDateAt(yield* DateTime.now)
     if (usageLogged === date || (date === options.date && !sealed)) return
     const usage = yield* store.takeUsage
@@ -1708,32 +1982,41 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       Effect.annotateLogs(usage)
     )
   })
-  // A callback, in the turn, ending with the day's usage line when due.
-  const turned = <A, E, R>(callback: Effect.Effect<A, E, R>) =>
-    turn.withPermit(Effect.tap(callback, () => usageLine))
+  // A callback, in the turn, ending with the day's usage line when due; once
+  // the move emptied the object, `whenGone` instead.
+  const turned = <A, E, R, A2, E2, R2>(
+    callback: Effect.Effect<A, E, R>,
+    whenGone: (emptied: ColdDay) => Effect.Effect<A2, E2, R2>
+  ) =>
+    turn.withPermit(
+      Effect.suspend((): Effect.Effect<A | A2, E | E2, R | R2> =>
+        gone === undefined
+          ? Effect.tap(callback, () => usageLine)
+          : whenGone(gone)
+      )
+    )
+  const nothing = () => Effect.void
 
   return {
-    ingestOpened: turned(ingestOpened),
+    ingestOpened: turned(ingestOpened, nothing),
     ingestMessage: (socket: Peer, text: string) =>
-      turned(ingestMessage(socket, text)),
+      turned(ingestMessage(socket, text), nothing),
     viewerMessage: (socket: Peer, text: string) =>
-      turned(viewerMessage(socket, text)),
-    viewerClosed: (socket: Peer) => turned(viewerClosed(socket)),
-    ingestClosed: (socket: Peer) => turned(ingestClosed(socket)),
-    endSessions: (held: HeldSessions) => turned(endSessions(held)),
-    recorded: (resource: RecordedResource) => turned(recorded(resource)),
-    alarm: turned(alarm),
-    // Every code's value, for the next trading day's object.
-    dayValues: turned(
-      Effect.suspend(() =>
-        dayValuesAnswer(
-          sealed,
-          Effect.map(store.storedBubbles(0), ({ days }) =>
-            days.map(({ code, sums }) => ({ code, value: sums.value }))
-          )
-        )
-      )
-    ),
+      turned(viewerMessage(socket, text), () =>
+        socket.close(ViewerCloseCode.DayEnded, "Day ended")
+      ),
+    viewerClosed: (socket: Peer) => turned(viewerClosed(socket), nothing),
+    ingestClosed: (socket: Peer) => turned(ingestClosed(socket), nothing),
+    endSessions: (held: HeldSessions) => turned(endSessions(held), nothing),
+    recorded: (resource: RecordedResource) =>
+      turned(recorded(resource), (emptied) => emptied.recorded(resource)),
+    // A newer day's seal, or the reconcile cron, asks the day to move:
+    // whether it moves.
+    move: turned(startMove, () => Effect.succeed(false)),
+    alarm: turned(alarm, nothing),
+    // Every code's value, for the next trading day's object; a cold day's
+    // as its move stored them.
+    dayValues: turned(dayValues, (emptied) => emptied.dayValues),
     // Decision: on a day the relay recorded, and on any sealed day, broker
     // codes touch no recorded day state (no flush, seal or index row), so its
     // answers stay byte-identical (#244). A walk day before its seal takes
@@ -1744,23 +2027,36 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       // brokers rows from their minutes' stored trades, in the codes' turn
       // and transaction, before its 200; one that changes none recomputes
       // nothing. See spec apinrdw/kumora#343, "When it is recomputed".
+      // A batch that leaves the day due to move starts its move.
       post: (text: string) =>
         turned(
-          brokerCodes.post(text, {
-            taken: walkTapeOf,
-            alongside: sweepBrokers.recompute,
-            // Broker totals before sweep brokers: its scan is the one
-            // sweep brokers' check reads.
-            written: (corrected) =>
-              walkSealDue.pipe(
-                Effect.andThen(totalsWritten(corrected)),
-                Effect.andThen(sweepBrokers.completed)
-              ),
-          })
+          Effect.flatMap(moving, (frozen) =>
+            frozen
+              ? takenUnwritten(text, options.date)
+              : brokerCodes.post(text, {
+                  taken: walkTapeOf,
+                  alongside: sweepBrokers.recompute,
+                  // Broker totals before sweep brokers: its scan is the one
+                  // sweep brokers' check reads.
+                  written: (corrected) =>
+                    walkSealDue.pipe(
+                      Effect.andThen(totalsWritten(corrected)),
+                      Effect.andThen(sweepBrokers.completed),
+                      Effect.andThen(moveAfter)
+                    ),
+                })
+          ),
+          (emptied) => emptied.post(text)
         ),
-      status: (search: URLSearchParams) => turned(brokerCodes.status(search)),
-      held: (tradeNumber: TradeNumber) => turned(brokerCodes.held(tradeNumber)),
+      status: (search: URLSearchParams) =>
+        turned(brokerCodes.status(search), (emptied) => emptied.status(search)),
+      held: (tradeNumber: TradeNumber) =>
+        turned(brokerCodes.held(tradeNumber), () =>
+          Effect.die("The day moved")
+        ),
     },
-    brokerTotals: { reconcile: turned(reconcile) },
+    brokerTotals: {
+      reconcile: turned(reconcile, () => Effect.succeed(false)),
+    },
   }
 })

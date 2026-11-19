@@ -23,10 +23,12 @@ import type { Sql } from "@/server/market-live/day-store"
 import { SEALED_CACHE } from "@/server/market-live/routes"
 
 import {
+  heatmapRowsBeforeOnRead,
   sealedBeforeOrderFlow,
   stockbitBook,
   stockbitTrade,
   tradingDay,
+  withLines,
 } from "./day-harness"
 import { memorySql } from "./sql"
 
@@ -405,6 +407,56 @@ describe("the book heatmap", () => {
         )
         const built = yield* heatmap(yield* tradingDay(sql))
         assert.deepStrictEqual(built, sealed)
+      })
+  )
+
+  it.effect("a recorded day stores no heatmap row, only its book chunks", () =>
+    withLines("Order flow storage", (lines) =>
+      Effect.gen(function* () {
+        const { day, page } = yield* quietDay()
+        yield* offerDrops(day)
+        yield* page.leave
+        yield* at("17:00:00")
+        yield* day.alarm
+        assert.lengthOf(lines, 1)
+        assert.strictEqual(lines[0]!.heatmapRows, 0)
+        assert.strictEqual(lines[0]!.heatmapBytes, 0)
+      })
+    )
+  )
+
+  it.effect(
+    "a day recorded with heatmap rows answers as its book chunks do, and so does one whose rows stop mid-day",
+    () =>
+      Effect.gen(function* () {
+        const sealedDay = Effect.fnUntraced(function* (sql: Sql) {
+          const { day, page } = yield* quietDay(sql)
+          yield* offerDrops(day)
+          yield* page.leave
+          yield* at("17:00:00")
+          yield* day.alarm
+          yield* day.evicted
+        })
+        const reopened = (sql: Sql) =>
+          Effect.flatMap(tradingDay(sql), (day) => heatmap(day))
+
+        const fromChunks = memorySql()
+        yield* sealedDay(fromChunks)
+        const answer = yield* reopened(fromChunks)
+
+        const withRows = memorySql()
+        yield* sealedDay(withRows)
+        yield* heatmapRowsBeforeOnRead(withRows)
+        assert.deepStrictEqual(yield* reopened(withRows), answer)
+
+        // Rows until 14:22, as a day the change shipped on at 14:22 holds.
+        const rowsUntil1422 = memorySql()
+        yield* sealedDay(rowsUntil1422)
+        yield* heatmapRowsBeforeOnRead(
+          rowsUntil1422,
+          DateTime.toEpochMillis(wib("14:22:00"))
+        )
+        assert.deepStrictEqual(yield* reopened(rowsUntil1422), answer)
       })
   )
 

@@ -15,6 +15,13 @@ const DayValuesJson = Schema.fromJsonString(DayValues)
 const encodeDayValues = Schema.encodeEffect(DayValuesJson)
 const decodeDayValues = Schema.decodeUnknownEffect(DayValuesJson)
 
+// A day's answer to ObjectPath.dayValues with its encoded values, as its
+// object built it or the move stored it (cold-days.ts); and a day's answer
+// without values.
+export const dayValuesResponse = (body: ReadableStream | string) =>
+  new Response(body, { headers: { "Content-Type": "application/json" } })
+export const noDayValues = () => new Response(null, { status: 404 })
+
 // A day's answer to ObjectPath.dayValues: every stock code's regular-board
 // value once sealed, 404 before, as a day still recording would answer
 // values that change.
@@ -24,11 +31,9 @@ export const dayValuesAnswer = Effect.fnUntraced(function* (
     ReadonlyArray<{ readonly code: StockCode; readonly value: number }>
   >
 ) {
-  if (!sealed) return new Response(null, { status: 404 })
+  if (!sealed) return noDayValues()
   const values = (yield* days).map(({ code, value }) => [code, value] as const)
-  return new Response(yield* encodeDayValues({ values }), {
-    headers: { "Content-Type": "application/json" },
-  })
+  return dayValuesResponse(yield* encodeDayValues({ values }))
 })
 
 // Decision: the previous trading day looks back at most this many days,

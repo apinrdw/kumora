@@ -2,8 +2,11 @@
 // flow tests (spec apinrdw/kumora#263): fake sockets, Node's SQLite, and
 // Stockbit running trade batches. Time moves only by TestClock: a delta goes
 // out 250 ms after what it carries arrived, a flush 5 s past each minute.
+import { gunzipSync } from "node:zlib"
+
 import {
   BrokerCode,
+  HEAT_SLICE_MS,
   BrokerCodesProtocolVersion,
   IngestProtocolVersion,
   StockCode,
@@ -34,9 +37,12 @@ import {
   References,
   Scope,
 } from "effect"
+import { TestClock } from "effect/testing"
 
 import type { BrokerTotalsDb } from "@/server/broker-totals/db"
+import type { DayBucket } from "@/server/market-live/cold-bucket"
 import type { Sql } from "@/server/market-live/day-store"
+import { chunkSlices, heldChunkOf } from "@/server/market-live/heat-rows"
 import {
   makeTradingDay,
   type Peer,
@@ -160,14 +166,23 @@ export const stockbitBook = (book: {
 // the object restarting, and its `viewers` again the sockets that outlived
 // it), with a relay that sent the right token. Its builds write to
 // `brokerTotalsDb` when given, and `alarms` lists every instant it set the
-// alarm for.
+// alarm for. Given `cold`, it moves to its bucket: emptying the object drops
+// every table of `sql`, and `asked` lists the days it asked to move: each
+// day `listed` answers true for, every day when it is left out.
 export const tradingDay = Effect.fnUntraced(function* (
   sql: Sql = memorySql(),
   viewers: Array<FakeSocket> = [],
-  brokerTotalsDb?: Layer.Layer<BrokerTotalsDb>
+  brokerTotalsDb?: Layer.Layer<BrokerTotalsDb>,
+  cold?: {
+    readonly bucket: Effect.Effect<DayBucket>
+    readonly markCold: Effect.Effect<void, unknown>
+    readonly listed?: (date: WibDate) => Effect.Effect<boolean, unknown>
+  }
 ) {
   const scope = yield* Scope.make()
   const alarms: Array<DateTime.Utc> = []
+  const asked: Array<WibDate> = []
+  let emptied = false
   const day = yield* makeTradingDay({
     sql,
     date: DAY,
@@ -175,6 +190,23 @@ export const tradingDay = Effect.fnUntraced(function* (
     viewersOf: () => Effect.succeed([]),
     setAlarm: (at) => Effect.sync(() => void alarms.push(at)),
     ...(brokerTotalsDb === undefined ? {} : { brokerTotalsDb }),
+    ...(cold === undefined
+      ? {}
+      : {
+          cold: {
+            listed: () => Effect.succeed(true),
+            ...cold,
+            empty: Effect.sync(() => {
+              for (const { name } of sql.exec(
+                "SELECT name FROM sqlite_schema WHERE type = 'table'"
+              ))
+                sql.exec(`DROP TABLE "${String(name)}"`)
+              emptied = true
+            }),
+            askMove: (date: WibDate) =>
+              Effect.sync(() => void asked.push(date)),
+          },
+        }),
   }).pipe(Scope.provide(scope))
   const relay = new FakeSocket()
   const ingest = (text: string) =>
@@ -230,10 +262,23 @@ export const tradingDay = Effect.fnUntraced(function* (
       })
     )
   })
-  // A viewer that selected `code`, and so was sent a snapshot.
+  // Ajaib's code list response `body`, as the relay sends it.
+  const codeList = Effect.fnUntraced(function* (body: string) {
+    yield* ingest(
+      yield* encodeIngestUp({
+        _tag: "CodeList",
+        protocolVersion: IngestProtocolVersion,
+        receivedAt: yield* DateTime.now,
+        body,
+      })
+    )
+  })
+  // A viewer that selected `code` and watches `watchlist`, and so was sent a
+  // snapshot.
   const viewer = Effect.fnUntraced(function* (
     code: string,
-    protocolVersion: number = ViewerProtocolVersion
+    protocolVersion: number = ViewerProtocolVersion,
+    watchlist: ReadonlyArray<string> = []
   ) {
     const socket = new FakeSocket()
     viewers.push(socket)
@@ -241,7 +286,7 @@ export const tradingDay = Effect.fnUntraced(function* (
       _tag: "Select",
       protocolVersion: ViewerProtocolVersion,
       selected: StockCode.make(code),
-      watchlist: [],
+      watchlist: watchlist.map((watched) => StockCode.make(watched)),
     })
     yield* day.viewerMessage(
       socket,
@@ -260,6 +305,11 @@ export const tradingDay = Effect.fnUntraced(function* (
   })
   const recorded = (resource: RecordedResource) =>
     day.recorded(resource).pipe(Effect.provide(env))
+  // The broker codes status GET's answer, with the GET's query.
+  const status = (search = "") =>
+    day.brokerCodes
+      .status(new URLSearchParams(search))
+      .pipe(Effect.provide(env))
   // A code's recorded day candles answer, decoded, with its Cache-Control.
   const recordedCandles = Effect.fnUntraced(function* (code: string) {
     const response = yield* recorded({
@@ -339,14 +389,41 @@ export const tradingDay = Effect.fnUntraced(function* (
     recordedSweepBrokers,
     ajaibTrades,
     frames,
+    codeList,
     viewers,
     viewer,
     left,
     recorded,
+    status,
     recordedCandles,
     recordedSweeps,
     alarm: day.alarm.pipe(Effect.provide(env)),
     alarms,
+    asked,
+    // The day's answer to the next trading day's ask for its values.
+    dayValues: day.dayValues.pipe(Effect.provide(env)),
+    // Whether the move emptied the object.
+    emptied: Effect.sync(() => emptied),
+    // A newer day's seal or the reconcile cron asking it to move.
+    move: day.move.pipe(Effect.provide(env)),
+    // At midnight ten trading days on, out of the window, the day asked to
+    // move and its alarm run while a step is due: whether it emptied.
+    movedToR2: Effect.gen(function* () {
+      yield* TestClock.setTime(
+        DateTime.toEpochMillis(DateTime.makeUnsafe("2026-11-24T00:00:00+07:00"))
+      )
+      if (!(yield* day.move)) return false
+      for (let run = 0; run < 50 && !emptied; run++) {
+        const due = alarms.at(-1)
+        if (
+          due === undefined ||
+          DateTime.isGreaterThan(due, yield* DateTime.now)
+        )
+          break
+        yield* day.alarm.pipe(Effect.provide(env))
+      }
+      return emptied
+    }),
     // The reconcile cron's poke: whether the day will build.
     reconcile: day.brokerTotals.reconcile,
     // The object evicted: its timers stop, so the clock can move days on.
@@ -362,6 +439,34 @@ export const sealedBeforeOrderFlow = (sql: Sql) =>
     sql.exec("DROP TABLE heatmaps")
     sql.exec("DELETE FROM facts WHERE key = 'order-flow-built'")
   })
+
+// What a day recorded before heatmaps were worked out on read holds: a
+// heatmap row beside each book chunk before `until`, its slices as the chunk
+// close wrote them ([slice index, levels] for each slice with lots).
+export const heatmapRowsBeforeOnRead = (sql: Sql, until = Infinity) =>
+  Effect.forEach(
+    sql.exec("SELECT code, minute, chunk FROM book_chunks ORDER BY minute"),
+    Effect.fnUntraced(function* (row) {
+      const minute = Number(row.minute)
+      if (minute >= until) return
+      const chunk = yield* heldChunkOf(
+        gunzipSync(row.chunk as Uint8Array).toString()
+      )
+      const slices = yield* chunkSlices(chunk)
+      sql.exec(
+        "INSERT INTO heatmaps VALUES (?, ?, ?)",
+        String(row.code),
+        minute,
+        JSON.stringify(
+          slices.map((slice) => [
+            (DateTime.toEpochMillis(slice.at) - minute) / HEAT_SLICE_MS,
+            slice.levels,
+          ])
+        )
+      )
+    }),
+    { discard: true }
+  )
 
 // What a day whose codes landed before sweep brokers shipped holds: no sweep
 // brokers rows, and no mark that they were built.

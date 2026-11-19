@@ -133,6 +133,12 @@ export const Website = Cloudflare.Website.Vite(
             ).pipe(Config.withDefault(Redacted.make("0"))),
           }
         : {}
+    // Decision: the Test stage alone moves days to R2 in Streaming hours
+    // (src/server/market-live/cold-window.ts): its market clock reads
+    // session 1 all run, so the e2e's cold day would never move. No
+    // deployed stage binds it.
+    const testMoves: Partial<Record<"MARKET_LIVE_MOVES_ANY_HOUR", "on">> =
+      stage === TEST ? { MARKET_LIVE_MOVES_ANY_HOUR: "on" } : {}
     // The stage's crons and their Decisions: src/server/stage-crons.ts.
     const crons = stageCrons((yield* stageKind(stage)) === "production")
     return {
@@ -174,6 +180,15 @@ export const Website = Cloudflare.Website.Vite(
         // (src/server/market-live/day-index-object.ts). Untyped, like
         // TRADING_DAY.
         MARKET_LIVE_INDEX: Cloudflare.DurableObject("DayIndex"),
+        // Cold days: each recorded day's finished answers once it moves out
+        // of its trading-day object (src/server/market-live/cold-bucket.ts).
+        // Decision: one bucket per stage, beside the stage's objects.
+        // Production's survives a stack destroy; any other stage's is
+        // emptied and destroyed with it, so a Preview teardown takes its
+        // days. See spec apinrdw/kumora#556, "The layout".
+        DAYS_BUCKET: Cloudflare.R2.Bucket("DaysBucket", {
+          forceDestroy: (yield* stageKind(stage)) !== "production",
+        }),
         // The shareholding archive and its archive run, on every stage, so
         // the code runs the same everywhere; outside Production the bucket
         // stays empty. src/worker.ts exports the Workflow class.
@@ -234,6 +249,7 @@ export const Website = Cloudflare.Website.Vite(
         }),
         ...google,
         ...clockOffset,
+        ...testMoves,
       },
     }
   })

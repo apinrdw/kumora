@@ -245,6 +245,11 @@ export const Select = Schema.TaggedStruct("Select", {
 export type ViewerUp = typeof Select.Type
 
 // Who took the aggressor side. Auction matches and negotiated prints have none.
+// Decision: a chunked tape's record stores a trade's side, board and feeds as
+// their index in Side, Board and TradeSource (apps/dashboard's
+// tape-chunks.ts), so each list is append-only: a stored day reads its
+// records back through the order it was written with. A record packs at most
+// four feeds.
 export const Side = Schema.Literals(["buy", "sell", "none"])
 
 // The market board: regular, cash (tunai), or negotiated.
@@ -267,7 +272,13 @@ export const groupedNumber = (text: string) =>
 
 // Where a running trade was seen: a live feed, a backfill request's answer,
 // or a walk after the close, on a day whose tape source is the walks.
-const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill", "walk"])
+// Append-only, as Side is.
+export const TradeSource = Schema.Literals([
+  "Stockbit",
+  "Ajaib",
+  "backfill",
+  "walk",
+])
 
 // One trade on the whole-market tape, merged across feeds. Its trade number is
 // the bare daily sequence, one market-wide numbering per trading day. Value is

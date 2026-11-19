@@ -1,7 +1,9 @@
 // Seam (2) of spec apinrdw/kumora#263 for the book heatmap (ticket
 // apinrdw/kumora#267): the selected code's resting lots shade the candle chart
 // behind its candles, live from the heatmap GET and the socket's books, and on
-// a recorded day from the GET alone.
+// a recorded day from the GET alone. A day records the books of viewed codes
+// only (ticket apinrdw/kumora#568): a code no viewer opened shows its Book and
+// heatmap as not recorded.
 import {
   StockCode,
   WibDate,
@@ -34,7 +36,8 @@ test.use({ storageState: MEMBER.storageState })
 test("the selected code's book heatmap shades behind the candle chart's candles, live and on a recorded day", async ({
   page,
 }) => {
-  // A code of its own: today's object keeps every code's books.
+  // A code of its own, which this page views, so today's object records its
+  // books.
   const code = freshCode("HM")
   const base = freshTradeNumbers()
   const sentAt = marketNow()
@@ -119,4 +122,48 @@ test("the selected code's book heatmap shades behind the candle chart's candles,
   ).toContainText("RECORDED")
   await expect(chart).toContainText("One-minute candles: 1")
   await expect(canvas).toHaveAttribute("data-heatmap-slices", /^[1-9]\d*$/)
+})
+
+test("a recorded day shows the Book and heatmap of a code no viewer opened as not recorded", async ({
+  page,
+}) => {
+  // A code of its own, which no page opens live: today's object never
+  // records its books.
+  const code = StockCode.make(freshCode("NR"))
+  const sentAt = marketNow()
+  const relay = await openIngest()
+  await relay.sendAjaib([
+    JSON.stringify({
+      ticker: code,
+      is_initial: "true",
+      buy: [{ num: 12, price: 1000, lot: 340 }],
+      sell: [{ num: 4, price: 1005, lot: 90 }],
+      updateTime: sentAt,
+    }),
+  ])
+  const day = WibDate.make(wibToday())
+  const heatmapUrl = `${DASHBOARD}${Effect.runSync(
+    recordedDayPath(day, { _tag: "Heatmap", code })
+  )}`
+  const answer = await page.request.get(heatmapUrl)
+  expect(answer.status()).toBe(200)
+  const heatmap = await Effect.runPromise(
+    decodeRecordedHeatmap(await answer.text())
+  )
+  expect(heatmap.notRecorded).toBe(true)
+  expect(heatmap.slices).toEqual([])
+  relay.close()
+
+  // Today opened as a recorded day opens no viewer socket, so the code stays
+  // unviewed.
+  await page.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}`)
+  await expect(
+    page.getByRole("group", { name: "Market conditions" })
+  ).toContainText("RECORDED")
+  await expect(page.getByRole("region", { name: "Order book" })).toContainText(
+    "Not recorded"
+  )
+  await expect(page.getByRole("region", { name: "Chart" })).toContainText(
+    "Book heatmap not recorded"
+  )
 })

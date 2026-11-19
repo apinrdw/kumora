@@ -10,7 +10,8 @@ import {
   WibDate,
   type ViewerDown,
 } from "@workspace/relay"
-import { DateTime, Effect, Scope } from "effect"
+import { WorkerEnv } from "@workspace/server"
+import { DateTime, Effect, Layer, Scope } from "effect"
 import { TestClock } from "effect/testing"
 
 import type { Sql } from "@/server/market-live/day-store"
@@ -100,12 +101,17 @@ const snapshotOf = Effect.fnUntraced(function* (
   }
 })
 
+// Today's day answers its bubbles and statuses without reading a binding.
+const noBindings = Layer.succeed(WorkerEnv)({} as WorkerEnv["Service"])
+
 const rowsRead = (sql: Sql) => sql.usage!().rowsRead
 
 const bubblesText = Effect.fnUntraced(function* (
   day: Effect.Success<ReturnType<typeof makeTradingDay>>
 ) {
-  const response = yield* day.recorded({ _tag: "Bubbles" })
+  const response = yield* day
+    .recorded({ _tag: "Bubbles" })
+    .pipe(Effect.provide(noBindings))
   assert.strictEqual(response.status, 200)
   return yield* Effect.promise(() => response.text())
 })
@@ -120,7 +126,9 @@ describe("today's sealed day", () => {
         yield* at("19:00:00")
         const before = rowsRead(sql)
         const day = yield* woken(sql).pipe(Scope.provide(yield* Scope.make()))
-        const response = yield* day.brokerCodes.status(new URLSearchParams())
+        const response = yield* day.brokerCodes
+          .status(new URLSearchParams())
+          .pipe(Effect.provide(noBindings))
         assert.strictEqual(response.status, 200)
         // The restore reads the tape, TRADES rows, and the day's candles.
         assert.isBelow(rowsRead(sql) - before, TRADES / 2)

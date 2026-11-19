@@ -244,9 +244,9 @@ const run = (seed: number) =>
 
     const status = (after = "0") =>
       Effect.gen(function* () {
-        const response = yield* day.brokerCodes.status(
-          new URLSearchParams({ after })
-        )
+        const response = yield* day.brokerCodes
+          .status(new URLSearchParams({ after }))
+          .pipe(Effect.provide(env))
         return yield* decodeBrokerCodesStatus(
           yield* Effect.promise(() => response.text())
         )

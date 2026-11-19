@@ -9,12 +9,15 @@ import {
   TradeNumber,
   encodeBrokerCodesBatch,
   type BrokerCodesBatch,
+  type OrderBook,
+  type RunningTrade,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import type { WorkerEnv } from "@workspace/server"
 
 import { makeDayStore, type Sql } from "../src/server/market-live/day-store.ts"
+import { makeSessionBooks } from "../src/server/market-live/session-books.ts"
 import type { makeTradingDay } from "../src/server/market-live/trading-day.ts"
 import { BUSY_DAY, FLUSHED_BOOK_EVENTS, busyCodes } from "./busy-figures.ts"
 
@@ -37,7 +40,8 @@ export interface Operation {
   readonly brokerTotals?: boolean
   // What the object did since it woke, before the count starts.
   readonly before?: (
-    day: TradingDay
+    day: TradingDay,
+    sql: Sql
   ) => Effect.Effect<unknown, unknown, WorkerEnv>
   // What is counted: a call on the day, or on a day store over its `sql`.
   readonly measure: (
@@ -55,6 +59,102 @@ const codesGet = (day: TradingDay) =>
   day.recorded({
     _tag: "BrokerCodes",
     at: DateTime.makeUnsafe("2026-11-09T16:15:00+07:00"),
+  })
+
+// The page's tape answer: the day's last 200 trades, and a page of 200
+// further back, below a trade number at midday.
+const tapeGet = (day: TradingDay) =>
+  day.recorded({
+    _tag: "Tape",
+    at: DateTime.makeUnsafe("2026-11-09T16:15:00+07:00"),
+  })
+const tapePage = (day: TradingDay) =>
+  day.recorded({
+    _tag: "Tape",
+    at: DateTime.makeUnsafe("2026-11-09T12:00:00+07:00"),
+    before: TradeNumber.make("700000"),
+  })
+
+// The trading day's own flush adds candles and footprints to the same
+// transaction; the trade chunks are what this measures.
+// Decision: a live flush on the busy day writes a minute at its mean rate,
+// 1,460,000 over 435 minutes, past its tape's last, and the trades its relay
+// missed arriving late, each in a chunk of its own: 4 chunks for the minute
+// and 1 for each late trade. A peak minute (~30 K trades) writes ~31 chunk
+// rows, over the spec's ~20, which follows from 1,000-trade chunks.
+const FLUSHED = { first: BUSY_DAY.trades + 1, rows: 3_356 }
+
+const flushTrade = (number: number): RunningTrade => ({
+  tradeNumber: TradeNumber.make(String(number)),
+  time: DateTime.makeUnsafe("2026-11-09T16:15:30+07:00"),
+  code: StockCode.make(`C${number % BUSY_DAY.codes}`),
+  price: 1_000,
+  lots: 1,
+  side: "buy",
+  board: "RG",
+  feeds: ["Stockbit"],
+})
+
+const liveFlush = (_day: TradingDay, sql: Sql) =>
+  Effect.gen(function* () {
+    const store = yield* makeDayStore(sql, { today: true })
+    yield* store.write({
+      trades: [
+        ...BUSY_DAY.holes.map(flushTrade),
+        ...Array.from({ length: FLUSHED.rows }, (_, at) =>
+          flushTrade(FLUSHED.first + at)
+        ),
+      ],
+      candles: [],
+      footprints: [],
+      livePrices: [],
+      chunks: [],
+      ajaibBooks: [],
+      facts: {},
+    })
+    return new Response("flushed")
+  })
+
+// A side's 20 levels from `best`, `step` apart.
+const sessionLevels = (best: number, step: number) =>
+  Array.from({ length: 20 }, (_, level) => ({
+    price: best + level * step,
+    lots: 100 + level,
+    orders: 3,
+  }))
+
+// Every busy code's book at `time`, 20 levels a side, as Session 1's and
+// Session 2's last.
+const sessionBooksAt = (time: string) =>
+  Array.from({ length: BUSY_DAY.codes }, (_, index): OrderBook => ({
+    _tag: "OrderBook",
+    code: StockCode.make(`C${index}`),
+    bids: sessionLevels(1_000, -5),
+    offers: sessionLevels(1_005, 5),
+    bidLots: 2_190,
+    offerLots: 2_190,
+    at: DateTime.makeUnsafe(`2026-11-09T${time}+07:00`),
+    provenance: "Stockbit",
+  }))
+
+// What a session's end writes beside a flush's rows: every code's last book
+// of the session (session-books.ts), taken in the phase after it.
+const sessionEndWrite = (sql: Sql, time: string) =>
+  Effect.gen(function* () {
+    const store = yield* makeDayStore(sql, { today: true })
+    const books = yield* makeSessionBooks
+    yield* books.served(sessionBooksAt(time), "session-1")
+    yield* store.write({
+      trades: [],
+      candles: [],
+      footprints: [],
+      livePrices: [],
+      chunks: [],
+      sessionBooks: yield* books.take("break", false),
+      ajaibBooks: [],
+      facts: {},
+    })
+    return new Response("written")
   })
 
 // One code's book events, as the page's recorded day asks them.
@@ -168,6 +268,10 @@ const correctingBatch: BrokerCodesBatch = {
 const correctingPost = (day: TradingDay) =>
   Effect.flatMap(encodeBrokerCodesBatch(correctingBatch), day.brokerCodes.post)
 
+// The busy code's heatmap, worked out from its book chunks.
+const heatmapGet = (day: TradingDay) =>
+  day.recorded({ _tag: "Heatmap", code: StockCode.make(BUSY_DAY.bookCode) })
+
 export const operations = {
   "status pass": { measure: statusPass },
   // Today's object in the evening, woken for one of Market Live's broker
@@ -198,6 +302,16 @@ export const operations = {
     measure: statusPass,
   },
   "walk batch": { stored: "walking", measure: walkPost },
+  "recorded tape GET": { measure: tapeGet },
+  "recorded tape page": { measure: tapePage },
+  // Writes trades: its budget gets a busy day of its own.
+  "live flush": { measure: liveFlush },
+  "heatmap GET": { measure: heatmapGet },
+  // The close's, over the break's rows: it gets a busy day of its own.
+  "session end": {
+    before: (_day: TradingDay, sql: Sql) => sessionEndWrite(sql, "11:59:59"),
+    measure: (_day: TradingDay, sql: Sql) => sessionEndWrite(sql, "15:49:59"),
+  },
 } satisfies Record<string, Operation>
 
 export type OperationName = keyof typeof operations
