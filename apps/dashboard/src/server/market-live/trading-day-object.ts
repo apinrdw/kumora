@@ -386,8 +386,9 @@ export class TradingDayObject {
   }
 
   // An emptied object's answer: recorded day GETs from R2, a broker codes
-  // batch taken but not written, the status as the move stored it, and
-  // nothing else.
+  // batch taken but not written, the status as the move stored it; to a
+  // poke (a session end, the reconcile cron's build, a move) nothing to do;
+  // and no socket.
   private coldFetch(cold: ColdDay, request: Request, url: URL) {
     const recorded = Effect.runSync(recordedDayRequest(url))
     if (Option.isSome(recorded))
@@ -401,8 +402,13 @@ export class TradingDayObject {
             )
           : cold.status(url.searchParams)
       )
+    const poked: ReadonlyArray<string> = [
+      ObjectPath.endSessions,
+      ObjectPath.brokerTotals,
+      ObjectPath.move,
+    ]
     return new Response(null, {
-      status: url.pathname === ObjectPath.endSessions ? 204 : 410,
+      status: poked.includes(url.pathname) ? 204 : 410,
     })
   }
 
