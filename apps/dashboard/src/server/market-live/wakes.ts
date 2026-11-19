@@ -8,6 +8,7 @@ import { Fact, type DayStore } from "./day-store.ts"
 // is armed for the earliest; it runs only the due duties, and each checks
 // its own precondition before it acts. See spec apinrdw/kumora#437, "When it
 // runs".
+//
 // A due move runs after a due build, which it waits for.
 export const WAKES = ["seal", "build", "move"] as const
 export type Wake = (typeof WAKES)[number]

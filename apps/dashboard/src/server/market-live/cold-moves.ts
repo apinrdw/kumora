@@ -5,12 +5,11 @@
 import type { RecordedDay, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
-// Decision: the backstop asks the newest 15 recorded days still hot: the
-// 10-trading-day window and the 5 days that left it last, so a day whose
-// seal's ask or completing batch's start failed moves within days. Older
-// hot days, the ones recorded before cold days, are the backfill's to move
-// a few a night (apinrdw/kumora#582). See spec apinrdw/kumora#556, "The
-// move".
+// Decision: the newest 15 recorded days still hot, the window and the 5
+// that left it last, so a day whose seal's ask or start failed moves within
+// days. Older hot days, recorded before cold days, are the backfill's to
+// move a few a night (apinrdw/kumora#582). See spec apinrdw/kumora#556,
+// "The move".
 const BACKSTOP_DAYS = 15
 
 export const askDueMoves = Effect.fnUntraced(function* <E, R>(

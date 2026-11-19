@@ -164,12 +164,10 @@ export const MoveProgress = Schema.Union([
 ])
 export type MoveProgress = typeof MoveProgress.Type
 
-// Decision: a move runs a step per alarm, each well under an alarm's 30 s
-// of CPU: 250 codes' views (1,000 answers built and put), 50 tape segments
-// (500,000 trades encoded and gzipped) or 20 codes' books (about 10 MB). A
-// busy day of about 1,000 codes and 1.46 M trades then moves in about 10
-// runs, each writing one progress fact. See spec apinrdw/kumora#556, "The
-// move".
+// Decision: a step per alarm, well under its 30 s of CPU: 250 codes' views
+// (1,000 answers), 50 tape segments (500,000 trades) or 20 codes' books. The
+// busy day moves in 9 runs, about 1.5 s each, 385 K rows read and 19 written
+// (row-budgets.workerd.test.ts). See spec apinrdw/kumora#556, "The move".
 const CODES_PER_RUN = 250
 const SEGMENTS_PER_RUN = 50
 const BOOKS_PER_RUN = 20
@@ -194,13 +192,11 @@ const slice = (
 // the same keys, so a move that fails partway leaves the day hot, and a
 // retry is safe. An answer that isn't a 200 (a day with no code list) is
 // not written, so the cold read answers it 404.
-// Decision: per-code views are written for each code the day holds data
-// of, listed, traded or booked: the hot day answered any of them, a day the
-// walks filled has no list, and every recorded day replays with every view.
-// Another code answers 404 once cold. SweepBrokers is stored as found, its
-// `complete` included, and cached for good like every cold answer: a cold
-// day takes no more broker codes. See spec apinrdw/kumora#556, "Routing and
-// caching".
+// Decision: views are written for each code listed, traded or booked: a
+// walk day has no list, and every day replays with every view; another code
+// answers 404 once cold. SweepBrokers is stored as found, cached for good:
+// a cold day takes no more broker codes. See spec apinrdw/kumora#556,
+// "Routing and caching".
 export const moveStep = (
   date: WibDate,
   target: ColdTarget,
