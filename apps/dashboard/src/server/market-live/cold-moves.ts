@@ -19,21 +19,31 @@ const BACKSTOP_DAYS = 15
 // See spec apinrdw/kumora#556, "The move".
 const MOVES_PER_NIGHT = 3
 
-// The day index's rows, newest first.
-const newestFirst = <E, R>(
-  listed: Effect.Effect<ReadonlyArray<RecordedDay>, E, R>
+// Where the cron's moves are asked from: the day index's rows, and the ask
+// to one day's object to move, answering whether it moves.
+interface MoveAsks<E, R> {
+  readonly listed: Effect.Effect<ReadonlyArray<RecordedDay>, E, R>
+  readonly ask: (day: WibDate) => Effect.Effect<boolean, unknown, R>
+}
+
+// The day index's hot rows, newest first, from the `from`th newest row
+// listed (cold ones count) up to the `to`th.
+const hotDays = <E, R>(
+  listed: MoveAsks<E, R>["listed"],
+  from: number,
+  to?: number
 ) =>
   Effect.map(listed, (rows) =>
     // A WIB date is ISO, so a later one sorts after.
-    [...rows].sort((a, b) => (a.day < b.day ? 1 : -1))
+    [...rows]
+      .sort((a, b) => (a.day < b.day ? 1 : -1))
+      .slice(from, to)
+      .filter((row) => row.cold !== true)
   )
 
 // Asks one day's object to move: whether it moves; a failed ask is logged
 // and counts as not.
-const asked = <R>(
-  ask: (day: WibDate) => Effect.Effect<boolean, unknown, R>,
-  day: WibDate
-) =>
+const asked = <E, R>(ask: MoveAsks<E, R>["ask"], day: WibDate) =>
   ask(day).pipe(
     Effect.catchCause((cause) =>
       Effect.logError("Move not asked", cause).pipe(
@@ -43,15 +53,11 @@ const asked = <R>(
     )
   )
 
-export const askDueMoves = Effect.fnUntraced(function* <E, R>(
-  // The day index's rows.
-  listed: Effect.Effect<ReadonlyArray<RecordedDay>, E, R>,
-  // Asks one day's object to move; whether it moves.
-  ask: (day: WibDate) => Effect.Effect<boolean, unknown, R>
-) {
-  const days = (yield* newestFirst(listed))
-    .slice(0, BACKSTOP_DAYS)
-    .filter((row) => row.cold !== true)
+export const askDueMoves = Effect.fnUntraced(function* <E, R>({
+  listed,
+  ask,
+}: MoveAsks<E, R>) {
+  const days = yield* hotDays(listed, 0, BACKSTOP_DAYS)
   let moving = 0
   for (const { day } of days) if (yield* asked(ask, day)) moving++
   yield* Effect.logInfo("Moves asked").pipe(
@@ -63,14 +69,11 @@ export const askDueMoves = Effect.fnUntraced(function* <E, R>(
 // until MOVES_PER_NIGHT move. A day not due (its build pending) or not
 // reached is asked again the next night. Only the index's days are asked,
 // so no object is made for a day never recorded.
-export const askOlderMoves = Effect.fnUntraced(function* <E, R>(
-  listed: Effect.Effect<ReadonlyArray<RecordedDay>, E, R>,
-  ask: (day: WibDate) => Effect.Effect<boolean, unknown, R>
-) {
-  const days = (yield* newestFirst(listed))
-    .slice(BACKSTOP_DAYS)
-    .filter((row) => row.cold !== true)
-    .reverse()
+export const askOlderMoves = Effect.fnUntraced(function* <E, R>({
+  listed,
+  ask,
+}: MoveAsks<E, R>) {
+  const days = (yield* hotDays(listed, BACKSTOP_DAYS)).reverse()
   let askedDays = 0
   let moving = 0
   for (const { day } of days) {

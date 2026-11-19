@@ -23,9 +23,12 @@ export const runReconcileCron = () =>
           pokeDay(ObjectPath.brokerTotals)
         ).pipe(Effect.provide(brokerTotalsDbD1))
       )
-      const listed = yield* Effect.cached(stripDays)
-      yield* askDueMoves(listed, pokeDay(ObjectPath.move))
-      yield* askOlderMoves(listed, pokeDay(ObjectPath.move))
+      const asks = {
+        listed: yield* Effect.cached(stripDays),
+        ask: pokeDay(ObjectPath.move),
+      }
+      yield* askDueMoves(asks)
+      yield* askOlderMoves(asks)
       return yield* reconciled
     })
   )

@@ -8,7 +8,7 @@ import { Clock, Effect, Layer } from "effect"
 
 import { BrokerTotalsDb } from "../src/server/broker-totals/db.ts"
 import { Fact, type Sql } from "../src/server/market-live/day-store.ts"
-import type { DayBucket } from "../src/server/market-live/cold-days.ts"
+import type { DayBucket } from "../src/server/market-live/cold-bucket.ts"
 import { durableSql } from "../src/server/market-live/durable-sql.ts"
 import { shiftedClock } from "../src/server/market-live/market-clock.ts"
 import { respond } from "../src/server/market-live/respond.ts"

@@ -175,3 +175,47 @@ describe("a cold day's tape and broker codes", () => {
       60_000
     )
 })
+
+// Ten cold days' tape indexes, each with no block, as a day of no trades
+// stores it.
+const KEPT_DAYS = Array.from({ length: 10 }, (_, index) =>
+  WibDate.make(`2026-10-${String(index + 1).padStart(2, "0")}`)
+)
+
+describe("the isolate's tape indexes", () => {
+  it.effect(
+    "keep the 8 days read last: a day read again after 8 others reads its index again",
+    () =>
+      Effect.gen(function* () {
+        const days = memoryDayBucket()
+        const indexKey = (date: WibDate) => `days/${date}/v6/tape/index.json`
+        for (const date of KEPT_DAYS)
+          yield* Effect.promise(() =>
+            days.bucket.put(indexKey(date), '{"complete":true,"blocks":[]}', {
+              httpMetadata: { contentType: "application/json" },
+            })
+          )
+        const tapeOf = Effect.fnUntraced(function* (date: WibDate) {
+          const response = yield* coldAnswer(days.bucket, date, {
+            _tag: "Tape",
+            at: wib("12:00:00"),
+          })
+          assert.strictEqual(yield* textOf(response!), '{"trades":[]}')
+        })
+        const readsOf = (date: WibDate) =>
+          days.reads.filter((read) => read === indexKey(date)).length
+        // 10-01 to 10-09: the ninth drops 10-01, the day read longest ago.
+        for (const date of KEPT_DAYS.slice(0, 9)) yield* tapeOf(date)
+        yield* tapeOf(KEPT_DAYS[1]!)
+        assert.strictEqual(readsOf(KEPT_DAYS[1]!), 1)
+        yield* tapeOf(KEPT_DAYS[0]!)
+        assert.strictEqual(readsOf(KEPT_DAYS[0]!), 2)
+        // 10-02, read again since, outlives 10-03 as two more days are read.
+        yield* tapeOf(KEPT_DAYS[9]!)
+        yield* tapeOf(KEPT_DAYS[1]!)
+        assert.strictEqual(readsOf(KEPT_DAYS[1]!), 1)
+        yield* tapeOf(KEPT_DAYS[2]!)
+        assert.strictEqual(readsOf(KEPT_DAYS[2]!), 2)
+      })
+  )
+})

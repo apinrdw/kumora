@@ -40,7 +40,7 @@ import {
 import { TestClock } from "effect/testing"
 
 import type { BrokerTotalsDb } from "@/server/broker-totals/db"
-import type { DayBucket } from "@/server/market-live/cold-days"
+import type { DayBucket } from "@/server/market-live/cold-bucket"
 import type { Sql } from "@/server/market-live/day-store"
 import { chunkSlices, heldChunkOf } from "@/server/market-live/heat-rows"
 import {

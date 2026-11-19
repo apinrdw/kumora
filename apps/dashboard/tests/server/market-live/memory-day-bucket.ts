@@ -5,7 +5,7 @@ import { gunzipSync } from "node:zlib"
 
 import { Effect } from "effect"
 
-import type { DayBucket } from "@/server/market-live/cold-days"
+import type { DayBucket } from "@/server/market-live/cold-bucket"
 
 export const memoryDayBucket = () => {
   const objects = new Map<string, Uint8Array<ArrayBuffer>>()
