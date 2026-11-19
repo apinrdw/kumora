@@ -181,7 +181,7 @@ export const Website = Cloudflare.Website.Vite(
         // TRADING_DAY.
         MARKET_LIVE_INDEX: Cloudflare.DurableObject("DayIndex"),
         // Cold days: each recorded day's finished answers once it moves out
-        // of its trading-day object (src/server/market-live/cold-days.ts).
+        // of its trading-day object (src/server/market-live/cold-bucket.ts).
         // Decision: one bucket per stage, beside the stage's objects.
         // Production's survives a stack destroy; any other stage's is
         // emptied and destroyed with it, so a Preview teardown takes its

@@ -28,14 +28,16 @@ describe("the reconcile cron's moves", () => {
     () =>
       Effect.gen(function* () {
         const asked: Array<WibDate> = []
-        yield* askDueMoves(Effect.succeed(ROWS), (day) =>
-          Effect.suspend(() => {
-            asked.push(day)
-            return day === "2026-10-19"
-              ? Effect.fail(new Error("Object unreachable"))
-              : Effect.succeed(day === "2026-10-07")
-          })
-        )
+        yield* askDueMoves({
+          listed: Effect.succeed(ROWS),
+          ask: (day) =>
+            Effect.suspend(() => {
+              asked.push(day)
+              return day === "2026-10-19"
+                ? Effect.fail(new Error("Object unreachable"))
+                : Effect.succeed(day === "2026-10-07")
+            }),
+        })
         assert.deepStrictEqual(asked, [
           "2026-10-20",
           "2026-10-19",
@@ -77,15 +79,18 @@ describe("the older days' moves", () => {
     () =>
       Effect.gen(function* () {
         const asked: Array<WibDate> = []
-        yield* askOlderMoves(Effect.succeed(OLDER_ROWS), (day) =>
-          Effect.suspend(() => {
-            asked.push(day)
-            // 10-01 still waits for its build; 10-02's object is unreachable.
-            if (day === "2026-10-02")
-              return Effect.fail(new Error("Object unreachable"))
-            return Effect.succeed(day !== "2026-10-01")
-          })
-        )
+        yield* askOlderMoves({
+          listed: Effect.succeed(OLDER_ROWS),
+          ask: (day) =>
+            Effect.suspend(() => {
+              asked.push(day)
+              // 10-01 still waits for its build; 10-02's object is
+              // unreachable.
+              if (day === "2026-10-02")
+                return Effect.fail(new Error("Object unreachable"))
+              return Effect.succeed(day !== "2026-10-01")
+            }),
+        })
         // 10-05 is cold; 10-03, 10-04 and 10-06 move.
         assert.deepStrictEqual(asked, [
           "2026-10-01",
@@ -100,14 +105,14 @@ describe("the older days' moves", () => {
   it.effect("asks nothing once every older day is cold", () =>
     Effect.gen(function* () {
       const asked: Array<WibDate> = []
-      yield* askOlderMoves(
-        Effect.succeed(
+      yield* askOlderMoves({
+        listed: Effect.succeed(
           OLDER_ROWS.map((row) =>
             row.day < "2026-10-11" ? { ...row, cold: true as const } : row
           )
         ),
-        (day) => Effect.sync(() => (asked.push(day), true))
-      )
+        ask: (day) => Effect.sync(() => (asked.push(day), true)),
+      })
       assert.deepStrictEqual(asked, [])
     })
   )

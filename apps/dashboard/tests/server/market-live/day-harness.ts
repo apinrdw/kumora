@@ -40,7 +40,7 @@ import {
 import { TestClock } from "effect/testing"
 
 import type { BrokerTotalsDb } from "@/server/broker-totals/db"
-import type { DayBucket } from "@/server/market-live/cold-days"
+import type { DayBucket } from "@/server/market-live/cold-bucket"
 import type { Sql } from "@/server/market-live/day-store"
 import { chunkSlices, heldChunkOf } from "@/server/market-live/heat-rows"
 import {
@@ -167,7 +167,8 @@ export const stockbitBook = (book: {
 // it), with a relay that sent the right token. Its builds write to
 // `brokerTotalsDb` when given, and `alarms` lists every instant it set the
 // alarm for. Given `cold`, it moves to its bucket: emptying the object drops
-// every table of `sql`, and `asked` lists the days it asked to move.
+// every table of `sql`, and `asked` lists the days it asked to move: each
+// day `listed` answers true for, every day when it is left out.
 export const tradingDay = Effect.fnUntraced(function* (
   sql: Sql = memorySql(),
   viewers: Array<FakeSocket> = [],
@@ -175,6 +176,7 @@ export const tradingDay = Effect.fnUntraced(function* (
   cold?: {
     readonly bucket: DayBucket
     readonly markCold: Effect.Effect<void, unknown>
+    readonly listed?: (date: WibDate) => Effect.Effect<boolean, unknown>
   }
 ) {
   const scope = yield* Scope.make()
@@ -192,6 +194,7 @@ export const tradingDay = Effect.fnUntraced(function* (
       ? {}
       : {
           cold: {
+            listed: () => Effect.succeed(true),
             ...cold,
             empty: Effect.sync(() => {
               for (const { name } of sql.exec(

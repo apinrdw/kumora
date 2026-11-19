@@ -20,15 +20,30 @@ const instant = (wall: string) => DateTime.makeUnsafe(`${wall}+07:00`)
 const at = (wall: string) =>
   TestClock.setTime(DateTime.toEpochMillis(instant(wall)))
 
-// A relay day of trades 1 and 2, sealed at 17:00, its row in a day index,
-// moving to a bucket in memory; its builds write to a broker totals DB.
-const sealedDay = Effect.fnUntraced(function* () {
+// A relay day of trades 1 and 2, sealed at 17:00, its row in a day index
+// that already lists `recorded`, moving to a bucket in memory; its builds
+// write to a broker totals DB.
+const sealedDay = Effect.fnUntraced(function* (
+  recorded: ReadonlyArray<WibDate> = []
+) {
   yield* at("2026-11-09T09:01:10")
   const index = yield* makeDayIndex(memorySql())
+  for (const day of recorded)
+    yield* index.record({ day, trades: 1, gap: false })
+  const strip = Effect.flatMap(
+    Effect.flatMap(index.strip, (response) =>
+      Effect.promise(() => response.text())
+    ),
+    decodeDayStrip
+  )
   const days = memoryDayBucket()
   const day = yield* tradingDay(memorySql(), [], memoryBrokerTotalsDb().layer, {
     bucket: days.bucket,
     markCold: index.markCold(DAY),
+    listed: (date) =>
+      Effect.map(strip, (listed) =>
+        listed.days.some((row) => row.day === date)
+      ),
   })
   yield* day.trades([
     stockbitTrade({ number: 1, time: "09:00:10.100", price: 23300, lots: 3 }),
@@ -38,13 +53,8 @@ const sealedDay = Effect.fnUntraced(function* () {
   yield* day.alarm
   yield* index.record({ day: DAY, trades: 2, gap: false })
   const cold = Effect.map(
-    Effect.flatMap(
-      Effect.flatMap(index.strip, (response) =>
-        Effect.promise(() => response.text())
-      ),
-      decodeDayStrip
-    ),
-    (strip) => strip.days[0]?.cold === true
+    strip,
+    (listed) => listed.days.find((row) => row.day === DAY)?.cold === true
   )
   return { day, days, cold }
 })
@@ -194,8 +204,19 @@ describe("a sealed day's move to R2", () => {
     "is asked of the day leaving the window when today's day seals",
     () =>
       Effect.gen(function* () {
-        const { day } = yield* sealedDay()
+        const { day } = yield* sealedDay([WibDate.make("2026-10-26")])
         assert.deepStrictEqual(day.asked, [WibDate.make("2026-10-26")])
+      })
+  )
+
+  // A date the index doesn't list was never recorded: asking it would make
+  // an empty object for it.
+  it.effect(
+    "is not asked of a day leaving the window that the index doesn't list",
+    () =>
+      Effect.gen(function* () {
+        const { day } = yield* sealedDay()
+        assert.deepStrictEqual(day.asked, [])
       })
   )
 })

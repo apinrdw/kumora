@@ -21,10 +21,10 @@ import { durableSql } from "./durable-sql.ts"
 import { marketClockOffset, withMarketClock } from "./market-clock.ts"
 import type { CodeListStore } from "./code-list.ts"
 import { coldDay, type ColdDay } from "./cold-days.ts"
+import { pokeDay, postToIndex, stripDays } from "./day-calls.ts"
 import { respond } from "./respond.ts"
 import {
   AccountId,
-  DAY_INDEX,
   DayIndexColdPath,
   DayIndexPath,
   HeldSessions,
@@ -220,56 +220,16 @@ const codeListStore = (storage: DurableObjectStorage) =>
     write: (text) => Effect.promise(() => storage.put(CODE_LIST_KEY, text)),
   })
 
-// The index Durable Object didn't take a sealed day's row; the seal retries.
-class IndexRefusedDay extends Schema.TaggedError<IndexRefusedDay>()(
-  "IndexRefusedDay",
-  { status: Schema.Int }
-) {}
-
-// The sealed day's row, to the index Durable Object.
-const recordDay = Effect.fnUntraced(function* (day: RecordedDay) {
-  const env = yield* WorkerEnv
-  const index = env.MARKET_LIVE_INDEX.getByName(DAY_INDEX)
-  const body = yield* encodeRecordedDay(day)
-  const response = yield* Effect.tryPromise(() =>
-    index.fetch(new URL(DayIndexPath, "https://day-index.invalid"), {
-      method: "POST",
-      body,
-    })
+// The sealed day's row, to the index Durable Object; one it refuses fails
+// the seal, which retries.
+const recordDay = (day: RecordedDay) =>
+  Effect.flatMap(encodeRecordedDay(day), (body) =>
+    postToIndex(DayIndexPath, body)
   )
-  if (!response.ok)
-    return yield* new IndexRefusedDay({ status: response.status })
-})
 
-// The index didn't take the cold mark; the move's last step is retried.
-class IndexRefusedCold extends Schema.TaggedError<IndexRefusedCold>()(
-  "IndexRefusedCold",
-  { status: Schema.Int }
-) {}
-
-// Marks `date` cold in the day index, once its manifest is written.
-const markCold = Effect.fnUntraced(function* (date: WibDate) {
-  const env = yield* WorkerEnv
-  const index = env.MARKET_LIVE_INDEX.getByName(DAY_INDEX)
-  const response = yield* Effect.tryPromise((): Promise<Response> =>
-    index.fetch(new URL(DayIndexColdPath, "https://day-index.invalid"), {
-      method: "POST",
-      body: date,
-    })
-  )
-  if (!response.ok)
-    return yield* new IndexRefusedCold({ status: response.status })
-})
-
-// Asks `date`'s object to move, if it is due (ObjectPath.move).
-const askMove = Effect.fnUntraced(function* (date: WibDate) {
-  const object = (yield* WorkerEnv).TRADING_DAY.getByName(date)
-  yield* Effect.tryPromise((): Promise<Response> =>
-    object.fetch(new URL(ObjectPath.move, "https://trading-day.invalid"), {
-      method: "POST",
-    })
-  )
-})
+// Whether the day index lists `date`.
+const listed = (date: WibDate) =>
+  Effect.map(stripDays, (days) => days.some((row) => row.day === date))
 
 // The one storage key an emptied object keeps: its day moved to R2.
 const COLD = "cold"
@@ -352,9 +312,10 @@ export class TradingDayObject {
           brokerTotalsDb: brokerTotalsDbD1,
           cold: {
             bucket: env.DAYS_BUCKET,
-            markCold: markCold(date),
+            markCold: postToIndex(DayIndexColdPath, date),
             empty: emptied(ctx.storage),
-            askMove,
+            listed,
+            askMove: pokeDay(ObjectPath.move),
             anyHour: env.MARKET_LIVE_MOVES_ANY_HOUR !== undefined,
           },
         })

@@ -185,7 +185,7 @@ To read them, filter on the message (the `$metadata.message` key) and the day, t
 
 ## Cold days in R2
 
-A cold day's answers live in the stage's days bucket, which `apps/dashboard/alchemy.run.ts` declares. R2 bills storage and operations, not SQL rows. Once the backfill of older days ends, report R2's storage and operations for the month from the bucket's metrics in the Cloudflare dashboard (R2, the bucket, then Metrics). That path and the GraphQL datasets for R2 are unconfirmed.
+A cold day's answers live in the stage's days bucket, which `apps/dashboard/alchemy.run.ts` declares. R2 bills storage and operations, not SQL rows. Once the older days' moves end, report R2's storage and operations for the month from the bucket's metrics in the Cloudflare dashboard. The path to them (R2, the bucket, then Metrics) is unobserved, never checked against the dashboard, and so are the GraphQL datasets for R2.
 
 ## Why the old estimate missed the reads
 

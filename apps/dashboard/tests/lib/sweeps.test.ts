@@ -313,12 +313,36 @@ describe("the note while a day's codes arrive", () => {
             },
           ])
         )
-        expect(yield* arrivingNote(sweeps, entries, at("09:03:30"))).toBe(
+        expect(yield* arrivingNote(sweeps, entries, at("09:03:30"), true)).toBe(
           "Codes still arriving: 3 of 4 sweeps have their brokers. Updates every 30 s."
         )
-        expect(yield* arrivingNote(sweeps, entries, at("16:30:00"))).toBe(
+        expect(yield* arrivingNote(sweeps, entries, at("16:30:00"), true)).toBe(
           "Codes still arriving: 4 of 6 sweeps have their brokers. Updates every 30 s."
         )
+      })
+  )
+
+  // A cold day takes no more codes, so the page asks no more.
+  it.effect(
+    "says the codes stay incomplete, with no update, once the page asks no more",
+    () =>
+      Effect.gen(function* () {
+        const sweeps = [
+          sweep("09:01:00", "buy", 10),
+          sweep("09:02:00", "sell", 20),
+        ]
+        const entries = new Map([
+          [
+            sweeps[0]!.firstTrade,
+            {
+              firstTrade: sweeps[0]!.firstTrade,
+              pieces: [piece(sweeps[0]!, 10, "AK")],
+            },
+          ],
+        ])
+        expect(
+          yield* arrivingNote(sweeps, entries, at("16:30:00"), false)
+        ).toBe("Codes incomplete: 1 of 2 sweeps have their brokers.")
       })
   )
 })

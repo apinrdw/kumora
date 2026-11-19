@@ -61,6 +61,7 @@ interface SweepView {
   // Whether the day's codes are complete; each answer that says so brings
   // new `pieces` too.
   readonly brokersComplete: boolean
+  readonly brokersAskedAgain: boolean
   readonly at: number
   readonly threshold: SweepThreshold
   readonly topN: number
@@ -108,6 +109,7 @@ function useSweepView(store: SweepStore, cursor: ReplayCursor | undefined) {
       grouped: store.grouped(),
       entries: store.entries(),
       brokersComplete: store.brokersComplete(),
+      brokersAskedAgain: store.brokersAskedAgain(),
       at,
       threshold: store.threshold(at),
       topN,
@@ -416,8 +418,16 @@ function BrokerFilter({
 // as grouped before any split, have their brokers yet.
 function ArrivingNote({ view }: { view: SweepView }) {
   const note = useMemo(
-    () => Effect.runSync(arrivingNote(view.grouped, view.entries, view.at)),
-    [view.grouped, view.entries, view.at]
+    () =>
+      Effect.runSync(
+        arrivingNote(
+          view.grouped,
+          view.entries,
+          view.at,
+          view.brokersAskedAgain
+        )
+      ),
+    [view.grouped, view.entries, view.at, view.brokersAskedAgain]
   )
   if (view.brokersComplete) return null
   return (

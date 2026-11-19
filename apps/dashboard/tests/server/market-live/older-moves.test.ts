@@ -194,13 +194,15 @@ describe("the older days' moves", () => {
         )
         const asked: Array<WibDate> = []
         const night = Effect.fnUntraced(function* () {
-          yield* askOlderMoves(listed, (date) =>
-            Effect.suspend(() => {
-              asked.push(date)
-              const old = olds.find((each) => each.date === date)
-              return old === undefined ? Effect.succeed(false) : old.day.move
-            })
-          )
+          yield* askOlderMoves({
+            listed,
+            ask: (date) =>
+              Effect.suspend(() => {
+                asked.push(date)
+                const old = olds.find((each) => each.date === date)
+                return old === undefined ? Effect.succeed(false) : old.day.move
+              }),
+          })
           for (const old of olds) yield* chain(old)
         })
 

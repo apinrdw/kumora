@@ -29,8 +29,10 @@ const trading = (date: WibDate) =>
   )
 
 const shifted = (date: WibDate, days: number) =>
-  WibDate.make(
-    DateTime.formatIsoDate(DateTime.add(DateTime.makeUnsafe(date), { days }))
+  Effect.sync(() =>
+    WibDate.make(
+      DateTime.formatIsoDate(DateTime.add(DateTime.makeUnsafe(date), { days }))
+    )
   )
 
 // Whether `date` has left the window at `now`: ten trading days came after
@@ -42,10 +44,11 @@ export const pastWindow = Effect.fnUntraced(function* (
   const today = yield* wibDateAt(now)
   const sealedToday = !DateTime.isLessThan(now, yield* sealInstant(today))
   let after = 0
-  for (let day = shifted(date, 1); day <= today; day = shifted(day, 1)) {
+  for (let day = yield* shifted(date, 1); day <= today;) {
     if (day === today && !sealedToday) break
     if (yield* trading(day)) after++
     if (after === WINDOW) return true
+    day = yield* shifted(day, 1)
   }
   return false
 })
@@ -54,7 +57,7 @@ export const pastWindow = Effect.fnUntraced(function* (
 // it.
 export const leavingAt = Effect.fnUntraced(function* (date: WibDate) {
   let before = 0
-  for (let day = shifted(date, -1); ; day = shifted(day, -1))
+  for (let day = yield* shifted(date, -1); ; day = yield* shifted(day, -1))
     if ((yield* trading(day)) && ++before === WINDOW) return day
 })
 
