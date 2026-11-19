@@ -339,11 +339,13 @@ export const sweepTip = Effect.fnUntraced(function* (
 
 // The note under the log header while a day's codes are incomplete: how
 // many sweeps and auction matches up to `at` (epoch ms), as grouped before
-// any split, have their entry, of all of them.
+// any split, have their entry, of all of them; and, while the page asks for
+// them again (`asksAgain`), how often. A cold day's codes stay as they are.
 export const arrivingNote = (
   sweeps: ReadonlyArray<Sweep>,
   brokers: ReadonlyMap<TradeNumber, SweepBrokers>,
-  at: number
+  at: number,
+  asksAgain: boolean
 ) =>
   Effect.map(sweepsUpTo(sweeps, at), (upTo) => {
     let all = 0
@@ -352,7 +354,10 @@ export const arrivingNote = (
       all += 1
       if (brokers.has(sweep.firstTrade)) whole += 1
     }
-    return `Codes still arriving: ${count.format(whole)} of ${count.format(all)} sweeps have their brokers. Updates every ${count.format(Duration.toSeconds(CODES_RECHECK))} s.`
+    const counted = `${count.format(whole)} of ${count.format(all)} sweeps have their brokers.`
+    return asksAgain
+      ? `Codes still arriving: ${counted} Updates every ${count.format(Duration.toSeconds(CODES_RECHECK))} s.`
+      : `Codes incomplete: ${counted}`
   })
 
 // A sweep's average price: its value over its shares.

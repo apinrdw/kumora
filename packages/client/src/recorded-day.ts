@@ -233,13 +233,14 @@ export const makeBrokerCodesFollower = (
  * while it says the day's codes are incomplete asks again every 30 s, past
  * the browser's copy, showing each answer, until one is complete. None
  * answered (a day not recorded) ends it, and so does a cold day's first
- * answer. A failed ask other than a 401, the first one included, is logged
- * and the next one goes ahead 30 s later.
+ * answer. `show` is told whether another ask follows the answer. A failed
+ * ask other than a 401, the first one included, is logged and the next one
+ * goes ahead 30 s later.
  */
 export const followSweepBrokers = (
   date: WibDate,
   code: StockCode,
-  show: (answer: RecordedSweepBrokers) => void
+  show: (answer: RecordedSweepBrokers, asksAgain: boolean) => void
 ) =>
   Effect.gen(function* () {
     const cold = yield* Effect.cached(isColdDay(date))
@@ -248,8 +249,11 @@ export const followSweepBrokers = (
       fetchRecordedSweepBrokers(date, code, fresh).pipe(
         Effect.flatMap((answer) => {
           if (Option.isNone(answer)) return Effect.succeed(true)
-          show(answer.value)
-          return answer.value.complete ? Effect.succeed(true) : cold
+          const { value } = answer
+          return Effect.tap(
+            value.complete ? Effect.succeed(true) : cold,
+            (ends) => Effect.sync(() => show(value, !ends))
+          )
         }),
         Effect.map((ends) => {
           done = ends

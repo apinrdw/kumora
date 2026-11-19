@@ -374,10 +374,12 @@ describe("following a recorded day's sweep brokers", () => {
     () => {
       const brokersFrom = sweepBrokersWorker(3)
       return Effect.gen(function* () {
-        const shown: Array<[sweeps: number, complete: boolean]> = []
+        const shown: Array<
+          [sweeps: number, complete: boolean, asksAgain: boolean]
+        > = []
         yield* Effect.forkChild(
-          followSweepBrokers(DAY, BBCA, (answer) =>
-            shown.push([answer.sweeps.length, answer.complete])
+          followSweepBrokers(DAY, BBCA, (answer, asksAgain) =>
+            shown.push([answer.sweeps.length, answer.complete, asksAgain])
           )
         )
         yield* TestClock.adjust("29 seconds")
@@ -388,9 +390,9 @@ describe("following a recorded day's sweep brokers", () => {
         yield* TestClock.adjust("5 minutes")
         assert.deepStrictEqual(brokersFrom.asked, [false, true, true])
         assert.deepStrictEqual(shown, [
-          [1, false],
-          [2, false],
-          [3, true],
+          [1, false, true],
+          [2, false, true],
+          [3, true, false],
         ])
       }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
     }
@@ -399,16 +401,18 @@ describe("following a recorded day's sweep brokers", () => {
   it.effect("a failed first ask is asked again 30 s later", () => {
     const brokersFrom = sweepBrokersWorker(2, 1)
     return Effect.gen(function* () {
-      const shown: Array<[sweeps: number, complete: boolean]> = []
+      const shown: Array<
+        [sweeps: number, complete: boolean, asksAgain: boolean]
+      > = []
       yield* Effect.forkChild(
-        followSweepBrokers(DAY, BBCA, (answer) =>
-          shown.push([answer.sweeps.length, answer.complete])
+        followSweepBrokers(DAY, BBCA, (answer, asksAgain) =>
+          shown.push([answer.sweeps.length, answer.complete, asksAgain])
         )
       )
       yield* TestClock.adjust("30 seconds")
       yield* TestClock.adjust("5 minutes")
       assert.deepStrictEqual(brokersFrom.asked, [false, true])
-      assert.deepStrictEqual(shown, [[2, true]])
+      assert.deepStrictEqual(shown, [[2, true, false]])
     }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
   })
 
@@ -422,31 +426,35 @@ describe("following a recorded day's sweep brokers", () => {
   it.effect("asks once for a cold day, though its codes are incomplete", () => {
     const brokersFrom = sweepBrokersWorker(Number.POSITIVE_INFINITY, 0, true)
     return Effect.gen(function* () {
-      const shown: Array<[sweeps: number, complete: boolean]> = []
+      const shown: Array<
+        [sweeps: number, complete: boolean, asksAgain: boolean]
+      > = []
       yield* Effect.forkChild(
-        followSweepBrokers(DAY, BBCA, (answer) =>
-          shown.push([answer.sweeps.length, answer.complete])
+        followSweepBrokers(DAY, BBCA, (answer, asksAgain) =>
+          shown.push([answer.sweeps.length, answer.complete, asksAgain])
         )
       )
       yield* TestClock.adjust("5 minutes")
       assert.deepStrictEqual(brokersFrom.asked, [false])
-      assert.deepStrictEqual(shown, [[1, false]])
+      assert.deepStrictEqual(shown, [[1, false, false]])
     }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
   })
 
   it.effect("a cold day's failed first ask is asked again 30 s later", () => {
     const brokersFrom = sweepBrokersWorker(Number.POSITIVE_INFINITY, 1, true)
     return Effect.gen(function* () {
-      const shown: Array<[sweeps: number, complete: boolean]> = []
+      const shown: Array<
+        [sweeps: number, complete: boolean, asksAgain: boolean]
+      > = []
       yield* Effect.forkChild(
-        followSweepBrokers(DAY, BBCA, (answer) =>
-          shown.push([answer.sweeps.length, answer.complete])
+        followSweepBrokers(DAY, BBCA, (answer, asksAgain) =>
+          shown.push([answer.sweeps.length, answer.complete, asksAgain])
         )
       )
       yield* TestClock.adjust("30 seconds")
       yield* TestClock.adjust("5 minutes")
       assert.deepStrictEqual(brokersFrom.asked, [false, true])
-      assert.deepStrictEqual(shown, [[2, false]])
+      assert.deepStrictEqual(shown, [[2, false, false]])
     }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
   })
 
