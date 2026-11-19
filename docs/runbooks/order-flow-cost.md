@@ -179,7 +179,7 @@ GraphQL bills a whole object. For the rows each table wrote, read the meter line
 
 - **`Rows written`**: one line for each flush, about once a minute while the day records. Each field counts the rows that flush wrote to one table. `billedRowsWritten` is what the SQLite cursors counted, which is what Cloudflare bills.
 - **`Sweep brokers recomputed`**: after the seal, one line for each sweep brokers recompute, with the same fields. The Decision above `recomputeLogged` in `sweep-brokers.ts` says which line carries a batch's counts.
-- **`Order flow storage`**: one line at the seal, and one more when the object first finds the sealed day's broker codes complete. `databaseBytes` is the size of the whole day's database. Compare the day's last line with the 0.4 GB threshold.
+- **`Order flow storage`**: the Decision above `recomputeLogged` in `sweep-brokers.ts` says when it is logged. `databaseBytes` is the size of the whole day's database. Compare the day's last line with the 0.4 GB threshold.
 
 To read them, filter on the message (the `$metadata.message` key) and the day, then sum each field across the lines. The meter counts the rows a flush or a batch wrote. It does not count the rows that a GET reads, so it can't replace GraphQL for rows read.
 

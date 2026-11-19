@@ -52,7 +52,8 @@ export const makeDayIndex = (sql: Sql) =>
         sql.exec("INSERT OR IGNORE INTO cold_days VALUES (?)", day)
       })
 
-    // Every sealed day, newest first, a cold one carrying `cold`.
+    // Every sealed day, newest first, a cold one carrying `cold`, the strip
+    // field `RecordedDay` names in packages/relay/src/recorded-day.ts.
     const strip = Effect.gen(function* () {
       const rows = sql.exec(
         "SELECT CASE WHEN cold_days.day IS NULL THEN days.row ELSE json_set(days.row, '$.cold', json('true')) END AS row FROM days LEFT JOIN cold_days USING (day) ORDER BY days.day DESC"
