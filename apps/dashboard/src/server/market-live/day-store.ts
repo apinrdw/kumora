@@ -82,6 +82,7 @@ interface Meter {
   candles: number
   footprints: number
   bookChunks: number
+  sessionBooks: number
   livePrices: number
   ajaibBooks: number
   facts: number
@@ -101,6 +102,7 @@ const emptyMeter = Effect.sync((): Meter => ({
   candles: 0,
   footprints: 0,
   bookChunks: 0,
+  sessionBooks: 0,
   livePrices: 0,
   ajaibBooks: 0,
   facts: 0,
@@ -117,6 +119,13 @@ export interface StoredChunk {
   readonly chunk: string
 }
 
+// One code's last book served in a session, encoded as a chunk that starts
+// from it (session-books.ts).
+export interface SessionBook {
+  readonly code: StockCode
+  readonly chunk: string
+}
+
 // What one flush writes.
 export interface Flush {
   readonly trades: ReadonlyArray<RunningTrade>
@@ -124,6 +133,9 @@ export interface Flush {
   readonly footprints: ReadonlyArray<FootprintRow>
   readonly livePrices: ReadonlyArray<LivePrice>
   readonly chunks: ReadonlyArray<StoredChunk>
+  // Each code's last book served in the session that just ended, as a book
+  // chunk that starts from it: written only when a session ends.
+  readonly sessionBooks?: ReadonlyArray<SessionBook>
   readonly ajaibBooks: ReadonlyArray<StoredAjaibBook>
   readonly facts: Readonly<Record<string, string>>
   // Further writes, run in the flush's transaction after its rows.
@@ -172,6 +184,13 @@ const SCHEMA = [
     minute INTEGER NOT NULL,
     chunk BLOB NOT NULL,
     PRIMARY KEY (code, minute)
+  ) WITHOUT ROWID`,
+  // Each code's last book served in Sessions 1 or 2 (session-books.ts), as a
+  // gzipped book chunk that starts from it. A day recorded before it holds
+  // none.
+  `CREATE TABLE IF NOT EXISTS session_books (
+    code TEXT PRIMARY KEY,
+    chunk BLOB NOT NULL
   ) WITHOUT ROWID`,
   // A stock's book heatmap slices for one minute (heat-rows.ts), which a
   // day recorded before heatmaps were worked out on read holds beside each
@@ -491,6 +510,17 @@ export const makeDayStore = (
             minute,
             new Uint8Array(gzipSync(chunk))
           )
+        // Decision: each session's end writes one row per code whose book
+        // was served in it, about 900 rows at the break and 900 at the
+        // close, rather than a code's every chunk: a restart brings back
+        // every code's book and readings from them, then from any newer
+        // recorded chunk (trading-day.ts, `restoreLastFrames`).
+        for (const { code, chunk } of flush.sessionBooks ?? [])
+          sql.exec(
+            "INSERT OR REPLACE INTO session_books VALUES (?, ?)",
+            code,
+            new Uint8Array(gzipSync(chunk))
+          )
         for (const { code, book } of flush.ajaibBooks)
           sql.exec(
             "INSERT OR REPLACE INTO ajaib_books VALUES (?, ?)",
@@ -520,6 +550,7 @@ export const makeDayStore = (
       meter.candles += flush.candles.length
       meter.footprints += flush.footprints.length
       meter.bookChunks += flush.chunks.length
+      meter.sessionBooks += flush.sessionBooks?.length ?? 0
       meter.livePrices += flush.livePrices.length
       meter.ajaibBooks += flush.ajaibBooks.length
       meter.facts += Object.keys(flush.facts).length
@@ -968,6 +999,15 @@ export const makeDayStore = (
       )
     )
 
+    // Every code's last book served in a session, by code, as the chunks
+    // that start from them: with the latest chunks, the books a restarted
+    // object starts from.
+    const sessionBooks = Effect.suspend(() =>
+      Effect.forEach(sql.exec("SELECT chunk FROM session_books"), (row) =>
+        chunkOf(row.chunk)
+      )
+    )
+
     // Every code's whole Ajaib book: what a restarted object's deltas build
     // on.
     const ajaibBooks = Effect.sync(() =>
@@ -1028,6 +1068,7 @@ export const makeDayStore = (
       bookEventsOf,
       newestBookEvents,
       latestChunks,
+      sessionBooks,
       ajaibBooks,
       fact,
     }
