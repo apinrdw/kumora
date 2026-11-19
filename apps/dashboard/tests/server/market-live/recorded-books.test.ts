@@ -120,22 +120,38 @@ const watchDisjoint = Effect.fnUntraced(function* (day: Day) {
 
 describe("a day's recorded order books", () => {
   it.effect(
-    "keep no chunk of a code never in the on-demand set, which answers not recorded, while live viewers still see its book",
+    "keep no chunk of a code never in the on-demand set, which answers not recorded, while live viewers still get its readings",
     () =>
       Effect.gen(function* () {
         yield* at("13:58:00")
-        const day = yield* tradingDay()
+        const sql = memorySql()
+        const day = yield* tradingDay(sql)
         yield* day.trades([RELAYED])
         const page = yield* day.viewer("BBCA")
         yield* untrBook(day, "14:00:03", 50)
         yield* TestClock.adjust("2 minutes")
 
-        const live = (yield* page.received).flatMap((message) =>
-          message._tag === "Delta" ? (message.orderBooks ?? []) : []
+        // A delta carries whole books only for a code some viewer selected:
+        // UNTR reaches BBCA's viewer as its readings.
+        const deltas = (yield* page.received).filter(
+          (message) => message._tag === "Delta"
         )
         assert.deepStrictEqual(
-          live.map((book) => book.code),
-          ["UNTR"]
+          deltas.flatMap((delta) =>
+            (delta.bookReadings ?? []).map((readings) => [
+              readings.code,
+              wibTime(readings.at),
+            ])
+          ),
+          [["UNTR", "14:00:03"]]
+        )
+        assert.deepStrictEqual(
+          deltas.flatMap((delta) => delta.orderBooks ?? []),
+          []
+        )
+        assert.deepStrictEqual(
+          sql.exec("SELECT code FROM book_chunks WHERE code = 'UNTR'"),
+          []
         )
         assert.deepStrictEqual(yield* bookOf(day, "14:00:00", "14:00:30"), {
           status: 404,

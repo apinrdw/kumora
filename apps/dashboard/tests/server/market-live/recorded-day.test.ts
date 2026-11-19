@@ -1136,6 +1136,8 @@ describe("the recorded order book", () => {
       Effect.gen(function* () {
         yield* TestClock.setTime(wib("14:20:12").epochMilliseconds)
         const day = yield* tradingDay(memorySql())
+        // A viewer on BBCA, so the day records its book.
+        yield* day.viewer()
         yield* day.stockbit([
           orderBookFrame("BID", [[8_000, 3, 50]], "14:20:10", 10_320),
           orderBookFrame("OFFER", [[8_025, 2, 40]], "14:20:12", 10_318),
