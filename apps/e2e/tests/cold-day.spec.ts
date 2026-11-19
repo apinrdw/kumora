@@ -205,6 +205,10 @@ test("a cold day replays, is never rechecked, and reloads from the browser's cac
   await expect(rows.first()).toContainText("KZ [F]")
   await expect(rows.nth(1)).toContainText("AK [F]")
   await expect(rows.nth(1)).toContainText("CC [D] +1")
+  // Its codes stay incomplete for good: the note promises no update.
+  await expect(log.getByText(/^Codes incomplete/)).toHaveText(
+    "Codes incomplete: 2 of 2 sweeps have their brokers."
+  )
 
   // The day's codes stay incomplete, yet past the 30 s recheck a hot day
   // would make, the page asked nothing more.

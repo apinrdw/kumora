@@ -187,20 +187,21 @@ const readBack = Effect.fnUntraced(function* (response: Response) {
 })
 
 // `bucket`, each get it serves listed: its key, and its range if any.
-const listedGets = (bucket: R2Bucket) => {
-  const gets: Array<string> = []
-  const listed: DayBucket = {
-    put: (key, body, options) => bucket.put(key, body, options),
-    get: (key, options) => {
-      const range = options?.range
-      gets.push(
-        range === undefined ? key : `${key} ${range.offset}+${range.length}`
-      )
-      return bucket.get(key, options)
-    },
-  }
-  return { bucket: listed, gets }
-}
+const listedGets = (bucket: R2Bucket) =>
+  Effect.sync(() => {
+    const gets: Array<string> = []
+    const listed: DayBucket = {
+      put: (key, body, options) => bucket.put(key, body, options),
+      get: (key, options) => {
+        const range = options?.range
+        gets.push(
+          range === undefined ? key : `${key} ${range.offset}+${range.length}`
+        )
+        return bucket.get(key, options)
+      },
+    }
+    return { bucket: listed, gets }
+  })
 
 // The busy day asked to move to `days` and its alarm run until its move
 // emptied it, on the move's clock: the rows the move billed and its alarm
@@ -212,7 +213,7 @@ const moved = Effect.fnUntraced(function* (
   days: R2Bucket
 ) {
   const sql = yield* durableSql(storage)
-  const r2 = listedGets(days)
+  const r2 = yield* listedGets(days)
   const measured: { emptied?: Record<string, number> } = {}
   const day = yield* makeTradingDay({
     date: BUSY_DAY.date,
