@@ -73,7 +73,21 @@ const restaged = (sql: Sql, stored: Operation["stored"]) =>
       sql.exec("DELETE FROM facts WHERE key = ?", Fact.codesComplete)
   })
 
-const billed = Effect.fnUntraced(function* (
+// `operation` with the real clock moved to its `at`, when it has one.
+const billed = (storage: DurableObjectStorage, operation: Operation) =>
+  operation.at === undefined
+    ? billedNow(storage, operation)
+    : Effect.gen(function* () {
+        const base = yield* Clock.Clock
+        const at = DateTime.toEpochMillis(DateTime.makeUnsafe(operation.at!))
+        return yield* Effect.provideService(
+          billedNow(storage, operation),
+          Clock.Clock,
+          yield* shiftedClock(base, at - base.currentTimeMillisUnsafe())
+        )
+      })
+
+const billedNow = Effect.fnUntraced(function* (
   storage: DurableObjectStorage,
   operation: Operation
 ) {

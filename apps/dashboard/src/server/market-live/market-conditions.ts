@@ -44,9 +44,7 @@ const sameIndicative = (a: IndicativePrice, b: IndicativePrice | undefined) =>
   )
 
 export const makeMarketConditions = Effect.fnUntraced(function* (
-  date: WibDate,
-  // The feeds' down stretches an object stored before it restarted.
-  restored?: DownRecord
+  date: WibDate
 ) {
   const stretches = yield* expectedStretches(date).pipe(
     Effect.catchTag("ScheduleYearMissing", () => Effect.succeed([]))
@@ -58,9 +56,6 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
   const health = yield* makeFeedHealth({
     stretches,
     since: yield* wibDayStart(date),
-    ...(restored === undefined
-      ? {}
-      : { restored: { record: restored, at: yield* DateTime.now } }),
   })
   const stockbit = new Map<StockCode, IndicativePrice>()
   const ajaib = new Map<StockCode, IndicativePrice>()
@@ -164,8 +159,13 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
   const relayOnline = health.online
   const relayOffline = Effect.flatMap(DateTime.now, health.offline)
 
+  // The feeds' down stretches an object stored before it restarted now.
+  const restore = (record: DownRecord) =>
+    Effect.flatMap(DateTime.now, (now) => health.restore(record, now))
+
   return {
     record: health.record,
+    restore,
     ingest,
     recordLags: health.recordLags,
     relayOnline,

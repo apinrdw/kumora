@@ -19,7 +19,7 @@ import {
   type WibDate,
   MINUTE_MS,
 } from "@workspace/relay"
-import { Clock, DateTime, Effect, type Schema } from "effect"
+import { Clock, DateTime, Effect } from "effect"
 
 import type { BrokerCodesStore } from "./broker-codes.ts"
 import { codeListAnswer, type CodeListStore } from "./code-list.ts"
@@ -58,9 +58,9 @@ const json = (text: string, cacheControl: string, status = 200) =>
 // after its seal until midnight; past days 404. It replaces spec
 // apinrdw/kumora#427's "Sealed day: ... answers 404". The sealed body keeps
 // the live cache. See apinrdw/kumora#436.
-export const bubblesAnswer = Effect.fnUntraced(function* (
+export const bubblesAnswer = Effect.fnUntraced(function* <E>(
   past: boolean,
-  body: Effect.Effect<string, Schema.SchemaError>
+  body: Effect.Effect<string, E>
 ) {
   return past
     ? yield* json(

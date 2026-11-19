@@ -32,6 +32,9 @@ export interface Operation {
     | "sealed before the summary"
     | "walking"
     | "batched before the codes-complete fact"
+  // When the object wakes, an ISO instant on the busy day, which makes it
+  // today's object. Later than the busy day, the real clock, by default.
+  readonly at?: string
   // Whether the object has a broker totals DB, which a batch's buildable
   // check runs for. The operation never reaches it: a build runs on the alarm.
   readonly brokerTotals?: boolean
@@ -271,6 +274,12 @@ const heatmapGet = (day: TradingDay) =>
 
 export const operations = {
   "status pass": { measure: statusPass },
+  // Today's object in the evening, woken for one of Market Live's broker
+  // codes rechecks.
+  "status pass on its own evening, freshly started": {
+    at: "2026-11-09T19:00:00+07:00",
+    measure: statusPass,
+  },
   // An object that answered a status since it woke, so it knows whether its
   // codes are complete.
   "recorded codes GET": { before: statusPass, measure: codesGet },

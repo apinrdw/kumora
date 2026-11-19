@@ -92,86 +92,90 @@ const keepMinute = (
 
 // Decision: the day totals are a running sum, each settled trade added once,
 // not a re-read of the day's candles, which a restart never loads; a restart
-// rebuilds them once from the candles table (`stored`). A minute is its
+// rebuilds them once from the candles table (`restore`). A minute is its
 // candle's settled figures, so a late trade replaces it. See spec
 // apinrdw/kumora#427, "Where the day totals come from".
-export const makeBubbleBook = (stored: StoredBubbles) =>
-  Effect.sync(() => {
-    const codes = new Map<StockCode, CodeBubbles>()
-    for (const { code, sums } of stored.days)
-      codes.set(code, { day: sums, minutes: new Map() })
-    for (const { code, minute, figures } of stored.minutes)
-      codes.get(code)?.minutes.set(minute, figures)
+export const makeBubbleBook = Effect.sync(() => {
+  const codes = new Map<StockCode, CodeBubbles>()
 
-    // A regular-board trade settled into its candle: `print` is the trade's own
-    // figures, `candle` its minute's settled figures with it. Plain (the
-    // Decision at sumsOf).
-    const settled = (
-      code: StockCode,
-      minute: number,
-      candle: CandleFigures,
-      print: CandleFigures
-    ) => {
-      const held = codes.get(code)
-      if (held === undefined) {
-        codes.set(code, {
-          day: sumsOf(print),
-          minutes: new Map([[minute, figuresOf(candle)]]),
-        })
-        return
-      }
-      held.day = added(held.day, sumsOf(print))
-      keepMinute(held.minutes, minute, figuresOf(candle))
-    }
+  // The day as the store held it, into a book that has settled nothing.
+  const restore = (stored: StoredBubbles) =>
+    Effect.sync(() => {
+      for (const { code, sums } of stored.days)
+        codes.set(code, { day: sums, minutes: new Map() })
+      for (const { code, minute, figures } of stored.minutes)
+        codes.get(code)?.minutes.set(minute, figures)
+    })
 
-    // The answer: every code, ascending, its minutes ascending, with the
-    // previous close a `liveprice` frame carried, settled before
-    // `settledBefore` (candles.ts).
-    const build = (
-      settledBefore: number,
-      previousClose: (code: StockCode) => number | undefined
-    ) =>
-      Effect.suspend(() => {
-        const answer: Array<RecordedBubbles["codes"][number]> = []
-        for (const code of [...codes.keys()].sort()) {
-          const { day, minutes } = codes.get(code)!
-          const previous = previousClose(code)
-          answer.push({
-            code,
-            ...(previous === undefined ? {} : { previousClose: previous }),
-            day: [
-              day.value,
-              day.volume,
-              day.frequency,
-              day.buyValue,
-              day.sellValue,
-            ],
-            minutes: [...minutes]
-              .sort(([a], [b]) => a - b)
-              .map(([minute, figures]) => [
-                minute,
-                figures.value,
-                figures.volume,
-                figures.frequency,
-                figures.buyValue,
-                figures.sellValue,
-                figures.close,
-              ]),
-          })
-        }
-        return Effect.map(
-          encodeRecordedBubbles({ settledBefore, codes: answer }),
-          (text) => ({
-            text,
-            codes: answer.length,
-          })
-        )
+  // A regular-board trade settled into its candle: `print` is the trade's own
+  // figures, `candle` its minute's settled figures with it. Plain (the
+  // Decision at sumsOf).
+  const settled = (
+    code: StockCode,
+    minute: number,
+    candle: CandleFigures,
+    print: CandleFigures
+  ) => {
+    const held = codes.get(code)
+    if (held === undefined) {
+      codes.set(code, {
+        day: sumsOf(print),
+        minutes: new Map([[minute, figuresOf(candle)]]),
       })
+      return
+    }
+    held.day = added(held.day, sumsOf(print))
+    keepMinute(held.minutes, minute, figuresOf(candle))
+  }
 
-    // A code's regular-board value today in rupiah: 0 before its first
-    // settled trade.
-    const dayValue = (code: StockCode) =>
-      Effect.sync(() => codes.get(code)?.day.value ?? 0)
+  // The answer: every code, ascending, its minutes ascending, with the
+  // previous close a `liveprice` frame carried, settled before
+  // `settledBefore` (candles.ts).
+  const build = (
+    settledBefore: number,
+    previousClose: (code: StockCode) => number | undefined
+  ) =>
+    Effect.suspend(() => {
+      const answer: Array<RecordedBubbles["codes"][number]> = []
+      for (const code of [...codes.keys()].sort()) {
+        const { day, minutes } = codes.get(code)!
+        const previous = previousClose(code)
+        answer.push({
+          code,
+          ...(previous === undefined ? {} : { previousClose: previous }),
+          day: [
+            day.value,
+            day.volume,
+            day.frequency,
+            day.buyValue,
+            day.sellValue,
+          ],
+          minutes: [...minutes]
+            .sort(([a], [b]) => a - b)
+            .map(([minute, figures]) => [
+              minute,
+              figures.value,
+              figures.volume,
+              figures.frequency,
+              figures.buyValue,
+              figures.sellValue,
+              figures.close,
+            ]),
+        })
+      }
+      return Effect.map(
+        encodeRecordedBubbles({ settledBefore, codes: answer }),
+        (text) => ({
+          text,
+          codes: answer.length,
+        })
+      )
+    })
 
-    return { settled, build, dayValue }
-  })
+  // A code's regular-board value today in rupiah: 0 before its first
+  // settled trade.
+  const dayValue = (code: StockCode) =>
+    Effect.sync(() => codes.get(code)?.day.value ?? 0)
+
+  return { settled, build, dayValue, restore }
+})

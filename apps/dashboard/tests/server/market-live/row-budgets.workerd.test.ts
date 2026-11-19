@@ -75,6 +75,24 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
       10_000
     )
 
+    it.effect(
+      "today's sealed object, woken in the evening, answers a status pass without restoring the live day",
+      () =>
+        Effect.gen(function* () {
+          const { start, rows, status } = yield* (yield* BusyDay).billed(
+            "status pass on its own evening, freshly started"
+          )
+          assert.strictEqual(status, 200)
+          // Restoring the live day at the start read the tape's newest
+          // 10,000 trades and the day's candles (apinrdw/kumora#589).
+          assert.isAtMost(start.rowsRead, 50)
+          assert.isAtMost(rows.rowsRead, 5_000)
+          // The day's usage line, its date's first, marks its fact.
+          assert.isAtMost(rows.rowsWritten, 1)
+        }),
+      10_000
+    )
+
     // Decision: a codes GET reads its 200 tape trades on any object, so the
     // spec's 10 rows bound what a fresh object reads past a warm one: the
     // codes-complete fact, never a status pass (#560).
