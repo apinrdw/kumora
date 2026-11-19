@@ -2,13 +2,13 @@
 // Worker entry's `scheduled`. It returns a Promise for the reason the
 // shareholding archive's (../shareholding/cron.ts) does: the day strip from
 // the index Durable Object, each poke to its day's trading-day object. After
-// the broker totals, it asks the recent hot days to move to R2
-// (../market-live/cold-moves.ts).
+// the broker totals, it asks the recent hot days to move to R2, then a few
+// of the older ones (../market-live/cold-moves.ts).
 import { decodeDayStrip, type WibDate } from "@workspace/relay"
 import { WorkerEnv, runServerEffectResult } from "@workspace/server"
 import { Effect, Schema } from "effect"
 
-import { askDueMoves } from "../market-live/cold-moves.ts"
+import { askOlderMoves, askDueMoves } from "../market-live/cold-moves.ts"
 import { DAY_INDEX, DayIndexPath, ObjectPath } from "../market-live/routes.ts"
 import { brokerTotalsDbD1 } from "./db.ts"
 import { reconcileBrokerTotals } from "./reconcile.ts"
@@ -53,7 +53,9 @@ export const runReconcileCron = () =>
           poke(ObjectPath.brokerTotals)
         ).pipe(Effect.provide(brokerTotalsDbD1))
       )
-      yield* askDueMoves(stripDays, poke(ObjectPath.move))
+      const listed = yield* Effect.cached(stripDays)
+      yield* askDueMoves(listed, poke(ObjectPath.move))
+      yield* askOlderMoves(listed, poke(ObjectPath.move))
       return yield* reconciled
     })
   )
