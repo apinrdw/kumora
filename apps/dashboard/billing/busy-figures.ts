@@ -13,6 +13,7 @@ import { DateTime } from "effect"
 // (docs/runbooks/order-flow-cost.md, "The thresholds"), over 800 codes
 // from 09:00 to 16:15 WIB. The relay missed a few trades, which a walk
 // filled as walk_trades rows: the status reads around them, as on a real day.
+// Its live books found 24,000 book events, 30 a code.
 export const BUSY_DAY = {
   date: WibDate.make("2026-11-09"),
   trades: 1_460_000,
@@ -23,7 +24,11 @@ export const BUSY_DAY = {
   // of the day's 435 minutes, the rest frameless.
   bookCode: "C1",
   bookChunks: 273,
+  bookEvents: 24_000,
 } as const
+
+// The book events one flush writes in the flush's budget.
+export const FLUSHED_BOOK_EVENTS = 1_000
 
 // Decision: the whole day (billing/whole-day.ts) is the busy day's trades
 // recorded live by a fresh object, with books for the 30 codes a viewer

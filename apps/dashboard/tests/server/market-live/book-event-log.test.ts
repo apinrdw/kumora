@@ -1,5 +1,6 @@
 // The book event log's memory while flushes fail (spec apinrdw/kumora#517,
-// "Book events"): it holds at most MAX_UNFLUSHED_EVENTS not stored yet.
+// "Book events"): it holds at most MAX_UNFLUSHED_EVENTS not stored yet. And
+// when it reads the store's newest: only once a snapshot asks.
 import { assert, describe, it } from "@effect/vitest"
 import {
   MAX_CODE_BOOK_EVENTS,
@@ -57,6 +58,37 @@ describe("the book event log", () => {
           [2, 4, 5],
           "the code's day stays oldest first"
         )
+      })
+  )
+
+  it.effect(
+    "reads the store's newest once, when a snapshot first asks, and never before",
+    () =>
+      Effect.gen(function* () {
+        // The store as a flush leaves it.
+        const stored = [pulled(4)]
+        let reads = 0
+        const log = yield* makeBookEventLog({
+          bookEventsOf: () => Effect.succeed([]),
+          newestBookEvents: () =>
+            Effect.sync(() => {
+              reads += 1
+              return [...stored]
+            }),
+        })
+        yield* log.add([pulled(5)])
+        stored.push(...(yield* log.toFlush))
+        yield* log.written(1)
+        yield* log.add([pulled(2)])
+        assert.strictEqual(reads, 0, "a start and an event read nothing")
+        assert.deepStrictEqual(
+          offsets(yield* log.newest),
+          [2, 4, 5],
+          "the stored and the unflushed, each once"
+        )
+        yield* log.add([pulled(7)])
+        assert.deepStrictEqual(offsets(yield* log.newest), [2, 4, 5, 7])
+        assert.strictEqual(reads, 1, "the next snapshot reads memory")
       })
   )
 

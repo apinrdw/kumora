@@ -205,6 +205,8 @@ const SCHEMA = [
     PRIMARY KEY (code, minute)
   ) WITHOUT ROWID`,
   // One book event (level-ledger.ts), its kind's own figures in `detail`.
+  // No index on `time`, so a flush writes one row an event
+  // (`newestBookEvents`).
   `CREATE TABLE IF NOT EXISTS book_events (
     code TEXT NOT NULL,
     time INTEGER NOT NULL,
@@ -912,7 +914,7 @@ export const makeDayStore = (
     })
 
     // One code's newest MAX_CODE_BOOK_EVENTS stored book events, oldest
-    // first.
+    // first: read by the key's prefix, that code's rows alone.
     const bookEventsOf = (code: StockCode) =>
       Effect.map(
         Effect.forEach(
@@ -928,6 +930,11 @@ export const makeDayStore = (
 
     // The day's newest `limit` stored book events of every code, oldest
     // first.
+    // Decision: no index on `time`: this visits and sorts every book event
+    // of the day, 2 rows read an event, once an object, at its first
+    // snapshot (book-event-log.ts). An index read 100 rows for 100 events
+    // but wrote 2 rows an event, and a row written costs 1,000 read
+    // (docs/runbooks/order-flow-cost.md): it pays only past 500 reads a day.
     const newestBookEvents = (limit: number) =>
       Effect.map(
         Effect.forEach(
