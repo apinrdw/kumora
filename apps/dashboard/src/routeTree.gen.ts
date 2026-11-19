@@ -22,6 +22,7 @@ import { Route as AppAccountRouteImport } from './routes/_app/account'
 import { Route as AppDeleteAccountRouteImport } from './routes/_app/delete-account'
 import { Route as AppMarketBubblesRouteImport } from './routes/_app/market-bubbles'
 import { Route as AppMarketLiveRouteImport } from './routes/_app/market-live'
+import { Route as AppOrderBookRadarRouteImport } from './routes/_app/order-book-radar'
 import { Route as LogosCodeRouteImport } from './routes/logos/$code'
 import { Route as AppAdminKseiRouteImport } from './routes/_app/admin/ksei'
 import { Route as AppAdminShareholdingRouteImport } from './routes/_app/admin/shareholding'
@@ -94,6 +95,11 @@ const AppMarketLiveRoute = AppMarketLiveRouteImport.update({
   path: '/market-live',
   getParentRoute: () => AppRoute,
 } as any)
+const AppOrderBookRadarRoute = AppOrderBookRadarRouteImport.update({
+  id: '/order-book-radar',
+  path: '/order-book-radar',
+  getParentRoute: () => AppRoute,
+} as any)
 const LogosCodeRoute = LogosCodeRouteImport.update({
   id: '/logos/$code',
   path: '/logos/$code',
@@ -143,6 +149,7 @@ export interface FileRoutesByFullPath {
   '/delete-account': typeof AppDeleteAccountRoute
   '/market-bubbles': typeof AppMarketBubblesRoute
   '/market-live': typeof AppMarketLiveRoute
+  '/order-book-radar': typeof AppOrderBookRadarRoute
   '/logos/$code': typeof LogosCodeRoute
   '/admin/ksei': typeof AppAdminKseiRoute
   '/admin/shareholding': typeof AppAdminShareholdingRoute
@@ -163,6 +170,7 @@ export interface FileRoutesByTo {
   '/delete-account': typeof AppDeleteAccountRoute
   '/market-bubbles': typeof AppMarketBubblesRoute
   '/market-live': typeof AppMarketLiveRoute
+  '/order-book-radar': typeof AppOrderBookRadarRoute
   '/logos/$code': typeof LogosCodeRoute
   '/': typeof AppIndexRoute
   '/admin/ksei': typeof AppAdminKseiRoute
@@ -186,6 +194,7 @@ export interface FileRoutesById {
   '/_app/delete-account': typeof AppDeleteAccountRoute
   '/_app/market-bubbles': typeof AppMarketBubblesRoute
   '/_app/market-live': typeof AppMarketLiveRoute
+  '/_app/order-book-radar': typeof AppOrderBookRadarRoute
   '/logos/$code': typeof LogosCodeRoute
   '/_app/': typeof AppIndexRoute
   '/_app/admin/ksei': typeof AppAdminKseiRoute
@@ -210,6 +219,7 @@ export interface FileRouteTypes {
     | '/delete-account'
     | '/market-bubbles'
     | '/market-live'
+    | '/order-book-radar'
     | '/logos/$code'
     | '/admin/ksei'
     | '/admin/shareholding'
@@ -230,6 +240,7 @@ export interface FileRouteTypes {
     | '/delete-account'
     | '/market-bubbles'
     | '/market-live'
+    | '/order-book-radar'
     | '/logos/$code'
     | '/'
     | '/admin/ksei'
@@ -252,6 +263,7 @@ export interface FileRouteTypes {
     | '/_app/delete-account'
     | '/_app/market-bubbles'
     | '/_app/market-live'
+    | '/_app/order-book-radar'
     | '/logos/$code'
     | '/_app/'
     | '/_app/admin/ksei'
@@ -367,6 +379,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppMarketLiveRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/order-book-radar': {
+      id: '/_app/order-book-radar'
+      path: '/order-book-radar'
+      fullPath: '/order-book-radar'
+      preLoaderRoute: typeof AppOrderBookRadarRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/logos/$code': {
       id: '/logos/$code'
       path: '/logos/$code'
@@ -425,6 +444,7 @@ interface AppRouteChildren {
   AppDeleteAccountRoute: typeof AppDeleteAccountRoute
   AppMarketBubblesRoute: typeof AppMarketBubblesRoute
   AppMarketLiveRoute: typeof AppMarketLiveRoute
+  AppOrderBookRadarRoute: typeof AppOrderBookRadarRoute
   AppIndexRoute: typeof AppIndexRoute
   AppAdminKseiRoute: typeof AppAdminKseiRoute
   AppAdminShareholdingRoute: typeof AppAdminShareholdingRoute
@@ -439,6 +459,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppDeleteAccountRoute: AppDeleteAccountRoute,
   AppMarketBubblesRoute: AppMarketBubblesRoute,
   AppMarketLiveRoute: AppMarketLiveRoute,
+  AppOrderBookRadarRoute: AppOrderBookRadarRoute,
   AppIndexRoute: AppIndexRoute,
   AppAdminKseiRoute: AppAdminKseiRoute,
   AppAdminShareholdingRoute: AppAdminShareholdingRoute,

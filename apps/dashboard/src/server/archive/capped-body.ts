@@ -46,3 +46,19 @@ export const collectCapped = Effect.fnUntraced(function* <E, Over>(
   }
   return bytes
 })
+
+// A JSON body read with readCapped, as `unknown` for a Schema to decode; one
+// that isn't JSON fails NonRetryable with `<what> aren't JSON`.
+export const readCappedJson = (
+  response: HttpClientResponse.HttpClientResponse,
+  maxBytes: number,
+  what: string
+) =>
+  readCapped(response, maxBytes, what).pipe(
+    Effect.flatMap((bytes) =>
+      Effect.try({
+        try: (): unknown => JSON.parse(new TextDecoder().decode(bytes)),
+        catch: () => new NonRetryable({ message: `${what} aren't JSON` }),
+      })
+    )
+  )

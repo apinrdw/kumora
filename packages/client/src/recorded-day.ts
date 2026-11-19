@@ -13,6 +13,7 @@ import {
   decodeRecordedBrokerCodes,
   decodeRecordedCandles,
   decodeRecordedGaps,
+  decodeRecordedBookEvents,
   decodeRecordedHeatmap,
   decodeRecordedSweepBrokers,
   decodeRecordedSweeps,
@@ -263,6 +264,16 @@ export const fetchRecordedHeatmap = Effect.fnUntraced(function* (
   const body = yield* getResource(date, { _tag: "Heatmap", code })
   if (Option.isNone(body)) return Option.none()
   return Option.some(yield* decodeRecordedHeatmap(body.value))
+})
+
+// One code's book events for the day so far. None when the Worker has none.
+export const fetchRecordedBookEvents = Effect.fnUntraced(function* (
+  date: WibDate,
+  code: StockCode
+) {
+  const body = yield* getResource(date, { _tag: "BookEvents", code })
+  if (Option.isNone(body)) return Option.none()
+  return Option.some(yield* decodeRecordedBookEvents(body.value))
 })
 
 // The day's relay gaps.

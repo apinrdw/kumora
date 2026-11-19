@@ -11,6 +11,7 @@ import {
   nextKseiRun,
 } from "@/server/ksei/schedule"
 import { SECTOR_CRON } from "@/server/sectors/schedule"
+import { SPECIAL_BOARD_CRON } from "@/server/special-board/schedule"
 import { LOGO_CRON } from "@/server/logos/schedule"
 import {
   ARCHIVE_CRON,
@@ -36,6 +37,10 @@ const runSectorCron = vi.fn<(scheduledTime: number) => Promise<void>>(() =>
   Effect.runPromise(Effect.void)
 )
 vi.mock("@/server/sectors/cron", () => ({ runSectorCron }))
+const runSpecialBoardCron = vi.fn<(scheduledTime: number) => Promise<void>>(
+  () => Effect.runPromise(Effect.void)
+)
+vi.mock("@/server/special-board/cron", () => ({ runSpecialBoardCron }))
 const runLogoCron = vi.fn<() => Promise<void>>(() =>
   Effect.runPromise(Effect.void)
 )
@@ -134,7 +139,7 @@ describe("a cron firing", () => {
   )
 
   it.effect(
-    "sets the reconcile cron on every stage, the archive, parse, sector and logo crons on Production only",
+    "sets the reconcile cron on every stage, the archive, parse, sector, logo and board crons on Production only",
     () =>
       Effect.gen(function* () {
         assert.deepStrictEqual(stageCrons(false), [RECONCILE_CRON])
@@ -146,6 +151,7 @@ describe("a cron firing", () => {
           PARSE_CRON,
           SECTOR_CRON,
           LOGO_CRON,
+          SPECIAL_BOARD_CRON,
         ])
       })
   )
@@ -189,5 +195,20 @@ describe("a cron firing", () => {
       assert.strictEqual(runKseiCron.mock.calls.length, 0)
       assert.strictEqual(runKseiParseCron.mock.calls.length, 0)
     })
+  )
+
+  it.effect(
+    "starts the board run, and no sector run, on the board cron at 23:00 WIB",
+    () =>
+      Effect.gen(function* () {
+        yield* Effect.promise(() => runCron(SPECIAL_BOARD_CRON, scheduledTime))
+
+        assert.deepStrictEqual(runSpecialBoardCron.mock.calls, [
+          [scheduledTime],
+        ])
+        assert.strictEqual(runSectorCron.mock.calls.length, 0)
+        assert.strictEqual(runArchiveCron.mock.calls.length, 0)
+        assert.strictEqual(yield* timesWib(SPECIAL_BOARD_CRON), "23:00 WIB")
+      })
   )
 })

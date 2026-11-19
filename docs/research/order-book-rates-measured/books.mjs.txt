@@ -1,0 +1,47 @@
+// Walk one sealed day's book chunks for every code over a WIB window.
+// usage: node books.mjs <cookieFile> <day> <HH:MM start WIB> <minutes> <out.json>
+import { readFileSync, writeFileSync, existsSync } from "node:fs"
+
+const [cookieFile, day, start, minutes, out] = process.argv.slice(2)
+const cookie = `__Secure-better-auth.session_token=${readFileSync(cookieFile, "utf8").trim()}`
+const base = `https://kumora-dashboard.kumora.workers.dev/market-live/days/${day}`
+const get = async (path) => {
+  for (let i = 0; i < 4; i++) {
+    const r = await fetch(base + path, { headers: { cookie } })
+    if (r.ok) return r.text()
+    if (r.status === 404) return null
+    await new Promise((s) => setTimeout(s, 500 * (i + 1)))
+  }
+  throw new Error(`failed ${path}`)
+}
+const codes = JSON.parse(await get("/codes")).codes.filter((c) => c.kind === "share").map((c) => c.code)
+const [h, m] = start.split(":").map(Number)
+const t0 = Date.parse(`${day}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00+07:00`)
+const jobs = []
+for (const code of codes) for (let k = 0; k < Number(minutes); k++) jobs.push([code, t0 + k * 60000])
+
+const cache = existsSync(out) ? JSON.parse(readFileSync(out, "utf8")) : {}
+let next = 0, done = 0
+const worker = async () => {
+  while (next < jobs.length) {
+    const [code, minute] = jobs[next++]
+    const key = `${code}@${minute}`
+    if (key in cache) continue
+    const text = await get(`/books/${code}?minute=${minute}`)
+    if (text === null) { cache[key] = null; continue }
+    const chunk = JSON.parse(text)
+    // Rebuild each served book and measure its JSON size, as the delta sends it whole.
+    let book = chunk.start
+    const frames = []
+    for (const { servedAt, ...parts } of chunk.deltas) {
+      book = { ...(book ?? { _tag: "OrderBook", code, bids: [], offers: [], bidLots: 0, offerLots: 0 }), ...parts }
+      frames.push([servedAt, JSON.stringify(book).length, book.bids?.length ?? 0, book.offers?.length ?? 0])
+    }
+    cache[key] = frames
+    if (++done % 500 === 0) { writeFileSync(out, JSON.stringify(cache)); console.error(done, "/", jobs.length) }
+  }
+}
+await Promise.all(Array.from({ length: 32 }, worker))
+writeFileSync(out, JSON.stringify(cache))
+console.error("codes", codes.length, "jobs", jobs.length)
+

@@ -1,0 +1,74 @@
+// How much the served book's single `at` blurs the ledger: share of side frames whose own time is unknown,
+// how wide that uncertainty is, and how many events change when those frames take their earliest possible time.
+// usage: node blur.mjs <cacheDir>
+import { load, detect, base } from "./replay.mjs"
+
+const cacheDir = process.argv[2]
+const w = (h) => Date.parse(`2026-11-17T${h}:00+07:00`)
+const spans = [
+  [w("09:00"), w("09:15")],
+  [w("09:15"), w("09:30")],
+  [w("14:00"), w("14:30")],
+]
+const codes =
+  "TLKM,BBRI,KOTA,BBCA,FOLK,GOTO,BBNI,AKRA,MEDC,DSSA,SMGR,ERAA,TAPG,PANI,PNBN".split(
+    ","
+  )
+const q = (xs, f) => {
+  const s = [...xs].sort((a, b) => a - b)
+  return s.length ? s[Math.floor(f * (s.length - 1))] : NaN
+}
+const byKind = {}
+const gaps = []
+let frames = 0,
+  both = 0,
+  same = 0,
+  onlyAt = 0,
+  onlyEarly = 0
+const key = (e) => `${e.code}|${e.kind}|${e.side}|${e.price}`
+for (const code of codes) {
+  const A = load(cacheDir, code, spans, { sideTime: "at" }),
+    B = load(cacheDir, code, spans, { sideTime: "early" })
+  for (let s = 0; s < A.length; s++) {
+    frames += A[s].frames.bid.length + A[s].frames.offer.length
+    both += A[s].both
+    gaps.push(...A[s].bothGap)
+    const ea = detect(A[s], base).events,
+      eb = detect(B[s], base).events
+    const used = new Set()
+    for (const e of ea) {
+      const m = eb.findIndex(
+        (x, i) =>
+          !used.has(i) && key(x) === key(e) && Math.abs(x.t - e.t) <= 2000
+      )
+      const k = (byKind[e.kind] ??= { same: 0, onlyAt: 0, onlyEarly: 0 })
+      if (m >= 0) {
+        used.add(m)
+        same++
+        k.same++
+      } else {
+        onlyAt++
+        k.onlyAt++
+      }
+    }
+    eb.forEach((x, i) => {
+      if (!used.has(i)) {
+        onlyEarly++
+        ;(byKind[x.kind] ??= { same: 0, onlyAt: 0, onlyEarly: 0 }).onlyEarly++
+      }
+    })
+  }
+}
+console.log(
+  `side frames ${frames}; from deltas carrying both sides ${2 * both} (${((200 * both) / frames).toFixed(1)}%)`
+)
+console.log(
+  `uncertainty of the earlier side's time (at - previous at), ms: p50 ${q(gaps, 0.5)} p90 ${q(gaps, 0.9)} p99 ${q(gaps, 0.99)}`
+)
+console.log(
+  `events: same under both timings ${same}; only with at ${onlyAt}; only with earliest time ${onlyEarly}`
+)
+for (const [k, v] of Object.entries(byKind))
+  console.log(
+    `  ${k}: same ${v.same}, only with at ${v.onlyAt}, only with earliest ${v.onlyEarly}`
+  )

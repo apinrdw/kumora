@@ -4,12 +4,14 @@
 // bubbles answer (bubblesAnswer): built once more after the seal, it 404s
 // from midnight.
 import {
+  encodeRecordedBookEvents,
   encodeRecordedBrokerCodes,
   encodeRecordedCandles,
   encodeRecordedGaps,
   encodeRecordedSweepBrokers,
   encodeRecordedSweeps,
   encodeRecordedTape,
+  type BookEvent,
   type RecordedResource,
   type RecordedSweeps,
   type RelayGap,
@@ -89,6 +91,11 @@ export const recordedAnswer = Effect.fnUntraced(function* (
     readonly sweeps: (
       code: StockCode
     ) => Effect.Effect<RecordedSweeps["sweeps"]>
+    // A code's book events so far, and whether the day records them.
+    readonly bookEvents: (code: StockCode) => Effect.Effect<{
+      readonly recorded: boolean
+      readonly events: ReadonlyArray<BookEvent>
+    }>
   }
 ) {
   const { store } = day
@@ -185,6 +192,17 @@ export const recordedAnswer = Effect.fnUntraced(function* (
         cacheControl
       )
     }
+    // Decision: a day recorded before book events answers none, marked not
+    // recorded, so its page says so rather than "none yet". See spec
+    // apinrdw/kumora#517, "Book events".
+    case "BookEvents":
+      return yield* json(
+        yield* encodeRecordedBookEvents({
+          code: resource.code,
+          ...(yield* day.bookEvents(resource.code)),
+        }),
+        cacheControl
+      )
     case "Gaps":
       return yield* json(
         day.sealed

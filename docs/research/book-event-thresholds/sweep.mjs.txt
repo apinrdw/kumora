@@ -1,0 +1,79 @@
+// Event rates per kind per code class for parameter sets.
+// usage: node sweep.mjs <cacheDir> [sideTime]
+import { load, detect, base } from "./replay.mjs"
+
+const cacheDir = process.argv[2],
+  sideTime = process.argv[3] ?? "at"
+const day = "2026-11-17"
+const wib = (hm) => Date.parse(`${day}T${hm}:00+07:00`)
+const spans = (process.env.SPANS ?? "09:00-09:15,09:15-09:30,14:00-14:30")
+  .split(",")
+  .map((w) => w.split("-").map(wib))
+const classes = {
+  busy: ["TLKM", "BBRI", "KOTA", "BBCA", "FOLK"],
+  mid: ["GOTO", "BBNI", "AKRA", "MEDC", "DSSA", "SMGR"],
+  quiet: ["ERAA", "TAPG", "PANI", "PNBN"],
+}
+const kinds = ["absorbed", "eaten", "reloaded", "appeared", "pulled", "moved"]
+const data = Object.fromEntries(
+  Object.values(classes)
+    .flat()
+    .map((c) => [c, load(cacheDir, c, spans, { sideTime })])
+)
+export const run = (P) => {
+  const rows = []
+  for (const [cls, codes] of Object.entries(classes)) {
+    const per = {}
+    for (const code of codes) {
+      const evs = []
+      let quiet = 0,
+        ev = 0
+      for (const seg of data[code]) {
+        const r = detect(seg, P)
+        evs.push(...r.events)
+        quiet += r.quietMs
+        ev += r.evalMs
+      }
+      const mins = ev / 2 / 60000
+      per[code] = {
+        ...Object.fromEntries(
+          kinds.map((k) => [k, evs.filter((e) => e.kind === k).length / mins])
+        ),
+        quiet: quiet / ev,
+        evs,
+      }
+    }
+    const avg = Object.fromEntries(
+      kinds.map((k) => [
+        k,
+        codes.reduce((s, c) => s + per[c][k], 0) / codes.length,
+      ])
+    )
+    rows.push({ cls, avg, per })
+  }
+  return rows
+}
+const fmt = (rows, perCode) => {
+  for (const { cls, avg, per } of rows) {
+    const tot = kinds.reduce((s, k) => s + avg[k], 0)
+    console.log(
+      `  ${cls.padEnd(5)} ` +
+        kinds.map((k) => `${k.slice(0, 5)} ${avg[k].toFixed(2)}`).join("  ") +
+        `  total ${tot.toFixed(2)}/min`
+    )
+    if (perCode)
+      for (const [c, v] of Object.entries(per))
+        console.log(
+          `    ${c.padEnd(5)} ` +
+            kinds.map((k) => `${k.slice(0, 5)} ${v[k].toFixed(2)}`).join("  ") +
+            `  quiet ${(v.quiet * 100).toFixed(0)}%`
+        )
+  }
+}
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const sets = JSON.parse(process.env.SETS ?? "[{}]")
+  for (const s of sets) {
+    console.log(JSON.stringify(s))
+    fmt(run({ ...base, ...s }), process.env.PER === "1")
+  }
+}

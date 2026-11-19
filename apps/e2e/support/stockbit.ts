@@ -93,12 +93,14 @@ export function stockbitIndexFrameNow(last: number): Uint8Array {
 
 /**
  * One `orderbook` frame (wrapper case 10): one full side of `code`'s book,
- * levels of `[price, orders, lots]`, as Stockbit's socket sends it now.
+ * levels of `[price, orders, lots]`, as Stockbit's socket sends it now, or
+ * stamped `at` on the market clock.
  */
 export function stockbitOrderBookFrame(
   code: string,
   side: "BID" | "OFFER",
-  levels: ReadonlyArray<readonly [number, number, number]>
+  levels: ReadonlyArray<readonly [number, number, number]>,
+  at: number = marketNow()
 ): Uint8Array {
   const shares = levels.map(([price, orders, lots]) => [
     price,
@@ -112,14 +114,14 @@ export function stockbitOrderBookFrame(
     code,
     side,
     ...shares.map((level) => level.join(";")),
-    `${Math.floor(marketNow() / 1000)}-${orders}&${total}`,
+    `${Math.floor(at / 1000)}-${orders}&${total}`,
   ].join("|")
   const encode = (text: string) => [...new TextEncoder().encode(text)]
   return Uint8Array.from(
     messageField(10, [
       ...messageField(1, encode(code)),
       ...messageField(2, encode(body)),
-      ...messageField(5, encode(new Date(marketNow()).toISOString())),
+      ...messageField(5, encode(new Date(at).toISOString())),
     ])
   )
 }

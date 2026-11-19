@@ -446,6 +446,23 @@ test("the options page shows the broker codes walks, and Pause and Run now steer
       .poll(() => worker.evaluate("chrome.action.getBadgeText({})"))
       .toBe("PIN")
 
+    // Ajaib's repair pass: its blocks and their time left, in place of the
+    // first pass's pace and time left.
+    await worker.evaluate(`chrome.storage.session.set({ brokerCodesProgress: {
+      state: "walking", walk: "newest", day: "2026-10-02", feed: "Ajaib",
+      trades: { fetched: 1597070, of: 1597351, perSecond: 1040 },
+      repair: { done: 12, of: 87, perSecond: 0.07 } } })`)
+    await expect(options.getByLabel("Broker codes trades")).toHaveText(
+      "1,597,070 of 1,597,351 trades"
+    )
+    await expect(options.getByLabel("Broker codes repair")).toHaveText(
+      "repairing page seams: 12 of 87 blocks"
+    )
+    await expect(options.getByLabel("Broker codes time left")).toHaveText(
+      "18 min left"
+    )
+    await expect(options.getByLabel("Broker codes pace")).toHaveCount(0)
+
     // Resume runs the queue again, and it stops on Streaming hours.
     await options.getByRole("button", { name: "Resume" }).click()
     await expect

@@ -50,7 +50,6 @@ export {
   OnDemandCodes,
   ProtocolVersionMismatch,
   Select,
-  SHARES_PER_LOT,
   Side,
   StockbitFrames,
   TradeNumber,
@@ -90,6 +89,7 @@ export {
   decodeAjaibCodeList,
   decodeStockCodeList,
   encodeStockCodeList,
+  kindOf,
 } from "./code-list.ts"
 export {
   BUBBLE_MINUTES,
@@ -98,6 +98,7 @@ export {
   bookAt,
   decodeBookChunk,
   decodeDayStrip,
+  decodeRecordedBookEvents,
   decodeRecordedBubbles,
   decodeRecordedCandles,
   decodeRecordedDay,
@@ -107,6 +108,7 @@ export {
   decodeSweepBrokersText,
   decodeRecordedTape,
   encodeBookChunk,
+  encodeRecordedBookEvents,
   encodeRecordedBubbles,
   encodeRecordedCandles,
   encodeRecordedDay,
@@ -122,6 +124,7 @@ export {
 export type {
   BookChunk,
   BookDelta,
+  RecordedBookEvents,
   RecordedBrokerCodes,
   RecordedBubbles,
   RecordedCandles,
@@ -135,7 +138,35 @@ export type {
 } from "./recorded-day.ts"
 export type { CodeKind, ListedCode } from "./code-list.ts"
 export type { DayChange, DayState } from "./day-state.ts"
-export { BOOK_DEPTH, BookLevel } from "./order-book.ts"
+export {
+  BOOK_DEPTH,
+  BookLevel,
+  SHARES_PER_LOT,
+  levelValue,
+} from "./order-book.ts"
+export {
+  READING_PHASES,
+  bookReadingsOf,
+  fillEstimateOf,
+  limitOf,
+} from "./book-readings.ts"
+export type {
+  BookReadings,
+  FillEstimate,
+  Limit,
+  OrderSize,
+} from "./book-readings.ts"
+export type { ScannerFigures } from "./scanner-figures.ts"
+export {
+  BOOK_EVENT_WINDOW_MS,
+  BookEvent,
+  BookEventOrder,
+  BookEventSide,
+  MAX_CODE_BOOK_EVENTS,
+  MIN_SIDE_FRAMES,
+  SNAPSHOT_BOOK_EVENTS,
+} from "./book-events.ts"
+export type { BookEventKind } from "./book-events.ts"
 export {
   HEAT_SLICE_MS,
   decodeRecordedHeatmap,
@@ -189,3 +220,6 @@ export {
   decodeSectorMap,
 } from "./sectors.ts"
 export type { SectorMap } from "./sectors.ts"
+export { SpecialBoardPath, decodeSpecialBoard } from "./special-board.ts"
+export type { SpecialBoard } from "./special-board.ts"
+export { priceLimitsOf, tickAt, ticksBetween } from "./ticks.ts"
