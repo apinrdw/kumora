@@ -7,13 +7,15 @@ import { gunzipSync, gzipSync } from "node:zlib"
 
 import {
   StockCode,
+  BookEvent,
   TradeNumberValue,
   type Footprint,
   type RunningTrade,
   type Sweep,
+  MAX_CODE_BOOK_EVENTS,
   MINUTE_MS,
 } from "@workspace/relay"
-import { DateTime, Effect } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 
 import type { DaySums, MinuteFigures, StoredBubbles } from "./bubble-book.ts"
 import type {
@@ -88,6 +90,7 @@ interface Meter {
   // minutes their recomputes read back.
   sweepBrokers: number
   sweepBrokerMinutes: number
+  bookEvents: number
   billedRowsWritten?: number
   billedMinuteRereadRows?: number
   billedSweepBrokerReadRows?: number
@@ -104,6 +107,7 @@ const emptyMeter = Effect.sync((): Meter => ({
   minuteRereads: 0,
   sweepBrokers: 0,
   sweepBrokerMinutes: 0,
+  bookEvents: 0,
 }))
 
 // One code's order book chunk for one minute, encoded.
@@ -124,6 +128,8 @@ export interface Flush {
   readonly facts: Readonly<Record<string, string>>
   // Further writes, run in the flush's transaction after its rows.
   readonly alsoWrites?: () => void
+  // The book events found since the last flush that landed.
+  readonly bookEvents?: ReadonlyArray<BookEvent>
 }
 
 // Decision: the trades are the tape's (tape.ts). The other tables are keyed
@@ -178,6 +184,18 @@ const SCHEMA = [
     slices TEXT NOT NULL,
     PRIMARY KEY (code, minute)
   ) WITHOUT ROWID`,
+  // One book event (level-ledger.ts), its kind's own figures in `detail`.
+  `CREATE TABLE IF NOT EXISTS book_events (
+    code TEXT NOT NULL,
+    time INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    side TEXT NOT NULL,
+    price REAL NOT NULL,
+    lots REAL NOT NULL,
+    orders INTEGER NOT NULL,
+    detail TEXT NOT NULL,
+    PRIMARY KEY (code, time, kind, side, price)
+  ) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS ajaib_books (
     code TEXT PRIMARY KEY,
     book TEXT NOT NULL
@@ -215,6 +233,9 @@ export const Fact = {
   // last minute it wrote, then SWEEP_BROKERS_BUILT, each under
   // SWEEP_BROKERS_SHAPE.
   sweepBrokersBuilt: "sweep-brokers-built",
+  // That the object recorded the day's book events (book-event-log.ts): a
+  // day without it was recorded before them.
+  bookEvents: "book-events",
   // Where the day's tape comes from (trading-day.ts): TapeSource's relay or
   // walk, none while unknown.
   tapeSource: "tape-source",
@@ -224,6 +245,9 @@ export const Fact = {
   // The day's broker totals build (broker-totals.ts): BROKER_TOTALS_DUE once
   // the sealed day is buildable, then the build version that wrote them.
   brokerTotals: "broker-totals",
+  // Every code's value on the previous trading day (previous-values.ts),
+  // as its object answered it, once a day.
+  previousValues: "previous-values",
   // When each alarm duty is next due (wakes.ts): epoch millis, none once
   // done.
   sealWake: "seal-wake",
@@ -288,6 +312,28 @@ const storedCandleOf = (row: Record<string, SqlValue>) =>
 
 const candleOf = ({ code, minute, figures }: StoredCandle) =>
   candleFrom(code, minute, figures)
+
+// A stored book event: its columns and its kind's own figures in `detail`,
+// decoded as the wire's BookEvent. A row this code can't read is a defect.
+const decodeDetail = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown))
+)
+const decodeBookEvent = Schema.decodeUnknownEffect(BookEvent)
+const bookEventOf = Effect.fnUntraced(function* (
+  row: Record<string, SqlValue>
+) {
+  const detail = yield* decodeDetail(row.detail)
+  return yield* decodeBookEvent({
+    ...detail,
+    kind: row.kind,
+    code: row.code,
+    at: row.time,
+    side: row.side,
+    price: row.price,
+    lots: row.lots,
+    orders: row.orders,
+  })
+}, Effect.orDie)
 
 const livePriceOf = (frame: SqlValue | undefined) =>
   Effect.sync((): LivePrice => {
@@ -453,8 +499,23 @@ export const makeDayStore = (
           )
         for (const [key, value] of Object.entries(flush.facts))
           insertFact(key, value)
+        for (const event of flush.bookEvents ?? []) {
+          const { code, at, kind, side, price, lots, orders, ...detail } = event
+          sql.exec(
+            "INSERT OR REPLACE INTO book_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            code,
+            DateTime.toEpochMillis(at),
+            kind,
+            side,
+            price,
+            lots,
+            orders,
+            JSON.stringify(detail)
+          )
+        }
         flush.alsoWrites?.()
       })
+      meter.bookEvents += flush.bookEvents?.length ?? 0
       meter.trades += flush.trades.length
       meter.candles += flush.candles.length
       meter.footprints += flush.footprints.length
@@ -814,6 +875,35 @@ export const makeDayStore = (
       return row === undefined ? undefined : yield* livePriceOf(row.frame)
     })
 
+    // One code's newest MAX_CODE_BOOK_EVENTS stored book events, oldest
+    // first.
+    const bookEventsOf = (code: StockCode) =>
+      Effect.map(
+        Effect.forEach(
+          sql.exec(
+            "SELECT * FROM book_events WHERE code = ? ORDER BY time DESC LIMIT ?",
+            code,
+            MAX_CODE_BOOK_EVENTS
+          ),
+          bookEventOf
+        ),
+        (events) => events.reverse()
+      )
+
+    // The day's newest `limit` stored book events of every code, oldest
+    // first.
+    const newestBookEvents = (limit: number) =>
+      Effect.map(
+        Effect.forEach(
+          sql.exec(
+            "SELECT * FROM book_events ORDER BY time DESC LIMIT ?",
+            limit
+          ),
+          bookEventOf
+        ),
+        (events) => events.reverse()
+      )
+
     // The chunk of `code` for the minute holding `minute`, or the latest
     // before it: the book in force then.
     const chunkAt = Effect.fnUntraced(function* (
@@ -935,6 +1025,8 @@ export const makeDayStore = (
       livePrice,
       chunkAt,
       heatmapOf,
+      bookEventsOf,
+      newestBookEvents,
       latestChunks,
       ajaibBooks,
       fact,

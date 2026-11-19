@@ -33,6 +33,12 @@ const deltaOf = Effect.fnUntraced(function* (
   const delta: {
     -readonly [K in keyof BookDelta]: BookDelta[K]
   } = { servedAt, at: book.at }
+  // Every per-side time and sequence number, changed or not: replay replaces
+  // them as one group.
+  if (book.bidAt !== undefined) delta.bidAt = book.bidAt
+  if (book.offerAt !== undefined) delta.offerAt = book.offerAt
+  if (book.bidSequence !== undefined) delta.bidSequence = book.bidSequence
+  if (book.offerSequence !== undefined) delta.offerSequence = book.offerSequence
   if (before?.provenance !== book.provenance) delta.provenance = book.provenance
   if (before === undefined || !(yield* same(before.bids, book.bids)))
     delta.bids = book.bids

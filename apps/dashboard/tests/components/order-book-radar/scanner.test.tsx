@@ -1,0 +1,123 @@
+// @vitest-environment happy-dom
+// The scanner's rows as a live table (CODING_STANDARDS.md, "Live tables use
+// the keyed-store pattern with React.memo rows"): a code's new readings
+// re-render its row alone, and the page re-rendering with the same view
+// re-renders none.
+import {
+  StockCode,
+  type BookReadings,
+  type StockCode as Code,
+  type ViewerDown,
+} from "@workspace/relay"
+import { DateTime, Effect } from "effect"
+import { act } from "react"
+import { createRoot } from "react-dom/client"
+import { afterEach, expect, test, vi } from "vitest"
+
+import { makeBookReadingsStore } from "@/components/market-live/book-readings-store"
+import { Halves, type RowView } from "@/components/order-book-radar/scanner"
+import { rankedFigure, type Scan } from "@/lib/order-book-radar"
+
+// Each row draws its Ranked by figure once a render.
+vi.mock("@/lib/order-book-radar", { spy: true })
+const renders = () => {
+  const counted: Record<string, number> = {}
+  for (const [readings] of vi.mocked(rankedFigure).mock.calls)
+    counted[readings.code] = (counted[readings.code] ?? 0) + 1
+  return counted
+}
+
+// React's `act` warns outside a test environment that declares itself.
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+
+const NOW = Date.parse("2026-11-18T02:30:00.000Z")
+const FIRST = StockCode.make("RHAA")
+const SECOND = StockCode.make("RHBB")
+
+const side = (lots: number): BookReadings["bid"] => ({
+  nearDepth: lots * 100_000,
+  lots,
+  emptyTicks: 0,
+  widestGap: 0,
+  lotsPerOrder: lots / 2,
+})
+
+const readings = (code: Code, bid: number): BookReadings => ({
+  code,
+  at: DateTime.makeUnsafe(NOW),
+  imbalance: (bid - 100) / (bid + 100),
+  spread: { ticks: 1, percent: 0.5 },
+  bid: side(bid),
+  offer: side(100),
+})
+
+const delta = (each: ReadonlyArray<BookReadings>): ViewerDown => ({
+  _tag: "Delta",
+  at: DateTime.makeUnsafe(NOW),
+  tape: [],
+  candles: [],
+  bookReadings: each,
+})
+
+let root: ReturnType<typeof createRoot> | undefined
+afterEach(() => {
+  act(() => root?.unmount())
+  root = undefined
+  vi.clearAllMocks()
+})
+
+test("a code's new readings re-render its row alone, and the same view none", () => {
+  const store = Effect.runSync(makeBookReadingsStore)
+  store.apply(delta([readings(FIRST, 300), readings(SECOND, 300)]))
+  const watchlist = new Set<Code>()
+  const events = new Map()
+  const onUnfold = () => undefined
+  const onOpen = () => undefined
+  const view = (): RowView => ({
+    readings: store,
+    rankBy: "imbalance",
+    marketNow: NOW,
+    watchlist,
+    events,
+    unfolded: undefined,
+    onUnfold,
+    book: undefined,
+    onOpen,
+  })
+  const scan: Scan = {
+    bid: [FIRST, SECOND],
+    offer: [],
+    limits: [],
+    above: 2,
+    board: 0,
+    cheap: 0,
+  }
+  const host = document.createElement("div")
+  root = createRoot(host)
+  act(() =>
+    root!.render(<Halves scan={scan} view={view()} onHover={() => {}} />)
+  )
+  const imbalanceOf = (code: Code) =>
+    host.querySelector(`[data-code="${code}"] [aria-label="Imbalance"]`)
+      ?.textContent
+  expect(imbalanceOf(FIRST)).toBe("+50%")
+  vi.mocked(rankedFigure).mockClear()
+
+  act(() => store.apply(delta([readings(FIRST, 900)])))
+  expect(
+    imbalanceOf(FIRST),
+    "the delta's imbalance shows in its row at once"
+  ).toBe("+80%")
+  expect(renders(), "only the changed code's row re-rendered").toEqual({
+    [FIRST]: 1,
+  })
+
+  vi.mocked(rankedFigure).mockClear()
+  act(() =>
+    root!.render(<Halves scan={scan} view={view()} onHover={() => {}} />)
+  )
+  expect(
+    renders(),
+    "a page re-render with the same view re-renders no row"
+  ).toEqual({})
+})

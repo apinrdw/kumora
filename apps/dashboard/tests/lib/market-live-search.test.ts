@@ -38,6 +38,7 @@ describe("the Market Live search params", () => {
         day: undefined,
         panel: undefined,
         big: undefined,
+        event: undefined,
       })
     })
   )
@@ -76,6 +77,17 @@ describe("the Market Live search params", () => {
       expect((yield* parseMarketLiveSearch({ big: true })).big).toBe(true)
       for (const big of [false, "yes", 1])
         expect((yield* parseMarketLiveSearch({ big })).big).toBeUndefined()
+    })
+  )
+
+  it.effect("keeps the book event to land on, and drops an empty one", () =>
+    Effect.gen(function* () {
+      const event = "BBCA|appeared|bid|7600|1763433000000"
+      expect((yield* parseMarketLiveSearch({ event })).event).toBe(event)
+      for (const bad of ["", 42])
+        expect(
+          (yield* parseMarketLiveSearch({ event: bad })).event
+        ).toBeUndefined()
     })
   )
 })

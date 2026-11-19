@@ -5,11 +5,11 @@ import {
   type StockCode,
   type WibDate,
 } from "@workspace/relay"
-import { Effect, Fiber, Option, Predicate } from "effect"
+import { Effect, Fiber, Option } from "effect"
 import { useEffect, useMemo, useSyncExternalStore } from "react"
 
 import { makeHeatmapStore, type HeatmapStore } from "./heatmap-store"
-import { signInAgain } from "./sign-in-again"
+import { loadedOrSignIn } from "./sign-in-again"
 
 // The selected code's heatmap store for the recorded `day`, or `today` live.
 // A recorded day's is seeded once, whole, by its heatmap GET. Live, the GET
@@ -36,19 +36,15 @@ export function useHeatmap(
     const load = (seed: (answer: RecordedHeatmap) => void) =>
       fibers.push(
         clientRuntime.runFork(
-          fetchRecordedHeatmap(date, code).pipe(
-            Effect.tap((answer) =>
-              Effect.sync(() => {
-                if (Option.isSome(answer)) seed(answer.value)
-              })
+          loadedOrSignIn(
+            fetchRecordedHeatmap(date, code).pipe(
+              Effect.tap((answer) =>
+                Effect.sync(() => {
+                  if (Option.isSome(answer)) seed(answer.value)
+                })
+              )
             ),
-            Effect.catchIf(
-              (error) => Predicate.isTagged(error, "SignInRequired"),
-              () => signInAgain
-            ),
-            Effect.catchCause((cause) =>
-              Effect.logWarning("Book heatmap not loaded", cause)
-            )
+            "Book heatmap"
           )
         )
       )

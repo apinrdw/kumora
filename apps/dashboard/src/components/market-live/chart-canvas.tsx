@@ -26,6 +26,8 @@ import { useEffect, useRef, useState } from "react"
 import { chartMinutes, windowAround } from "@/lib/chart-nav"
 import { cursorLogical } from "@/lib/replay"
 
+import { attachBookEventMarks } from "./book-event-marks"
+import type { BookEventStore } from "./book-event-store"
 import { attachBookHeatmap } from "./book-heatmap"
 import type { CandleChange, CandleStore } from "./candle-store"
 import type { ChartPair } from "./chart-pair"
@@ -177,6 +179,7 @@ export default function ChartCanvas({
   store,
   heatmap,
   sweeps,
+  bookEvents,
   cursor,
   gaps,
   pair,
@@ -186,6 +189,8 @@ export default function ChartCanvas({
   heatmap?: HeatmapStore | undefined
   // The selected code's sweeps, drawn as bubbles; none for an index.
   sweeps?: SweepStore | undefined
+  // The selected code's book events, marked on the heatmap.
+  bookEvents?: BookEventStore | undefined
   cursor?: ReplayCursor | undefined
   gaps: ReadonlyArray<RelayGap>
   pair: ChartPair
@@ -509,6 +514,26 @@ export default function ChartCanvas({
     shownGaps.current = gaps
     redrawGaps.current?.()
   }, [gaps])
+
+  // The book events' marks, on the candle series once it is drawn.
+  useEffect(() => {
+    const element = host.current
+    if (series === null || element === null || bookEvents === undefined) return
+    const css = getComputedStyle(document.documentElement)
+    const token = (name: string) => css.getPropertyValue(name).trim()
+    return attachBookEventMarks(
+      series,
+      bookEvents,
+      cursor,
+      {
+        bid: token("--semantic-up"),
+        offer: token("--semantic-down"),
+        edge: token("--bg-canvas"),
+        picked: token("--accent-primary"),
+      },
+      element
+    )
+  }, [series, bookEvents, cursor])
 
   // During the auctions, the indicative price as a dashed line.
   useEffect(() => {

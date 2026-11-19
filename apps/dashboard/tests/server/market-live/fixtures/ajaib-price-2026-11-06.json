@@ -1,7 +1,7 @@
 {
- "note": "Ajaib PRICE frames for BBCA from the 2026-11-06 probe (kumora-probe-ajaib-2026-11-06T07-21-16-961Z.json, phase 'control: PRICE BBCA'), as the socket sent them. pctChange is a fraction; close is the previous close; tradableVolume is in shares. The tests move updateTime to their own day.",
- "frames": [
-  "{\"ticker\":\"BBCA\",\"updateTime\":1793949577271,\"price\":5050,\"change\":-75,\"pctChange\":-0.014634,\"tradableVolume\":64439700,\"hi\":5100,\"lo\":4990,\"open\":5025,\"close\":5125,\"p\":0,\"co\":2795,\"s\":2798,\"eb\":3}",
-  "{\"ticker\":\"BBCA\",\"updateTime\":1793949581074,\"price\":5050,\"change\":-75,\"pctChange\":-0.014634,\"tradableVolume\":64439800,\"hi\":5100,\"lo\":4990,\"open\":5025,\"close\":5125,\"p\":0,\"co\":255,\"s\":257,\"eb\":2}"
- ]
+  "note": "Ajaib PRICE frames for BBCA from the 2026-11-06 probe (kumora-probe-ajaib-2026-11-06T07-21-16-961Z.json, phase 'control: PRICE BBCA'), as the socket sent them. pctChange is a fraction; close is the previous close; tradableVolume is in shares. The tests move updateTime to their own day.",
+  "frames": [
+    "{\"ticker\":\"BBCA\",\"updateTime\":1793949577271,\"price\":5050,\"change\":-75,\"pctChange\":-0.014634,\"tradableVolume\":64439700,\"hi\":5100,\"lo\":4990,\"open\":5025,\"close\":5125,\"p\":0,\"co\":2795,\"s\":2798,\"eb\":3}",
+    "{\"ticker\":\"BBCA\",\"updateTime\":1793949581074,\"price\":5050,\"change\":-75,\"pctChange\":-0.014634,\"tradableVolume\":64439800,\"hi\":5100,\"lo\":4990,\"open\":5025,\"close\":5125,\"p\":0,\"co\":255,\"s\":257,\"eb\":2}"
+  ]
 }

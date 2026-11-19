@@ -3,12 +3,14 @@
 // day, so no statement it runs may scan the trades table.
 import { assert, describe, it } from "@effect/vitest"
 import {
+  MAX_CODE_BOOK_EVENTS,
   MINUTE_MS,
   StockCode,
   TradeNumber,
+  type BookEvent,
   type RunningTrade,
 } from "@workspace/relay"
-import { DateTime, Effect } from "effect"
+import { DateTime, Effect, Exit } from "effect"
 import { DatabaseSync, type SQLInputValue } from "node:sqlite"
 
 import {
@@ -396,6 +398,69 @@ describe("a day store from before candles carried buy and sell value", () => {
         candles.map(({ figures }) => [figures.buyValue, figures.sellValue]),
         [[600_000, 300_000]]
       )
+    })
+  )
+})
+
+describe("the stored book events", () => {
+  const moved: BookEvent = {
+    kind: "moved",
+    code: StockCode.make("BBNI"),
+    at: DateTime.makeUnsafe("2026-11-17T07:02:33.250Z"),
+    side: "bid",
+    price: 3_620,
+    lots: 28_711,
+    orders: 3,
+    wallLots: 30_000,
+    to: 3_610,
+  }
+  const flush = {
+    trades: [],
+    candles: [],
+    footprints: [],
+    livePrices: [],
+    chunks: [],
+    ajaibBooks: [],
+    facts: {},
+    bookEvents: [moved],
+  }
+
+  it.effect("read back as the BookEvent written", () =>
+    Effect.gen(function* () {
+      const store = yield* makeDayStore(memorySql(), { today: true })
+      yield* store.write(flush)
+      assert.deepStrictEqual(
+        yield* store.bookEventsOf(StockCode.make("BBNI")),
+        [moved]
+      )
+      assert.deepStrictEqual(yield* store.newestBookEvents(10), [moved])
+    })
+  )
+
+  it.effect("one code reads back as its newest MAX_CODE_BOOK_EVENTS", () =>
+    Effect.gen(function* () {
+      const store = yield* makeDayStore(memorySql(), { today: true })
+      const at = DateTime.toEpochMillis(moved.at)
+      const events = Array.from(
+        { length: MAX_CODE_BOOK_EVENTS + 1 },
+        (_, n): BookEvent => ({ ...moved, at: DateTime.makeUnsafe(at + n) })
+      )
+      yield* store.write({ ...flush, bookEvents: events })
+      const read = yield* store.bookEventsOf(StockCode.make("BBNI"))
+      assert.lengthOf(read, MAX_CODE_BOOK_EVENTS, "the read is capped")
+      assert.deepStrictEqual(read[0], events[1], "the oldest drops")
+      assert.deepStrictEqual(read.at(-1), events.at(-1))
+    })
+  )
+
+  it.effect("a row whose figures don't decode is a defect", () =>
+    Effect.gen(function* () {
+      const sql = memorySql()
+      const store = yield* makeDayStore(sql, { today: true })
+      yield* store.write(flush)
+      sql.exec("UPDATE book_events SET detail = ?", '{"to":"far"}')
+      const read = yield* Effect.exit(store.newestBookEvents(10))
+      assert.isTrue(Exit.hasDies(read))
     })
   )
 })

@@ -1,0 +1,72 @@
+// Fetch one sealed day's book chunks for chosen codes and the whole-market tape over WIB windows, cached on disk.
+// usage: node fetch.mjs <cookieFile> <day> <cacheDir> <HH:MM-HH:MM>[,<HH:MM-HH:MM>...] <CODE,CODE,...>
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
+
+const [cookieFile, day, cacheDir, windows, codeList] = process.argv.slice(2)
+const cookie = `__Secure-better-auth.session_token=${readFileSync(cookieFile, "utf8").trim()}`
+const base = `https://kumora-dashboard.kumora.workers.dev/market-live/days/${day}`
+mkdirSync(`${cacheDir}/books`, { recursive: true })
+mkdirSync(`${cacheDir}/tape`, { recursive: true })
+
+const get = async (path) => {
+  for (let i = 0; i < 5; i++) {
+    try {
+      const r = await fetch(base + path, { headers: { cookie } })
+      if (r.ok) return r.json()
+      if (r.status === 404) return null
+      if (r.status === 401) throw new Error("Unauthorized")
+    } catch (e) {
+      if (String(e).includes("Unauthorized")) throw e
+    }
+    await new Promise((s) => setTimeout(s, 500 * (i + 1)))
+  }
+  throw new Error(`failed ${path}`)
+}
+const wib = (hm) => Date.parse(`${day}T${hm}:00+07:00`)
+const spans = windows.split(",").map((w) => w.split("-").map(wib))
+const codes = codeList.split(",")
+
+const jobs = []
+for (const [from, to] of spans) {
+  for (const code of codes)
+    for (let m = from; m < to; m += 60_000) jobs.push({ kind: "book", code, m })
+  // Each 30 s tape segment walks backwards from its end to its start.
+  for (let s = from; s < to; s += 30_000)
+    jobs.push({ kind: "tape", from: s, to: s + 30_000 })
+}
+
+const runBook = async ({ code, m }) => {
+  const file = `${cacheDir}/books/${code}-${m}.json`
+  if (existsSync(file)) return
+  writeFileSync(file, JSON.stringify(await get(`/books/${code}?minute=${m}`)))
+}
+const runTape = async ({ from, to }) => {
+  const file = `${cacheDir}/tape/${from}.json`
+  if (existsSync(file)) return
+  const seen = new Map()
+  let at = to - 1
+  for (;;) {
+    const page = await get(`/trades?at=${at}`)
+    const trades = page?.trades ?? []
+    for (const t of trades)
+      if (t.time >= from && t.time < to) seen.set(t.tradeNumber, t)
+    if (trades.length === 0) break
+    const oldest = Math.min(...trades.map((t) => t.time))
+    if (oldest < from || trades.length < 200) break
+    at = oldest === at ? at - 1 : oldest - 1
+  }
+  // Keep only the fields the replay reads, for every code: the tape is whole-market.
+  writeFileSync(file, JSON.stringify([...seen.values()]))
+}
+
+let next = 0,
+  done = 0
+const worker = async () => {
+  while (next < jobs.length) {
+    const job = jobs[next++]
+    await (job.kind === "book" ? runBook(job) : runTape(job))
+    if (++done % 100 === 0) console.error(done, "/", jobs.length)
+  }
+}
+await Promise.all(Array.from({ length: 32 }, worker))
+console.error("done", jobs.length)

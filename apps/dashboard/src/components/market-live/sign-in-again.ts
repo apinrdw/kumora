@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Predicate } from "effect"
 
 import { withRedirect } from "@/lib/redirect"
 
@@ -9,3 +9,17 @@ export const signInAgain = Effect.gen(function* () {
   const href = yield* withRedirect("/sign-in", `${pathname}${search}`)
   window.location.assign(href)
 })
+
+// A recorded day load run for its effect: a 401 sends the visitor to sign
+// in, and any other failure is logged as `what` not loaded.
+export const loadedOrSignIn = <A, E, R>(
+  load: Effect.Effect<A, E, R>,
+  what: string
+) =>
+  load.pipe(
+    Effect.catchIf(
+      (error) => Predicate.isTagged(error, "SignInRequired"),
+      () => signInAgain
+    ),
+    Effect.catchCause((cause) => Effect.logWarning(`${what} not loaded`, cause))
+  )

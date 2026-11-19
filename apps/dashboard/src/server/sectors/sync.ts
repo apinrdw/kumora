@@ -7,7 +7,7 @@ import { NonRetryable } from "@workspace/server"
 import { Effect, Schema } from "effect"
 import { HttpClient } from "effect/http"
 
-import { readCapped } from "../archive/capped-body.ts"
+import { readCappedJson } from "../archive/capped-body.ts"
 import { HoldingsDb } from "../holdings/db.ts"
 import { monthRows } from "../holdings/month-replace.ts"
 
@@ -60,16 +60,7 @@ const fetchProfiles = Effect.gen(function* () {
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
   return yield* client.get(PROFILES_URL).pipe(
     Effect.flatMap((response) =>
-      readCapped(response, MAX_PROFILES_BYTES, "IDX's company profiles")
-    ),
-    Effect.flatMap((bytes) =>
-      Effect.try({
-        try: (): unknown => JSON.parse(new TextDecoder().decode(bytes)),
-        catch: () =>
-          new NonRetryable({
-            message: "IDX's company profiles aren't JSON",
-          }),
-      })
+      readCappedJson(response, MAX_PROFILES_BYTES, "IDX's company profiles")
     ),
     Effect.flatMap(Schema.decodeUnknownEffect(Profiles)),
     Effect.catchTags({

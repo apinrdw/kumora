@@ -168,5 +168,10 @@ export const makeBubbleBook = (stored: StoredBubbles) =>
         )
       })
 
-    return { settled, build }
+    // A code's regular-board value today in rupiah: 0 before its first
+    // settled trade.
+    const dayValue = (code: StockCode) =>
+      Effect.sync(() => codes.get(code)?.day.value ?? 0)
+
+    return { settled, build, dayValue }
   })

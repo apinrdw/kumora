@@ -13,6 +13,7 @@ export {
   viewerMessages,
 } from "./market-live-socket.ts"
 export { fetchSectors } from "./sectors.ts"
+export { fetchSpecialBoard } from "./special-board.ts"
 export { fetchStockCodeList, searchStockCodes } from "./stock-code-list.ts"
 export {
   CODES_RECHECK,
@@ -22,6 +23,7 @@ export {
   fetchRecordedBrokerCodes,
   fetchRecordedCandles,
   fetchRecordedGaps,
+  fetchRecordedBookEvents,
   fetchRecordedHeatmap,
   followSweepBrokers,
   fetchRecordedSweeps,

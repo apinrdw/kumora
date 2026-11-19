@@ -158,7 +158,75 @@ _Avoid_: Quote, summary
 
 **Order book**:
 The resting buy orders (bid) and sell orders (offer) for one stock code, as price levels with their lots and number of orders. Live viewers see every code's. A day records a code's order book only from the first time a viewer selects or watches it that day to the close, and only for a code the day's code list names (before the list arrives, up to a fixed cap of codes); a day recorded before that change recorded every code's.
-_Avoid_: Depth, market depth
+_Avoid_: Depth, market depth (depth names a reading of the book, never the book)
+
+**Book reading**:
+A figure the order book radar measures from one stock code's order book, over the best five levels of each side: imbalance, near depth, empty ticks, spread and lots per order. Readings are measured only in sessions 1 and 2; in any other market phase they keep their last values, marked as paused. They describe liquidity and pressure, never which way the price will go.
+_Avoid_: Signal, indicator
+
+**Scanner**:
+The order book radar's live ranked list of stock codes with their book readings: every code above the value floor except Special Monitoring Board codes and codes priced Rp1–10.
+_Avoid_: Screener, radar (the radar is the scanner and the per-code readout together)
+
+**Value floor**:
+The least value traded, today or on the previous trading day, whichever is larger, for a stock code to join the scanner. Each browser sets its own.
+_Avoid_: Liquidity filter, minimum volume
+
+**Imbalance**:
+Bid lots minus offer lots, over their sum, across the best five levels of each side: from −100% (offers only) to +100% (bids only).
+_Avoid_: Bid share (that is the whole book's bids over its total), pressure
+
+**Near depth**:
+The rupiah resting in one side's best five levels.
+_Avoid_: Depth (alone), liquidity
+
+**Empty ticks**:
+The tick prices with no resting order between one side's best level and its fifth.
+_Avoid_: Gaps, holes
+
+**Spread**:
+The distance from the best bid to the best offer, in ticks, each side's price counted on its own tick, and as a percentage of the price midway between them. None when either side is empty.
+_Avoid_: Bid-ask gap
+
+**Lots per order**:
+A level's lots over its frequency; for a side, its best five levels' lots over their orders.
+_Avoid_: Order size (that is the user's fill estimate amount), average lot
+
+**Fill estimate**:
+What filling the user's order size against the book would take right now: a buy walks the offers and a sell the bids, giving the levels consumed, the last price reached, the average fill price and the slippage from the best price. Only the levels the book carries count, so a size beyond them says so.
+_Avoid_: Slippage (that is one of its figures), market impact
+
+**Level ledger**:
+For one price on one side of a stock code's order book, between two consecutive frames of that side: the lots it showed before and after, and the lots running trades took from it, whose aggressor side hit that side at that price. What it shows then is the change the trades don't explain: a lower bound on the lots added, or on the lots cancelled. It never tells one order from another.
+_Avoid_: Queue tracker, order flow (that is the tape)
+
+**Book event**:
+Something the level ledger shows a price level doing within a rolling 30 seconds: absorbed, eaten, reloaded, or a wall appearing, pulled or moved. Only in sessions 1 and 2, and only for a side with at least two frames in those 30 seconds; a code with fewer is too quiet to read.
+_Avoid_: Signal, alert (an alert is how a book event reaches the user)
+
+**Absorbed**:
+A price in a side's best three levels took several times the lots it showed in trades within the window, and still stands with no trade beyond it.
+_Avoid_: Defended, iceberg
+
+**Eaten**:
+A best-three level or a wall left the book within the window, and trades explain most of what it lost.
+_Avoid_: Filled, cleared
+
+**Reloaded**:
+The best level traded more lots than it showed while it stayed best, or was hit down and refilled at the same price. Single when at most one new order refilled it, crowd when several did.
+_Avoid_: Iceberg, hidden order (IDX offers no such order type that the terminal knows of)
+
+**Wall**:
+A level, among the ones the book carries, holding several times the median lots of its side's levels, and at least a rupiah floor. Concentrated when one to three orders hold it, a crowd otherwise. A wall can appear, be pulled (lose at least half its lots in view, with neither trades nor price crossing it explaining the loss), or move (lots and orders leave one price and about as many lots, with the same change in orders, arrive at another price on the same side, one that was in view the frame before, within about two frames).
+_Avoid_: Spoof, fake order (the book cannot show intent)
+
+**Alert rule**:
+Which book events a browser wants to be told of: one or more event kinds, over the watchlist, named stock codes or every code on the scanner, optionally only above a rupiah value. Each browser keeps its own.
+_Avoid_: Alert (that is one delivery), trigger, watch
+
+**Alert**:
+One book event an alert rule matched, told to the user while the order book radar or Market Live is open live, once per browser from the page that holds its alert lock (`use-alert-owner.ts`): a toast on the visible page, a browser notification from a background tab. The same code and event kind alert at most once in two minutes, and the browser at most six a minute, across its tabs and reloads.
+_Avoid_: Notification (that is one way an alert arrives), signal
 
 **Net flow**:
 Net broker buying minus selling for an instrument over a period, in rupiah, from end-of-day data. Absent when the feed has no coverage.

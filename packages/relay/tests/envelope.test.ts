@@ -11,15 +11,19 @@ import {
   ViewerCloseCode,
   ViewerProtocolVersion,
   decodeIngestDown,
+  decodeRecordedBookEvents,
   decodeIngestUp,
   decodeViewerDown,
   decodeViewerUp,
   encodeIngestDown,
+  encodeRecordedBookEvents,
   encodeIngestUp,
   encodeViewerDown,
   encodeViewerUp,
 } from "@workspace/relay"
 import type {
+  BookEvent,
+  BookReadings,
   IngestDown,
   IngestUp,
   ViewerDown,
@@ -328,6 +332,227 @@ describe("viewer protocol, down", () => {
         }
         const wire = yield* encodeViewerDown(message)
         assert.deepStrictEqual(yield* decodeViewerDown(wire), message)
+      })
+  )
+
+  it.effect("book readings round trip in a delta and a snapshot", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(ViewerProtocolVersion, 7)
+      const readings: BookReadings = {
+        code: StockCode.make("ERAA"),
+        at: DateTime.makeUnsafe("2026-11-18T03:00:00.125Z"),
+        imbalance: -0.2345,
+        spread: { ticks: 2, percent: 0.995 },
+        bid: {
+          nearDepth: 14_815_000,
+          lots: 150,
+          emptyTicks: 2,
+          widestGap: 1,
+          lotsPerOrder: 6.25,
+        },
+        offer: {
+          nearDepth: 0,
+          lots: 0,
+          emptyTicks: 0,
+          widestGap: 0,
+          lotsPerOrder: undefined,
+        },
+      }
+      const thin: BookReadings = {
+        ...readings,
+        code: StockCode.make("KOTA"),
+        imbalance: undefined,
+        spread: undefined,
+      }
+      const delta: ViewerDown = {
+        _tag: "Delta",
+        at: DateTime.makeUnsafe("2026-11-18T03:00:00.250Z"),
+        tape: [],
+        candles: [],
+        bookReadings: [readings, thin],
+      }
+      const deltaWire = yield* encodeViewerDown(delta)
+      assert.deepStrictEqual(yield* decodeViewerDown(deltaWire), delta)
+      // A reading travels as a short tuple, not keyed.
+      assert.isBelow(
+        JSON.stringify(JSON.parse(deltaWire).bookReadings[0]).length,
+        110
+      )
+      const snapshot: ViewerDown = {
+        _tag: "Snapshot",
+        at: DateTime.makeUnsafe("2026-11-18T03:00:00.250Z"),
+        selected: StockCode.make("ERAA"),
+        tape: [],
+        candles: [],
+        footprints: [],
+        conditions: {
+          phase: "session-1",
+          relayOnline: true,
+          feeds: { Stockbit: "live", Ajaib: "live" },
+          gaps: [],
+        },
+        bookReadings: [readings],
+      }
+      const snapshotWire = yield* encodeViewerDown(snapshot)
+      assert.deepStrictEqual(yield* decodeViewerDown(snapshotWire), snapshot)
+    })
+  )
+
+  it.effect("book events round trip in a delta, a snapshot and a GET", () =>
+    Effect.gen(function* () {
+      const code = StockCode.make("BBNI")
+      const at = DateTime.makeUnsafe("2026-11-17T07:02:33.080Z")
+      const events: ReadonlyArray<BookEvent> = [
+        {
+          kind: "absorbed",
+          code,
+          at,
+          side: "offer",
+          price: 110,
+          lots: 19_994,
+          orders: 40,
+          shown: 4_200,
+        },
+        {
+          kind: "eaten",
+          code,
+          at,
+          side: "bid",
+          price: 67,
+          lots: 79_264,
+          orders: 222,
+          share: 0.95,
+        },
+        {
+          kind: "reloaded",
+          code,
+          at,
+          side: "bid",
+          price: 2220,
+          lots: 1_896,
+          orders: 3,
+          shown: 2_400,
+          refills: 4,
+          crowd: true,
+        },
+        {
+          kind: "appeared",
+          code,
+          at,
+          side: "bid",
+          price: 100,
+          lots: 50_000,
+          orders: 1,
+          ticks: 6,
+        },
+        {
+          kind: "pulled",
+          code,
+          at,
+          side: "bid",
+          price: 3610,
+          lots: 33_789,
+          orders: 77,
+          ticks: 1,
+          approached: false,
+        },
+        {
+          kind: "moved",
+          code,
+          at,
+          side: "bid",
+          price: 3620,
+          lots: 28_711,
+          orders: 3,
+          wallLots: 28_711,
+          to: 3610,
+        },
+      ]
+      const delta: ViewerDown = {
+        _tag: "Delta",
+        at,
+        tape: [],
+        candles: [],
+        bookEvents: events,
+      }
+      assert.deepStrictEqual(
+        yield* decodeViewerDown(yield* encodeViewerDown(delta)),
+        delta
+      )
+      const snapshot: ViewerDown = {
+        _tag: "Snapshot",
+        at,
+        selected: code,
+        tape: [],
+        candles: [],
+        footprints: [],
+        conditions: {
+          phase: "session-2",
+          relayOnline: true,
+          feeds: { Stockbit: "live", Ajaib: "live" },
+          gaps: [],
+        },
+        bookEvents: events.slice(0, 2),
+        selectedBookEvents: events,
+      }
+      assert.deepStrictEqual(
+        yield* decodeViewerDown(yield* encodeViewerDown(snapshot)),
+        snapshot
+      )
+      const answer = { code, recorded: true, events }
+      assert.deepStrictEqual(
+        yield* decodeRecordedBookEvents(
+          yield* encodeRecordedBookEvents(answer)
+        ),
+        answer
+      )
+    })
+  )
+
+  it.effect(
+    "a snapshot's scanner figures round trip, an unknown one as none",
+    () =>
+      Effect.gen(function* () {
+        const snapshot: ViewerDown = {
+          _tag: "Snapshot",
+          at: DateTime.makeUnsafe("2026-11-18T02:00:00.250Z"),
+          selected: StockCode.make("IHSG"),
+          tape: [],
+          candles: [],
+          footprints: [],
+          conditions: {
+            phase: "session-1",
+            relayOnline: true,
+            feeds: { Stockbit: "live", Ajaib: "live" },
+            gaps: [],
+          },
+          scannerFigures: [
+            {
+              code: StockCode.make("BBCA"),
+              last: 7_550,
+              previousClose: 7_500,
+              previousValue: 1_250_000_000_000,
+              value: 980_000_000_000,
+            },
+            {
+              code: StockCode.make("KOTA"),
+              last: undefined,
+              previousClose: undefined,
+              previousValue: undefined,
+              value: 0,
+            },
+          ],
+        }
+        const wire = yield* encodeViewerDown(snapshot)
+        assert.deepStrictEqual(yield* decodeViewerDown(wire), snapshot)
+        // Each code travels as a short tuple.
+        assert.deepStrictEqual(JSON.parse(wire).scannerFigures[1], [
+          "KOTA",
+          null,
+          null,
+          null,
+          0,
+        ])
       })
   )
 })

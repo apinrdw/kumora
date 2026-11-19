@@ -9,14 +9,22 @@ Findings from research tickets, one file per question. Each records what was tru
 - [Which live price and order book channels Stockbit and Ajaib offer](live-price-channels.md)
 - [How Stockbit's and Ajaib's websockets ping, pong and time out](broker-websocket-heartbeats.md)
 - [How many frames a second each broker socket sends the relay](broker-frame-rates.md)
+- [How many codes' order books the relay can keep subscribed, and how fast they update](order-book-subscription-capacity.md)
+- [Measured order book update rates and viewer socket bytes](order-book-rates-measured/README.md)
 - [Whether the REST running-trade tapes can fetch a trade-number range](rest-tape-backfill.md)
 - [Stockbit's post-close buyer and seller broker codes](stockbit-post-close-broker-codes.md)
 - [Ajaib's post-close buyer and seller broker codes, and paging a whole day](ajaib-post-close-broker-codes.md)
+
+## Order book readings
+
+- [How to detect absorption, reload and walls from aggregated price levels and the tape](book-absorption-reload-walls.md)
+- [Book event thresholds tuned on a recorded day](book-event-thresholds.md)
 
 ## IDX
 
 - [Where company logos can come from, and whether Kumora may show them](idx-company-logos.md)
 - [Where the IDX trading schedule and holiday list come from](idx-trading-schedule.md)
+- [Where the Special Monitoring Board list, tick sizes and price limits come from](idx-board-ticks-limits.md)
 - [How IDX serves the Data Kepemilikan Saham listing and its files](idx-kepemilikan-listing.md)
 - [Cloudflare Workflows for a shareholding archive run](cloudflare-workflows-shareholding-archive.md)
 
