@@ -74,6 +74,10 @@ export const gatedRead = <E, R>(
     return denied ?? (yield* answer)
   })
 
+// The origin of a request the Worker sends an object; the object reads the
+// path alone.
+const OBJECT_ORIGIN = "https://market-live.invalid"
+
 // A new request to the object, so no header the client sent, its cookie
 // included, reaches it; and the object's answer carries no Set-Cookie, so a
 // sealed day's answers cache in the browser.
@@ -86,7 +90,7 @@ const fromObject = (
   Effect.gen(function* () {
     const object = yield* stub(yield* WorkerEnv)
     return yield* Effect.promise(() =>
-      object.fetch(new URL(path, "https://market-live.invalid"))
+      object.fetch(new URL(path, OBJECT_ORIGIN))
     )
   })
 
@@ -96,8 +100,8 @@ const indexStub = (env: WorkerEnv["Service"]) =>
 export const dayStripRoute = (request: Request) =>
   gatedRead(request, fromObject(indexStub, DayIndexPath))
 
-// A strip that fails to load counts every day hot, and is asked again on the
-// next GET.
+// A strip that fails to load (the index unreachable, its body cut off, or
+// not understood) counts every day hot, and is asked again on the next GET.
 // Decision: the Worker reads which days are cold from the day strip, kept per
 // isolate for a minute: one strip GET a minute per busy isolate, reading one
 // index row per recorded day. A day cold for less than that may still reach
@@ -105,15 +109,18 @@ export const dayStripRoute = (request: Request) =>
 const COLD_DAYS_KEPT_MS = 60_000
 
 const loadColdDays = Effect.gen(function* () {
-  const response = yield* fromObject(indexStub, DayIndexPath)
+  const index = yield* indexStub(yield* WorkerEnv)
+  const response = yield* Effect.tryPromise(() =>
+    index.fetch(new URL(DayIndexPath, OBJECT_ORIGIN))
+  )
   if (!response.ok) return undefined
   const strip = yield* decodeDayStrip(
-    yield* Effect.promise(() => response.text())
+    yield* Effect.tryPromise(() => response.text())
   )
   return new Set(strip.days.filter((day) => day.cold).map((day) => day.day))
 }).pipe(
-  Effect.catchTag("SchemaError", (error) =>
-    Effect.as(Effect.logWarning("Day strip not understood", error), undefined)
+  Effect.catch((error) =>
+    Effect.as(Effect.logWarning("Day strip not loaded", error), undefined)
   )
 )
 
