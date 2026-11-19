@@ -10,7 +10,7 @@ import {
 import { DateTime } from "effect"
 
 // Decision: Production's busiest measured day, 1,460,000 trades
-// (docs/runbooks/order-flow-cost.md, "The estimate model"), over 800 codes
+// (docs/runbooks/order-flow-cost.md, "The thresholds"), over 800 codes
 // from 09:00 to 16:15 WIB. The relay missed a few trades, which a walk
 // filled as walk_trades rows: the status reads around them, as on a real day.
 export const BUSY_DAY = {
