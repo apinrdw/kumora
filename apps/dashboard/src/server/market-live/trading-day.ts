@@ -96,6 +96,7 @@ import {
   buildWalkedDay,
   orderFlowBuiltAtStart,
 } from "./order-flow-build.ts"
+import { moveDay, type ColdTarget } from "./cold-days.ts"
 import {
   SNAPSHOT_TRADES,
   bubblesAnswer,
@@ -1530,6 +1531,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           })
         )
 
+  // A sealed day's move to R2 (cold-days.ts), its answers as `recorded`
+  // builds them. An unsealed day doesn't move: its answers still change.
+  const move = Effect.fnUntraced(function* (target: ColdTarget) {
+    if (!sealed) return false
+    yield* moveDay({
+      date: options.date,
+      target,
+      answer: recorded,
+      status: brokerCodes.status(new URLSearchParams()),
+    })
+    return true
+  })
+
   yield* sweepIngests
 
   // After a ban, revoke or delete: the page on a session the account no
@@ -1575,6 +1589,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     ingestClosed: (socket: Peer) => turned(ingestClosed(socket)),
     endSessions: (held: HeldSessions) => turned(endSessions(held)),
     recorded: (resource: RecordedResource) => turned(recorded(resource)),
+    // Whether the day moved: false while it isn't sealed.
+    move: (target: ColdTarget) => turned(move(target)),
     alarm: turned(alarm),
     // Decision: on a day the relay recorded, and on any sealed day, broker
     // codes touch no recorded day state (no flush, seal or index row), so its
