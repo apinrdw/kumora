@@ -137,7 +137,9 @@ describe("a cold day", () => {
         const hot = {
           codes: yield* textOf(yield* before.get(CODES)),
           gaps: yield* textOf(yield* before.get(GAPS)),
+          tape: yield* textOf(yield* before.get(TAPE)),
         }
+        assert.include(hot.tape, '"tradeNumber":"2"')
         assert.include(hot.codes, "UNTR")
         assert.include(hot.gaps, '"gaps":[{')
 
@@ -159,12 +161,11 @@ describe("a cold day", () => {
           )
           assert.strictEqual(new TextDecoder().decode(gunzipSync(stored)), body)
         }
-        // The tape still comes from the object.
-        yield* after.get(TAPE)
-        assert.deepStrictEqual(after.reached, [
-          "index",
-          "day /market-live/days/2026-11-09/trades",
-        ])
+        // The tape comes from its blocks, not the object.
+        const tape = yield* after.get(TAPE)
+        assert.strictEqual(tape.headers.get("Cache-Control"), SEALED)
+        assert.strictEqual(yield* textOf(tape), hot.tape)
+        assert.deepStrictEqual(after.reached, ["index"])
       })
   )
 
@@ -179,6 +180,8 @@ describe("a cold day", () => {
           "days/2026-11-09/status.json",
           "days/2026-11-09/v6/codes.json.gz",
           "days/2026-11-09/v6/gaps.json.gz",
+          "days/2026-11-09/v6/tape/1.bin",
+          "days/2026-11-09/v6/tape/index.json",
         ])
         assert.deepStrictEqual(
           JSON.parse(sealed.days.text("days/2026-11-09/manifest.json")!),

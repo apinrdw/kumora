@@ -1,0 +1,327 @@
+// A cold day's tape in R2 (spec apinrdw/kumora#556, "The layout", ticket
+// #578): its trades, each with its broker codes, in gzip blocks of 1,000
+// behind a small tape index, so a Tape or BrokerCodes answer at any cursor
+// reads the index, kept per isolate, and one or two blocks by range.
+import { gunzipSync, gzipSync } from "node:zlib"
+
+import {
+  RunningTrade,
+  TradeCodes,
+  TradeNumber,
+  encodeRecordedBrokerCodes,
+  encodeRecordedTape,
+  type TapeCursor,
+} from "@workspace/relay"
+import { DateTime, Effect, Schema } from "effect"
+
+import type { DayBucket } from "./cold-days.ts"
+import { SNAPSHOT_TRADES } from "./recorded-answers.ts"
+import { SEALED_CACHE } from "./routes.ts"
+import { TIME_SKEW_MS } from "./tape-backing.ts"
+
+// Decision: a block is 1,000 stored trades in a row by number, the tape's
+// trades and their codes as one gzipped JSON body: 12 KB in the tests' day,
+// about 18 KB for random fields. A page of 200 then spans at most two blocks.
+// Blocks run from the day's last trade back, so its first block may hold
+// fewer.
+const TAPE_BLOCK = 1_000
+
+// Decision: blocks are stored 10 to an object, a segment of 120 to 180 KB:
+// the move holds one segment at a time, never a busy day's 18 to 26 MB of
+// blocks, and writes about 150 objects (Class A writes) for it. A block's
+// range read is one GetObject, a Class B read, in any object size.
+const BLOCKS_PER_SEGMENT = 10
+
+const TapeBlock = Schema.Struct({
+  trades: Schema.Array(RunningTrade),
+  codes: Schema.Array(Schema.Tuple([TradeNumber, TradeCodes])),
+})
+type TapeBlock = typeof TapeBlock.Type
+const encodeBlock = Schema.encodeEffect(Schema.fromJsonString(TapeBlock))
+const decodeBlock = Schema.decodeUnknownEffect(Schema.fromJsonString(TapeBlock))
+
+// Where a block is stored, and its first trade's number and time.
+const BlockEntry = Schema.Struct({
+  // The segment's first trade number, which names its object.
+  segment: Schema.Int,
+  offset: Schema.Int,
+  length: Schema.Int,
+  first: Schema.Int,
+  firstTime: Schema.Finite,
+})
+type BlockEntry = typeof BlockEntry.Type
+
+// The day's blocks, ascending, and whether its broker codes status was
+// complete at the move.
+const TapeIndex = Schema.Struct({
+  complete: Schema.Boolean,
+  blocks: Schema.Array(BlockEntry),
+})
+type TapeIndex = typeof TapeIndex.Type
+const encodeIndex = Schema.encodeEffect(Schema.fromJsonString(TapeIndex))
+const decodeIndex = Schema.decodeUnknownEffect(Schema.fromJsonString(TapeIndex))
+
+const indexKey = (folder: string) => `${folder}/tape/index.json`
+const segmentKey = (folder: string, segment: number) =>
+  `${folder}/tape/${segment}.bin`
+
+// What the move reads the day's tape through.
+export interface TapeSource {
+  // The newest `limit` stored trades below `before`, or the day's newest
+  // when it is none, ascending.
+  readonly below: (
+    before: TradeNumber | undefined,
+    limit: number
+  ) => Effect.Effect<ReadonlyArray<RunningTrade>, unknown>
+  // The held codes of the listed trades, in their order.
+  readonly codes: (
+    tradeNumbers: ReadonlyArray<TradeNumber>
+  ) => Effect.Effect<ReadonlyArray<readonly [TradeNumber, TradeCodes]>, unknown>
+  readonly complete: Effect.Effect<boolean, unknown>
+}
+
+// Writes the day's tape blocks a segment at a time, from the last trade back,
+// then its index. Each put rewrites the same key, so a retry is safe.
+export const writeTape = Effect.fnUntraced(function* (
+  folder: string,
+  tape: TapeSource,
+  put: (
+    key: string,
+    body: Uint8Array | string
+  ) => Effect.Effect<unknown, unknown>
+) {
+  // Each written segment's blocks, ascending; the segments newest first.
+  const segments: Array<Array<BlockEntry>> = []
+  // The blocks read since the last segment, newest first.
+  let held: Array<{ bytes: Uint8Array; first: number; firstTime: number }> = []
+  const writeHeld = Effect.gen(function* () {
+    const blocks = held.reverse()
+    held = []
+    const segment = blocks[0]!.first
+    const body = new Uint8Array(
+      blocks.reduce((sum, block) => sum + block.bytes.length, 0)
+    )
+    const entries: Array<BlockEntry> = []
+    let offset = 0
+    for (const block of blocks) {
+      body.set(block.bytes, offset)
+      entries.push({
+        segment,
+        offset,
+        length: block.bytes.length,
+        first: block.first,
+        firstTime: block.firstTime,
+      })
+      offset += block.bytes.length
+    }
+    yield* put(segmentKey(folder, segment), body)
+    segments.push(entries)
+  })
+  let before: TradeNumber | undefined
+  for (;;) {
+    const trades = yield* tape.below(before, TAPE_BLOCK)
+    const first = trades[0]
+    if (first === undefined) break
+    const codes = yield* tape.codes(trades.map((trade) => trade.tradeNumber))
+    held.push({
+      bytes: gzipSync(yield* encodeBlock({ trades, codes })),
+      first: Number(first.tradeNumber),
+      firstTime: DateTime.toEpochMillis(first.time),
+    })
+    if (held.length === BLOCKS_PER_SEGMENT) yield* writeHeld
+    if (trades.length < TAPE_BLOCK) break
+    before = first.tradeNumber
+  }
+  if (held.length > 0) yield* writeHeld
+  yield* put(
+    indexKey(folder),
+    yield* encodeIndex({
+      complete: yield* tape.complete,
+      blocks: segments.reverse().flat(),
+    })
+  )
+})
+
+// Each bucket's tape indexes read so far, by key: a cold day's never change.
+const indexes = new WeakMap<DayBucket, Map<string, TapeIndex>>()
+
+const indexOf = Effect.fnUntraced(function* (bucket: DayBucket, key: string) {
+  const kept = indexes.get(bucket) ?? new Map<string, TapeIndex>()
+  indexes.set(bucket, kept)
+  const known = kept.get(key)
+  if (known !== undefined) return known
+  const stored = yield* Effect.promise(() => bucket.get(key))
+  if (stored === null) return undefined
+  const index = yield* decodeIndex(
+    yield* Effect.promise(() => new Response(stored.body).text())
+  )
+  kept.set(key, index)
+  return index
+})
+
+const blockOf = Effect.fnUntraced(function* (
+  bucket: DayBucket,
+  folder: string,
+  entry: BlockEntry
+) {
+  const stored = yield* Effect.promise(() =>
+    bucket.get(segmentKey(folder, entry.segment), {
+      range: { offset: entry.offset, length: entry.length },
+    })
+  )
+  if (stored === null)
+    return yield* Effect.die(`Tape segment ${entry.segment} is missing`)
+  const bytes = yield* Effect.promise(() =>
+    new Response(stored.body).arrayBuffer()
+  )
+  return yield* decodeBlock(
+    new TextDecoder().decode(gunzipSync(new Uint8Array(bytes)))
+  )
+})
+
+// The last index in `blocks` whose block passes `within`, which holds for a
+// run of blocks from the first; -1 when none does.
+const lastWithin = (
+  blocks: ReadonlyArray<BlockEntry>,
+  within: (block: BlockEntry) => boolean
+) => {
+  let low = 0
+  let high = blocks.length - 1
+  let found = -1
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    if (within(blocks[middle]!)) {
+      found = middle
+      low = middle + 1
+    } else high = middle - 1
+  }
+  return found
+}
+
+// A trade picked for an answer, and its codes when the day held some.
+interface Picked {
+  readonly trade: RunningTrade
+  readonly codes: TradeCodes | undefined
+}
+
+// The day's blocks, each read once per answer.
+const blockReader = (
+  bucket: DayBucket,
+  folder: string,
+  blocks: ReadonlyArray<BlockEntry>
+) => {
+  const read = new Map<number, TapeBlock>()
+  return Effect.fnUntraced(function* (place: number) {
+    const known = read.get(place)
+    if (known !== undefined) return known
+    const block = yield* blockOf(bucket, folder, blocks[place]!)
+    read.set(place, block)
+    return block
+  })
+}
+type BlockReader = ReturnType<typeof blockReader>
+
+// The highest trade number an answer at the cursor may hold, picked as
+// tape-chunks.ts's `tradesAt` picks it: the last trade at or before the
+// instant plus TIME_SKEW_MS in the last block starting by then, lowered
+// below `before`. None when no block starts by then.
+const highestAt = Effect.fnUntraced(function* (
+  blocks: ReadonlyArray<BlockEntry>,
+  readBlock: BlockReader,
+  cutoff: number,
+  before: TapeCursor["before"]
+) {
+  const bound = cutoff + TIME_SKEW_MS
+  const landing = lastWithin(blocks, (block) => block.firstTime <= bound)
+  if (landing < 0) return undefined
+  const below = before === undefined ? Infinity : Number(before) - 1
+  // A `before` under the landing block's first trade is the bound whatever
+  // that block holds, so it isn't read.
+  if (below < blocks[landing]!.first) return below
+  let found = 0
+  for (const trade of (yield* readBlock(landing)).trades)
+    if (DateTime.toEpochMillis(trade.time) <= bound)
+      found = Number(trade.tradeNumber)
+  return Math.min(found, below)
+})
+
+// The newest SNAPSHOT_TRADES trades numbered up to `highest` and at or
+// before `cutoff`, ascending, read a block at a time down from `highest`'s.
+const pickedDown = Effect.fnUntraced(function* (
+  blocks: ReadonlyArray<BlockEntry>,
+  readBlock: BlockReader,
+  highest: number,
+  cutoff: number
+) {
+  const picked: Array<Picked> = []
+  const fits = (trade: RunningTrade) =>
+    Number(trade.tradeNumber) <= highest &&
+    DateTime.toEpochMillis(trade.time) <= cutoff
+  for (
+    let place = lastWithin(blocks, (block) => block.first <= highest);
+    place >= 0 && picked.length < SNAPSHOT_TRADES;
+    place--
+  ) {
+    const block = yield* readBlock(place)
+    const codes = new Map(block.codes)
+    const fitting = block.trades.filter(fits)
+    for (const trade of fitting
+      .slice(picked.length - SNAPSHOT_TRADES)
+      .reverse())
+      picked.push({ trade, codes: codes.get(trade.tradeNumber) })
+  }
+  return picked.reverse()
+})
+
+// The newest SNAPSHOT_TRADES trades at the cursor, ascending, each with its
+// codes.
+const tradesAt = Effect.fnUntraced(function* (
+  bucket: DayBucket,
+  folder: string,
+  blocks: ReadonlyArray<BlockEntry>,
+  { at, before }: TapeCursor
+) {
+  const cutoff = DateTime.toEpochMillis(at)
+  const readBlock = blockReader(bucket, folder, blocks)
+  const highest = yield* highestAt(blocks, readBlock, cutoff, before)
+  return highest === undefined
+    ? []
+    : yield* pickedDown(blocks, readBlock, highest, cutoff)
+})
+
+const sealedJson = (text: string) =>
+  Effect.sync(
+    () =>
+      new Response(text, {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": SEALED_CACHE,
+        },
+      })
+  )
+
+// A cold day's Tape or BrokerCodes answer from the blocks under `folder`;
+// none when the day stored no tape index. The move wrote every byte it reads,
+// so one that doesn't decode is a defect.
+// Decision: the broker codes answer of a cold day is cached for good like
+// the tape's, as its codes no longer change. See spec apinrdw/kumora#556,
+// "Routing and caching".
+export const coldTapeAnswer = Effect.fnUntraced(function* (
+  bucket: DayBucket,
+  folder: string,
+  resource: TapeCursor & { readonly _tag: "Tape" | "BrokerCodes" }
+) {
+  const index = yield* indexOf(bucket, indexKey(folder))
+  if (index === undefined) return undefined
+  const picked = yield* tradesAt(bucket, folder, index.blocks, resource)
+  return yield* sealedJson(
+    resource._tag === "Tape"
+      ? yield* encodeRecordedTape({ trades: picked.map(({ trade }) => trade) })
+      : yield* encodeRecordedBrokerCodes({
+          codes: picked.flatMap(({ trade, codes }) =>
+            codes === undefined ? [] : [[trade.tradeNumber, codes] as const]
+          ),
+          complete: index.complete,
+        })
+  )
+}, Effect.orDie)

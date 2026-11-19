@@ -1,5 +1,6 @@
 // The recorded days bucket (cold-days.ts) in memory: `objects` holds each
 // key's stored bytes, and a key in `refused` fails its put, as R2 down.
+// `reads` lists each get, its key and, for a range read, the range.
 import { gunzipSync } from "node:zlib"
 
 import { Effect } from "effect"
@@ -9,6 +10,7 @@ import type { DayBucket } from "@/server/market-live/cold-days"
 export const memoryDayBucket = () => {
   const objects = new Map<string, Uint8Array<ArrayBuffer>>()
   const refused = new Set<string>()
+  const reads: Array<string> = []
   const bucket: DayBucket = {
     put: (key, body) =>
       Effect.runPromise(
@@ -23,13 +25,22 @@ export const memoryDayBucket = () => {
               )
             })
       ),
-    get: (key) =>
+    get: (key, options) =>
       Effect.runPromise(
         Effect.sync(() => {
+          const range = options?.range
+          reads.push(
+            range === undefined ? key : `${key} ${range.offset}+${range.length}`
+          )
           const stored = objects.get(key)
-          return stored === undefined
-            ? null
-            : { body: new Response(stored).body! }
+          if (stored === undefined) return null
+          return {
+            body: new Response(
+              range === undefined
+                ? stored
+                : stored.slice(range.offset, range.offset + range.length)
+            ).body!,
+          }
         })
       ),
   }
@@ -39,5 +50,5 @@ export const memoryDayBucket = () => {
     if (stored === undefined) return undefined
     return new TextDecoder().decode(gzipped ? gunzipSync(stored) : stored)
   }
-  return { bucket, objects, refused, text }
+  return { bucket, objects, refused, reads, text }
 }
