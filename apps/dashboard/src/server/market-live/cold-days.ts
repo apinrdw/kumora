@@ -6,14 +6,21 @@
 import { gzipSync } from "node:zlib"
 
 import {
+  MINUTE_MS,
   ViewerProtocolVersion,
   type RecordedResource,
   type StockCode,
   type WibDate,
 } from "@workspace/relay"
 import type { WorkerEnv } from "@workspace/server"
-import { Effect, Schema } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 
+import {
+  BOOK_INDEX_BYTES,
+  chunkRange,
+  packBook,
+  type StoredBookChunk,
+} from "./cold-books.ts"
 import { coldTapeAnswer, writeTape, type TapeSource } from "./cold-tape.ts"
 import { SEALED_CACHE } from "./routes.ts"
 
@@ -29,7 +36,7 @@ export interface DayBucket {
   readonly get: (
     key: string,
     options?: {
-      readonly range: { readonly offset: number; readonly length: number }
+      readonly range?: { readonly offset: number; readonly length: number }
     }
   ) => Promise<{ readonly body: ReadableStream } | null>
 }
@@ -55,7 +62,7 @@ const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(Manifest))
 
 // The key of a resource answered by one stored object; none for a resource
 // still answered by the day's object. Tape and BrokerCodes read tape blocks
-// (cold-tape.ts), and Book (#579) reads ranges too.
+// (cold-tape.ts), and Book (`coldBook`) reads ranges of its code's object.
 const answerKey = (date: WibDate, resource: RecordedResource) => {
   switch (resource._tag) {
     case "Codes":
@@ -74,6 +81,10 @@ const answerKey = (date: WibDate, resource: RecordedResource) => {
       return undefined
   }
 }
+
+// One code's order books: its chunks behind a minute index (cold-books.ts).
+const bookKey = (date: WibDate, code: StockCode) =>
+  `${answerFolder(date)}/book/${code}.bin`
 
 // The resources the move writes, each once for the day.
 const DAY_RESOURCES: ReadonlyArray<RecordedResource> = [
@@ -114,8 +125,8 @@ export interface ColdTarget {
 }
 
 // Moves a sealed day's answers to R2: each answer, the tape's blocks and
-// index (cold-tape.ts), then `status.json`, then
-// `manifest.json`, then the index marks the day cold. Each step rewrites the
+// index (cold-tape.ts), each code's book (cold-books.ts), then `status.json`,
+// then `manifest.json`, then the index marks the day cold. Each step rewrites the
 // same key, so a move that fails partway leaves the day hot, and a retry is
 // safe. An answer that isn't a 200 (a day with no code list) is not written,
 // so the cold read answers it 404.
@@ -136,6 +147,13 @@ export const moveDay = Effect.fnUntraced(function* (options: {
   // The codes the day's code list names; their views are stored per code.
   readonly codes: ReadonlyArray<StockCode>
   readonly tape: TapeSource
+  // The day's stored book chunks, by code (day-store.ts).
+  readonly books: {
+    readonly codes: Effect.Effect<ReadonlyArray<StockCode>>
+    readonly chunksOf: (
+      code: StockCode
+    ) => Effect.Effect<ReadonlyArray<StoredBookChunk>>
+  }
 }) {
   const { date, target } = options
   for (const resource of [
@@ -152,6 +170,13 @@ export const moveDay = Effect.fnUntraced(function* (options: {
   yield* writeTape(answerFolder(date), options.tape, (key, body) =>
     put(target.bucket, key, body, "application/octet-stream")
   )
+  for (const code of yield* options.books.codes)
+    yield* put(
+      target.bucket,
+      bookKey(date, code),
+      packBook(yield* options.books.chunksOf(code)),
+      "application/octet-stream"
+    )
   const status = yield* options.status
   yield* put(
     target.bucket,
@@ -192,6 +217,34 @@ const notStored = Effect.sync(() =>
   )
 )
 
+const bytesOf = (body: ReadableStream) =>
+  Effect.promise(() =>
+    new Response(body).arrayBuffer().then((bytes) => new Uint8Array(bytes))
+  )
+
+// A code's stored chunk for the minute holding `minute`, or the latest
+// before it: the object's index, then that chunk's range. Not recorded when
+// the code has no book, or none yet at that minute.
+const coldBook = Effect.fnUntraced(function* (
+  bucket: DayBucket,
+  date: WibDate,
+  code: StockCode,
+  minute: number
+) {
+  const key = bookKey(date, code)
+  const head = yield* Effect.promise(() =>
+    bucket.get(key, { range: { offset: 0, length: BOOK_INDEX_BYTES } })
+  )
+  if (head === null) return yield* notStored
+  const range = chunkRange(
+    yield* bytesOf(head.body),
+    Math.floor(minute / MINUTE_MS) * MINUTE_MS
+  )
+  if (range === undefined) return yield* notStored
+  const chunk = yield* Effect.promise(() => bucket.get(key, { range }))
+  return chunk === null ? yield* notStored : yield* storedGzip(chunk.body)
+})
+
 // A cold day's answer to `resource` from R2; none for a resource still
 // answered by the day's object.
 export const coldAnswer = Effect.fnUntraced(function* (
@@ -199,6 +252,13 @@ export const coldAnswer = Effect.fnUntraced(function* (
   date: WibDate,
   resource: RecordedResource
 ) {
+  if (resource._tag === "Book")
+    return yield* coldBook(
+      bucket,
+      date,
+      resource.code,
+      DateTime.toEpochMillis(resource.minute)
+    )
   if (resource._tag === "Tape" || resource._tag === "BrokerCodes")
     return (
       (yield* coldTapeAnswer(bucket, answerFolder(date), resource)) ??

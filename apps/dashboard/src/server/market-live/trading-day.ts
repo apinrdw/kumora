@@ -1556,6 +1556,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         codes: (tradeNumbers) => brokerCodes.heldCodes(tradeNumbers),
         complete: brokerCodes.codesComplete,
       },
+      books: { codes: store.bookCodes, chunksOf: store.storedChunksOf },
     })
     return true
   })

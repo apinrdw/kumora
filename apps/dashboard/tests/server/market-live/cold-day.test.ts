@@ -6,11 +6,11 @@ import { gunzipSync } from "node:zlib"
 
 import { assert, describe, it } from "@effect/vitest"
 import {
-  StockCode,
   WibDate,
   decodeDayStrip,
   recordedDayPath,
   recordedDayRequest,
+  StockCode,
   type RecordedResource,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
@@ -41,17 +41,26 @@ const TAPE: RecordedResource = {
   at: DateTime.makeUnsafe("2026-11-09T17:00:00+07:00"),
 }
 
+const wib = (time: string) => DateTime.makeUnsafe(`2026-11-09T${time}+07:00`)
 const at = (time: string) =>
-  TestClock.setTime(
-    DateTime.toEpochMillis(DateTime.makeUnsafe(`2026-11-09T${time}+07:00`))
-  )
+  TestClock.setTime(DateTime.toEpochMillis(wib(time)))
+const book = (code: string, minute: string): RecordedResource => ({
+  _tag: "Book",
+  code: StockCode.make(code),
+  minute: wib(minute),
+})
 
 const textOf = (response: Response) => Effect.promise(() => response.text())
 
+type Day = Effect.Success<ReturnType<typeof tradingDay>>
+
 // A relay day with a code list naming UNTR and BBCA, a few UNTR trades and
 // UNTR's book, which a viewer had it record (BBCA's isn't), sealed at 17:00
-// with its relay gaps, and its row in a day index.
-const sealedDay = Effect.fnUntraced(function* () {
+// with its relay gaps, then whatever `record` adds before the seal, and its
+// row in a day index.
+const sealedDay = Effect.fnUntraced(function* (
+  record: (day: Day) => Effect.Effect<void, unknown> = () => Effect.void
+) {
   yield* at("09:01:10")
   const day = yield* tradingDay(memorySql())
   yield* day.codeList(
@@ -76,6 +85,7 @@ const sealedDay = Effect.fnUntraced(function* () {
     stockbitTrade({ number: 1, time: "09:00:10.100", price: 23300, lots: 3 }),
     stockbitTrade({ number: 2, time: "09:00:20.000", price: 23325, lots: 5 }),
   ])
+  yield* record(day)
   yield* at("17:00:00")
   yield* day.alarm
   const index = yield* makeDayIndex(memorySql())
@@ -254,6 +264,7 @@ describe("a cold day", () => {
           [
             "days/2026-11-09/manifest.json",
             "days/2026-11-09/status.json",
+            "days/2026-11-09/v6/book/UNTR.bin",
             ...["BBCA", "IHSG", "NG.IHSG", "TN.IHSG", "UNTR"].flatMap((code) =>
               PER_CODE.map(
                 ([folder]) => `days/2026-11-09/v6/${folder}/${code}.json.gz`
@@ -298,6 +309,77 @@ describe("a cold day", () => {
         sealed.days.refused.clear()
         yield* moved(sealed)
         assert.isTrue((yield* stripDays(sealed.index))[0]?.cold)
+      })
+  )
+
+  it.effect(
+    "answers Book from R2 as its object did, the chunk before a minute with none, and not recorded for a code with no book",
+    () =>
+      Effect.gen(function* () {
+        // UNTR's book, recorded from 09:01:10, viewed again from 09:04 and
+        // sent at 09:04 and 09:07.
+        const sealed = yield* sealedDay(
+          Effect.fnUntraced(function* (day) {
+            yield* at("09:04:00")
+            yield* day.left(yield* day.viewer("UNTR"))
+            for (const [time, bid] of [
+              ["09:04:03", 60],
+              ["09:07:03", 90],
+            ] as const) {
+              yield* at(time)
+              yield* day.frames([
+                stockbitBook({ side: "BID", levels: [[23_300, 3, bid]], time }),
+                stockbitBook({
+                  side: "OFFER",
+                  levels: [[23_325, 2, 40]],
+                  time,
+                }),
+              ])
+            }
+          })
+        )
+        const minutes = [
+          book("UNTR", "09:04:00"),
+          book("UNTR", "09:05:00"),
+          book("UNTR", "09:07:30"),
+          book("UNTR", "15:00:00"),
+        ]
+        const notRecorded = [book("UNTR", "09:00:00"), book("BBCA", "09:05:00")]
+        const before = yield* worker(sealed)
+        const hot = []
+        for (const resource of minutes)
+          hot.push(yield* textOf(yield* before.get(resource)))
+        // 09:05 has no frame: the 09:04 chunk is in force.
+        assert.strictEqual(hot[1], hot[0])
+        assert.notStrictEqual(hot[2], hot[0])
+        assert.strictEqual(hot[3], hot[2])
+        for (const resource of notRecorded)
+          assert.strictEqual((yield* before.get(resource)).status, 404)
+
+        yield* moved(sealed)
+        const after = yield* worker(sealed)
+        for (const [index, resource] of minutes.entries()) {
+          const response = yield* after.get(resource)
+          assert.strictEqual(response.status, 200)
+          assert.strictEqual(response.headers.get("Cache-Control"), SEALED)
+          assert.strictEqual(response.headers.get("Content-Encoding"), "gzip")
+          const stored = new Uint8Array(
+            yield* Effect.promise(() => response.arrayBuffer())
+          )
+          assert.strictEqual(
+            new TextDecoder().decode(gunzipSync(stored)),
+            hot[index]
+          )
+        }
+        for (const resource of notRecorded) {
+          const response = yield* after.get(resource)
+          assert.strictEqual(response.status, 404)
+          assert.deepStrictEqual(yield* Effect.promise(() => response.json()), {
+            error: "NotFound",
+            message: "Not recorded",
+          })
+        }
+        assert.deepStrictEqual(after.reached, ["index"])
       })
   )
 

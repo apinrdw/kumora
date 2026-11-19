@@ -25,6 +25,7 @@ export const memoryDayBucket = () => {
               )
             })
       ),
+    // A range past the object's end is cut to it, as R2 does.
     get: (key, options) =>
       Effect.runPromise(
         Effect.sync(() => {
