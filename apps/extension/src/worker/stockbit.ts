@@ -9,12 +9,17 @@ import type { Answer, LocalRequest } from "./broker.ts"
 import { jwtPayloadText } from "./jwt.ts"
 
 // Decision: the key comes from Stockbit's REST host, called from the tab with
-// the token in its `credentialStorage` cookie. The relay never refreshes the
-// token: it reads the cookie again before every key fetch, so it uses
-// whatever the page last refreshed. See apinrdw/kumora#43.
+// the token in its credential cookies. The relay never refreshes the token:
+// it reads the cookies again before every key fetch, so it uses whatever the
+// page last refreshed. See apinrdw/kumora#43.
 export const WEBSOCKET_KEY_URL =
   "https://exodus.stockbit.com/auth/websocket/key"
-export const CREDENTIAL_COOKIE = "credentialStorage"
+// Decision: the access token is in one of two cookies, by how the owner
+// signed in. `credentialStorage` held it until 2026-11-20; after a Google
+// sign-in that cookie holds the user's profile and no token, and the token is
+// in `sb_social_access_token`. Both tokens name the user in `data.uid`.
+// `credentialStorage` is read first. See apinrdw/kumora#591.
+const CREDENTIAL_COOKIES = ["credentialStorage", "sb_social_access_token"]
 
 // Stockbit's REST running-trade tape, which backfill pages by trade number.
 export const RUNNING_TRADE_URL =
@@ -52,17 +57,42 @@ export const stockbitCredential = Effect.fnUntraced(function* (cookie: string) {
   )
 })
 
-// The tab's current credential, read from its cookie at call time.
-export const tabCredential = Effect.fnUntraced(function* (tab: {
+// The Stockbit tab's sign-in, as its credential cookies hold it.
+interface TabSignIn {
+  // Every credential cookie's raw value. A change in any is a new sign-in or
+  // a refreshed token.
+  readonly cookies: string
+  // The first credential cookie's token; none when no cookie holds one.
+  readonly credential: Option.Option<StockbitCredential>
+}
+
+interface CookieTab {
   readonly request: (
     request: LocalRequest
   ) => Effect.Effect<Option.Option<Answer>>
-}) {
-  const cookie = yield* tab.request({ _tag: "cookie", name: CREDENTIAL_COOKIE })
-  return Option.isSome(cookie)
-    ? yield* stockbitCredential(cookie.value.body)
-    : Option.none<StockbitCredential>()
+}
+
+// The tab's sign-in, read from its cookies at call time; none when the tab
+// doesn't answer.
+export const tabSignIn = Effect.fnUntraced(function* (tab: CookieTab) {
+  const values: Array<string> = []
+  let credential = Option.none<StockbitCredential>()
+  for (const name of CREDENTIAL_COOKIES) {
+    const cookie = yield* tab.request({ _tag: "cookie", name })
+    if (Option.isNone(cookie)) return Option.none<TabSignIn>()
+    values.push(cookie.value.body)
+    if (Option.isNone(credential))
+      credential = yield* stockbitCredential(cookie.value.body)
+  }
+  return Option.some<TabSignIn>({ cookies: values.join("\n"), credential })
 })
+
+// The tab's current credential; none when it is signed out or doesn't answer.
+export const tabCredential = (tab: CookieTab) =>
+  Effect.map(
+    tabSignIn(tab),
+    Option.flatMap((signIn) => signIn.credential)
+  )
 
 const KeyAnswer = Schema.fromJsonString(
   Schema.Struct({ data: Schema.Struct({ key: Schema.String }) })

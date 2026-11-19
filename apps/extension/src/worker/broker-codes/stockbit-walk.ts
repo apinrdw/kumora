@@ -24,11 +24,7 @@ import {
 import { Effect, Option, Schema } from "effect"
 
 import type { RequestingTab } from "../pacer.ts"
-import {
-  CREDENTIAL_COOKIE,
-  RUNNING_TRADE_URL,
-  stockbitCredential,
-} from "../stockbit.ts"
+import { RUNNING_TRADE_URL, tabSignIn } from "../stockbit.ts"
 import { inStreamingHours, scheduleNow } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
 import { halt, haltOnRefusal, settle, type WalkResult } from "./run-queue.ts"
@@ -218,23 +214,20 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
       return yield* halt({ _tag: "stopped", cause: "streaming-hours" })
   })
 
-  // The credential cookie's value; a tab that doesn't answer stops the walk
-  // until a Stockbit tab connects.
-  const cookie = Effect.gen(function* () {
-    const answer = yield* tab.request({
-      _tag: "cookie",
-      name: CREDENTIAL_COOKIE,
-    })
-    if (Option.isNone(answer))
+  // The tab's sign-in; a tab that doesn't answer stops the walk until a
+  // Stockbit tab connects.
+  const signIn = Effect.gen(function* () {
+    const held = yield* tabSignIn(tab)
+    if (Option.isNone(held))
       return yield* halt({ _tag: "stopped", cause: "no-tab" })
-    return answer.value.body
+    return held.value
   })
 
-  // Decision: on a 401, or a cookie with no token, the walk waits in place
-  // until the tab's `credentialStorage` cookie changes; the extension never
+  // Decision: on a 401, or cookies with no token, the walk waits in place
+  // until either of the tab's credential cookies changes; the extension never
   // signs in itself. The wait shows as "Stockbit signed out" until it ends.
-  // See apinrdw/kumora#244, "A 401".
-  const awaitNewCookie = (stale: string) =>
+  // See apinrdw/kumora#244, "A 401", and apinrdw/kumora#591.
+  const awaitNewSignIn = (stale: string) =>
     Effect.ensuring(
       Effect.andThen(
         signedOut(true),
@@ -242,7 +235,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
           while (true) {
             yield* Effect.sleep(RETRY)
             yield* guard
-            if ((yield* cookie) !== stale) return
+            if ((yield* signIn).cookies !== stale) return
           }
         })
       ),
@@ -253,16 +246,17 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   const call = Effect.fnUntraced(function* (day: WibDate, url: string) {
     while (true) {
       yield* guard
-      const held = yield* cookie
-      const credential = yield* stockbitCredential(held)
-      if (Option.isNone(credential)) {
-        yield* awaitNewCookie(held)
+      const held = yield* signIn
+      if (Option.isNone(held.credential)) {
+        yield* awaitNewSignIn(held.cookies)
         continue
       }
       const answer = yield* tab.request({
         _tag: "fetch",
         url,
-        headers: { authorization: `Bearer ${credential.value.accessToken}` },
+        headers: {
+          authorization: `Bearer ${held.credential.value.accessToken}`,
+        },
       })
       if (Option.isNone(answer)) {
         if (!(yield* tab.attached))
@@ -271,7 +265,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
         continue
       }
       if (answer.value.status === 401) {
-        yield* awaitNewCookie(held)
+        yield* awaitNewSignIn(held.cookies)
         continue
       }
       if (answer.value.status === 200) {

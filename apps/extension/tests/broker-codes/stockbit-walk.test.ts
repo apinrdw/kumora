@@ -109,8 +109,11 @@ const fakeStockbit = (
     readonly badLots?: ReadonlySet<number>
     // Trade numbers the tape skips: Stockbit never sends them.
     readonly absent?: ReadonlySet<number>
-    // The token in the tab's cookie at a time.
+    // The token in the tab's `credentialStorage` cookie at a time; "" for
+    // the cookie a Google sign-in leaves, with the user and no token.
     readonly cookie?: (now: number) => string
+    // The tab's `sb_social_access_token` cookie at a time, "" without one.
+    readonly social?: (now: number) => string
     // Whether the tape refuses this bearer on this call (1-based).
     readonly refuses?: (bearer: string, call: number) => boolean
     // Overrides the tape's answer to a call, by its 1-based index.
@@ -157,6 +160,17 @@ const fakeStockbit = (
         from === 0 && cursor !== null ? [] : order.slice(from, from + limit),
     }
   }
+  // A cookie's raw value at a time, "" for one the tab lacks.
+  const cookie = (name: string, now: number) => {
+    if (name === "sb_social_access_token") return options.social?.(now) ?? ""
+    if (name !== "credentialStorage") return ""
+    const token = options.cookie?.(now) ?? jwt("live")
+    return encodeURIComponent(
+      JSON.stringify(
+        token === "" ? { state: { user: { id: 7 } }, version: 0 } : { token }
+      )
+    )
+  }
   return {
     urls,
     times,
@@ -167,14 +181,7 @@ const fakeStockbit = (
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis
         if (request._tag === "cookie")
-          return Option.some(
-            answer(
-              200,
-              encodeURIComponent(
-                JSON.stringify({ token: options.cookie?.(now) ?? jwt("live") })
-              )
-            )
-          )
+          return Option.some(answer(200, cookie(request.name, now)))
         if (request._tag !== "fetch") return Option.none<Answer>()
         urls.push(request.url)
         times.push(now)
@@ -864,6 +871,30 @@ describe("Stockbit's walk: stopping and carrying on", () => {
   )
 
   it.effect(
+    "waits out a 401 on a Google sign-in's token until sb_social_access_token changes",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const renewedAt = wib("2026-11-12", "17:44:00")
+        const production = fakeProduction()
+        const tape = fakeStockbit({
+          cookie: () => "",
+          social: (now) => jwt(now >= renewedAt ? "renewed" : "expired"),
+          refuses: (bearer, call) => bearer === jwt("expired") && call >= 12,
+        })
+        const walk = yield* walkWith(tape, production)
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* settle(tape, 12)
+        yield* TestClock.adjust("13 minutes")
+        assert.lengthOf(tape.urls, 12)
+        yield* TestClock.adjust("1 minute")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.strictEqual(tape.urls[12], tape.urls[11])
+        assert.isTrue((yield* production.status(DAY)).complete)
+      })
+  )
+
+  it.effect(
     "says Stockbit is signed out while it waits on a 401, and its trades of N",
     () =>
       Effect.gen(function* () {
@@ -900,6 +931,40 @@ describe("Stockbit's walk: stopping and carrying on", () => {
         assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
         assert.deepStrictEqual(signedOut, [true, false])
         assert.deepStrictEqual(trades.at(-1), [N, Option.some(N - 3)])
+      })
+  )
+
+  it.effect(
+    "waits signed out on cookies with no token until a Google sign-in's sb_social_access_token appears, then walks with it",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const signedInAt = wib("2026-11-12", "17:44:00")
+        const production = fakeProduction()
+        const tape = fakeStockbit({
+          cookie: () => "",
+          social: (now) => (now >= signedInAt ? jwt("google") : ""),
+          refuses: (bearer) => bearer !== jwt("google"),
+        })
+        const signedOut: Array<boolean> = []
+        const walk = yield* makeStockbitWalk({
+          tab: tape,
+          post: production.post,
+          status: production.status,
+          signedOut: (out) =>
+            Effect.sync(() => {
+              signedOut.push(out)
+            }),
+        })
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("13 minutes")
+        // 17:43: neither cookie holds a token, and the walk waits.
+        assert.deepStrictEqual(signedOut, [true])
+        assert.lengthOf(tape.urls, 0)
+        yield* TestClock.adjust("1 minute")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.deepStrictEqual(signedOut, [true, false])
+        assert.isTrue((yield* production.status(DAY)).complete)
       })
   )
 
