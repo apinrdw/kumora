@@ -17,23 +17,25 @@ import {
 import { DateTime, Effect, Option, Schema } from "effect"
 
 import { newerThanHeld } from "./late-frames.ts"
-import { fieldReader, messagesIn, textOf } from "./stockbit.ts"
+import { fieldReader, messagesIn, numberOf, textOf } from "./stockbit.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 
 const ORDERBOOK = 10
 
 // `Orderbook`'s fields: the body is the pipe-delimited text of one side,
-// `datetime` the frame's ISO time with the WIB offset.
-const Field = { stockCode: 1, body: 2, datetime: 5 } as const
+// `sequence_number` an int64 varint, `datetime` the frame's ISO time with the
+// WIB offset.
+const Field = { stockCode: 1, body: 2, sequence: 3, datetime: 5 } as const
 
 type Side = "bid" | "offer"
 
-// One side as one frame carried it: every level, its lots in total, and the
-// frame's time.
+// One side as one frame carried it: every level, its lots in total, the
+// frame's time, and its sequence number when it had one.
 interface SideBook {
   readonly levels: ReadonlyArray<BookLevel>
   readonly lots: number
   readonly at: DateTime.Utc
+  readonly sequence?: number | undefined
 }
 
 const isStockCode = Schema.is(StockCode)
@@ -79,7 +81,8 @@ const stockbitSideOf = Effect.fnUntraced(function* (bytes: Uint8Array) {
   )
   if (code === undefined || !isStockCode(code) || !parsed || !at)
     return undefined
-  return { code, side: parsed.side, book: { ...parsed.book, at } }
+  const sequence = yield* numberOf(read.get(Field.sequence))
+  return { code, side: parsed.side, book: { ...parsed.book, at, sequence } }
 })
 
 const AjaibLevel = Schema.Struct({
@@ -103,11 +106,14 @@ const decodeAjaib = Schema.decodeUnknownOption(
   Schema.fromJsonString(AjaibOrderBook)
 )
 
-// Ajaib's book of one code, every level by price.
+// Ajaib's book of one code, every level by price, and the time of the last
+// frame that changed each side.
 interface AjaibBook {
   bids: Map<number, BookLevel>
   offers: Map<number, BookLevel>
   at: DateTime.Utc
+  bidAt: DateTime.Utc | undefined
+  offerAt: DateTime.Utc | undefined
   version: number
 }
 
@@ -127,6 +133,9 @@ const AjaibBookRecord = Schema.fromJsonString(
     bids: Schema.Array(BookLevel),
     offers: Schema.Array(BookLevel),
     at: Schema.Finite,
+    // Each side's time; a row stored before them has neither.
+    bidAt: Schema.optionalKey(Schema.Finite),
+    offerAt: Schema.optionalKey(Schema.Finite),
   })
 )
 const encodeAjaibBook = Schema.encodeEffect(AjaibBookRecord)
@@ -139,6 +148,27 @@ interface StockbitBook {
   at: DateTime.Utc
   version: number
 }
+
+// A served book's per-side times and sequence numbers, each only when known.
+const sideFields = (sides: {
+  readonly bidAt: DateTime.Utc | undefined
+  readonly offerAt: DateTime.Utc | undefined
+  readonly bidSequence?: number | undefined
+  readonly offerSequence?: number | undefined
+}) =>
+  Effect.sync(() => {
+    const fields: {
+      -readonly [
+        K in "bidAt" | "offerAt" | "bidSequence" | "offerSequence"
+      ]?: NonNullable<OrderBook[K]>
+    } = {}
+    if (sides.bidAt !== undefined) fields.bidAt = sides.bidAt
+    if (sides.offerAt !== undefined) fields.offerAt = sides.offerAt
+    if (sides.bidSequence !== undefined) fields.bidSequence = sides.bidSequence
+    if (sides.offerSequence !== undefined)
+      fields.offerSequence = sides.offerSequence
+    return fields
+  })
 
 const best = (levels: Iterable<BookLevel>, side: Side) =>
   Effect.sync((): ReadonlyArray<BookLevel> =>
@@ -197,6 +227,12 @@ export const makeOrderBooks = (date: WibDate) =>
           bidLots: book.bid?.lots ?? 0,
           offerLots: book.offer?.lots ?? 0,
           at: book.at,
+          ...(yield* sideFields({
+            bidAt: book.bid?.at,
+            offerAt: book.offer?.at,
+            bidSequence: book.bid?.sequence,
+            offerSequence: book.offer?.sequence,
+          })),
           provenance,
           ...extra,
         }
@@ -212,6 +248,7 @@ export const makeOrderBooks = (date: WibDate) =>
         bidLots: yield* lotsOf(book.bids.values()),
         offerLots: yield* lotsOf(book.offers.values()),
         at: book.at,
+        ...(yield* sideFields(book)),
         provenance,
         ...extra,
       }
@@ -285,13 +322,23 @@ export const makeOrderBooks = (date: WibDate) =>
       // Both connections carry the same book, so one may deliver a frame the
       // other already applied over: older than the book, it is dropped.
       if (held !== undefined && DateTime.isLessThan(at, held.at)) return
-      const book =
+      const book: AjaibBook =
         held === undefined || initial
-          ? { bids: new Map(), offers: new Map(), at, version: 0 }
+          ? {
+              bids: new Map(),
+              offers: new Map(),
+              at,
+              bidAt: undefined,
+              offerAt: undefined,
+              version: 0,
+            }
           : held
       yield* applyLevels(book.bids, buy ?? [])
       yield* applyLevels(book.offers, sell ?? [])
       book.at = at
+      // A delta's empty side (`sell: []`) left that side as it was.
+      if (initial || (buy?.length ?? 0) > 0) book.bidAt = at
+      if (initial || (sell?.length ?? 0) > 0) book.offerAt = at
       book.version = ++version
       ajaib.set(code, book)
       changed.add(code)
@@ -353,8 +400,18 @@ export const makeOrderBooks = (date: WibDate) =>
           previous.set(book.code, book.previousClose)
         if (book.provenance !== "Stockbit") return
         stockbit.set(book.code, {
-          bid: { levels: book.bids, lots: book.bidLots, at: book.at },
-          offer: { levels: book.offers, lots: book.offerLots, at: book.at },
+          bid: {
+            levels: book.bids,
+            lots: book.bidLots,
+            at: book.bidAt ?? book.at,
+            sequence: book.bidSequence,
+          },
+          offer: {
+            levels: book.offers,
+            lots: book.offerLots,
+            at: book.offerAt ?? book.at,
+            sequence: book.offerSequence,
+          },
           at: book.at,
           version: ++version,
         })
@@ -365,11 +422,15 @@ export const makeOrderBooks = (date: WibDate) =>
       stored: ReadonlyArray<StoredAjaibBook>
     ) {
       for (const { code, book } of stored) {
-        const { bids, offers, at } = yield* decodeAjaibBook(book)
+        const { bids, offers, at, bidAt, offerAt } =
+          yield* decodeAjaibBook(book)
         ajaib.set(code, {
           bids: new Map(bids.map((level) => [level.price, level])),
           offers: new Map(offers.map((level) => [level.price, level])),
           at: DateTime.makeUnsafe(at),
+          bidAt: bidAt === undefined ? undefined : DateTime.makeUnsafe(bidAt),
+          offerAt:
+            offerAt === undefined ? undefined : DateTime.makeUnsafe(offerAt),
           version: ++version,
         })
       }
@@ -390,6 +451,12 @@ export const makeOrderBooks = (date: WibDate) =>
             bids: [...book.bids.values()],
             offers: [...book.offers.values()],
             at: DateTime.toEpochMillis(book.at),
+            ...(book.bidAt === undefined
+              ? {}
+              : { bidAt: DateTime.toEpochMillis(book.bidAt) }),
+            ...(book.offerAt === undefined
+              ? {}
+              : { offerAt: DateTime.toEpochMillis(book.offerAt) }),
           }),
         })
       }

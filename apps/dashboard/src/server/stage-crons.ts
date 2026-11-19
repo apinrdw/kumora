@@ -6,6 +6,7 @@ import { KSEI_CRON, KSEI_PARSE_CRON } from "./ksei/schedule.ts"
 import { LOGO_CRON } from "./logos/schedule.ts"
 import { SECTOR_CRON } from "./sectors/schedule.ts"
 import { ARCHIVE_CRON, PARSE_CRON } from "./shareholding/schedule.ts"
+import { SPECIAL_BOARD_CRON } from "./special-board/schedule.ts"
 
 export const stageCrons = (production: boolean) => [
   // Decision: the broker totals reconcile runs on every stage: each stage
@@ -39,6 +40,10 @@ export const stageCrons = (production: boolean) => [
         // Decision: the logo sync too, so only Production copies
         // Stockbit's logos. See apinrdw/kumora#432.
         LOGO_CRON,
+        // Decision: the Special Monitoring Board cron too, so only
+        // Production reads IDX's special notations on a schedule; another
+        // stage's special_board stays empty. See apinrdw/kumora#521.
+        SPECIAL_BOARD_CRON,
       ]
     : []),
 ]

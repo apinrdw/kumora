@@ -5,6 +5,7 @@
 // back with `recordedDayRequest`; the page builds it with `recordedDayPath`.
 import { DateTime, Effect, Option, Schema, SchemaGetter } from "effect"
 
+import { BookEvent } from "./book-events.ts"
 import {
   BrokerCode,
   DayTradeNumber,
@@ -22,7 +23,7 @@ import {
   ViewerProtocolVersion,
 } from "./envelope.ts"
 import { RelayGap } from "./market-conditions.ts"
-import { BookLevel, OrderBook } from "./order-book.ts"
+import { BookLevel, BookSideFields, OrderBook } from "./order-book.ts"
 import { WibDate } from "./schedule.ts"
 
 const DAYS = "/market-live/days"
@@ -63,6 +64,8 @@ export type RecordedResource =
   | { readonly _tag: "Gaps" }
   // One code's book heatmap slices so far (heatmap.ts).
   | { readonly _tag: "Heatmap"; readonly code: StockCode }
+  // One code's book events so far (book-events.ts).
+  | { readonly _tag: "BookEvents"; readonly code: StockCode }
   // Every code's recent minutes and day totals, for Market Bubbles: the live
   // day only.
   | { readonly _tag: "Bubbles" }
@@ -102,6 +105,8 @@ export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
         return `${base}/gaps`
       case "Heatmap":
         return `${base}/heatmap/${resource.code}`
+      case "BookEvents":
+        return `${base}/book-events/${resource.code}`
       case "Bubbles":
         return `${base}/bubbles`
     }
@@ -160,6 +165,18 @@ const BARE: ReadonlyMap<string, RecordedResource> = new Map([
   ["bubbles", { _tag: "Bubbles" }],
 ])
 
+// The resources whose path names one code and nothing else, by path part.
+const CODED: ReadonlyMap<
+  string,
+  "Candles" | "Heatmap" | "Sweeps" | "SweepBrokers" | "BookEvents"
+> = new Map([
+  ["candles", "Candles"],
+  ["heatmap", "Heatmap"],
+  ["sweeps", "Sweeps"],
+  ["sweep-brokers", "SweepBrokers"],
+  ["book-events", "BookEvents"],
+] as const)
+
 const resourceOf = Effect.fnUntraced(function* (
   parts: ReadonlyArray<string>,
   search: ReadonlyMap<string, string>
@@ -181,24 +198,10 @@ const resourceOf = Effect.fnUntraced(function* (
       }))
     return Option.none()
   }
-  if (kind === "candles")
+  const coded = CODED.get(kind ?? "")
+  if (coded !== undefined)
     return Option.map(decodeCode(code), (stock) => ({
-      _tag: "Candles" as const,
-      code: stock,
-    }))
-  if (kind === "heatmap")
-    return Option.map(decodeCode(code), (stock) => ({
-      _tag: "Heatmap" as const,
-      code: stock,
-    }))
-  if (kind === "sweeps")
-    return Option.map(decodeCode(code), (stock) => ({
-      _tag: "Sweeps" as const,
-      code: stock,
-    }))
-  if (kind === "sweep-brokers")
-    return Option.map(decodeCode(code), (stock) => ({
-      _tag: "SweepBrokers" as const,
+      _tag: coded,
       code: stock,
     }))
   if (kind === "books")
@@ -227,6 +230,23 @@ export const recordedDayRequest = (location: {
       (date, resource) => ({ date, resource })
     )
   })
+
+// The book events answer: one code's events for the day so far, oldest
+// first. `recorded` is false for a day the object kept no book events of,
+// one recorded before them: its page says so rather than "none".
+const RecordedBookEvents = Schema.Struct({
+  code: StockCode,
+  recorded: Schema.Boolean,
+  events: Schema.Array(BookEvent),
+})
+export type RecordedBookEvents = typeof RecordedBookEvents.Type
+
+export const encodeRecordedBookEvents = Schema.encodeEffect(
+  Schema.fromJsonString(RecordedBookEvents)
+)
+export const decodeRecordedBookEvents = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(RecordedBookEvents)
+)
 
 // The tape answer: ascending by trade number, like a snapshot's tape.
 const RecordedTape = Schema.Struct({ trades: Schema.Array(RunningTrade) })
@@ -478,6 +498,11 @@ export const decodeRecordedGaps = Schema.decodeUnknownEffect(
 const BookDelta = Schema.Struct({
   servedAt: Schema.DateTimeUtcFromMillis,
   at: Schema.DateTimeUtcFromMillis,
+  // Decision: a frame carries all its book's per-side times and sequence
+  // numbers, changed or not, and replay replaces them as one group, so a book
+  // without one (Ajaib's sequences) never inherits the frame before's. An
+  // older chunk has none and replays unchanged. See apinrdw/kumora#517.
+  ...BookSideFields,
   provenance: Schema.optionalKey(Schema.Literals(["Stockbit", "Ajaib"])),
   bids: Schema.optionalKey(Schema.Array(BookLevel)),
   offers: Schema.optionalKey(Schema.Array(BookLevel)),
@@ -513,7 +538,13 @@ export const bookAt = (chunk: BookChunk, cursor: DateTime.Utc) =>
     for (const { servedAt, ...parts } of chunk.deltas) {
       if (DateTime.isGreaterThan(servedAt, cursor)) break
       // A first frame carries every part.
-      const before: OrderBook = book ?? {
+      const {
+        bidAt: _bidAt,
+        offerAt: _offerAt,
+        bidSequence: _bidSequence,
+        offerSequence: _offerSequence,
+        ...before
+      }: OrderBook = book ?? {
         _tag: "OrderBook",
         code: chunk.code,
         bids: [],

@@ -3,11 +3,13 @@
 // trading-day Durable Object, named by the WIB date; the recorded day GETs
 // (days.ts) and the broker codes route (broker-codes-route.ts) reach the
 // object of the day they name, and the day strip the index object. The
-// sector map (../sectors/map.ts) reads HoldingsDb.
+// sector map (../sectors/map.ts) and the Special Monitoring Board list
+// (../special-board/list.ts) read HoldingsDb.
 import {
   DayStripPath,
   MarketLivePath,
   SectorsPath,
+  SpecialBoardPath,
   ViewerCloseCode,
   brokerCodesDay,
   recordedDayRequest,
@@ -18,6 +20,7 @@ import { DateTime, Effect, Layer, Option, Schema } from "effect"
 import { Auth } from "../auth/auth.ts"
 import { holdingsDbD1 } from "../holdings/db.ts"
 import { sectorsRoute } from "../sectors/map.ts"
+import { specialBoardRoute } from "../special-board/list.ts"
 import { brokerCodesRoute } from "./broker-codes-route.ts"
 import { dayStripRoute, recordedDayRoute } from "./days.ts"
 import { gateLiveViewer } from "./gate.ts"
@@ -104,6 +107,12 @@ export const marketLiveRoute = Effect.fnUntraced(function* (request: Request) {
   if (pathname === SectorsPath)
     return Option.some(
       sectorsRoute(request).pipe(
+        Effect.provide(Layer.merge(Auth.layer, holdingsDbD1))
+      )
+    )
+  if (pathname === SpecialBoardPath)
+    return Option.some(
+      specialBoardRoute(request).pipe(
         Effect.provide(Layer.merge(Auth.layer, holdingsDbD1))
       )
     )

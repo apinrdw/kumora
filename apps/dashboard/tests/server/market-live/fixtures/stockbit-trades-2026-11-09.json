@@ -1,824 +1,824 @@
 {
- "source": "Stockbit running trades from testResult.matchTrades of the probe capture kumora-probe-stockbit-2026-11-09T02-01-21 (2026-11-09), as the probe decoded them: the raw protobuf bytes were not kept, so the tests encode these rows back into running_trade_batch frames. tradeWib is the trade's WIB time to the millisecond; volume is in shares; action is absent where Stockbit sent none. ajaibTwins are the Ajaib TRADE frames for the same trade numbers from kumora-probe-ajaib-2026-11-09T02-01-26, with the probe's own fields (receivedWib, co, s, eb) removed.",
- "openingMatch": [
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 100,
-   "board": 1,
-   "tradeNumber": 662
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 700,
-   "board": 1,
-   "tradeNumber": 663
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 200,
-   "board": 1,
-   "tradeNumber": 664
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 200,
-   "board": 1,
-   "tradeNumber": 665
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 200,
-   "board": 1,
-   "tradeNumber": 666
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 100,
-   "board": 1,
-   "tradeNumber": 667
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 1400,
-   "board": 1,
-   "tradeNumber": 668
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 100,
-   "board": 1,
-   "tradeNumber": 669
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 100,
-   "board": 1,
-   "tradeNumber": 670
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 500,
-   "board": 1,
-   "tradeNumber": 671
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 600,
-   "board": 1,
-   "tradeNumber": 672
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 200,
-   "board": 1,
-   "tradeNumber": 673
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 100,
-   "board": 1,
-   "tradeNumber": 674
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 300,
-   "board": 1,
-   "tradeNumber": 675
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 100,
-   "board": 1,
-   "tradeNumber": 676
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 100,
-   "board": 1,
-   "tradeNumber": 677
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 100,
-   "board": 1,
-   "tradeNumber": 678
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 100,
-   "board": 1,
-   "tradeNumber": 679
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 100,
-   "board": 1,
-   "tradeNumber": 680
-  },
-  {
-   "tradeWib": "08:58:00.000",
-   "code": "UNTR",
-   "price": 23200,
-   "volume": 100,
-   "board": 1,
-   "tradeNumber": 681
-  }
- ],
- "session1": [
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BREN",
-   "price": 2130,
-   "volume": 1700,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22265
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22266
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 200,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22267
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22268
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22269
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 3000,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22270
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 200,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22271
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 400,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22272
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 15000,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22273
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 900,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22274
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22275
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22276
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22277
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22278
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 200,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22279
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 500,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22280
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 300,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22281
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 2000,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22282
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 400,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22283
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22284
-  },
-  {
-   "tradeWib": "09:00:00.002",
-   "code": "BBNI",
-   "price": 3410,
-   "volume": 6100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22285
-  },
-  {
-   "tradeWib": "09:00:00.030",
-   "code": "KPIG",
-   "price": 25,
-   "volume": 100,
-   "action": 2,
-   "board": 1,
-   "tradeNumber": 22286
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 200,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22287
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 10000,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22288
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22289
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22290
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 20500,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22291
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 20000,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22292
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 200,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22293
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 2300,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22294
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 400,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22295
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22296
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22297
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 300,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22298
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 10000,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22299
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22300
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 1500,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22301
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 400,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22302
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22303
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22304
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 200,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22305
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 5000,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22306
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 5000,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22307
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 1500,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22308
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 1000,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22309
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 1200,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22310
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22311
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 1000,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22312
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22313
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 300,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22314
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 300,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22315
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 300,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22316
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22317
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22318
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22319
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 2200,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22320
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 800,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22321
-  },
-  {
-   "tradeWib": "09:00:00.153",
-   "code": "BBRI",
-   "price": 2840,
-   "volume": 2200,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22322
-  },
-  {
-   "tradeWib": "09:00:00.743",
-   "code": "BRMS",
-   "price": 322,
-   "volume": 58300,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22323
-  },
-  {
-   "tradeWib": "09:00:00.743",
-   "code": "TLKM",
-   "price": 2030,
-   "volume": 2000,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22324
-  },
-  {
-   "tradeWib": "09:00:00.743",
-   "code": "TINS",
-   "price": 3430,
-   "volume": 500,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22325
-  },
-  {
-   "tradeWib": "09:00:00.743",
-   "code": "TINS",
-   "price": 3430,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22326
-  },
-  {
-   "tradeWib": "09:00:00.743",
-   "code": "TINS",
-   "price": 3430,
-   "volume": 400,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22327
-  },
-  {
-   "tradeWib": "09:00:00.743",
-   "code": "TINS",
-   "price": 3430,
-   "volume": 400,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22328
-  },
-  {
-   "tradeWib": "09:00:00.743",
-   "code": "TINS",
-   "price": 3430,
-   "volume": 100,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22329
-  },
-  {
-   "tradeWib": "09:00:00.743",
-   "code": "TINS",
-   "price": 3430,
-   "volume": 8600,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22330
-  },
-  {
-   "tradeWib": "09:00:00.744",
-   "code": "AALI",
-   "price": 9425,
-   "volume": 600,
-   "action": 1,
-   "board": 1,
-   "tradeNumber": 22331
-  }
- ],
- "boards": [
-  {
-   "tradeWib": "09:00:01.645",
-   "code": "ENRG",
-   "price": 550,
-   "volume": 100,
-   "action": 1,
-   "board": 2,
-   "tradeNumber": 26320
-  },
-  {
-   "tradeWib": "09:00:05.737",
-   "code": "AIMS",
-   "price": 1465,
-   "volume": 3100,
-   "board": 3,
-   "tradeNumber": 30536
-  },
-  {
-   "tradeWib": "09:00:05.868",
-   "code": "PJHB",
-   "price": 97,
-   "volume": 50,
-   "board": 3,
-   "tradeNumber": 30549
-  }
- ],
- "ajaibTwins": {
+  "source": "Stockbit running trades from testResult.matchTrades of the probe capture kumora-probe-stockbit-2026-11-09T02-01-21 (2026-11-09), as the probe decoded them: the raw protobuf bytes were not kept, so the tests encode these rows back into running_trade_batch frames. tradeWib is the trade's WIB time to the millisecond; volume is in shares; action is absent where Stockbit sent none. ajaibTwins are the Ajaib TRADE frames for the same trade numbers from kumora-probe-ajaib-2026-11-09T02-01-26, with the probe's own fields (receivedWib, co, s, eb) removed.",
   "openingMatch": [
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482296,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000662\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482339,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":7,\"value\":16240000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000663\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482341,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":2,\"value\":4640000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000664\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482341,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":2,\"value\":4640000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000665\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482341,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":2,\"value\":4640000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000666\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482342,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000667\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482342,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":14,\"value\":32480000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000668\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482342,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000669\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482342,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000670\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482342,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":5,\"value\":11600000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000671\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482344,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":6,\"value\":13920000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000672\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482344,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":2,\"value\":4640000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000673\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482344,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000674\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482344,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":3,\"value\":6960000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000675\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482344,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000676\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482345,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000677\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482347,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000678\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482347,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000679\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482348,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000680\",\"returnPct\":0.76}",
-   "{\"ticker\":\"UNTR\",\"updateTime\":1794189482348,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000681\",\"returnPct\":0.76}"
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 100,
+      "board": 1,
+      "tradeNumber": 662
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 700,
+      "board": 1,
+      "tradeNumber": 663
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 200,
+      "board": 1,
+      "tradeNumber": 664
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 200,
+      "board": 1,
+      "tradeNumber": 665
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 200,
+      "board": 1,
+      "tradeNumber": 666
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 100,
+      "board": 1,
+      "tradeNumber": 667
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 1400,
+      "board": 1,
+      "tradeNumber": 668
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 100,
+      "board": 1,
+      "tradeNumber": 669
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 100,
+      "board": 1,
+      "tradeNumber": 670
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 500,
+      "board": 1,
+      "tradeNumber": 671
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 600,
+      "board": 1,
+      "tradeNumber": 672
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 200,
+      "board": 1,
+      "tradeNumber": 673
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 100,
+      "board": 1,
+      "tradeNumber": 674
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 300,
+      "board": 1,
+      "tradeNumber": 675
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 100,
+      "board": 1,
+      "tradeNumber": 676
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 100,
+      "board": 1,
+      "tradeNumber": 677
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 100,
+      "board": 1,
+      "tradeNumber": 678
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 100,
+      "board": 1,
+      "tradeNumber": 679
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 100,
+      "board": 1,
+      "tradeNumber": 680
+    },
+    {
+      "tradeWib": "08:58:00.000",
+      "code": "UNTR",
+      "price": 23200,
+      "volume": 100,
+      "board": 1,
+      "tradeNumber": 681
+    }
   ],
-  "tn": [
-   "{\"ticker\":\"ENRG\",\"updateTime\":1794189608756,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"BUY\",\"price\":550,\"lot\":1,\"value\":55000,\"tradedAt\":\"2026-11-09T09:00:01.000+07:00\",\"tradeNum\":\"202611090000026320\",\"returnPct\":-0.91}"
-  ]
- }
+  "session1": [
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BREN",
+      "price": 2130,
+      "volume": 1700,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22265
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22266
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 200,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22267
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22268
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22269
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 3000,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22270
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 200,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22271
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 400,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22272
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 15000,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22273
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 900,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22274
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22275
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22276
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22277
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22278
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 200,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22279
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 500,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22280
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 300,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22281
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 2000,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22282
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 400,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22283
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22284
+    },
+    {
+      "tradeWib": "09:00:00.002",
+      "code": "BBNI",
+      "price": 3410,
+      "volume": 6100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22285
+    },
+    {
+      "tradeWib": "09:00:00.030",
+      "code": "KPIG",
+      "price": 25,
+      "volume": 100,
+      "action": 2,
+      "board": 1,
+      "tradeNumber": 22286
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 200,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22287
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 10000,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22288
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22289
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22290
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 20500,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22291
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 20000,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22292
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 200,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22293
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 2300,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22294
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 400,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22295
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22296
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22297
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 300,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22298
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 10000,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22299
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22300
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 1500,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22301
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 400,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22302
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22303
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22304
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 200,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22305
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 5000,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22306
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 5000,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22307
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 1500,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22308
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 1000,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22309
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 1200,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22310
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22311
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 1000,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22312
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22313
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 300,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22314
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 300,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22315
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 300,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22316
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22317
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22318
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22319
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 2200,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22320
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 800,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22321
+    },
+    {
+      "tradeWib": "09:00:00.153",
+      "code": "BBRI",
+      "price": 2840,
+      "volume": 2200,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22322
+    },
+    {
+      "tradeWib": "09:00:00.743",
+      "code": "BRMS",
+      "price": 322,
+      "volume": 58300,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22323
+    },
+    {
+      "tradeWib": "09:00:00.743",
+      "code": "TLKM",
+      "price": 2030,
+      "volume": 2000,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22324
+    },
+    {
+      "tradeWib": "09:00:00.743",
+      "code": "TINS",
+      "price": 3430,
+      "volume": 500,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22325
+    },
+    {
+      "tradeWib": "09:00:00.743",
+      "code": "TINS",
+      "price": 3430,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22326
+    },
+    {
+      "tradeWib": "09:00:00.743",
+      "code": "TINS",
+      "price": 3430,
+      "volume": 400,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22327
+    },
+    {
+      "tradeWib": "09:00:00.743",
+      "code": "TINS",
+      "price": 3430,
+      "volume": 400,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22328
+    },
+    {
+      "tradeWib": "09:00:00.743",
+      "code": "TINS",
+      "price": 3430,
+      "volume": 100,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22329
+    },
+    {
+      "tradeWib": "09:00:00.743",
+      "code": "TINS",
+      "price": 3430,
+      "volume": 8600,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22330
+    },
+    {
+      "tradeWib": "09:00:00.744",
+      "code": "AALI",
+      "price": 9425,
+      "volume": 600,
+      "action": 1,
+      "board": 1,
+      "tradeNumber": 22331
+    }
+  ],
+  "boards": [
+    {
+      "tradeWib": "09:00:01.645",
+      "code": "ENRG",
+      "price": 550,
+      "volume": 100,
+      "action": 1,
+      "board": 2,
+      "tradeNumber": 26320
+    },
+    {
+      "tradeWib": "09:00:05.737",
+      "code": "AIMS",
+      "price": 1465,
+      "volume": 3100,
+      "board": 3,
+      "tradeNumber": 30536
+    },
+    {
+      "tradeWib": "09:00:05.868",
+      "code": "PJHB",
+      "price": 97,
+      "volume": 50,
+      "board": 3,
+      "tradeNumber": 30549
+    }
+  ],
+  "ajaibTwins": {
+    "openingMatch": [
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482296,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000662\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482339,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":7,\"value\":16240000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000663\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482341,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":2,\"value\":4640000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000664\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482341,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":2,\"value\":4640000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000665\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482341,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":2,\"value\":4640000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000666\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482342,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000667\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482342,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":14,\"value\":32480000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000668\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482342,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000669\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482342,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000670\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482342,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":5,\"value\":11600000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000671\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482344,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":6,\"value\":13920000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000672\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482344,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":2,\"value\":4640000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000673\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482344,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000674\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482344,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":3,\"value\":6960000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000675\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482344,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000676\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482345,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000677\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482347,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000678\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482347,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000679\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482348,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000680\",\"returnPct\":0.76}",
+      "{\"ticker\":\"UNTR\",\"updateTime\":1794189482348,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"SELL\",\"price\":23200,\"lot\":1,\"value\":2320000,\"tradedAt\":\"2026-11-09T08:58:00.000+07:00\",\"tradeNum\":\"202611090000000681\",\"returnPct\":0.76}"
+    ],
+    "tn": [
+      "{\"ticker\":\"ENRG\",\"updateTime\":1794189608756,\"buyer\":\"\",\"seller\":\"\",\"buyerType\":null,\"sellerType\":null,\"type\":\"BUY\",\"price\":550,\"lot\":1,\"value\":55000,\"tradedAt\":\"2026-11-09T09:00:01.000+07:00\",\"tradeNum\":\"202611090000026320\",\"returnPct\":-0.91}"
+    ]
+  }
 }

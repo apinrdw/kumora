@@ -10,7 +10,8 @@ import { DateTime, Effect, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
 import type { RunningTrade } from "./envelope.ts"
-import { SHARES_PER_LOT, Sweep } from "./envelope.ts"
+import { Sweep } from "./envelope.ts"
+import { SHARES_PER_LOT } from "./order-book.ts"
 
 // Appends `next` to `sweeps` in place, each in turn after the last: one that
 // shares the last's side and second carries it on, any other starts a sweep.

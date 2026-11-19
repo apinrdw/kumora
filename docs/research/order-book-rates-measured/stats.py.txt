@@ -1,0 +1,28 @@
+import json,sys,statistics as st
+from collections import defaultdict
+def pct(xs,p):
+    xs=sorted(xs); return xs[min(len(xs)-1,int(p/100*len(xs)))] if xs else 0
+for name in sys.argv[1:]:
+    d=json.load(open(name))
+    perminute=defaultdict(list); sizes=[]; persec=defaultdict(int); bytesec=defaultdict(int); levels=[]
+    percode=defaultdict(int); minutes=set()
+    for key,frames in d.items():
+        code,minute=key.split('@'); minutes.add(minute)
+        n=len(frames or [])
+        if n: perminute[minute].append(n); percode[code]+=n
+        for at,size,b,o in frames or []:
+            sizes.append(size); persec[at//1000]+=1; bytesec[at//1000]+=size; levels.append(b+o)
+    M=len(minutes)
+    active=[len(v) for v in perminute.values()]
+    rates=[c/(M*60) for c in percode.values()]
+    secs=list(persec.values())
+    top=sorted(percode.items(),key=lambda x:-x[1])[:5]
+    tot=sum(percode.values()); top250=sum(sorted(percode.values(),reverse=True)[:250])
+    print(f"== {name}: {M} min")
+    print(f" codes with a frame per minute: median {st.median(active):.0f} (min {min(active)}, max {max(active)}); codes with any frame {len(percode)}")
+    print(f" served books/s: mean {tot/(M*60):.1f}, p50 sec {pct(secs,50)}, p95 sec {pct(secs,95)}, max sec {max(secs)}")
+    print(f" per-code updates/s among active: median {st.median(rates):.3f}, p90 {pct(rates,90):.3f}, p99 {pct(rates,99):.2f}, max {max(rates):.2f}")
+    print(f" top: {[(c,round(n/(M*60),2)) for c,n in top]}; top 250 share {top250/tot:.2f}")
+    print(f" served book JSON bytes: median {st.median(sizes):.0f}, p90 {pct(sizes,90)}, levels b+o median {st.median(levels):.0f}")
+    bs=list(bytesec.values())
+    print(f" uncompressed whole-book bytes/s to each viewer: mean {sum(bs)/(M*60)/1024:.0f} KB/s, p95 sec {pct(bs,95)/1024:.0f} KB/s, max sec {max(bs)/1024:.0f} KB/s")

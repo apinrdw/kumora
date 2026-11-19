@@ -1,9 +1,12 @@
 import { Effect, Option, Order, Schema, SchemaGetter } from "effect"
 
+import { BookEvent } from "./book-events.ts"
+import { BookReadings } from "./book-readings.ts"
 import { StockCode } from "./codes.ts"
 import { IndicativePrice, MarketConditions } from "./market-conditions.ts"
 import { DayState } from "./day-state.ts"
 import { IndexHasNoBook, OrderBook } from "./order-book.ts"
+import { ScannerFigures } from "./scanner-figures.ts"
 import type { WibDate } from "./schedule.ts"
 
 // Bump on any change to an ingest message's shape. The dashboard accepts this
@@ -24,7 +27,11 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 5: candles carry their buy value and sell value, and snapshots and deltas
 // the instant they were sent (spec apinrdw/kumora#427).
 // 6: deltas and snapshots carry sweep alerts (spec apinrdw/kumora#510).
-export const ViewerProtocolVersion = 6
+// 7: deltas carry whole order books only for selected codes and every
+// changed code's book readings and the book events found since the last;
+// snapshots carry every code's readings, scanner figures and the latest book
+// events (spec apinrdw/kumora#517).
+export const ViewerProtocolVersion = 7
 
 // Decision: an extension that hits either code stops retrying that target and
 // shows it; any other close, 1006 included, retries with backoff. The token
@@ -262,9 +269,6 @@ export const groupedNumber = (text: string) =>
 // or a walk after the close, on a day whose tape source is the walks.
 const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill", "walk"])
 
-// The shares in one IDX lot.
-export const SHARES_PER_LOT = 100
-
 // One trade on the whole-market tape, merged across feeds. Its trade number is
 // the bare daily sequence, one market-wide numbering per trading day. Value is
 // price × lots × SHARES_PER_LOT, so it does not travel.
@@ -451,13 +455,24 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   // The day's sweep alerts with a trade on this tape, which the page marks
   // and never plays. Absent when none has.
   sweepAlerts: Schema.optionalKey(Schema.Array(SweepAlert)),
+  // Every code's latest book readings. Absent when no code has any yet.
+  bookReadings: Schema.optionalKey(Schema.Array(BookReadings)),
+  // The scanner's figures of every code with readings: its last price,
+  // previous close, regular-board value today and previous trading day's
+  // value. Absent when no code has readings yet.
+  scannerFigures: Schema.optionalKey(Schema.Array(ScannerFigures)),
+  // The day's newest SNAPSHOT_BOOK_EVENTS (book-events.ts) book events of every code, oldest
+  // first. Absent when there are none.
+  bookEvents: Schema.optionalKey(Schema.Array(BookEvent)),
+  // The selected code's newest MAX_CODE_BOOK_EVENTS (book-events.ts) book
+  // events of the day, oldest first. Absent when it has none.
+  selectedBookEvents: Schema.optionalKey(Schema.Array(BookEvent)),
 })
 
 // The running trades that arrived in the last ~250 ms, ascending by trade
 // number. A late trade sorts below ones the viewer already holds. Candles are
 // every candle that changed since the last delta, of any code, each whole: the
-// page keeps its selected code's. Order books likewise: every code's whose
-// served book changed, each whole.
+// page keeps its selected code's.
 const Delta = Schema.TaggedStruct("Delta", {
   at: SentAt,
   tape: Schema.Array(RunningTrade),
@@ -479,7 +494,20 @@ const Delta = Schema.TaggedStruct("Delta", {
   // Every changed Day state of a code some viewer selected or watches, each
   // whole. Absent when none changed.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),
+  // Every served book that changed since the last delta of a code some
+  // viewer selected, each whole: the page reads only its selected code's.
+  // Absent when none changed.
   orderBooks: Schema.optionalKey(Schema.Array(OrderBook)),
+  // The readings of every code whose served book changed since the last
+  // delta, whatever each viewer selected, taken only in Sessions 1 and 2.
+  // Absent when none changed.
+  bookReadings: Schema.optionalKey(Schema.Array(BookReadings)),
+  // The scanner's figures of every code with readings whose figures differ
+  // from what the viewers were last sent. Absent when none does.
+  scannerFigures: Schema.optionalKey(Schema.Array(ScannerFigures)),
+  // The book events of every code found since the last delta, oldest first.
+  // Absent when none was.
+  bookEvents: Schema.optionalKey(Schema.Array(BookEvent)),
   // Present only when they changed.
   conditions: Schema.optionalKey(MarketConditions),
   // Every code's that changed, whatever each viewer selected.
