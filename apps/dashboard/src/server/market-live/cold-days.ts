@@ -14,10 +14,12 @@ import {
 import type { WorkerEnv } from "@workspace/server"
 import { Effect, Schema } from "effect"
 
+import { coldTapeAnswer, writeTape, type TapeSource } from "./cold-tape.ts"
 import { SEALED_CACHE } from "./routes.ts"
 
 // The binding's members the move and the read use; R2Bucket meets this shape
-// under Workers types, as bucket-r2.ts explains.
+// under Workers types, as bucket-r2.ts explains. A `range` reads `length`
+// bytes from `offset`.
 export interface DayBucket {
   readonly put: (
     key: string,
@@ -25,7 +27,10 @@ export interface DayBucket {
     options: { readonly httpMetadata: { readonly contentType: string } }
   ) => Promise<unknown>
   readonly get: (
-    key: string
+    key: string,
+    options?: {
+      readonly range: { readonly offset: number; readonly length: number }
+    }
   ) => Promise<{ readonly body: ReadableStream } | null>
 }
 
@@ -49,8 +54,8 @@ const Manifest = Schema.Struct({ viewerProtocol: Schema.Int })
 const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(Manifest))
 
 // The key of a resource answered by one stored object; none for a resource
-// still answered by the day's object. Tape, BrokerCodes (#578) and Book
-// (#579) read ranges instead.
+// still answered by the day's object. Tape and BrokerCodes read tape blocks
+// (cold-tape.ts), and Book (#579) reads ranges too.
 const answerKey = (date: WibDate, resource: RecordedResource) => {
   switch (resource._tag) {
     case "Codes":
@@ -108,7 +113,8 @@ export interface ColdTarget {
   readonly markCold: Effect.Effect<void, unknown, WorkerEnv>
 }
 
-// Moves a sealed day's answers to R2: each answer, then `status.json`, then
+// Moves a sealed day's answers to R2: each answer, the tape's blocks and
+// index (cold-tape.ts), then `status.json`, then
 // `manifest.json`, then the index marks the day cold. Each step rewrites the
 // same key, so a move that fails partway leaves the day hot, and a retry is
 // safe. An answer that isn't a 200 (a day with no code list) is not written,
@@ -129,6 +135,7 @@ export const moveDay = Effect.fnUntraced(function* (options: {
   readonly status: Effect.Effect<Response, unknown>
   // The codes the day's code list names; their views are stored per code.
   readonly codes: ReadonlyArray<StockCode>
+  readonly tape: TapeSource
 }) {
   const { date, target } = options
   for (const resource of [
@@ -142,6 +149,9 @@ export const moveDay = Effect.fnUntraced(function* (options: {
     if (response.status !== 200) continue
     yield* put(target.bucket, key, gzipSync(text), "application/json")
   }
+  yield* writeTape(answerFolder(date), options.tape, (key, body) =>
+    put(target.bucket, key, body, "application/octet-stream")
+  )
   const status = yield* options.status
   yield* put(
     target.bucket,
@@ -189,6 +199,11 @@ export const coldAnswer = Effect.fnUntraced(function* (
   date: WibDate,
   resource: RecordedResource
 ) {
+  if (resource._tag === "Tape" || resource._tag === "BrokerCodes")
+    return (
+      (yield* coldTapeAnswer(bucket, answerFolder(date), resource)) ??
+      (yield* notStored)
+    )
   const key = answerKey(date, resource)
   if (key === undefined) return undefined
   const stored = yield* Effect.promise(() => bucket.get(key))

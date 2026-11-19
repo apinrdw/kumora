@@ -1,6 +1,6 @@
 // The recorded days bucket (cold-days.ts) in memory: `objects` holds each
-// key's stored bytes, `reads` each key read, in order, and a key in
-// `refused` fails its put, as R2 down.
+// key's stored bytes, and a key in `refused` fails its put, as R2 down.
+// `reads` lists each get, in order: its key and, for a range read, the range.
 import { gunzipSync } from "node:zlib"
 
 import { Effect } from "effect"
@@ -25,14 +25,22 @@ export const memoryDayBucket = () => {
               )
             })
       ),
-    get: (key) =>
+    get: (key, options) =>
       Effect.runPromise(
         Effect.sync(() => {
-          reads.push(key)
+          const range = options?.range
+          reads.push(
+            range === undefined ? key : `${key} ${range.offset}+${range.length}`
+          )
           const stored = objects.get(key)
-          return stored === undefined
-            ? null
-            : { body: new Response(stored).body! }
+          if (stored === undefined) return null
+          return {
+            body: new Response(
+              range === undefined
+                ? stored
+                : stored.slice(range.offset, range.offset + range.length)
+            ).body!,
+          }
         })
       ),
   }

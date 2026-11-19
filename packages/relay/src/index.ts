@@ -50,6 +50,7 @@ export {
   MarketLivePath,
   OnDemandCodes,
   ProtocolVersionMismatch,
+  RunningTrade,
   Select,
   SHARES_PER_LOT,
   Side,
@@ -81,7 +82,6 @@ export type {
   IngestDown,
   IngestUp,
   MinuteSweeps,
-  RunningTrade,
   Sweep,
   AlertSide,
   SweepAlert,
@@ -166,13 +166,13 @@ export {
   encodeBrokerCodesStatus,
   stockbitRowCodes,
   stockbitRowFields,
+  TradeCodes,
 } from "./broker-codes.ts"
 export type {
   BatchRow,
   BrokerCodesBatch,
   BrokerCodesStatus,
   CrossCheck,
-  TradeCodes,
   TradeFields,
 } from "./broker-codes.ts"
 export type { RecordedSweeps } from "./sweeps.ts"

@@ -192,6 +192,10 @@ const ihsgOf = Effect.fnUntraced(function* (price: LivePrice | undefined) {
 
 const IHSG = StockCode.make("IHSG")
 
+// An instant after any trade a day holds: a tape cursor there reads by
+// trade number alone, as the move walks the tape back (cold-tape.ts).
+const AFTER_EVERY_TRADE = DateTime.makeUnsafe(8_640_000_000_000_000)
+
 // One row per code from two flushes' rows, the later flush's replacing the
 // earlier's.
 const latestByCode = <T extends { readonly code: StockCode }>(
@@ -1541,6 +1545,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       answer: recorded,
       status: brokerCodes.status(new URLSearchParams()),
       codes: [...((yield* listedCodes(codeListStore)) ?? [])],
+      tape: {
+        below: (before, limit) =>
+          store.tradesAt(
+            before === undefined
+              ? { at: AFTER_EVERY_TRADE }
+              : { at: AFTER_EVERY_TRADE, before },
+            limit
+          ),
+        codes: (tradeNumbers) => brokerCodes.heldCodes(tradeNumbers),
+        complete: brokerCodes.codesComplete,
+      },
     })
     return true
   })
