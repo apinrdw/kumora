@@ -340,7 +340,7 @@ export const sweepTip = Effect.fnUntraced(function* (
 // The note under the log header while a day's codes are incomplete: how
 // many sweeps and auction matches up to `at` (epoch ms), as grouped before
 // any split, have their entry, of all of them; and, while the page asks for
-// them again (`asksAgain`), how often. A cold day's codes stay as they are.
+// them again (`asksAgain`), how often. A final answer is not asked again.
 export const arrivingNote = (
   sweeps: ReadonlyArray<Sweep>,
   brokers: ReadonlyMap<TradeNumber, SweepBrokers>,

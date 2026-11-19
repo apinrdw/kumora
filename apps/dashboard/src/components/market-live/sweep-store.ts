@@ -73,7 +73,7 @@ export interface SweepStore {
   // answered; true until it answers otherwise, so live shows no note.
   readonly brokersComplete: () => boolean
   // Whether the page asks the sweep brokers GET again after its last
-  // answer: not once complete, nor on a cold day.
+  // answer: not once that answer is final.
   readonly brokersAskedAgain: () => boolean
   readonly answerBrokers: (
     answer: RecordedSweepBrokers,

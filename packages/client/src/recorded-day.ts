@@ -164,7 +164,7 @@ export const makeNewestWins = Effect.sync(() => {
     })
 })
 
-// Decision: while the day's codes are incomplete, the page asks again every
+// Decision: until the day's codes answer is final, the page asks again every
 // 30 s (spec apinrdw/kumora#280, "Recheck"); the walks store codes for over
 // an hour after the seal. The sweep log's note names it (`arrivingNote` in
 // apps/dashboard/src/lib/sweeps.ts).
