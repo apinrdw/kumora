@@ -462,12 +462,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   let orderFlowBuilt = yield* orderFlowBuiltAtStart(store)
   // Midnight WIB after the day, in epoch ms.
   const dayEnd = DateTime.toEpochMillis(yield* wibDayEnd(options.date))
-  // Decision: an object restores the live day from its store unless the day
-  // is sealed and past: a past day's object answers recorded day GETs
-  // straight from the store, and broker codes POSTs and status GETs from its
-  // own tables (broker-codes.ts). Today's still serves viewers and its
-  // bubbles answer after the seal (recorded-answers.ts, `bubblesAnswer`).
-  const restoring = !sealed || today
   // Decision: a viewer is served only until the object's day ends: past it,
   // the socket is closed with 1001 when it would next be served, and the page
   // reconnects through the gate to today's object. A ban, revoke or delete
@@ -492,22 +486,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
     return false
   })
-  const tape: Array<RunningTrade> = restoring
-    ? [...(yield* store.newestTrades(TAPE_LIMIT))]
-    : []
+  const tape: Array<RunningTrade> = []
   // The highest number stored before this object started: a number at or
   // below it that the tape lacks may be stored already.
-  const storedHighest = restoring ? yield* store.highestTrade : undefined
+  let storedHighest: Effect.Success<typeof store.highestTrade>
   const storedDowns = yield* store.fact(Fact.feedDowns)
   // Trades viewers haven't been sent since the last delta, new or changed,
   // by trade number.
   let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
-  const bubbles = yield* makeBubbleBook(
-    restoring
-      ? yield* store.storedBubbles(BUBBLE_MINUTES)
-      : { days: [], minutes: [] }
-  )
+  const bubbles = yield* makeBubbleBook
   const candles = yield* makeCandleBook(store, bubbles.settled)
   const keptAlerts = yield* makeKeptAlerts
   const ingests = options.ingests ?? Effect.succeed([])
@@ -531,16 +519,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // none were recorded. See spec apinrdw/kumora#517, "Book events".
   let bookEventsMarked = (yield* store.fact(Fact.bookEvents)) !== undefined
   let bookEventsRead = false
-  const gaps = yield* makeGaps({ ingests, highest: storedHighest })
+  const gaps = yield* makeGaps({ ingests })
   const dayStates = yield* makeDayStates(candles)
   const onDemand = yield* makeOnDemand({ viewers: options.viewers, ingests })
   const feedLags = yield* makeFeedLagLog
-  const market = yield* makeMarketConditions(
-    options.date,
-    restoring && storedDowns !== undefined
-      ? (JSON.parse(storedDowns) as DownRecord)
-      : undefined
-  )
+  const market = yield* makeMarketConditions(options.date)
   // Each code's newest `liveprice` frame, merged over the ones before it, and
   // the codes' whose changed since the last flush.
   const lastLivePrices = new Map<StockCode, LivePrice>()
@@ -554,7 +537,23 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // the candle book keeps; the next flush writes it.
   let unwritten: Pick<Flush, "livePrices" | "chunks" | "ajaibBooks"> | undefined
 
-  if (restoring) {
+  // The feeds' down stretches read back from the store, before the relay's
+  // token or close changes them.
+  const liveDowns = yield* Effect.cached(
+    Effect.suspend(() =>
+      storedDowns === undefined
+        ? Effect.void
+        : market.restore(JSON.parse(storedDowns) as DownRecord)
+    )
+  )
+  // The live day read back from the store: the tape, the bubble book, the
+  // feeds' down stretches and the last frames.
+  const restoreLive = Effect.gen(function* () {
+    tape.push(...(yield* store.newestTrades(TAPE_LIMIT)))
+    storedHighest = yield* store.highestTrade
+    yield* gaps.restore(storedHighest)
+    yield* bubbles.restore(yield* store.storedBubbles(BUBBLE_MINUTES))
+    yield* liveDowns
     for (const price of yield* restoreLastFrames({
       store,
       candles,
@@ -565,7 +564,23 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }))
       lastLivePrices.set(price.code, price)
     yield* candles.rankStored
-  }
+  })
+  // Decision: a day not sealed restores the live day at its start, a sealed
+  // past day never. Today's sealed day restores it once, when a viewer's
+  // Select or the bubbles answer first needs it: its object wakes for every
+  // broker codes recheck until midnight, and a busy day's restore read
+  // 1.4–2.9 M rows. See apinrdw/kumora#589.
+  //
+  // Recorded day GETs and broker codes read the store (recorded-answers.ts,
+  // broker-codes.ts); the relay's token and close need only the downs. The
+  // restore is never interrupted halfway, and run once: a failed one fails
+  // each callback that needs it until the object is evicted, as a half-done
+  // one run again would count its trades twice.
+  const liveDay =
+    sealed && !today
+      ? Effect.void
+      : yield* Effect.cached(Effect.uninterruptible(restoreLive))
+  if (!sealed) yield* liveDay
 
   // The order book and Day state fall back to Ajaib while Stockbit's freshness
   // isn't live: delayed falls over as stale does.
@@ -1420,6 +1435,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       if ((yield* socket.state) === "new") {
         const token = yield* firstToken(text)
         if (token !== undefined && (yield* ingestTokenMatches(token))) {
+          yield* liveDowns
           yield* socket.setState("ready")
           yield* market.relayOnline
           yield* scheduleDelta
@@ -1482,6 +1498,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           "Select too long"
         )
       const { selected, watchlist } = yield* decodeViewerUp(text)
+      yield* liveDay
       const live = yield* stockbitLive
       const orderBook = yield* books.bookOf(selected, live)
       // The selected code first: on-demand.ts reads it back as the selection.
@@ -1563,6 +1580,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         (yield* other.state) === "ready"
       )
         return
+    yield* liveDowns
     yield* market.relayOffline
     yield* scheduleDelta
     if (!sealed) yield* flush(false)
@@ -1631,7 +1649,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
             ended || source === "walk",
             Effect.suspend(() =>
               bubblesBody === undefined
-                ? buildBubbles
+                ? Effect.andThen(liveDay, buildBubbles)
                 : Effect.succeed(bubblesBody)
             )
           )

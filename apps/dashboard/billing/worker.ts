@@ -2,7 +2,7 @@
 // (tests/server/market-live/workerd.ts bundles it). One trading-day object,
 // named by the busy day's date: POST /build builds the busy day, and
 // GET /billed?operation=<name> answers what that operation billed.
-import { Effect, Layer } from "effect"
+import { Clock, DateTime, Effect, Layer } from "effect"
 
 import { BrokerTotalsDb } from "../src/server/broker-totals/db.ts"
 import { Fact, type Sql } from "../src/server/market-live/day-store.ts"
@@ -44,7 +44,34 @@ const restaged = (sql: Sql, stored: Operation["stored"]) =>
       sql.exec("DELETE FROM facts WHERE key = ?", Fact.codesComplete)
   })
 
-const billed = Effect.fnUntraced(function* (
+// The real clock moved to `at`, running on from there.
+const clockAt = (at: string): Clock.Clock => {
+  const real = Clock.Clock.defaultValue()
+  const offset =
+    DateTime.toEpochMillis(DateTime.makeUnsafe(at)) -
+    real.currentTimeMillisUnsafe()
+  const millis = () => real.currentTimeMillisUnsafe() + offset
+  return {
+    currentTimeMillisUnsafe: millis,
+    currentTimeMillis: Effect.sync(millis),
+    currentTimeNanosUnsafe: () => BigInt(millis()) * 1_000_000n,
+    currentTimeNanos: Effect.sync(() => BigInt(millis()) * 1_000_000n),
+    monotonicTimeNanosUnsafe: () => real.monotonicTimeNanosUnsafe(),
+    monotonicTimeNanos: real.monotonicTimeNanos,
+    sleep: (duration) => real.sleep(duration),
+  }
+}
+
+const billed = (storage: DurableObjectStorage, operation: Operation) =>
+  operation.at === undefined
+    ? billedNow(storage, operation)
+    : Effect.provideService(
+        billedNow(storage, operation),
+        Clock.Clock,
+        clockAt(operation.at)
+      )
+
+const billedNow = Effect.fnUntraced(function* (
   storage: DurableObjectStorage,
   operation: Operation
 ) {

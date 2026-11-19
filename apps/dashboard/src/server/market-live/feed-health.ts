@@ -152,9 +152,6 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
   // Where the record starts: the feeds count as down from here until the
   // relay first delivers.
   readonly since: DateTime.Utc
-  // What an object stored before it restarted at `at`. A feed up when the
-  // record was stored counts as down again from the restart.
-  readonly restored?: { readonly record: DownRecord; readonly at: DateTime.Utc }
 }) {
   const { stretches } = options
   let relayOnline = false
@@ -162,21 +159,24 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
     Stockbit: yield* newTrack,
     Ajaib: yield* newTrack,
   }
-  for (const feed of FEEDS) {
-    const { restored } = options
-    if (restored === undefined) {
-      tracks[feed].downs.push({ from: options.since, to: undefined })
-      continue
-    }
-    const downs = tracks[feed].downs
-    for (const down of restored.record[feed])
-      downs.push({
-        from: DateTime.makeUnsafe(down.from),
-        to: down.to === undefined ? undefined : DateTime.makeUnsafe(down.to),
-      })
-    if (downs.length === 0 || downs.at(-1)?.to !== undefined)
-      downs.push({ from: restored.at, to: undefined })
-  }
+  for (const feed of FEEDS)
+    tracks[feed].downs.push({ from: options.since, to: undefined })
+
+  // What an object stored before it restarted at `at`, in place of the
+  // record so far, before any feed signed. A feed up when the record was
+  // stored counts as down again from the restart.
+  const restore = (record: DownRecord, at: DateTime.Utc) =>
+    Effect.sync(() => {
+      for (const feed of FEEDS) {
+        const downs = record[feed].map((down) => ({
+          from: DateTime.makeUnsafe(down.from),
+          to: down.to === undefined ? undefined : DateTime.makeUnsafe(down.to),
+        }))
+        if (downs.length === 0 || downs.at(-1)?.to !== undefined)
+          downs.push({ from: at, to: undefined })
+        tracks[feed].downs.splice(0, Infinity, ...downs)
+      }
+    })
 
   const freshnessAt = Effect.fnUntraced(function* (
     track: Track,
@@ -358,5 +358,14 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
     return downs
   })
 
-  return { recordLags, sign, closed, online, offline, conditionsAt, record }
+  return {
+    recordLags,
+    sign,
+    closed,
+    online,
+    offline,
+    conditionsAt,
+    record,
+    restore,
+  }
 })

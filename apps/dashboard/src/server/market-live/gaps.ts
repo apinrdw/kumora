@@ -40,14 +40,12 @@ interface Missing {
 export const makeGaps = Effect.fnUntraced(function* (options: {
   // Every ingest socket the object holds, ready or not.
   readonly ingests: Effect.Effect<ReadonlyArray<IngestPeer>>
-  // The highest number the day stored before the object restarted.
-  readonly highest?: TradeNumberValue | undefined
 }) {
   const scope = yield* Scope.Scope
   // Decision: the day's first number starts the count, and nothing below it is
   // a gap. A restarted object counts on from the highest number it stored, so
   // what the relay sent while it was down is a gap.
-  let highest: TradeNumberValue | undefined = options.highest
+  let highest: TradeNumberValue | undefined
   let missing: Array<Missing> = []
   let checkScheduled = false
 
@@ -129,5 +127,12 @@ export const makeGaps = Effect.fnUntraced(function* (options: {
     )
   })
 
-  return { seen, schedule }
+  // The highest number the day stored before the object restarted, restored
+  // before any trade arrived.
+  const restore = (stored: TradeNumberValue | undefined) =>
+    Effect.sync(() => {
+      highest = stored
+    })
+
+  return { seen, schedule, restore }
 })
