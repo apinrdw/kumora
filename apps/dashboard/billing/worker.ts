@@ -62,7 +62,7 @@ const billed = Effect.fnUntraced(function* (
     ...(operation.brokerTotals === true ? { brokerTotalsDb: unreachedDb } : {}),
   })
   const started = sql.usage!()
-  if (operation.before !== undefined) yield* operation.before(day)
+  if (operation.before !== undefined) yield* operation.before(day, sql)
   const measured = sql.usage!()
   const answer = yield* operation.measure(day, sql)
   const done = sql.usage!()
