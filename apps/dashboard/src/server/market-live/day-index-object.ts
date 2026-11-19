@@ -1,14 +1,17 @@
 // The index Durable Object: one, named `index` (routes.ts DAY_INDEX). It
 // adapts day-index.ts, which holds the behaviour. Exported from the Worker
 // entry (src/worker.ts) as `DayIndex`, the class the dashboard stack declares.
-import { decodeRecordedDay } from "@workspace/relay"
+import { WibDate, decodeRecordedDay } from "@workspace/relay"
 import { runServerEffect } from "@workspace/server"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 
 import { durableSql } from "./durable-sql.ts"
 import { makeDayIndex } from "./day-index.ts"
 import { withMarketClock } from "./market-clock.ts"
 import { respond } from "./respond.ts"
+import { DayIndexColdPath } from "./routes.ts"
+
+const decodeDate = Schema.decodeUnknownEffect(WibDate)
 
 // Decision: a plain class, like the trading-day object: fetch only, and only
 // the bridge may import `cloudflare:workers`.
@@ -27,16 +30,23 @@ export class DayIndexObject {
     )
   }
 
-  // POST: a sealed day's row. GET: the day strip. The runner logs any
-  // failure.
+  // POST: a sealed day's row, or at DayIndexColdPath a cold day's date.
+  // GET: the day strip. The runner logs any failure.
   fetch(request: Request): Promise<Response> {
+    const body = Effect.promise(() => request.text())
+    const posted =
+      new URL(request.url).pathname === DayIndexColdPath
+        ? body.pipe(
+            Effect.flatMap(decodeDate),
+            Effect.flatMap(this.index.markCold)
+          )
+        : body.pipe(
+            Effect.flatMap(decodeRecordedDay),
+            Effect.flatMap(this.index.record)
+          )
     const answer =
       request.method === "POST"
-        ? Effect.promise(() => request.text()).pipe(
-            Effect.flatMap(decodeRecordedDay),
-            Effect.flatMap(this.index.record),
-            Effect.as(new Response(null, { status: 204 }))
-          )
+        ? Effect.as(posted, new Response(null, { status: 204 }))
         : withMarketClock(this.index.strip)
     return respond(answer)
   }

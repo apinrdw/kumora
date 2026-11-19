@@ -1,0 +1,170 @@
+// Cold days in R2 (spec apinrdw/kumora#556, "The layout" and "The move"): a
+// sealed day's finished answers, gzipped, in the stage's recorded days bucket
+// (DAYS_BUCKET in alchemy.run.ts). This module holds the key layout, the move
+// that writes a day's answers and marks it cold, and the read the Worker
+// answers a cold day's GET with (days.ts).
+import { gzipSync } from "node:zlib"
+
+import {
+  ViewerProtocolVersion,
+  type RecordedResource,
+  type WibDate,
+} from "@workspace/relay"
+import type { WorkerEnv } from "@workspace/server"
+import { Effect, Schema } from "effect"
+
+import { SEALED_CACHE } from "./routes.ts"
+
+// The binding's members the move and the read use; R2Bucket meets this shape
+// under Workers types, as bucket-r2.ts explains.
+export interface DayBucket {
+  readonly put: (
+    key: string,
+    body: Uint8Array | string,
+    options: { readonly httpMetadata: { readonly contentType: string } }
+  ) => Promise<unknown>
+  readonly get: (
+    key: string
+  ) => Promise<{ readonly body: ReadableStream } | null>
+}
+
+// Decision: a day's keys sit under `days/{date}/`. Its answers sit under
+// the viewer protocol's version, as each was built for that version's page;
+// `status.json` (the broker codes protocol's) and `manifest.json` sit beside
+// that folder. A later change to an answer's format converts on read or
+// rewrites the day R2 to R2. See spec apinrdw/kumora#556, "The layout".
+const dayFolder = (date: WibDate) => `days/${date}`
+const answerFolder = (date: WibDate) =>
+  `${dayFolder(date)}/v${ViewerProtocolVersion}`
+
+// The day's final broker codes status, as its status GET answered at the
+// move (`after` 0: every missing range).
+const statusKey = (date: WibDate) => `${dayFolder(date)}/status.json`
+
+// Written last: its presence means the day moved whole.
+const manifestKey = (date: WibDate) => `${dayFolder(date)}/manifest.json`
+
+const Manifest = Schema.Struct({ viewerProtocol: Schema.Int })
+const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(Manifest))
+
+// The key of a resource answered by one stored object; none for a resource
+// still answered by the day's object.
+// #577 adds Candles, Sweeps, SweepBrokers and Heatmap here, one object per
+// code; Tape, BrokerCodes (#578) and Book (#579) read ranges instead.
+const answerKey = (date: WibDate, resource: RecordedResource) => {
+  switch (resource._tag) {
+    case "Codes":
+      return `${answerFolder(date)}/codes.json.gz`
+    case "Gaps":
+      return `${answerFolder(date)}/gaps.json.gz`
+    default:
+      return undefined
+  }
+}
+
+// The resources the move writes, each once for the day.
+const DAY_RESOURCES: ReadonlyArray<RecordedResource> = [
+  { _tag: "Codes" },
+  { _tag: "Gaps" },
+]
+
+// R2 refused a write; the move stops before the day is marked cold.
+class ColdWriteFailed extends Schema.TaggedError<ColdWriteFailed>()(
+  "ColdWriteFailed",
+  { key: Schema.String, cause: Schema.Defect() }
+) {}
+
+const put = (
+  bucket: DayBucket,
+  key: string,
+  body: Uint8Array | string,
+  contentType: string
+) =>
+  Effect.tryPromise({
+    try: () => bucket.put(key, body, { httpMetadata: { contentType } }),
+    catch: (cause) => new ColdWriteFailed({ key, cause }),
+  })
+
+// What a move writes to and tells.
+export interface ColdTarget {
+  readonly bucket: DayBucket
+  // Marks the day cold in the day index; run once the manifest is written.
+  readonly markCold: Effect.Effect<void, unknown, WorkerEnv>
+}
+
+// Moves a sealed day's answers to R2: each answer, then `status.json`, then
+// `manifest.json`, then the index marks the day cold. Each step rewrites the
+// same key, so a move that fails partway leaves the day hot, and a retry is
+// safe. An answer that isn't a 200 (a day with no code list) is not written,
+// so the cold read answers it 404.
+export const moveDay = Effect.fnUntraced(function* (options: {
+  readonly date: WibDate
+  readonly target: ColdTarget
+  // The day's own answer to a recorded day GET (recorded-answers.ts).
+  readonly answer: (
+    resource: RecordedResource
+  ) => Effect.Effect<Response, unknown, WorkerEnv>
+  // The day's broker codes status answer.
+  readonly status: Effect.Effect<Response, unknown>
+}) {
+  const { date, target } = options
+  for (const resource of DAY_RESOURCES) {
+    const key = answerKey(date, resource)
+    if (key === undefined) continue
+    const response = yield* options.answer(resource)
+    const text = yield* Effect.promise(() => response.text())
+    if (response.status !== 200) continue
+    yield* put(target.bucket, key, gzipSync(text), "application/json")
+  }
+  const status = yield* options.status
+  yield* put(
+    target.bucket,
+    statusKey(date),
+    yield* Effect.promise(() => status.text()),
+    "application/json"
+  )
+  yield* put(
+    target.bucket,
+    manifestKey(date),
+    yield* encodeManifest({ viewerProtocol: ViewerProtocolVersion }),
+    "application/json"
+  )
+  yield* target.markCold
+})
+
+// The stored bytes, sent as they are: the browser decodes the gzip.
+// Decision: `encodeBody: "manual"` keeps workerd from gzipping the stored gzip
+// again. Set through a variable, as the tests' typecheck has no Workers
+// types, whose ResponseInit names it.
+const storedGzip = (body: ReadableStream) =>
+  Effect.sync(() => {
+    const init = {
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Encoding": "gzip",
+        "Cache-Control": SEALED_CACHE,
+      },
+      encodeBody: "manual" as const,
+    }
+    return new Response(body, init)
+  })
+
+const notStored = Effect.sync(() =>
+  Response.json(
+    { error: "NotFound", message: "Not recorded" },
+    { status: 404, headers: { "Cache-Control": "no-store" } }
+  )
+)
+
+// A cold day's answer to `resource` from R2; none for a resource still
+// answered by the day's object.
+export const coldAnswer = Effect.fnUntraced(function* (
+  bucket: DayBucket,
+  date: WibDate,
+  resource: RecordedResource
+) {
+  const key = answerKey(date, resource)
+  if (key === undefined) return undefined
+  const stored = yield* Effect.promise(() => bucket.get(key))
+  return stored === null ? yield* notStored : yield* storedGzip(stored.body)
+})
