@@ -72,6 +72,51 @@ interface CookieTab {
   ) => Effect.Effect<Option.Option<Answer>>
 }
 
+// Decision: the service worker reads the Stockbit tab's cookies from Chrome's
+// cookie store (`chrome.cookies`, the `cookies` permission), never from the
+// page's `document.cookie`, which hides an HttpOnly cookie; whether
+// `sb_social_access_token` is one is unknown. A read by URL finds a cookie of
+// `stockbit.com` or `.stockbit.com`, Secure or not, under the manifest's
+// `https://stockbit.com/*` host permission. The cookies stay the tab's: with
+// no Stockbit tab attached there is no answer, as when the tab read them. See
+// apinrdw/kumora#591.
+const STOCKBIT_URL = "https://stockbit.com/"
+
+// A Stockbit cookie's value in Chrome's cookie store, "" when it is missing.
+const chromeCookie = (name: string) =>
+  Effect.tryPromise(() => chrome.cookies.get({ url: STOCKBIT_URL, name })).pipe(
+    Effect.map((cookie) => cookie?.value ?? ""),
+    Effect.tapError((error) =>
+      Effect.logWarning("Stockbit cookie read failed", error)
+    ),
+    Effect.orElseSucceed(() => "")
+  )
+
+// The Stockbit tab, its cookie requests answered from Chrome's cookie store.
+export const withChromeCookies = <
+  Tab extends CookieTab & { readonly attached: Effect.Effect<boolean> },
+>(
+  tab: Tab,
+  read: (name: string) => Effect.Effect<string> = chromeCookie
+) => ({
+  ...tab,
+  request: (request: LocalRequest) =>
+    request._tag === "cookie"
+      ? Effect.flatMap(tab.attached, (attached) =>
+          attached
+            ? Effect.map(read(request.name), (body) =>
+                Option.some<Answer>({
+                  _tag: "answer",
+                  id: 0,
+                  status: 200,
+                  body,
+                })
+              )
+            : Effect.succeedNone
+        )
+      : tab.request(request),
+})
+
 // The tab's sign-in, read from its cookies at call time; none when the tab
 // doesn't answer.
 export const tabSignIn = Effect.fnUntraced(function* (tab: CookieTab) {

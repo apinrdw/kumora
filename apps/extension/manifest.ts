@@ -30,7 +30,9 @@ export const manifest = (
   // Port messages keep the service worker alive from 110, websocket traffic
   // from 116. Manifest-declared MAIN-world scripts need 111.
   minimum_chrome_version: "116",
-  permissions: ["storage", "alarms"],
+  // `cookies` reads the Stockbit tab's credential cookies, HttpOnly or not,
+  // under STOCKBIT_TAB's host permission (src/worker/stockbit.ts).
+  permissions: ["storage", "alarms", "cookies"],
   // Decision: exact hosts only, never a `*.workers.dev` wildcard: workers.dev
   // is on the Public Suffix List, so one would admit any Workers site. The
   // extra target's ingest socket needs no host permission. See

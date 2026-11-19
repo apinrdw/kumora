@@ -8,6 +8,7 @@ import {
   subscribeFrame,
   tabCredential,
   websocketKey,
+  withChromeCookies,
 } from "../src/worker/stockbit.ts"
 
 const hex = (bytes: Uint8Array) =>
@@ -172,6 +173,66 @@ describe("the Stockbit tab's credential", () => {
         tabWith({ credentialStorage: profileOnly })
       )
       assert.isTrue(Option.isNone(credential))
+    })
+  )
+})
+
+describe("the Stockbit tab's cookies, read from Chrome's cookie store", () => {
+  // Chrome's cookie store, which holds the HttpOnly cookies too.
+  const store = (cookies: Readonly<Record<string, string>>) => (name: string) =>
+    Effect.succeed(cookies[name] ?? "")
+
+  it.effect(
+    "finds the token in an HttpOnly cookie, which the tab's page cannot read",
+    () =>
+      Effect.gen(function* () {
+        // The page's `document.cookie` shows neither cookie.
+        const page = { ...tabWith({}), attached: Effect.succeed(true) }
+        const tab = withChromeCookies(
+          page,
+          store({
+            credentialStorage: profileOnly,
+            sb_social_access_token: socialJwt,
+          })
+        )
+        assert.deepStrictEqual(
+          yield* tabCredential(tab),
+          Option.some({ accessToken: socialJwt, userId: "4242" })
+        )
+      })
+  )
+
+  it.effect("has no credential while no Stockbit tab is attached", () =>
+    Effect.gen(function* () {
+      const tab = withChromeCookies(
+        { ...tabWith({}), attached: Effect.succeed(false) },
+        store({ sb_social_access_token: socialJwt })
+      )
+      assert.deepStrictEqual(
+        yield* tab.request({ _tag: "cookie", name: "sb_social_access_token" }),
+        Option.none()
+      )
+      assert.isTrue(Option.isNone(yield* tabCredential(tab)))
+    })
+  )
+
+  it.effect("leaves every other request to the tab", () =>
+    Effect.gen(function* () {
+      const asked: Array<LocalRequest> = []
+      const tab = withChromeCookies(
+        {
+          attached: Effect.succeed(true),
+          request: (request: LocalRequest) =>
+            Effect.sync(() => {
+              asked.push(request)
+              return Option.none<Answer>()
+            }),
+        },
+        store({})
+      )
+      yield* tab.request({ _tag: "page-token" })
+      yield* tab.request({ _tag: "cookie", name: "credentialStorage" })
+      assert.deepStrictEqual(asked, [{ _tag: "page-token" }])
     })
   )
 })
