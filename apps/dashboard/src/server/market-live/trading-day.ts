@@ -1540,6 +1540,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       target,
       answer: recorded,
       status: brokerCodes.status(new URLSearchParams()),
+      codes: [...((yield* listedCodes(codeListStore)) ?? [])],
     })
     return true
   })

@@ -6,6 +6,7 @@ import { gunzipSync } from "node:zlib"
 
 import { assert, describe, it } from "@effect/vitest"
 import {
+  StockCode,
   WibDate,
   decodeDayStrip,
   recordedDayPath,
@@ -20,7 +21,7 @@ import { makeDayIndex } from "@/server/market-live/day-index"
 import { makeColdDays, recordedDayRoute } from "@/server/market-live/days"
 
 import { cookiesFrom, linkIn, seam, send, signUp } from "../auth/seam.ts"
-import { stockbitTrade, tradingDay } from "./day-harness"
+import { stockbitBook, stockbitTrade, tradingDay } from "./day-harness"
 import { memoryDayBucket } from "./memory-day-bucket"
 import { memorySql } from "./sql"
 
@@ -28,6 +29,13 @@ const DAY = WibDate.make("2026-11-09")
 const SEALED = "private, max-age=31536000, immutable"
 const CODES: RecordedResource = { _tag: "Codes" }
 const GAPS: RecordedResource = { _tag: "Gaps" }
+// Each code's views the move stores one object for, by its key's folder.
+const PER_CODE = [
+  ["candles", "Candles"],
+  ["sweeps", "Sweeps"],
+  ["sweep-brokers", "SweepBrokers"],
+  ["heatmap", "Heatmap"],
+] as const
 const TAPE: RecordedResource = {
   _tag: "Tape",
   at: DateTime.makeUnsafe("2026-11-09T17:00:00+07:00"),
@@ -40,16 +48,30 @@ const at = (time: string) =>
 
 const textOf = (response: Response) => Effect.promise(() => response.text())
 
-// A relay day with a code list and a few UNTR trades, sealed at 17:00 with
-// its relay gaps, and its row in a day index.
+// A relay day with a code list naming UNTR and BBCA, a few UNTR trades and
+// UNTR's book, which a viewer had it record (BBCA's isn't), sealed at 17:00
+// with its relay gaps, and its row in a day index.
 const sealedDay = Effect.fnUntraced(function* () {
   yield* at("09:01:10")
   const day = yield* tradingDay(memorySql())
   yield* day.codeList(
     JSON.stringify({
-      results: [{ code: "UNTR", name: "United Tractors" }],
+      results: [
+        { code: "UNTR", name: "United Tractors" },
+        { code: "BBCA", name: "Bank Central Asia" },
+      ],
     })
   )
+  yield* day.left(yield* day.viewer("UNTR"))
+  yield* day.frames([
+    stockbitBook({ side: "BID", levels: [[23_300, 3, 50]], time: "09:01:10" }),
+    stockbitBook({
+      side: "OFFER",
+      levels: [[23_325, 2, 40]],
+      time: "09:01:10",
+    }),
+  ])
+  yield* TestClock.adjust("2 minutes")
   yield* day.trades([
     stockbitTrade({ number: 1, time: "09:00:10.100", price: 23300, lots: 3 }),
     stockbitTrade({ number: 2, time: "09:00:20.000", price: 23325, lots: 5 }),
@@ -169,17 +191,77 @@ describe("a cold day", () => {
   )
 
   it.effect(
+    "answers each listed code's Candles, Sweeps, SweepBrokers and Heatmap from one R2 read, the object's answers gzipped, cached for good",
+    () =>
+      Effect.gen(function* () {
+        const sealed = yield* sealedDay()
+        const resources = ["UNTR", "BBCA"].flatMap((code) =>
+          PER_CODE.map(
+            ([folder, _tag]) =>
+              [
+                `days/2026-11-09/v6/${folder}/${code}.json.gz`,
+                { _tag, code: StockCode.make(code) },
+              ] as const
+          )
+        )
+        const before = yield* worker(sealed)
+        const hot = new Map<string, string>()
+        for (const [key, resource] of resources)
+          hot.set(key, yield* textOf(yield* before.get(resource)))
+        assert.include(
+          hot.get("days/2026-11-09/v6/candles/UNTR.json.gz"),
+          '"close":23325'
+        )
+        assert.include(
+          hot.get("days/2026-11-09/v6/heatmap/BBCA.json.gz"),
+          '"notRecorded":true'
+        )
+        assert.notInclude(
+          hot.get("days/2026-11-09/v6/heatmap/UNTR.json.gz"),
+          "notRecorded"
+        )
+
+        yield* moved(sealed)
+        const after = yield* worker(sealed)
+        for (const [key, resource] of resources) {
+          sealed.days.reads.length = 0
+          const response = yield* after.get(resource)
+          assert.deepStrictEqual(sealed.days.reads, [key])
+          assert.strictEqual(response.status, 200)
+          assert.strictEqual(response.headers.get("Cache-Control"), SEALED)
+          assert.strictEqual(response.headers.get("Content-Encoding"), "gzip")
+          const stored = new Uint8Array(
+            yield* Effect.promise(() => response.arrayBuffer())
+          )
+          assert.strictEqual(
+            new TextDecoder().decode(gunzipSync(stored)),
+            hot.get(key)
+          )
+        }
+        assert.deepStrictEqual(after.reached, ["index"])
+      })
+  )
+
+  it.effect(
     "stores the final broker codes status and a manifest beside its answers",
     () =>
       Effect.gen(function* () {
         const sealed = yield* sealedDay()
         yield* moved(sealed)
-        assert.deepStrictEqual([...sealed.days.objects.keys()].sort(), [
-          "days/2026-11-09/manifest.json",
-          "days/2026-11-09/status.json",
-          "days/2026-11-09/v6/codes.json.gz",
-          "days/2026-11-09/v6/gaps.json.gz",
-        ])
+        assert.deepStrictEqual(
+          [...sealed.days.objects.keys()].sort(),
+          [
+            "days/2026-11-09/manifest.json",
+            "days/2026-11-09/status.json",
+            ...["BBCA", "IHSG", "NG.IHSG", "TN.IHSG", "UNTR"].flatMap((code) =>
+              PER_CODE.map(
+                ([folder]) => `days/2026-11-09/v6/${folder}/${code}.json.gz`
+              )
+            ),
+            "days/2026-11-09/v6/codes.json.gz",
+            "days/2026-11-09/v6/gaps.json.gz",
+          ].sort()
+        )
         assert.deepStrictEqual(
           JSON.parse(sealed.days.text("days/2026-11-09/manifest.json")!),
           { viewerProtocol: 6 }
