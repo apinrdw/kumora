@@ -139,14 +139,16 @@ describe("book events", () => {
           orders: 2,
           ticks: 2,
         })
-        const [snapshot] = yield* received(yield* day.viewer("UNTR"))
+        const untr = yield* day.viewer("UNTR")
+        const [snapshot] = yield* received(untr)
         assert(snapshot?._tag === "Snapshot")
         assert.deepStrictEqual(named(snapshot.bookEvents ?? []), APPEARED)
         assert.deepStrictEqual(
           named(snapshot.selectedBookEvents ?? []),
           APPEARED
         )
-        const [other] = yield* received(yield* day.viewer("BBCA"))
+        const bbca = yield* day.viewer("BBCA")
+        const [other] = yield* received(bbca)
         assert(other?._tag === "Snapshot")
         assert.strictEqual(other.selectedBookEvents, undefined)
 
@@ -157,6 +159,9 @@ describe("book events", () => {
         // Flushed 5 s past the minute.
         yield* at("09:11:06.000")
         yield* TestClock.adjust("1 second")
+        // Gone before the seal: a viewer's 250 ms deltas would replay the
+        // hours to it.
+        for (const socket of [page, untr, bbca]) yield* day.left(socket)
         yield* at("17:00:00.000")
         yield* day.alarm
         const sealed = yield* recordedEvents(day)
