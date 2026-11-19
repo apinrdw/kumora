@@ -31,6 +31,7 @@ import { TestClock } from "effect/testing"
 import { readBrokerTotals } from "@/server/broker-totals/db"
 import { MISSING_ALLOWANCE } from "@/server/market-live/broker-codes"
 import type { Sql } from "@/server/market-live/day-store"
+import { makeTape } from "@/server/market-live/tape"
 import {
   makeTradingDay,
   type Peer,
@@ -519,9 +520,7 @@ const run = (seed: number, mode: Mode) =>
     const built = yield* readBrokerTotals(UNTR, DAY, DAY).pipe(
       Effect.provide(db.layer)
     )
-    const tapeTrades = Number(
-      base.exec("SELECT count(*) AS count FROM trades")[0]?.count
-    )
+    const tapeTrades = yield* makeTape(base).count
     const kept = new Map<string, number>()
     for (let n = 1; n <= T; n++) {
       const held = yield* object.day.brokerCodes.held(

@@ -1,7 +1,9 @@
 // The Worker the row budgets run in workerd
 // (tests/server/market-live/workerd.ts bundles it). One trading-day object,
 // named by the busy day's date: POST /build builds the busy day, and
-// GET /billed?operation=<name> answers what that operation billed.
+// GET /billed?operation=<name> answers what that operation billed. POST
+// /whole-day records a whole busy day on an object of its own
+// (billing/whole-day.ts) and answers what it billed.
 import { Effect, Layer } from "effect"
 
 import { BrokerTotalsDb } from "../src/server/broker-totals/db.ts"
@@ -10,8 +12,9 @@ import { durableSql } from "../src/server/market-live/durable-sql.ts"
 import { respond } from "../src/server/market-live/respond.ts"
 import { makeTradingDay } from "../src/server/market-live/trading-day.ts"
 import { buildBusyDay } from "./busy-day.ts"
-import { BUSY_DAY } from "./busy-figures.ts"
+import { BUSY_DAY, WHOLE_DAY } from "./busy-figures.ts"
 import { operations, type Operation } from "./operations.ts"
+import { wholeDay } from "./whole-day.ts"
 
 // The rows the adapter counted between two of its readings.
 const since = (
@@ -59,7 +62,7 @@ const billed = Effect.fnUntraced(function* (
     ...(operation.brokerTotals === true ? { brokerTotalsDb: unreachedDb } : {}),
   })
   const started = sql.usage!()
-  if (operation.before !== undefined) yield* operation.before(day)
+  if (operation.before !== undefined) yield* operation.before(day, sql)
   const measured = sql.usage!()
   const answer = yield* operation.measure(day, sql)
   const done = sql.usage!()
@@ -88,6 +91,8 @@ export class BillingDay {
   fetch(request: Request) {
     const url = new URL(request.url)
     const { storage } = this.ctx
+    if (url.pathname === WHOLE_DAY.path)
+      return respond(Effect.map(wholeDay(storage), (day) => Response.json(day)))
     if (url.pathname === "/build")
       return respond(
         Effect.map(buildBusyDay(storage), (ms) => Response.json({ ms }))
@@ -101,5 +106,9 @@ export class BillingDay {
 
 export default {
   fetch: (request: Request, env: { readonly DAY: DurableObjectNamespace }) =>
-    env.DAY.getByName(BUSY_DAY.date).fetch(request),
+    env.DAY.getByName(
+      new URL(request.url).pathname === WHOLE_DAY.path
+        ? "whole-day"
+        : BUSY_DAY.date
+    ).fetch(request),
 }

@@ -4,6 +4,7 @@
 import {
   INDICES,
   decodeAjaibCodeList,
+  decodeStockCodeList,
   encodeStockCodeList,
   kindOf,
   wibDateAt,
@@ -62,6 +63,14 @@ export const storeCodeList = Effect.fnUntraced(
     Effect.logWarning("Stock code list not understood; dropped", error)
   )
 )
+
+// The codes the day's stored list names; none while it holds no list.
+export const listedCodes = Effect.fnUntraced(function* (store: CodeListStore) {
+  const stored = yield* store.read
+  if (Option.isNone(stored)) return undefined
+  const { codes } = yield* decodeStockCodeList(stored.value).pipe(Effect.orDie)
+  return new Set(codes.map((listed) => listed.code))
+})
 
 // The GET's answer. A past day's list never changes; today's is cached until
 // the next WIB day; a day with no list yet answers 404, not cached.

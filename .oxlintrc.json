@@ -114,6 +114,23 @@
       }
     },
     {
+      // Decision: the tape is the one dashboard module that runs SQL against
+      // a trading day's trades table, so a second backing for the trades
+      // lands there alone (spec apinrdw/kumora#555, ticket #567). Tests that
+      // record a day before trade chunks still write the table directly.
+      "files": ["apps/dashboard/src/**"],
+      "jsPlugins": ["./scripts/oxlint-plugin.mts"],
+      "rules": {
+        "kumora/tape-owns-trades": "error"
+      }
+    },
+    {
+      "files": ["apps/dashboard/src/server/market-live/tape.ts"],
+      "rules": {
+        "kumora/tape-owns-trades": "off"
+      }
+    },
+    {
       // Decision: code that never renders React skips rules-of-hooks. The rule
       // reads an Effect accessor such as `Clock.use((now) => now)` as React's
       // `use` hook and fails it; agents hit this in three sessions. A new

@@ -15,6 +15,7 @@ import { useDayState, type DayStateStore } from "./day-state-store"
 import { FootprintChart } from "./footprint-chart"
 import type { BookEventStore } from "./book-event-store"
 import type { HeatmapStore } from "./heatmap-store"
+import { useHeatmapNotRecorded } from "./use-heatmap"
 import { useAuctionIndicative, useMergedStale } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
 import { TopNControl } from "./sweep-log"
@@ -39,6 +40,16 @@ function useCandles<A>(
     () => read(store.candles()),
     () => server
   )
+}
+
+// Under the candles, when the day did not record the code's book: its
+// heatmap has nothing to shade.
+function HeatmapNotRecorded({ heatmap }: { heatmap: HeatmapStore }) {
+  return useHeatmapNotRecorded(heatmap) ? (
+    <p className="text-[11px] text-muted-foreground">
+      Book heatmap not recorded
+    </p>
+  ) : null
 }
 
 // The code's last close for the header, read as of the cursor on a recorded
@@ -137,13 +148,6 @@ function ChartHeadline({
   )
 }
 
-// The selected code's chart column: its header, then `transport` on a
-// recorded day, then the footprint chart (only with `sweeps`: an index has
-// none), then the candle chart: the 1-minute candles with volume, live from the
-// viewer socket through `store`, with the sweep bubbles and the book heatmap.
-// `search` sits in the header, to choose the code, and `conditions` with it:
-// the feed pills and the market phase. On a recorded day, the candles after
-// `cursor` are greyed and a clicked candle moves it. The candle chart moves
 // The heatmap's book event marks, named under the chart when it has them.
 function MarksLegend({ shown }: { shown: boolean }) {
   if (!shown) return null
@@ -155,6 +159,34 @@ function MarksLegend({ shown }: { shown: boolean }) {
   )
 }
 
+// The candle chart's title and its top-N filter, for a stock code: an index
+// has no sweeps, so no filter and no title.
+function CandlesTitle({
+  sweeps,
+  cursor,
+}: {
+  sweeps: SweepStore | undefined
+  cursor: ReplayCursor | undefined
+}) {
+  if (sweeps === undefined) return null
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <h3 className="text-[15px] font-bold">Candles</h3>
+      {/* Under the title on a phone. */}
+      <div className="max-lg:basis-full">
+        <TopNControl store={sweeps} cursor={cursor} />
+      </div>
+    </div>
+  )
+}
+
+// The selected code's chart column: its header, then `transport` on a
+// recorded day, then the footprint chart (only with `sweeps`: an index has
+// none), then the candle chart: the 1-minute candles with volume, live from the
+// viewer socket through `store`, with the sweep bubbles and the book heatmap.
+// `search` sits in the header, to choose the code, and `conditions` with it:
+// the feed pills and the market phase. On a recorded day, the candles after
+// `cursor` are greyed and a clicked candle moves it. The candle chart moves
 // with the footprint chart through `pair`.
 export function LiveChart({
   store,
@@ -216,17 +248,10 @@ export function LiveChart({
         aria-label="Candles"
         className="flex min-w-0 flex-col gap-2 lg:flex-[1_1_auto]"
       >
-        {sweeps !== undefined && (
-          <div className="flex flex-wrap items-center gap-3">
-            <h3 className="text-[15px] font-bold">Candles</h3>
-            {/* Under the title on a phone. */}
-            <div className="max-lg:basis-full">
-              <TopNControl store={sweeps} cursor={cursor} />
-            </div>
-          </div>
-        )}
+        <CandlesTitle sweeps={sweeps} cursor={cursor} />
         {/* The canvas has no text: this says what it draws. */}
         <p className="sr-only">One-minute candles: {count}</p>
+        {heatmap !== undefined && <HeatmapNotRecorded heatmap={heatmap} />}
         <div
           className={`flex min-h-0 flex-1 flex-col ${stale ? "opacity-50" : ""}`}
         >

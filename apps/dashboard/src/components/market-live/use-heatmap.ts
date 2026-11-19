@@ -6,9 +6,9 @@ import {
   type WibDate,
 } from "@workspace/relay"
 import { Effect, Fiber, Option } from "effect"
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useSyncExternalStore } from "react"
 
-import { makeHeatmapStore } from "./heatmap-store"
+import { makeHeatmapStore, type HeatmapStore } from "./heatmap-store"
 import { loadedOrSignIn } from "./sign-in-again"
 
 // The selected code's heatmap store for the recorded `day`, or `today` live.
@@ -66,4 +66,14 @@ export function useHeatmap(
     }
   }, [store, date, code, live])
   return store
+}
+
+// Whether the day did not record the store's code's book; never on the
+// server.
+export function useHeatmapNotRecorded(heatmap: HeatmapStore) {
+  return useSyncExternalStore(
+    heatmap.subscribe,
+    heatmap.notRecorded,
+    () => false
+  )
 }

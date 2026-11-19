@@ -1,10 +1,21 @@
 // The busy-sized day the row budgets run on (spec apinrdw/kumora#554,
-// "Testing Decisions"): a relay day sealed after the close, its tape, candles
-// and broker code chunks as today's code stores them, written straight into
-// the object's SQLite, and its tape summary as the seal writes it. The
+// "Testing Decisions"): a relay day sealed after the close, its trade chunks
+// and code list (spec apinrdw/kumora#555), candles and broker code chunks as
+// today's code stores them, written straight into the object's SQLite, and
+// its tape summary as the seal writes it. The
 // trading day makes the tables first, so the day has today's shape. It also
 // holds the broker trades index and its rebuild's fact, as a day recorded
 // before apinrdw/kumora#561 does, and the book events its live books found.
+import { gzipSync } from "node:zlib"
+
+import {
+  BOOK_DEPTH,
+  Side,
+  StockCode,
+  encodeBookChunk,
+  type BookDelta,
+  type OrderBook,
+} from "@workspace/relay"
 import { Clock, DateTime, Effect } from "effect"
 
 import { BROKER_TOTALS_VERSION } from "../src/server/broker-totals/version.ts"
@@ -23,22 +34,24 @@ import {
   ORDER_FLOW_BUILT,
   SWEEP_BROKERS_BUILT,
 } from "../src/server/market-live/day-store.ts"
+import {
+  TRADE_CHUNK,
+  emptyRecords,
+  putRecord,
+} from "../src/server/market-live/tape-chunks.ts"
 import { makeTradingDay } from "../src/server/market-live/trading-day.ts"
 import {
   BROKERS,
   BUSY_DAY,
+  BUSY_MINUTES,
+  BUSY_OPEN,
+  BUSY_SPAN_MS,
   BUYER_STEP,
   FOREIGN_EVERY,
   SELLER_STEP,
   busyCodes,
+  busyLevel,
 } from "./busy-figures.ts"
-
-const OPEN = DateTime.toEpochMillis(
-  DateTime.makeUnsafe("2026-11-09T09:00:00+07:00")
-)
-// 09:00 to 16:15, a trade every 17.9 ms.
-const SPAN_MS = 435 * 60_000
-const MINUTES = 435
 
 const encoder = new TextEncoder()
 
@@ -60,6 +73,89 @@ const chunkOf = (chunk: number) =>
     }
     return codes
   })
+
+const HOLES = new Set<number>(BUSY_DAY.holes)
+
+// One trade chunk's records as tape-chunks.ts lays them out: trade n at
+// BUSY_OPEN + n × BUSY_SPAN_MS / trades, code C(n mod codes), the code list's index
+// n mod codes, and every hole lacking.
+const tradeChunkOf = (chunk: number) =>
+  Effect.sync(() => {
+    const { trades, codes } = BUSY_DAY
+    const records = emptyRecords()
+    for (let slot = 0; slot < TRADE_CHUNK; slot++) {
+      const number = chunk * TRADE_CHUNK + slot + 1
+      if (number > trades || HOLES.has(number)) continue
+      putRecord(records, slot, {
+        time: BUSY_OPEN + Math.floor((number * BUSY_SPAN_MS) / trades),
+        code: number % codes,
+        price: 1000 + (number % 500),
+        lots: 1 + (number % 20),
+        side: Side.literals[number % 3]!,
+        board: "RG",
+        feeds: ["Stockbit"],
+      })
+    }
+    return records
+  })
+
+// The busy code's book at frame `frame`: 20 levels a side around 1,000.
+const bookAt = (frame: number, at: number): OrderBook => {
+  const levels = (side: 1 | -1) =>
+    Array.from({ length: BOOK_DEPTH }, (_, index) =>
+      busyLevel(side, frame, index)
+    )
+  return {
+    _tag: "OrderBook",
+    code: StockCode.make(BUSY_DAY.bookCode),
+    bids: levels(-1),
+    offers: levels(1),
+    bidLots: 50_000 + frame,
+    offerLots: 60_000 + frame,
+    at: DateTime.makeUnsafe(at),
+    provenance: "Stockbit",
+  }
+}
+
+// The busy code's chunks, gzipped as the day store stores them: one in
+// BUSY_DAY.bookChunks of the day's minutes, each the book in force when its
+// minute began, then a frame every 15 s with both sides changed.
+const bookChunks = Effect.gen(function* () {
+  const code = StockCode.make(BUSY_DAY.bookCode)
+  const step = (index: number) =>
+    Math.floor((index * BUSY_DAY.bookChunks) / BUSY_MINUTES)
+  const chunks: Array<readonly [number, ArrayBuffer]> = []
+  let last: OrderBook | undefined
+  let frame = 0
+  for (let index = 0; index < BUSY_MINUTES; index++) {
+    if (index > 0 && step(index) === step(index - 1)) continue
+    const minute = BUSY_OPEN + index * 60_000
+    const start = last
+    const deltas: Array<BookDelta> = []
+    for (let second = 0; second < 60; second += 15) {
+      const at = minute + second * 1_000
+      const book = bookAt(frame++, at)
+      deltas.push({
+        servedAt: book.at,
+        at: book.at,
+        ...(last === undefined ? { provenance: book.provenance } : {}),
+        bids: book.bids,
+        offers: book.offers,
+        bidLots: book.bidLots,
+        offerLots: book.offerLots,
+      })
+      last = book
+    }
+    const text = yield* encodeBookChunk({
+      code,
+      minute: DateTime.makeUnsafe(minute),
+      ...(start === undefined ? {} : { start }),
+      deltas,
+    })
+    chunks.push([minute, new Uint8Array(gzipSync(text)).buffer])
+  }
+  return chunks
+})
 
 // 1..`count` as `n(x)`, for an INSERT … SELECT. Every figure is written
 // into the statement: workerd binds a JavaScript number as a REAL, so
@@ -89,14 +185,6 @@ export const buildBusyDay = Effect.fnUntraced(function* (
   const brokers = BROKERS.join("")
   yield* Effect.sync(() =>
     storage.transactionSync(() => {
-      exec(
-        `${numbers(trades)} INSERT INTO trades
-        SELECT x, ${OPEN} + x * ${SPAN_MS} / ${trades}, 'C' || (x % ${codes}),
-          1000 + x % 500, 1 + x % 20,
-          CASE x % 3 WHEN 0 THEN 'buy' WHEN 1 THEN 'sell' ELSE 'none' END,
-          'RG', 'Stockbit'
-        FROM n WHERE x NOT IN (${holes.join(", ")})`
-      )
       for (const number of holes)
         exec(
           "INSERT INTO walk_trades VALUES (?, ?, ?, ?, 'RG')",
@@ -106,16 +194,16 @@ export const buildBusyDay = Effect.fnUntraced(function* (
           1 + (number % 20)
         )
       exec(
-        `${numbers(codes * MINUTES)} INSERT INTO candles
-        SELECT 'C' || (x % ${codes}), ${OPEN} + (x / ${codes}) * 60000, x, 1000,
-          x, 1001, ${OPEN} + (x / ${codes}) * 60000 + 59000, 1002, 999, 100,
+        `${numbers(codes * BUSY_MINUTES)} INSERT INTO candles
+        SELECT 'C' || (x % ${codes}), ${BUSY_OPEN} + (x / ${codes}) * 60000, x, 1000,
+          x, 1001, ${BUSY_OPEN} + (x / ${codes}) * 60000 + 59000, 1002, 999, 100,
           10000000, 40, 5000000, 5000000
         FROM n`
       )
       // A wall pulled every 1.1 s, each code's turn coming round 30 times.
       exec(
         `${numbers(bookEvents)} INSERT INTO book_events
-        SELECT 'C' || (x % ${codes}), ${OPEN} + x * ${SPAN_MS} / ${bookEvents},
+        SELECT 'C' || (x % ${codes}), ${BUSY_OPEN} + x * ${BUSY_SPAN_MS} / ${bookEvents},
           'pulled', 'bid', 1000 + x % 500, 6000, 2,
           '{"ticks":3,"approached":false}'
         FROM n`
@@ -135,8 +223,23 @@ export const buildBusyDay = Effect.fnUntraced(function* (
     const records = yield* chunkOf(chunk)
     exec("INSERT INTO broker_code_chunks VALUES (?, ?)", chunk, records.buffer)
   }
+  for (let chunk = 0; chunk < Math.ceil(trades / TRADE_CHUNK); chunk++) {
+    const records = yield* tradeChunkOf(chunk)
+    exec("INSERT INTO trade_chunks VALUES (?, ?)", chunk, records.buffer)
+  }
+  for (const [minute, chunk] of yield* bookChunks)
+    exec(
+      "INSERT INTO book_chunks VALUES (?, ?, ?)",
+      BUSY_DAY.bookCode,
+      minute,
+      chunk
+    )
   const facts: ReadonlyArray<readonly [string, string]> = [
     [Fact.tapeSource, "relay"],
+    [
+      Fact.tradeCodes,
+      JSON.stringify(Array.from({ length: codes }, (_, at) => `C${at}`)),
+    ],
     [Fact.brokerCodesN, String(trades)],
     [Fact.codesComplete, "true"],
     [

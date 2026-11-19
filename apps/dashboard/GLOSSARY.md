@@ -149,7 +149,7 @@ Buy-aggressor lots minus sell-aggressor lots, for one candle or one price in it.
 _Avoid_: Net volume
 
 **Book heatmap**:
-The order book's resting lots at each price over the trading day, drawn as a shaded band behind the price.
+The order book's resting lots at each price over the trading day, drawn as a shaded band behind the price. A day keeps one only for the codes whose order book it recorded; any other code's is shown as not recorded.
 _Avoid_: Liquidity map, depth chart
 
 **Day state**:
@@ -157,7 +157,7 @@ A stock code's or index's figures for the trading day so far: last price, previo
 _Avoid_: Quote, summary
 
 **Order book**:
-The resting buy orders (bid) and sell orders (offer) for one stock code, as price levels with their lots and number of orders.
+The resting buy orders (bid) and sell orders (offer) for one stock code, as price levels with their lots and number of orders. Live viewers see every code's. A day records a code's order book only from the first time a viewer selects or watches it that day to the close, and only for a code the day's code list names (before the list arrives, up to a fixed cap of codes); a day recorded before that change recorded every code's.
 _Avoid_: Depth, market depth (depth names a reading of the book, never the book)
 
 **Book reading**:
@@ -310,7 +310,7 @@ A past trading day the terminal kept, fixed after the day closes, that a viewer 
 _Avoid_: History, archive day
 
 **Relay gap**:
-A stretch of a market phase that expects trades during which no feed was arriving, so the terminal holds no trades for it. Shown as not recorded, both live and on a recorded day. One feed dropping while the other still arrives is not a relay gap, and neither is a delayed feed.
+A stretch of a market phase that expects trades during which no feed was arriving, so the terminal holds no trades for it. Shown as not recorded, both live and on a recorded day. "Not recorded" also marks a code's order book and book heatmap on a day that never recorded that code's order book: that is not a relay gap. One feed dropping while the other still arrives is not a relay gap, and neither is a delayed feed.
 _Avoid_: Outage, missing data
 
 **Market conditions**:

@@ -8,8 +8,8 @@ A human does these steps. An agent cannot deploy, run the relay or read Workers 
 
 The trading-day Durable Object logs two kinds of structured lines (`trading-day.ts` logs them, from the meter `day-store.ts` keeps), which Workers Logs keeps (`observability` is on for every stack, `packages/deploy/src/stack.ts`):
 
-- **`Rows written`**: one line for each flush, about once a minute. Each field is the number of rows that flush wrote to one table. The fields are `trades`, `candles`, `footprints`, `heatmaps`, `bookChunks`, `livePrices`, `ajaibBooks` and `facts`. `billedRowsWritten` is what the SQLite cursors counted, which is the figure Cloudflare bills. `minuteRereads` counts the late trades that read a stored minute back (#266's re-read). `billedMinuteRereadRows` is the number of rows those re-reads read.
-- **`Order flow storage`**: one line at the seal, at 17:00 WIB. The fields are `footprintRows`, `footprintBytes`, `heatmapRows` and `heatmapBytes` (the payload bytes of the two new tables), and `databaseBytes` (the whole day's database).
+- **`Rows written`**: one line for each flush, about once a minute. Each field is the number of rows that flush wrote to one table. The fields are `trades`, `candles`, `footprints`, `bookChunks`, `livePrices`, `ajaibBooks` and `facts`. `billedRowsWritten` is what the SQLite cursors counted, which is the figure Cloudflare bills. `minuteRereads` counts the late trades that read a stored minute back (#266's re-read). `billedMinuteRereadRows` is the number of rows those re-reads read.
+- **`Order flow storage`**: one line at the seal, at 17:00 WIB. The fields are `footprintRows`, `footprintBytes`, `heatmapRows` and `heatmapBytes` (the payload bytes of the two order flow tables; a day recorded since apinrdw/kumora#569 holds no heatmap rows, as its heatmap is worked out from its book chunks on read), and `databaseBytes` (the whole day's database).
 
 The lines are per flush, so a restart loses no more than one flush's counts. Add up the lines for the day.
 

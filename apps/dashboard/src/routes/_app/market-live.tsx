@@ -44,6 +44,7 @@ import {
   makeOrderBookStore,
   type OrderBookStore,
 } from "@/components/market-live/order-book-store"
+import type { HeatmapStore } from "@/components/market-live/heatmap-store"
 import { useHeatmap } from "@/components/market-live/use-heatmap"
 import {
   RecordedOrderBook,
@@ -167,11 +168,13 @@ function ConditionsBar({
 // events: live, or as of the cursor.
 function BookPanel({
   store,
+  heatmap,
   events,
   cursor,
   gaps,
 }: {
   store: OrderBookStore
+  heatmap: HeatmapStore
   events: BookEventStore
   cursor: ReplayCursor | undefined
   gaps: ReadonlyArray<RelayGap>
@@ -182,6 +185,7 @@ function BookPanel({
   ) : (
     <RecordedOrderBook
       store={store}
+      heatmap={heatmap}
       cursor={cursor}
       gaps={gaps}
       marks={marks}
@@ -461,6 +465,7 @@ function MarketLiveDay({
         book={
           <BookPanel
             store={book}
+            heatmap={heatmap}
             events={bookEvents}
             cursor={cursor}
             gaps={gaps}

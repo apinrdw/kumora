@@ -3,11 +3,16 @@
 // budget names an operation in billing/operations.ts. The busy day is built
 // once for each `layer` block, so every budget lives here.
 import { assert, layer } from "@effect/vitest"
-import { decodeRecordedBookEvents } from "@workspace/relay"
-import { Effect } from "effect"
+import {
+  HEAT_SLICE_MS,
+  decodeRecordedBookEvents,
+  decodeRecordedHeatmap,
+} from "@workspace/relay"
+import { DateTime, Effect } from "effect"
 
 import { BUSY_DAY, FLUSHED_BOOK_EVENTS } from "../../../billing/busy-figures"
 import { CHUNK } from "../../../src/server/market-live/broker-codes"
+import { TRADE_CHUNK } from "../../../src/server/market-live/tape-chunks"
 import type { OperationName } from "../../../billing/operations"
 
 import { BusyDay } from "./workerd"
@@ -49,6 +54,21 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
       10_000
     )
 
+    // Spec apinrdw/kumora#555: a page reads its trades' chunks and the number
+    // search's, never a row per trade.
+    it.effect(
+      "a recorded tape GET at the day's end reads at most 50 rows, and writes nothing",
+      () => withinBudget("recorded tape GET", { rowsRead: 50, rowsWritten: 0 }),
+      10_000
+    )
+
+    it.effect(
+      "a recorded tape page below a midday trade reads at most 50 rows, and writes nothing",
+      () =>
+        withinBudget("recorded tape page", { rowsRead: 50, rowsWritten: 0 }),
+      10_000
+    )
+
     it.effect(
       "a status pass on a sealed relay day reads at most 5 K rows, its tape summary in place of the tape",
       () => withinBudget("status pass", { rowsRead: 5_000, rowsWritten: 0 }),
@@ -71,6 +91,27 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
           assert.deepStrictEqual(fresh.answer, warm.answer)
           assert.isAtMost(fresh.rows.rowsRead, warm.rows.rowsRead + 10)
           assert.strictEqual(fresh.rows.rowsWritten, 0)
+        }),
+      10_000
+    )
+
+    it.effect(
+      "a heatmap GET reads its code's book chunks, at most 300 rows, and writes nothing",
+      () =>
+        Effect.gen(function* () {
+          const heatmap = yield* decodeRecordedHeatmap(
+            (yield* (yield* BusyDay).billed("heatmap GET")).answer
+          )
+          // A slice every 10 s from the first chunk, 09:00, to the day's
+          // end, the frameless minutes filled in.
+          const from = DateTime.toEpochMillis(
+            DateTime.makeUnsafe("2026-11-09T09:00:00+07:00")
+          )
+          assert.lengthOf(
+            heatmap.slices,
+            (DateTime.toEpochMillis(heatmap.through) - from) / HEAT_SLICE_MS
+          )
+          yield* withinBudget("heatmap GET", { rowsRead: 300, rowsWritten: 0 })
         }),
       10_000
     )
@@ -170,10 +211,9 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
           // Its chunks and its trades' sweep brokers rows, about 2.4 K. With
           // the index it wrote 21.4 K: two side rows a changed trade.
           assert.isAtMost(rows.rowsWritten, 3_000)
-          // Decision: the walk batch's 25 K, not the batch budget's 10 K:
-          // most of what it reads is sweep brokers' recompute of the minutes
-          // its changed trades fall in, which spec 2 is to bring down.
-          assert.isAtMost(rows.rowsRead, 25_000)
+          // Spec apinrdw/kumora#555: sweep brokers' recompute reads its
+          // minutes' trade chunks, not their trades.
+          assert.isAtMost(rows.rowsRead, 10_000)
         }),
       10_000
     )
@@ -185,15 +225,16 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
   "row budgets of a day sealed before the tape summary",
   (it) => {
     it.effect(
-      "its first status pass scans the tape once, and the next reads at most 5 K rows",
+      "its first status pass reads the trade chunks once, and the next reads at most 5 K rows",
       () =>
         Effect.gen(function* () {
           const { before, rows, status } = yield* (yield* BusyDay).billed(
             "status pass after the summary's build"
           )
+          const chunks = Math.ceil(BUSY_DAY.trades / TRADE_CHUNK)
           assert.strictEqual(status, 200)
-          assert.isAtLeast(before.rowsRead, BUSY_DAY.trades)
-          assert.isAtMost(before.rowsRead, 1.1 * BUSY_DAY.trades)
+          assert.isAtLeast(before.rowsRead, chunks)
+          assert.isAtMost(before.rowsRead, 5_000 + 1.1 * chunks)
           assert.isAtMost(rows.rowsRead, 5_000)
           assert.strictEqual(rows.rowsWritten, 0)
         }),
@@ -206,13 +247,37 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
 layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
   "row budgets of a walk day's batch",
   (it) => {
-    // Decision: over the batch budget of 10 K. Of its 21.4 K rows read, sweep
-    // brokers' recompute reads 13.4 K (the minutes the batch's trades fall
-    // in, sweep-brokers.ts), the tape takes 5 K and its summary a few.
+    // Spec apinrdw/kumora#555: sweep brokers' recompute reads the trade
+    // chunks of the minutes the batch's trades fall in.
     it.effect(
-      "a walk batch that fills 5,000 trades reads at most 25 K rows, its tape summary in place of its tape",
-      () => withinBudget("walk batch", { rowsRead: 25_000 }),
+      "a walk batch that fills 5,000 trades reads at most 10 K rows, its tape summary in place of its tape",
+      () => withinBudget("walk batch", { rowsRead: 10_000 }),
       20_000
+    )
+  }
+)
+
+// A flush writes trades, so it runs on a busy day of its own.
+layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
+  "row budgets of a live flush",
+  (it) => {
+    it.effect(
+      "a flush of a busy minute and its late trades writes at most 20 rows, its trade chunks",
+      () => withinBudget("live flush", { rowsWritten: 20 }),
+      10_000
+    )
+  }
+)
+
+// A session's end writes its books over the last one's, so it runs on a busy
+// day of its own.
+layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
+  "row budgets of a session's end",
+  (it) => {
+    it.effect(
+      "a session's end writes at most a row per code with a book, over the last session's",
+      () => withinBudget("session end", { rowsWritten: BUSY_DAY.codes }),
+      10_000
     )
   }
 )
