@@ -23,6 +23,9 @@ export const ObjectPath = {
 // from it.
 export const DAY_INDEX = "index"
 export const DayIndexPath = "/days"
+// A day's move to R2 POSTs its date here once its manifest is written
+// (cold-days.ts): the strip then carries it as cold.
+export const DayIndexColdPath = "/cold"
 
 // An account's id and one of its sessions' ids, as Better Auth names them.
 export const AccountId = Schema.NonEmptyString.pipe(Schema.brand("AccountId"))
