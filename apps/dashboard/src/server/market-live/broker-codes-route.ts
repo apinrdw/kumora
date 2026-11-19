@@ -37,7 +37,9 @@ const withCors = (response: Response) =>
     })
   })
 
-const authorized = Effect.fnUntraced(function* (request: Request) {
+// Whether the bearer is the ingest token; the Test stage's move route
+// (test-move.ts) checks it too.
+export const authorized = Effect.fnUntraced(function* (request: Request) {
   const header = request.headers.get("authorization")
   if (header === null || !header.startsWith(BROKER_CODES_AUTH_SCHEME))
     return false

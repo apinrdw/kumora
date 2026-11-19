@@ -132,22 +132,49 @@ describe("a recorded day's broker codes GET", () => {
   )
 })
 
+// The day strip's answer, listing DAY, cold when `cold` says so; none for
+// any other GET.
+const stripAnswer = (
+  request: HttpClientRequest.HttpClientRequest,
+  url: URL,
+  cold: boolean
+) =>
+  url.pathname === "/market-live/days"
+    ? Option.some(
+        HttpClientResponse.fromWeb(
+          request,
+          new Response(
+            JSON.stringify({
+              days: [
+                { day: DAY, trades: 10, gap: false, ...(cold ? { cold } : {}) },
+              ],
+            })
+          )
+        )
+      )
+    : Option.none()
+
 // A Worker answering each broker codes GET after `delay`, with trade 51's
 // buyer named by the cursor's second (BK at second 1, CK at 2) and the day complete from the
 // `completeFrom`th GET on, its first `failing` GETs answered 503; it records
-// each cursor asked and whether the GET went past the browser's copy.
+// each cursor asked and whether the GET went past the browser's copy. Its
+// day strip says the day is cold when `cold` does.
 const codesWorker = ({
   delay = () => Duration.zero,
   completeFrom = Number.POSITIVE_INFINITY,
   failing = 0,
+  cold = false,
 }: {
   delay?: (at: number) => Duration.Duration
   completeFrom?: number
   failing?: number
+  cold?: boolean
 }) => {
   const asked: Array<{ readonly at: number; readonly fresh: boolean }> = []
   const client = HttpClient.make((request, url) =>
     Effect.gen(function* () {
+      const strip = stripAnswer(request, url, cold)
+      if (Option.isSome(strip)) return strip.value
       const at = Number(url.searchParams.get("at"))
       const fresh = Option.isSome(
         yield* Effect.serviceOption(FetchHttpClient.RequestInit)
@@ -243,6 +270,44 @@ describe("following a recorded day's broker codes", () => {
     }
   )
 
+  it.effect(
+    "never asks again for a cold day, though its codes are incomplete",
+    () => {
+      const codesFrom = codesWorker({ cold: true })
+      return Effect.gen(function* () {
+        const codes = yield* makeBrokerCodesFollower(DAY, () => {})
+        yield* Effect.forkChild(codes.recheck)
+        yield* codes.ask(second(1))
+        yield* TestClock.adjust("5 minutes")
+        assert.deepStrictEqual(codesFrom.asked, [
+          { at: DateTime.toEpochMillis(second(1)), fresh: false },
+        ])
+      }).pipe(Effect.provideService(HttpClient.HttpClient, codesFrom.client))
+    }
+  )
+
+  it.effect(
+    "a cold day's failed first ask is asked again by the recheck",
+    () => {
+      const codesFrom = codesWorker({ failing: 1, cold: true })
+      return Effect.gen(function* () {
+        const shown: Array<RecordedTradeCodes> = []
+        const codes = yield* makeBrokerCodesFollower(DAY, (answer) =>
+          shown.push(answer)
+        )
+        yield* Effect.forkChild(codes.recheck)
+        yield* Effect.exit(codes.ask(second(1)))
+        yield* TestClock.adjust("30 seconds")
+        yield* TestClock.adjust("5 minutes")
+        assert.deepStrictEqual(codesFrom.asked, [
+          { at: DateTime.toEpochMillis(second(1)), fresh: false },
+          { at: DateTime.toEpochMillis(second(1)), fresh: true },
+        ])
+        assert.deepStrictEqual(buyersShown(shown), ["BK"])
+      }).pipe(Effect.provideService(HttpClient.HttpClient, codesFrom.client))
+    }
+  )
+
   it.effect("a failed first ask is asked again by the recheck", () => {
     const codesFrom = codesWorker({ completeFrom: 2, failing: 1 })
     return Effect.gen(function* () {
@@ -266,11 +331,17 @@ describe("following a recorded day's broker codes", () => {
 // A Worker answering each sweep brokers GET of BBCA with one more whole sweep
 // than the last, the day complete from the `completeFrom`th GET on, and its
 // first `failing` GETs answered 503; it records whether each GET went past
-// the browser's copy.
-const sweepBrokersWorker = (completeFrom: number, failing = 0) => {
+// the browser's copy. Its day strip says the day is cold when `cold` does.
+const sweepBrokersWorker = (
+  completeFrom: number,
+  failing = 0,
+  cold = false
+) => {
   const asked: Array<boolean> = []
-  const client = HttpClient.make((request) =>
+  const client = HttpClient.make((request, url) =>
     Effect.gen(function* () {
+      const strip = stripAnswer(request, url, cold)
+      if (Option.isSome(strip)) return strip.value
       asked.push(
         Option.isSome(yield* Effect.serviceOption(FetchHttpClient.RequestInit))
       )
@@ -347,6 +418,37 @@ describe("following a recorded day's sweep brokers", () => {
       assert.strictEqual(error._tag, "SignInRequired")
     }).pipe(Effect.provideService(HttpClient.HttpClient, worker(401)))
   )
+
+  it.effect("asks once for a cold day, though its codes are incomplete", () => {
+    const brokersFrom = sweepBrokersWorker(Number.POSITIVE_INFINITY, 0, true)
+    return Effect.gen(function* () {
+      const shown: Array<[sweeps: number, complete: boolean]> = []
+      yield* Effect.forkChild(
+        followSweepBrokers(DAY, BBCA, (answer) =>
+          shown.push([answer.sweeps.length, answer.complete])
+        )
+      )
+      yield* TestClock.adjust("5 minutes")
+      assert.deepStrictEqual(brokersFrom.asked, [false])
+      assert.deepStrictEqual(shown, [[1, false]])
+    }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
+  })
+
+  it.effect("a cold day's failed first ask is asked again 30 s later", () => {
+    const brokersFrom = sweepBrokersWorker(Number.POSITIVE_INFINITY, 1, true)
+    return Effect.gen(function* () {
+      const shown: Array<[sweeps: number, complete: boolean]> = []
+      yield* Effect.forkChild(
+        followSweepBrokers(DAY, BBCA, (answer) =>
+          shown.push([answer.sweeps.length, answer.complete])
+        )
+      )
+      yield* TestClock.adjust("30 seconds")
+      yield* TestClock.adjust("5 minutes")
+      assert.deepStrictEqual(brokersFrom.asked, [false, true])
+      assert.deepStrictEqual(shown, [[2, false]])
+    }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
+  })
 
   it.effect("asks once for a day already complete", () => {
     const brokersFrom = sweepBrokersWorker(1)

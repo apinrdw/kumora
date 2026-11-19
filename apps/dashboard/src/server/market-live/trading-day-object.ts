@@ -21,6 +21,7 @@ import { durableSql } from "./durable-sql.ts"
 import { marketClockOffset, withMarketClock } from "./market-clock.ts"
 import type { CodeListStore } from "./code-list.ts"
 import { respond } from "./respond.ts"
+import { objectMove } from "./test-move.ts"
 import {
   AccountId,
   DAY_INDEX,
@@ -351,6 +352,11 @@ export class TradingDayObject {
         )
       )
     }
+    // The Test stage's move route (test-move.ts), the token already checked.
+    if (pathname === ObjectPath.move)
+      return respond(
+        withMarketClock(objectMove(decodeDate(this.ctx.id.name), this.day.move))
+      )
     // The reconcile cron's poke: 202 when the day will build, else 204.
     if (pathname === ObjectPath.brokerTotals)
       return respond(
