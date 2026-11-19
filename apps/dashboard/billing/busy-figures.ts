@@ -16,6 +16,9 @@ export const BUSY_DAY = {
   bookEvents: 24_000,
 } as const
 
+// The book events one flush writes in the flush's budget.
+export const FLUSHED_BOOK_EVENTS = 1_000
+
 export const BROKERS = [
   "AK",
   "BK",
