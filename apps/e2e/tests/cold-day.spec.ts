@@ -270,6 +270,7 @@ test("a cold day replays, is never rechecked, and reloads from the browser's cac
       "books",
       "gaps",
       "heatmap",
+      "book-events",
     ])
   )
   expect(
