@@ -85,15 +85,27 @@ interface CookieTab {
 // one. They stay the tab's: with no Stockbit tab attached there is no
 // answer, as when the tab read them. See apinrdw/kumora#591.
 //
-// A read by this URL finds a cookie of `stockbit.com` or `.stockbit.com`,
-// Secure or not, under the manifest's `https://stockbit.com/*` host
-// permission.
-const STOCKBIT_URL = "https://stockbit.com/"
+// Decision: a cookie is looked up for the site, then for its API host: a
+// Google sign-in's `sb_social_access_token` is sent to
+// `exodus.api.stockbit.com` and isn't visible by the site's URL (seen
+// 2026-11-20: `getAll` under `https://stockbit.com/*` found none). The
+// manifest's `https://*.stockbit.com/*` host permission covers both.
+const STOCKBIT_COOKIE_URLS = [
+  "https://stockbit.com/",
+  "https://exodus.api.stockbit.com/",
+] as const
 
 // A Stockbit cookie's value in Chrome's cookie store, "" when it is missing.
 const chromeCookie = (name: string) =>
-  Effect.tryPromise(() => chrome.cookies.get({ url: STOCKBIT_URL, name })).pipe(
-    Effect.map((cookie) => cookie?.value ?? ""),
+  Effect.gen(function* () {
+    for (const url of STOCKBIT_COOKIE_URLS) {
+      const cookie = yield* Effect.tryPromise(() =>
+        chrome.cookies.get({ url, name })
+      )
+      if (cookie?.value !== undefined) return cookie.value
+    }
+    return ""
+  }).pipe(
     Effect.tapError((error) =>
       Effect.logWarning("Stockbit cookie read failed", error)
     ),
