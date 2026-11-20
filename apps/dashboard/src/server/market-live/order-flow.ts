@@ -328,14 +328,10 @@ const valuePast = Effect.fnUntraced(function* (
   return value
 })
 
-// A break under way: the level it went past, its breaking minute, the
-// side's aggressor value past the level so far, and the farthest price it
-// traded.
+// A break under way: the level it went past and its breaking minute.
 interface Break {
   readonly level: number
   readonly from: number
-  value: number
-  far: number
 }
 
 // Failed break (spec apinrdw/kumora#605, "Order flow events: the rules"):
@@ -364,12 +360,26 @@ const makeFailedBreak = Effect.sync((): OrderFlowRule => {
       yield* extremeOf(side, figures)
     )
     if (past < BREAK_TICKS) return undefined
-    return {
-      level: before.price,
-      from: figures.minute,
-      value: 0,
-      far: before.price,
-    } satisfies Break
+    return { level: before.price, from: figures.minute } satisfies Break
+  })
+
+  // The side's aggressor value past the level and the farthest price traded,
+  // over the window's minutes from the break on. Read from the window each
+  // time, so a minute judged again counts its trades once.
+  const reached = Effect.fnUntraced(function* (
+    minute: FoldedMinute,
+    side: OrderFlowSide,
+    going: Break
+  ) {
+    let value = 0
+    let far = going.level
+    for (const each of minute.window) {
+      if (each.minute < going.from) continue
+      value += yield* valuePast(side, each, going.level)
+      const reach = yield* extremeOf(side, each)
+      if (yield* beyond(side, reach, far)) far = reach
+    }
+    return { value, far }
   })
 
   return {
@@ -387,15 +397,13 @@ const makeFailedBreak = Effect.sync((): OrderFlowRule => {
           ? held
           : yield* started(minute, side)
       if (going === undefined) return undefined
-      going.value += yield* valuePast(side, figures, going.level)
-      const reach = yield* extremeOf(side, figures)
-      if (yield* beyond(side, reach, going.far)) going.far = reach
       if (!(yield* beyond(side, going.level, figures.close))) {
         open.set(key, going)
         return undefined
       }
+      const { value, far } = yield* reached(minute, side, going)
       if (
-        going.value < BREAK_FLOOR ||
+        value < BREAK_FLOOR ||
         (yield* minute.blocked(going.from, figures.minute))
       )
         return undefined
@@ -405,8 +413,8 @@ const makeFailedBreak = Effect.sync((): OrderFlowRule => {
         at: DateTime.makeUnsafe(figures.minute),
         side,
         price: going.level,
-        to: going.far,
-        value: going.value,
+        to: far,
+        value,
         close: figures.close,
         minutes: (figures.minute - going.from) / MINUTE_MS,
       } satisfies OrderFlowEvent
@@ -420,6 +428,9 @@ interface CodeFlow {
   window: Array<MinuteFigures>
   windowSession: number | undefined
   readonly extremes: Record<OrderFlowSide, Extreme | undefined>
+  // Each side's day extreme as it stood before a late trade moved it, until
+  // `judge` judges the move (`judgeLate`).
+  readonly moved: Record<OrderFlowSide, Extreme | undefined>
   // The day's cumulative delta in lots, through the newest folded minute and
   // any late trade since: the footprint chart's CVD (lib/footprint.ts,
   // minuteTotals).
@@ -569,7 +580,8 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
   // A trade in a minute already folded moves that minute's figures, if the
   // window still holds it, the cumulative delta and the day's extremes. An
   // extreme it sets takes the cumulative delta as it stands, since the
-  // minute after it is rarely folded yet.
+  // minute after it is rarely folded yet, and keeps the extreme it moved for
+  // `judgeLate`.
   const settled = (code: StockCode, minute: number, print: Print) => {
     let flow = codes.get(code)
     if (flow === undefined) {
@@ -578,6 +590,7 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
         window: [],
         windowSession: undefined,
         extremes: { buy: undefined, sell: undefined },
+        moved: { buy: undefined, sell: undefined },
         cum: 0,
         last: undefined,
         share: undefined,
@@ -599,13 +612,15 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
     if (print.sellValue > 0) flow.cum -= print.volume
     const { buy, sell } = flow.extremes
     const set = { price: print.close, at: minute, delta: flow.cum }
-    if (buy === undefined || print.close > buy.price)
+    if (buy === undefined || print.close > buy.price) {
+      flow.moved.buy ??= buy
       flow.extremes.buy = { ...set, pullback: undefined }
-    else if (minute > buy.at)
+    } else if (minute > buy.at)
       buy.pullback = Math.min(buy.pullback ?? print.close, print.close)
-    if (sell === undefined || print.close < sell.price)
+    if (sell === undefined || print.close < sell.price) {
+      flow.moved.sell ??= sell
       flow.extremes.sell = { ...set, pullback: undefined }
-    else if (minute > sell.at)
+    } else if (minute > sell.at)
       sell.pullback = Math.max(sell.pullback ?? print.close, print.close)
   }
 
@@ -694,11 +709,14 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
       flow.windowSession = session
     })
 
-  // Every rule's events on one folded minute, each side.
-  const judgeFolded = Effect.fnUntraced(function* (folded: FoldedMinute) {
+  // Every rule's events on one folded minute, for each of `sides`.
+  const judgeFolded = Effect.fnUntraced(function* (
+    folded: FoldedMinute,
+    sides: ReadonlyArray<OrderFlowSide> = SIDES
+  ) {
     const found: Array<OrderFlowEvent> = []
     for (const rule of judging)
-      for (const side of SIDES) {
+      for (const side of sides) {
         const event = yield* rule.judge(folded, side)
         if (event !== undefined) found.push(event)
       }
@@ -732,6 +750,58 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
       blocked,
     }
     return yield* judgeFolded(folded)
+  })
+
+  // Judges each side's extreme a late trade moved (`settled`) as its own
+  // minute setting it, again, for that side only: as if the trade had
+  // arrived before the minute was folded, which is how a restart replays
+  // it. A move in a minute the window no longer holds, an auction minute's
+  // or one over PUSH_MINUTES back, is not judged.
+  // Decision: a late trade's new high or low is judged once, at the next
+  // judge, as the minute it traded in, rather than left unjudged or credited
+  // to a later minute: its event then matches the one a restart's replay
+  // finds. Rules read a minute judged again from its window entry, so
+  // Failed break counts its value once. See spec apinrdw/kumora#605, "Order
+  // flow events: the rules" ("Each new high is judged once").
+  const judgeLate = Effect.fnUntraced(function* (
+    code: StockCode,
+    flow: CodeFlow,
+    blocked: FoldedMinute["blocked"]
+  ) {
+    const found: Array<OrderFlowEvent> = []
+    for (const side of SIDES) {
+      const before = flow.moved[side]
+      const extreme = flow.extremes[side]
+      flow.moved[side] = undefined
+      if (before === undefined || extreme === undefined) continue
+      const at = flow.window.findIndex((each) => each.minute === extreme.at)
+      const session = flow.windowSession
+      if (at < 0 || session === undefined || flow.share !== true) continue
+      const sides = {
+        buy: {
+          before: flow.extremes.buy,
+          extreme: flow.extremes.buy,
+          set: false,
+        },
+        sell: {
+          before: flow.extremes.sell,
+          extreme: flow.extremes.sell,
+          set: false,
+        },
+        [side]: { before, extreme, set: true },
+      }
+      const folded: FoldedMinute = {
+        code,
+        figures: flow.window[at]!,
+        session,
+        sessionStart: sessions[session]!.from,
+        window: flow.window.slice(0, at + 1),
+        sides,
+        blocked,
+      }
+      found.push(...(yield* judgeFolded(folded, [side])))
+    }
+    return found
   })
 
   // Folds one code's minutes after `after` up to `through`, in time order:
@@ -774,13 +844,18 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
     gaps: ReadonlyArray<RelayGap>
   ) {
     const through = yield* dueAt(now)
-    if (through <= foldedThrough) return []
-    const continuous = yield* continuousBetween(foldedThrough, through)
     const blocked = blockedBy(gaps)
     const found: Array<OrderFlowEvent> = []
     for (const [code, flow] of codes)
-      found.push(...(yield* foldCode(code, flow, continuous, through, blocked)))
-    foldedThrough = through
+      found.push(...(yield* judgeLate(code, flow, blocked)))
+    if (through > foldedThrough) {
+      const continuous = yield* continuousBetween(foldedThrough, through)
+      for (const [code, flow] of codes)
+        found.push(
+          ...(yield* foldCode(code, flow, continuous, through, blocked))
+        )
+      foldedThrough = through
+    }
     return Arr.sort(found, OrderFlowEventOrder)
   })
 
