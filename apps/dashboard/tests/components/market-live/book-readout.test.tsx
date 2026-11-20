@@ -387,3 +387,85 @@ test("blocked storage falls back to the default size and still estimates", () =>
   typeSize(container, "10")
   expect(fillTable(container)).toContain("1,010")
 })
+
+// The line under the imbalance bar: the signed figure, the heavy side and
+// its chip.
+const imbalanceLine = (container: HTMLElement) =>
+  container.querySelector('[aria-label="Imbalance reading"]')
+
+test("a lopsided book's imbalance line names the heavy side and its orders, live", () => {
+  const { container } = render(
+    "ERAA",
+    snapshot("session-1", [
+      readingsOf("ERAA", {
+        imbalance: -0.72,
+        bid: side(400, 22),
+        offer: side(2_460, 118),
+      }),
+    ])
+  )
+  expect(imbalanceLine(container)?.textContent).toBe(
+    "−72% · Offer-heavy · big orders"
+  )
+  const small = render(
+    "BBRI",
+    snapshot("session-1", [
+      readingsOf("BBRI", {
+        imbalance: 0.6,
+        bid: side(4_000, 8),
+        offer: side(1_000, 20),
+      }),
+    ])
+  )
+  expect(imbalanceLine(small.container)?.textContent).toBe(
+    "+60% · Bid-heavy · small orders"
+  )
+  const untagged = render("TLKM", snapshot("session-1", [readingsOf("TLKM")]))
+  expect(
+    imbalanceLine(untagged.container)?.textContent,
+    "under 50% lopsided, no tag"
+  ).toBe("+25% · Bid-heavy")
+})
+
+test("paused, the heavy side follows the last readings and greys with them", () => {
+  const { container } = render(
+    "ERAA",
+    snapshot(
+      "break",
+      [
+        readingsOf("ERAA", {
+          imbalance: -0.72,
+          bid: side(400, 22),
+          offer: side(2_460, 118),
+        }),
+      ],
+      Date.parse("2026-11-18T12:10:00+07:00")
+    )
+  )
+  const chip = container.querySelector('[aria-label="Heavy side"]')
+  expect(chip?.textContent).toBe("big orders")
+  expect(
+    chip?.closest(".opacity-50"),
+    "greyed with the readings"
+  ).not.toBeNull()
+})
+
+test("a recorded day reads the heavy side from the book at the cursor", () => {
+  const shown = render("ERAA", snapshot("session-1", []), {
+    cursor: cursorAt(Date.parse("2026-11-18T10:05:00+07:00")),
+    gaps: [],
+  })
+  act(() =>
+    shown.book.replace({
+      ...ERAA_BOOK,
+      // 10 lots per order against 150.
+      bids: [{ price: 1000, lots: 40, orders: 4 }],
+      offers: [{ price: 1010, lots: 300, orders: 2 }],
+      bidLots: 40,
+      offerLots: 300,
+    })
+  )
+  expect(imbalanceLine(shown.container)?.textContent).toBe(
+    "−76% · Offer-heavy · big orders"
+  )
+})

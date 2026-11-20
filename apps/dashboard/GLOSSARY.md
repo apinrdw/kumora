@@ -180,6 +180,10 @@ _Avoid_: Bid share (that is the whole book's bids over its total), pressure
 A level's lots over its frequency; for a side, its best five levels' lots over their orders.
 _Avoid_: Order size (that is the user's fill estimate amount), average lot
 
+**Heavy side**:
+A book reading of a book at least 50% lopsided: big orders when its heavy side's lots per order is at least 1.5× the other side's, small orders when it is no more than the other's; none in between, when either side is empty, or at a limit. It says how the heavy side's lots are held, never who holds them.
+_Avoid_: Order size (that is the fill estimate's amount), whale, bandar, retail, block order
+
 **Fill estimate**:
 What filling the user's order size against the book would take right now: a buy walks the offers and a sell the bids, giving the levels consumed, the last price reached, the average fill price and the slippage from the best price. Only the levels the book carries count, so a size beyond them says so.
 _Avoid_: Slippage (that is one of its figures), market impact

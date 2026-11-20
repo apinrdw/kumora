@@ -8,6 +8,7 @@ import {
   INDEX_CODES,
   READING_PHASES,
   bookReadingsOf,
+  heavySideOf,
   limitOf,
   marketPhases,
   type BookReadings,
@@ -29,6 +30,7 @@ import { gapAt } from "@/lib/replay"
 import type { BookReadingsStore } from "./book-readings-store"
 import { useDayState, type DayStateStore } from "./day-state-store"
 import { FillEstimatePart } from "./fill-estimate"
+import { HeavySideChip } from "./heavy-side-chip"
 import { PHASE, useMarketPhase } from "./market-conditions"
 import type { OrderBookStore } from "./order-book-store"
 import type { ReplayCursor } from "./replay-cursor"
@@ -89,8 +91,38 @@ const perOrder = (side: BookReadings["bid"]) =>
     ? Effect.succeed("—")
     : plain(side.lotsPerOrder, side.lotsPerOrder < 10 ? 1 : 0)
 
+const LEANS = { bid: "Bid-heavy", offer: "Offer-heavy" } as const
+
+// The line under the imbalance row: the signed figure, the side it leans
+// to, and the heavy side's chip when tagged, e.g. "−72% · Offer-heavy · big
+// orders".
+function ImbalanceLine({
+  readings,
+  imbalance,
+}: {
+  readings: BookReadings
+  imbalance: number
+}) {
+  // The line shows only away from a limit (`Imbalance`).
+  const heavy = Effect.runSync(heavySideOf(readings, undefined))
+  return (
+    <p
+      aria-label="Imbalance reading"
+      className="flex flex-wrap items-center gap-1 tabular-nums"
+    >
+      {`${Effect.runSync(signed(imbalance * 100, 0))}% · ${LEANS[imbalance >= 0 ? "bid" : "offer"]}`}
+      {heavy !== undefined && (
+        <>
+          {" · "}
+          <HeavySideChip heavy={heavy} />
+        </>
+      )}
+    </p>
+  )
+}
+
 // The imbalance row: the bar and the signed figure, none at a limit, where
-// a limit queue isn't pressure.
+// a limit queue isn't pressure, then the imbalance line.
 function Imbalance({
   readings,
   limit,
@@ -100,25 +132,30 @@ function Imbalance({
 }) {
   const shown = limit === undefined ? readings.imbalance : undefined
   return (
-    <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
-      <span className="text-muted-foreground">Imbalance</span>
-      <ImbalanceBar imbalance={shown} />
-      <b
-        aria-label="Imbalance value"
-        className={cn(
-          "tabular-nums",
-          shown === undefined
-            ? "text-muted-foreground"
-            : shown >= 0
-              ? "text-up"
-              : "text-down"
-        )}
-      >
-        {shown === undefined
-          ? "—"
-          : `${Effect.runSync(signed(shown * 100, 0))}%`}
-      </b>
-    </div>
+    <>
+      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+        <span className="text-muted-foreground">Imbalance</span>
+        <ImbalanceBar imbalance={shown} />
+        <b
+          aria-label="Imbalance value"
+          className={cn(
+            "tabular-nums",
+            shown === undefined
+              ? "text-muted-foreground"
+              : shown >= 0
+                ? "text-up"
+                : "text-down"
+          )}
+        >
+          {shown === undefined
+            ? "—"
+            : `${Effect.runSync(signed(shown * 100, 0))}%`}
+        </b>
+      </div>
+      {shown !== undefined && (
+        <ImbalanceLine readings={readings} imbalance={shown} />
+      )}
+    </>
   )
 }
 
