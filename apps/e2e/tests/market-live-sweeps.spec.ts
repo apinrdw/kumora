@@ -2,12 +2,12 @@ import {
   BROKER_CODES_AUTH_SCHEME,
   BrokerCode,
   BrokerCodesProtocolVersion,
+  OrderNumber,
   TradeNumber,
   WibDate,
   decodeRecordedCandles,
   encodeBrokerCodesBatch,
   recordedDayPath,
-  type OrderNumbers,
   type StockCode,
   type TradeCodes,
 } from "@workspace/relay"
@@ -205,7 +205,8 @@ async function closedOnceStored(
 async function storeCodes(
   page: Page,
   rows: ReadonlyArray<
-    readonly [number, string] | readonly [number, string, OrderNumbers]
+    | readonly [number, string]
+    | readonly [number, string, readonly [number, number]]
   >
 ) {
   const day = WibDate.make(wibToday())
@@ -227,7 +228,7 @@ async function storeCodes(
                   TradeNumber.make(String(number)),
                   tradeCodes(text),
                   null,
-                  orders,
+                  [OrderNumber.make(orders[0]), OrderNumber.make(orders[1])],
                 ]
           ),
         })

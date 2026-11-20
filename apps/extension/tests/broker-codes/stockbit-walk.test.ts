@@ -4,6 +4,7 @@ import {
   BrokerCodesProtocolVersion,
   MISSING_RANGES,
   StockCode,
+  OrderNumber,
   TradeNumber,
   WibDate,
   decodeBrokerCodesBatch,
@@ -637,14 +638,14 @@ describe("Stockbit's walk and order numbers", () => {
       assert.strictEqual(posted.size, hope.length)
       for (const row of hope)
         assert.deepStrictEqual(posted.get(TradeNumber.make(row.trade_number)), [
-          Number(row.buy_order_number),
-          Number(row.sell_order_number),
+          OrderNumber.make(Number(row.buy_order_number)),
+          OrderNumber.make(Number(row.sell_order_number)),
         ])
       // HOPE's trade 8799: a buy whose group order is the buy order.
-      assert.deepStrictEqual(
-        posted.get(TradeNumber.make("8799")),
-        [276_574, 53_352]
-      )
+      assert.deepStrictEqual(posted.get(TradeNumber.make("8799")), [
+        OrderNumber.make(276_574),
+        OrderNumber.make(53_352),
+      ])
     })
   )
 

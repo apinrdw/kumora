@@ -14,6 +14,7 @@ import {
   sweepsOf,
   type BrokerCode,
   type InvestorType,
+  type OrderNumber,
   type OrderNumbers,
   type RunningTrade,
   type Sweep,
@@ -184,18 +185,18 @@ const orderRunsOf = Effect.fnUntraced(function* (
   ].sort((a, b) => a - b)
   // Each run's aggressor orders, its trades, and its passive orders' lots.
   const runs: Array<{
-    readonly numbers: Array<number>
+    readonly numbers: Array<OrderNumber>
     readonly trades: Array<RunningTrade>
-    readonly passive: Map<number, number>
+    readonly passive: Map<OrderNumber, number>
   }> = []
-  const runOf = new Map<number, (typeof runs)[number]>()
+  const runOf = new Map<OrderNumber, (typeof runs)[number]>()
   for (const number of numbers) {
     const last = runs.at(-1)
     const joins =
       last !== undefined && number - last.numbers.at(-1)! <= ORDER_RUN_GAP
     const into = joins
       ? last
-      : { numbers: [], trades: [], passive: new Map<number, number>() }
+      : { numbers: [], trades: [], passive: new Map<OrderNumber, number>() }
     if (!joins) runs.push(into)
     into.numbers.push(number)
     runOf.set(number, into)

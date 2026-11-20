@@ -35,6 +35,8 @@ import {
 
 const DAY = WibDate.make("2026-11-12")
 const number = (value: string) => TradeNumber.make(value)
+const orderPair = (buy: number, sell: number) =>
+  [OrderNumber.make(buy), OrderNumber.make(sell)] as const
 const codes: TradeCodes = {
   buyer: BrokerCode.make("YP"),
   buyerType: "D",
@@ -82,8 +84,8 @@ describe("a broker codes batch", () => {
           feed: "Stockbit",
           day: DAY,
           rows: [
-            [number("8799"), codes, fields, [276_574, 53_352]],
-            [number("8800"), codes, null, [276_574, 125_666]],
+            [number("8799"), codes, fields, orderPair(276_574, 53_352)],
+            [number("8800"), codes, null, orderPair(276_574, 125_666)],
             [number("8801"), codes, fields],
           ],
         }
@@ -204,7 +206,7 @@ describe("a broker codes batch", () => {
             number(String(9_999_995_000 + at)),
             codes,
             longest,
-            [4_294_967_295, 4_294_967_295],
+            orderPair(4_294_967_295, 4_294_967_295),
           ]),
           end: { n: number("9999999999") },
         }
@@ -642,7 +644,7 @@ describe("a Stockbit row", () => {
           sell_order_number: "53352",
           group_order_number: "276574",
         }),
-        Option.some([276_574, 53_352] as const)
+        Option.some(orderPair(276_574, 53_352))
       )
     })
   )
@@ -694,7 +696,7 @@ describe("a Stockbit row", () => {
         const day = WibDate.make("2026-11-20")
         assert.deepStrictEqual(
           yield* ajaibDetailOrderNumbers(day, detail),
-          Option.some([3_114_944, 3_090_230] as const)
+          Option.some(orderPair(3_114_944, 3_090_230))
         )
         for (const bad of [
           { ...detail, buyer: { order_id: "202611190003114944" } },

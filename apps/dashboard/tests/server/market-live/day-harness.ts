@@ -10,6 +10,7 @@ import {
   BrokerCodesProtocolVersion,
   IngestProtocolVersion,
   StockCode,
+  OrderNumber,
   TradeNumber,
   ViewerProtocolVersion,
   WibDate,
@@ -22,7 +23,6 @@ import {
   encodeViewerUp,
   type Feed,
   type Footprint,
-  type OrderNumbers,
   type RecordedResource,
   type Sweep,
   type TradeFields,
@@ -356,7 +356,7 @@ export const tradingDay = Effect.fnUntraced(function* (
     rows: ReadonlyArray<
       | readonly [number, string]
       | readonly [number, string, TradeFields]
-      | readonly [number, string, TradeFields | null, OrderNumbers]
+      | readonly [number, string, TradeFields | null, readonly [number, number]]
     >,
     end?: number
   ) {
@@ -375,7 +375,12 @@ export const tradingDay = Effect.fnUntraced(function* (
           }
           const tradeNumber = TradeNumber.make(String(number))
           if (orders !== undefined)
-            return [tradeNumber, codes, fields ?? null, orders] as const
+            return [
+              tradeNumber,
+              codes,
+              fields ?? null,
+              [OrderNumber.make(orders[0]), OrderNumber.make(orders[1])],
+            ] as const
           return fields === undefined || fields === null
             ? ([tradeNumber, codes] as const)
             : ([tradeNumber, codes, fields] as const)

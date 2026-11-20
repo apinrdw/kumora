@@ -8,6 +8,7 @@ import {
   BrokerCodesProtocolVersion,
   IngestProtocolVersion,
   StockCode,
+  OrderNumber,
   TradeNumber,
   WibDate,
   decodeBrokerCodesStatus,
@@ -543,9 +544,13 @@ describe("the merge rules", () => {
 // 2026-11-20 and their order numbers, as Stockbit sent them
 // (sb-HOPE-2026-11-20 on research/order-number-routes).
 describe("a day's order numbers", () => {
-  const HOPE_8799: OrderNumbers = [276_574, 53_352]
-  const HOPE_8800: OrderNumbers = [276_574, 125_666]
-  const HOPE_8801: OrderNumbers = [276_574, 79_327]
+  const orders = (buy: number, sell: number): OrderNumbers => [
+    OrderNumber.make(buy),
+    OrderNumber.make(sell),
+  ]
+  const HOPE_8799 = orders(276_574, 53_352)
+  const HOPE_8800 = orders(276_574, 125_666)
+  const HOPE_8801 = orders(276_574, 79_327)
 
   it.effect(
     "Ajaib's stand: Stockbit's agreeing marks both, differing counts one difference, and fills a trade Ajaib's lack",

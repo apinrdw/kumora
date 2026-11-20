@@ -1,5 +1,6 @@
 import {
   BrokerCode,
+  OrderNumber,
   TradeNumber,
   type Sweep,
   type SweepBroker,
@@ -149,8 +150,8 @@ describe("bubbles", () => {
       Effect.gen(function* () {
         const walked: Sweep = {
           ...sweep("09:00:00", "buy", 4),
-          first: 1000,
-          last: 1010,
+          first: OrderNumber.make(1000),
+          last: OrderNumber.make(1010),
           value: (1000 * 1 + 1010 * 3) * 100,
         }
         expect(yield* sweepPrice(walked)).toBe(1007.5)
@@ -216,8 +217,8 @@ describe("a side's lead broker", () => {
 describe("a sweep's tooltip", () => {
   const buy: Sweep = {
     ...sweep("09:01:02", "buy", 1_240),
-    first: 500,
-    last: 510,
+    first: OrderNumber.make(500),
+    last: OrderNumber.make(510),
     trades: 3,
   }
   const sell = sweep("10:15:09", "sell", 7, 2_150)
@@ -295,8 +296,8 @@ describe("a sweep's tooltip", () => {
           other,
           orders: {
             count: 22,
-            first: 1_515_610,
-            last: 1_515_642,
+            first: OrderNumber.make(1_515_610),
+            last: OrderNumber.make(1_515_642),
             biggestPassiveLots: 1_997,
           },
         })
@@ -313,8 +314,8 @@ describe("a sweep's tooltip", () => {
         other: aggressor,
         orders: {
           count: 1,
-          first: 3_114_901,
-          last: 3_114_901,
+          first: OrderNumber.make(3_114_901),
+          last: OrderNumber.make(3_114_901),
           biggestPassiveLots: 7,
         },
       })

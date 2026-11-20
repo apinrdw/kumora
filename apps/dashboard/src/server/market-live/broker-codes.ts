@@ -9,6 +9,7 @@ import {
   BrokerCodesProtocolVersion,
   MISSING_RANGES,
   NO_ORDER_NUMBERS,
+  OrderNumber,
   OrderNumberCounts,
   TradeNumber,
   type StockCode,
@@ -434,11 +435,14 @@ const orderBytesOf = ([buy, sell]: OrderNumbers) =>
   })
 
 // The order numbers a record's first eight bytes hold, which the store
-// wrote.
+// wrote, so checked as they went in.
 const ordersOf = (record: Uint8Array) =>
   Effect.sync((): OrderNumbers => {
     const view = new DataView(record.buffer, record.byteOffset, ORDER_SOURCE)
-    return [view.getUint32(0), view.getUint32(4)]
+    return [
+      OrderNumber.make(view.getUint32(0), { disableChecks: true }),
+      OrderNumber.make(view.getUint32(4), { disableChecks: true }),
+    ]
   })
 
 const sameOrders = (held: Uint8Array, at: number, orders: Uint8Array) =>

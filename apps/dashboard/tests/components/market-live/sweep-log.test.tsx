@@ -2,6 +2,7 @@
 import {
   BrokerCode,
   StockCode,
+  OrderNumber,
   TradeNumber,
   type InvestorType,
   type Sweep,
@@ -26,8 +27,8 @@ const sweep = (id: string, wib: string, side: Sweep["side"]): Sweep => ({
   side,
   firstTrade: TradeNumber.make(id),
   time: DateTime.makeUnsafe(`2026-11-20T${wib}+07:00`),
-  first: 9_000,
-  last: 9_000,
+  first: OrderNumber.make(9_000),
+  last: OrderNumber.make(9_000),
   lots: 30,
   value: 27_000_000,
   trades: 3,
@@ -53,8 +54,8 @@ const piece = (
 
 const run = (count: number): SweepOrders => ({
   count,
-  first: 1_515_610,
-  last: 1_515_610 + count - 1,
+  first: OrderNumber.make(1_515_610),
+  last: OrderNumber.make(1_515_610 + count - 1),
   biggestPassiveLots: 20,
 })
 

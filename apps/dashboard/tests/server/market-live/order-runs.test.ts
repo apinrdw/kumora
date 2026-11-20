@@ -3,12 +3,7 @@
 // seals, broker codes batches carry order numbers, and the test reads the
 // sweep brokers GET.
 import { assert, describe, it } from "@effect/vitest"
-import {
-  StockCode,
-  type OrderNumbers,
-  type SweepBrokers,
-  type SweepPiece,
-} from "@workspace/relay"
+import { StockCode, type SweepBrokers, type SweepPiece } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
@@ -66,8 +61,8 @@ const piecesOf = (sweep: SweepBrokers) => sweep.pieces.map(pieceRow)
 const sold = (
   number: number,
   seller: string,
-  [buy, sell]: OrderNumbers
-): readonly [number, string, null, OrderNumbers] => [
+  [buy, sell]: readonly [number, number]
+): readonly [number, string, null, readonly [number, number]] => [
   number,
   `KZ D ${seller} D`,
   null,

@@ -123,7 +123,8 @@ export const DayTradeNumber = TradeNumber.check(
 // 2026-11-20, three orders of magnitude below it.
 export const OrderNumber = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: 0xff_ff_ff_ff })
-)
+).pipe(Schema.brand("OrderNumber"))
+export type OrderNumber = typeof OrderNumber.Type
 
 // A trade's buy order's and sell order's numbers.
 const OrderNumbers = Schema.Tuple([OrderNumber, OrderNumber])
