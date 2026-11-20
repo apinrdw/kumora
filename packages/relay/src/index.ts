@@ -170,6 +170,13 @@ export {
 } from "./book-events.ts"
 export type { BookEventKind } from "./book-events.ts"
 export {
+  MAX_CODE_ORDER_FLOW_EVENTS,
+  OrderFlowEvent,
+  OrderFlowEventOrder,
+  SNAPSHOT_ORDER_FLOW_EVENTS,
+} from "./order-flow-events.ts"
+export type { OrderFlowEventKind, OrderFlowSide } from "./order-flow-events.ts"
+export {
   HEAT_SLICE_MS,
   decodeRecordedHeatmap,
   encodeRecordedHeatmap,

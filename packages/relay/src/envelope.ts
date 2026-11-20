@@ -1,6 +1,7 @@
 import { Effect, Option, Order, Schema, SchemaGetter } from "effect"
 
 import { BookEvent } from "./book-events.ts"
+import { OrderFlowEvent } from "./order-flow-events.ts"
 import { BookReadings } from "./book-readings.ts"
 import { StockCode } from "./codes.ts"
 import { IndicativePrice, MarketConditions } from "./market-conditions.ts"
@@ -33,7 +34,8 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // events (spec apinrdw/kumora#517).
 // 8: book readings drop near depth, empty ticks and the spread (spec
 // apinrdw/kumora#605).
-export const ViewerProtocolVersion = 8
+// 9: snapshots and deltas carry order flow events (spec apinrdw/kumora#605).
+export const ViewerProtocolVersion = 9
 
 // Decision: an extension that hits either code stops retrying that target and
 // shows it; any other close, 1006 included, retries with backoff. The token
@@ -480,6 +482,12 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   // The selected code's newest MAX_CODE_BOOK_EVENTS (book-events.ts) book
   // events of the day, oldest first. Absent when it has none.
   selectedBookEvents: Schema.optionalKey(Schema.Array(BookEvent)),
+  // The day's newest SNAPSHOT_ORDER_FLOW_EVENTS (order-flow-events.ts) order
+  // flow events of every code, oldest first. Absent when there are none.
+  orderFlowEvents: Schema.optionalKey(Schema.Array(OrderFlowEvent)),
+  // The selected code's newest MAX_CODE_ORDER_FLOW_EVENTS order flow events
+  // of the day, oldest first. Absent when it has none.
+  selectedOrderFlowEvents: Schema.optionalKey(Schema.Array(OrderFlowEvent)),
 })
 
 // The running trades that arrived in the last ~250 ms, ascending by trade
@@ -521,6 +529,9 @@ const Delta = Schema.TaggedStruct("Delta", {
   // The book events of every code found since the last delta, oldest first.
   // Absent when none was.
   bookEvents: Schema.optionalKey(Schema.Array(BookEvent)),
+  // The order flow events of every code found since the last delta, oldest
+  // first. Absent when none was.
+  orderFlowEvents: Schema.optionalKey(Schema.Array(OrderFlowEvent)),
   // Present only when they changed.
   conditions: Schema.optionalKey(MarketConditions),
   // Every code's that changed, whatever each viewer selected.

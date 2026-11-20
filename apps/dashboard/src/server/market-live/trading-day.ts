@@ -63,6 +63,8 @@ import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
 import { makeBubbleBook } from "./bubble-book.ts"
 import { makeLevelLedger } from "./level-ledger.ts"
+import { makeOrderFlow } from "./order-flow.ts"
+import { makeOrderFlowEventLog } from "./order-flow-event-log.ts"
 import { makeReadingsBook } from "./readings-book.ts"
 import { dayValuesAnswer, makePreviousValues } from "./previous-values.ts"
 import {
@@ -601,7 +603,15 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
   const bubbles = yield* makeBubbleBook
-  const candles = yield* makeCandleBook(store, bubbles.settled)
+  const orderFlow = yield* makeOrderFlow(options.date)
+  const orderFlowEvents = yield* makeOrderFlowEventLog
+  const candles = yield* makeCandleBook(
+    store,
+    (code, minute, candle, print) => {
+      bubbles.settled(code, minute, candle, print)
+      orderFlow.settled(code, minute, print)
+    }
+  )
   const keptAlerts = yield* makeKeptAlerts
   const ingests = options.ingests ?? Effect.succeed([])
   const books = yield* makeOrderBooks(options.date)
@@ -929,6 +939,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const bookReadings = yield* readings.read(changedBooks, conditions.phase)
     yield* sessionBooks.served(changedBooks, conditions.phase)
     yield* readLedger(changedBooks, conditions)
+    // Decision: order flow rules judge each minute in the delta tick once
+    // its candle settled, 5 s past its close as the flush waits, never inside
+    // the flush. See spec apinrdw/kumora#605, "Order flow events: the rules".
+    yield* candles.settledBefore
+    yield* orderFlowEvents.add(
+      yield* orderFlow.judge(yield* Clock.currentTimeMillis, conditions.gaps)
+    )
     // Decision: a delta carries whole books only for codes some viewer
     // selected, as footprints do: a page reads only its selected code's, and
     // whole books were 86% of a viewer's inflated bytes. Every other changed
@@ -945,6 +962,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       bookReadings,
       scannerFigures: yield* changedFigures,
       bookEvents: yield* bookEvents.takeDelta,
+      orderFlowEvents: yield* orderFlowEvents.takeDelta,
       dayStates: states,
       indicative: yield* market.indicativeChanges,
     })
@@ -978,7 +996,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       !(yield* books.hasChanges(yield* stockbitLive)) &&
       !(yield* dayStates.hasChanges) &&
       !(yield* conditionsPending) &&
-      !(yield* figuresPending)
+      !(yield* figuresPending) &&
+      !(yield* orderFlow.due(yield* Clock.currentTimeMillis))
     )
       return
     deltaScheduled = true
@@ -1708,6 +1727,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       const bookReadings = yield* readings.all
       const newestEvents = yield* bookEvents.newest
       const selectedEvents = yield* bookEvents.ofCode(selected)
+      const newestOrderFlow = yield* orderFlowEvents.newest
+      const selectedOrderFlow = yield* orderFlowEvents.ofCode(selected)
       const scannerFigures = yield* currentFigures
       for (const figures of scannerFigures)
         if (sentFigures.get(figures.code) !== (yield* figuresKey(figures)))
@@ -1727,6 +1748,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           sweepAlerts: yield* keptAlerts.on(snapshotTape),
           bookEvents: newestEvents,
           selectedBookEvents: selectedEvents,
+          orderFlowEvents: newestOrderFlow,
+          selectedOrderFlowEvents: selectedOrderFlow,
         })),
         ...(bookReadings.length === 0 ? {} : { bookReadings, scannerFigures }),
       })
