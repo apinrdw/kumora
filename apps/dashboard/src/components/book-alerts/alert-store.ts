@@ -7,6 +7,7 @@ import { Effect, Schema } from "effect"
 import { useSyncExternalStore } from "react"
 
 import {
+  ALERT_KIND_NAMES,
   MIN_VALUES,
   NO_LIMITS,
   type AlertHistory,
@@ -15,14 +16,9 @@ import {
 } from "@/lib/book-alerts"
 import { makeSchemaStoredValue } from "@/lib/stored-value"
 
-const Kind = Schema.Literals([
-  "absorbed",
-  "eaten",
-  "reloaded",
-  "appeared",
-  "pulled",
-  "moved",
-])
+const Kind = Schema.Literals(
+  Object.keys(ALERT_KIND_NAMES) as Array<keyof typeof ALERT_KIND_NAMES>
+)
 
 const Rules = Schema.Array(
   Schema.Struct({

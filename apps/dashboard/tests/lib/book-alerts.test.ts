@@ -1,5 +1,10 @@
 import { assert, describe, it } from "@effect/vitest"
-import { StockCode, WibDate, type BookEvent } from "@workspace/relay"
+import {
+  StockCode,
+  WibDate,
+  type BookEvent,
+  type BookReadings,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import {
@@ -9,8 +14,12 @@ import {
   NO_LIMITS,
   ruleMatches,
   withAlert,
+  heavySideChanges,
   type Alert,
+  type AlertEvent,
   type AlertHistory,
+  type HeavySideChange,
+  type HeavySideTags,
   type AlertLimits,
   type AlertRule,
   type MatchContext,
@@ -182,7 +191,7 @@ describe("alertTitle", () => {
 const makeAlertLimits = Effect.sync(() => {
   let held: AlertLimits = NO_LIMITS
   return {
-    admit: (event: BookEvent, now: number) =>
+    admit: (event: AlertEvent, now: number) =>
       Effect.map(admitAlert(held, event, now), (admitted) => {
         held = admitted.limits
         return admitted.verdict
@@ -292,6 +301,143 @@ describe("the day's history", () => {
         added.alerts.map((each) => each.key),
         ["b"]
       )
+    })
+  )
+})
+
+// BBCA's readings at `at`: `imbalance` with the bid's and offer's lots per
+// order. Lots follow the imbalance over a total of 10,000.
+const readingsOf = (
+  at: number,
+  imbalance: number,
+  bidPerOrder: number,
+  offerPerOrder: number,
+  code: StockCode = BBCA
+): BookReadings => ({
+  code,
+  at: DateTime.makeUnsafe(at),
+  imbalance,
+  bid: { lots: 5_000 * (1 + imbalance), lotsPerOrder: bidPerOrder },
+  offer: { lots: 5_000 * (1 - imbalance), lotsPerOrder: offerPerOrder },
+})
+
+const NO_PRICES = () => undefined
+
+// The kinds of the heavy side changes each batch of readings makes, in turn.
+const changesOver = Effect.fnUntraced(function* (
+  batches: ReadonlyArray<ReadonlyArray<BookReadings>>
+) {
+  let tags: HeavySideTags = new Map()
+  const kinds: Array<ReadonlyArray<string>> = []
+  for (const batch of batches) {
+    const next = yield* heavySideChanges(tags, batch, NO_PRICES)
+    tags = next.tags
+    kinds.push(next.changes.map((change) => `${change.side} ${change.kind}`))
+  }
+  return kinds
+})
+
+describe("heavySideChanges", () => {
+  it.effect("a tag that appears is a change, and one that stays is not", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* changesOver([
+          [readingsOf(T0, 0.2, 10, 10)],
+          [readingsOf(T0 + 1_000, -0.72, 22, 118)],
+          [readingsOf(T0 + 2_000, -0.8, 22, 120)],
+        ]),
+        [[], ["offer bigOrders"], []]
+      )
+    })
+  )
+
+  it.effect(
+    "the other tag, or the other side's, is a change; none is not",
+    () =>
+      Effect.gen(function* () {
+        assert.deepStrictEqual(
+          yield* changesOver([
+            [readingsOf(T0, 0.6, 30, 10)],
+            [readingsOf(T0 + 1_000, 0.6, 10, 10)],
+            [readingsOf(T0 + 2_000, -0.6, 10, 30)],
+            [readingsOf(T0 + 3_000, -0.6, 12, 15)],
+            [readingsOf(T0 + 4_000, 0.1, 12, 15)],
+          ]),
+          [["bid bigOrders"], ["bid smallOrders"], ["offer bigOrders"], [], []]
+        )
+      })
+  )
+
+  it.effect("a code at a limit has no tag", () =>
+    Effect.gen(function* () {
+      // Readings that would tag, with an empty bid at a price past the
+      // lower auto-reject limit.
+      const atLimit: BookReadings = {
+        ...readingsOf(T0, -0.6, 10, 30),
+        bid: { lots: 0, lotsPerOrder: 10 },
+      }
+      const { changes } = yield* heavySideChanges(new Map(), [atLimit], () => ({
+        last: 6_000,
+        previousClose: 9_000,
+      }))
+      assert.deepStrictEqual(changes, [])
+    })
+  )
+
+  it.effect("each code keeps its own tag", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* changesOver([
+          [readingsOf(T0, 0.6, 30, 10)],
+          [readingsOf(T0 + 1_000, 0.6, 30, 10, TLKM)],
+        ]),
+        [["bid bigOrders"], ["bid bigOrders"]]
+      )
+    })
+  )
+})
+
+describe("heavy side alerts", () => {
+  const change: HeavySideChange = {
+    kind: "bigOrders",
+    code: BBCA,
+    at: DateTime.makeUnsafe(T0),
+    side: "offer",
+    imbalance: -0.72,
+    heavyPerOrder: 118,
+    otherPerOrder: 22,
+  }
+
+  it.effect("match their kind at any minimum value", () =>
+    Effect.gen(function* () {
+      const big = rule({ kinds: ["bigOrders"], minValue: 20e9 })
+      assert.isTrue(yield* ruleMatches(big, change, context()))
+      assert.isFalse(
+        yield* ruleMatches(rule({ kinds: ["smallOrders"] }), change, context())
+      )
+    })
+  )
+
+  it.effect("are titled by the heavy side and its orders", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(
+        yield* alertTitle(change),
+        "BBCA · Offer-heavy with big orders"
+      )
+      assert.strictEqual(
+        yield* alertTitle({ ...change, kind: "smallOrders", side: "bid" }),
+        "BBCA · Bid-heavy with small orders"
+      )
+    })
+  )
+
+  it.effect("share the minute's count with book events", () =>
+    Effect.gen(function* () {
+      const limits = yield* makeAlertLimits
+      const codes = ["AALI", "ADRO", "ANTM", "ASII", "BBNI", "BBRI"]
+      for (const [i, code] of codes.entries())
+        yield* limits.admit(pulled(StockCode.make(code), T0 + i), T0 + i)
+      assert.strictEqual((yield* limits.admit(change, T0 + 10))._tag, "Folded")
     })
   )
 })

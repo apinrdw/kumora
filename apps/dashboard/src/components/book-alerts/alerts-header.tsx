@@ -3,7 +3,7 @@
 import { IconBell, IconTrash } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
-import type { BookEventKind, StockCode } from "@workspace/relay"
+import type { StockCode } from "@workspace/relay"
 import {
   Sheet,
   SheetContent,
@@ -20,7 +20,9 @@ import { KInput } from "@/components/k/input"
 import { Pressed } from "@/components/market-bubbles/pressed"
 import {
   ALERT_KIND_NAMES,
+  isBookEventKind,
   MIN_VALUES,
+  type AlertKind,
   type AlertRule,
   type AlertScope,
   type MinValue,
@@ -37,7 +39,7 @@ import {
   useStored,
 } from "./alert-store"
 
-const KINDS = Object.keys(ALERT_KIND_NAMES) as ReadonlyArray<BookEventKind>
+const KINDS = Object.keys(ALERT_KIND_NAMES) as ReadonlyArray<AlertKind>
 
 const SCOPES: ReadonlyArray<{ value: AlertScope["_tag"]; label: string }> = [
   { value: "watchlist", label: "Watchlist" },
@@ -93,7 +95,7 @@ const askToNotify = Effect.sync(() => {
 })
 
 function NewRule() {
-  const [kinds, setKinds] = useState<ReadonlyArray<BookEventKind>>([])
+  const [kinds, setKinds] = useState<ReadonlyArray<AlertKind>>([])
   const [scope, setScope] = useState<AlertScope["_tag"]>("watchlist")
   const [codesText, setCodesText] = useState("")
   const [minValue, setMinValue] = useState<MinValue>(0)
@@ -164,6 +166,11 @@ function NewRule() {
         value={minValue}
         onPick={setMinValue}
       />
+      {!kinds.every(isBookEventKind) && (
+        <p className="text-muted-foreground">
+          Minimum value applies only to book event kinds.
+        </p>
+      )}
       <KButton
         size="sm"
         disabled={!ready}
