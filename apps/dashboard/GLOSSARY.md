@@ -220,6 +220,10 @@ _Avoid_: Signal, book event (that is the level ledger's)
 A push of one aggressor side that set the day's high (buy aggressors) or low (sell aggressors), followed by a minute in which that side's lots fell to a fraction of the push's busiest minute and price neither set a new extreme nor moved as far. It says what the aggressors did, never what price will do next.
 _Avoid_: Fade, top, bottom, reversal
 
+**Delta divergence**:
+A new day's high whose cumulative delta is lower than at the day's previous high, or a new day's low whose cumulative delta is higher than at the previous low, with price having pulled back between the two. It says price and delta disagreed, never what price will do next.
+_Avoid_: Weakening, bearish/bullish divergence
+
 **Failed break**:
 Trades went past the day's established high or low with real aggressor value, and within a few minutes a minute closed back inside it. It says the level didn't hold, never whose orders were triggered or what price will do next.
 _Avoid_: Stop run, stop hunt, false break, fakeout
