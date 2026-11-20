@@ -4,11 +4,14 @@
 // matched to the trades the tape walk kept by (code, second, board, price,
 // lots, buyer, seller). Stockbit's walk fills what it leaves.
 import {
+  BATCH_ROWS,
   Board,
   BrokerCodesProtocolVersion,
+  OrderNumber,
   StockCode,
   TradeCodes,
   TradeNumber,
+  WIB_UTC_OFFSET_HOURS,
   ajaibDetailOrderNumbers,
   batchRow,
   type BatchRow,
@@ -34,8 +37,6 @@ const DETAILS_PATH = "v1/stock/data/broker-transaction"
 // auctions and the negotiated board after the close. See
 // apinrdw/kumora#622.
 const PAGE_SIZE = 1_000
-// A batch's most rows (BATCH_ROWS in @workspace/relay).
-const BATCH_ROWS = 5_000
 
 // A trade the tape walk kept for this walk to match: its number and codes,
 // and the fields its key reads, its time as the WIB second `HH:mm:ss`.
@@ -54,8 +55,8 @@ export type KeptTrade = typeof KeptTrade.Type
 // trade's buy and sell order numbers.
 export const DetailRow = Schema.Struct({
   key: Schema.String,
-  buy: Schema.Finite,
-  sell: Schema.Finite,
+  buy: OrderNumber,
+  sell: OrderNumber,
 })
 export type DetailRow = typeof DetailRow.Type
 
@@ -67,7 +68,7 @@ export const DoneDetailsPosition = Schema.Struct({
 export type DoneDetailsPosition = typeof DoneDetailsPosition.Type
 
 // What the walk keeps across a worker restart, for one day at a time
-// (settings.ts keeps it in IndexedDB).
+// (done-details-store.ts keeps it in IndexedDB).
 export interface DoneDetailsStore {
   // Keeps the tape walk's trades of `day`, forgetting any other day's.
   readonly keep: (
@@ -148,8 +149,6 @@ const keyOf = (fields: {
     ].join(" ")
   )
 
-const WIB_OFFSET_MS = 7 * 3_600_000
-
 // The tape walk's trade as this walk keeps it.
 export const keptTrade = (
   number: TradeNumber,
@@ -159,9 +158,9 @@ export const keptTrade = (
   Effect.sync((): KeptTrade => ({
     number,
     code: fields.code,
-    second: new Date(DateTime.toEpochMillis(fields.time) + WIB_OFFSET_MS)
-      .toISOString()
-      .slice(11, 19),
+    second: DateTime.formatIso(
+      DateTime.add(fields.time, { hours: WIB_UTC_OFFSET_HOURS })
+    ).slice(11, 19),
     board: fields.board,
     price: fields.price,
     lots: fields.lots,

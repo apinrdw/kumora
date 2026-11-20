@@ -178,6 +178,7 @@ export {
 export type { HeatLevel, HeatSlice, RecordedHeatmap } from "./heatmap.ts"
 export type { IndexHasNoBook, OrderBook } from "./order-book.ts"
 export {
+  BATCH_ROWS,
   BROKER_CODES_AUTH_SCHEME,
   BROKER_CODES_BATCH_LIMIT,
   BrokerCode,
@@ -185,6 +186,7 @@ export {
   BrokerCodesVersionMismatch,
   InvestorType,
   MISSING_RANGES,
+  OrderNumber,
   ajaibDetailOrderNumbers,
   ajaibRowCodes,
   ajaibRowFields,

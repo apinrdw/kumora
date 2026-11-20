@@ -135,7 +135,7 @@ const End = Schema.Struct({ n: DayTradeNumber })
 // Decision: a batch holds at most 5,000 rows, one Ajaib page at
 // `page_size=5000`; a Stockbit batch holds ~1,000. The Worker reads a body
 // no longer than BROKER_CODES_BATCH_LIMIT, which a full batch fits.
-const BATCH_ROWS = 5_000
+export const BATCH_ROWS = 5_000
 
 // In UTF-16 units of the body. A full batch at 10-digit trade numbers,
 // 16-character stock codes and the latest time a Date holds stays under it
