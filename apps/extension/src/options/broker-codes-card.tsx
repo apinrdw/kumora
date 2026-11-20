@@ -115,6 +115,7 @@ function useNowUntil(stored: Readonly<Record<string, number | undefined>>) {
 const walkDetails = (walk: Effect.Success<ReturnType<typeof walkView>>) =>
   (
     [
+      ["Broker codes phase", walk.phase],
       ["Broker codes trades", walk.trades],
       ["Broker codes repair", walk.repair],
       ["Broker codes pace", walk.pace],

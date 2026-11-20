@@ -101,7 +101,11 @@ const PIN_VALIDATE = "/pin/validate"
 const postValidated = (status: number) =>
   window.postMessage({ kumoraRelay: "pin-validated", status }, location.origin)
 
+// Decision: only a call that carries `authorization` is kept. A token-less
+// call under the API path, such as a `content-type: text/plain` one seen on
+// 2026-11-20, otherwise replaced the signed headers the relay sends.
 const report = (url: string, headers: Headers) => {
+  if (!headers.has("authorization")) return
   const href = new URL(url, location.href).href
   const at = href.indexOf(API)
   if (at === -1) return

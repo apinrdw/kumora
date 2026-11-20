@@ -156,8 +156,8 @@ test("a PIN from the options page signs in to Ajaib once, and Ajaib's frames car
       )
     ).not.toContain("123456")
 
-    // The fake page's own REST call carries no token, so the PIN sign-in
-    // names the account.
+    // The fake page's own REST call carries a token that names no account,
+    // so the PIN sign-in names it.
     const ajaibTab = await context.newPage()
     await ajaibTab.goto(AJAIB_TAB)
     await ajaibAttached(worker, brokers)

@@ -13,6 +13,7 @@ import {
   walkView,
 } from "../src/options/broker-codes-view.ts"
 import { recentClosedDays } from "../src/worker/broker-codes/hours.ts"
+import type { WalkPhase } from "../src/worker/broker-codes/run-queue.ts"
 
 const DAY = WibDate.make("2026-11-12")
 const COMPLETE: BrokerCodesStatus = {
@@ -144,6 +145,7 @@ describe("the options page's broker codes section", () => {
         }),
         {
           walk: "Stockbit, 2026-11-12 (newest closed day)",
+          phase: "",
           trades: "460,000 of 1,000,000 trades",
           repair: "",
           pace: "300 trades/s",
@@ -159,6 +161,7 @@ describe("the options page's broker codes section", () => {
         }),
         {
           walk: "Stockbit, 2026-11-12 (History)",
+          phase: "",
           trades: "",
           repair: "",
           pace: "",
@@ -188,6 +191,7 @@ describe("the options page's broker codes section", () => {
           }),
           {
             walk: "Ajaib, 2026-11-12 (newest closed day)",
+            phase: "",
             trades: "1,597,070 of 1,597,351 trades",
             repair: "repairing page seams: 0 of 87 blocks",
             pace: "",
@@ -202,6 +206,7 @@ describe("the options page's broker codes section", () => {
           }),
           {
             walk: "Ajaib, 2026-11-12 (newest closed day)",
+            phase: "",
             trades: "1,597,070 of 1,597,351 trades",
             repair: "repairing page seams: 12 of 87 blocks",
             pace: "",
@@ -225,6 +230,7 @@ describe("the options page's broker codes section", () => {
           }),
           {
             walk: "Ajaib, 2026-11-12 (newest closed day)",
+            phase: "",
             trades: "",
             repair: "repairing page seams: 3 of 75 blocks",
             pace: "",
@@ -265,6 +271,49 @@ describe("the options page's broker codes section", () => {
       assert.strictEqual(
         yield* historyView(Option.none(), Option.none()),
         "Waiting. No day reached yet."
+      )
+    })
+  )
+})
+
+describe("the walk's phase", () => {
+  it.effect("says what the walk is doing and since when, in WIB", () =>
+    Effect.gen(function* () {
+      const wibAt = (time: string) => Date.parse(`2026-11-20T${time}+07:00`)
+      const phaseOf = (phase: WalkPhase) =>
+        Effect.map(
+          walkView({
+            state: "walking",
+            walk: "newest",
+            day: DAY,
+            feed: "Ajaib",
+            phase,
+          }),
+          (view) => view.phase
+        )
+      assert.strictEqual(
+        yield* phaseOf({ step: "awaiting-close", since: wibAt("16:35:10") }),
+        "waiting for Ajaib's close since 16:35"
+      )
+      assert.strictEqual(
+        yield* phaseOf({
+          step: "awaiting-token",
+          since: wibAt("17:02:00"),
+          reloads: 0,
+        }),
+        "waiting for a fresh Ajaib token since 17:02"
+      )
+      assert.strictEqual(
+        yield* phaseOf({
+          step: "awaiting-token",
+          since: wibAt("17:02:00"),
+          reloads: 3,
+        }),
+        "waiting for a fresh Ajaib token since 17:02, tab reloaded 3×"
+      )
+      assert.strictEqual(
+        yield* phaseOf({ step: "fetching", since: wibAt("17:05:00") }),
+        "fetching since 17:05"
       )
     })
   )

@@ -180,10 +180,12 @@ const AJAIB_HEADER = "x-fake-ajaib-page"
 /** Ajaib's stock code list, as the fake answers it. */
 export const LISTED_CODES = ["BBCA", "BRMS", "ENRG", "TLKM"]
 
-// The fake Ajaib page calls its own API once it loads, as Ajaib's does; the
-// relay's MAIN-world wrapper sees that call's headers.
+// The fake Ajaib page calls its own API once it loads, signed `jwt <token>`
+// as Ajaib's is, then sends a token-less beacon under the same path, which
+// the relay's MAIN-world wrapper must not take for the page's headers.
 const AJAIB_PAGE = `<!doctype html><title>Fake Ajaib</title><p>Fake Ajaib</p>
-<script>fetch("/api/v1/user/profile/", { headers: { "${AJAIB_HEADER}": "yes" } })</script>`
+<script>fetch("/api/v1/user/profile/", { headers: { "${AJAIB_HEADER}": "yes", authorization: "jwt fake-ajaib-token" } })
+  .then(() => fetch("/api/v1/log/", { method: "POST", headers: { "content-type": "text/plain" }, body: "beacon" }))</script>`
 
 // Stockbit's session cookies as a Google sign-in leaves them
 // (apinrdw/kumora#591): `credentialStorage` holds the user and no token, and
@@ -261,7 +263,7 @@ export async function startFakeBrokers() {
         response.setHeader("access-control-allow-credentials", "true")
         response.setHeader(
           "access-control-allow-headers",
-          `content-type, ${AJAIB_HEADER}`
+          `content-type, authorization, ${AJAIB_HEADER}`
         )
         if (request.method === "OPTIONS") return response.end()
         let body = ""
