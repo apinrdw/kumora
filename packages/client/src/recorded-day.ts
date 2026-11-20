@@ -26,9 +26,9 @@ import {
   type TradeCodes,
   type TradeNumber,
   type WibDate,
+  wibDayEnd,
 } from "@workspace/relay"
-import type { DateTime } from "effect"
-import { Duration, Effect, Option, Predicate } from "effect"
+import { DateTime, Duration, Effect, Option, Predicate } from "effect"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
@@ -260,11 +260,25 @@ export const followSweepBrokers = (
 ) =>
   Effect.gen(function* () {
     let final = false
+    // Decision: a complete answer is final only when asked at or past 00:00
+    // WIB after the day. Order numbers never make a day complete, and the
+    // evening walks send them after its codes until then: Ajaib's Done
+    // Details walk stops at 00:00, and a day moves cold from then on, taking
+    // no more. See apinrdw/kumora#632.
+    const pastTheDay = Effect.gen(function* () {
+      const end = yield* wibDayEnd(date)
+      return !DateTime.isLessThan(yield* DateTime.now, end)
+    })
     const ask = (fresh: boolean) =>
-      fetchFinal(
-        date,
-        fetchRecordedSweepBrokers(date, code, fresh),
-        Option.match({ onNone: () => true, onSome: (value) => value.complete })
+      Effect.flatMap(pastTheDay, (past) =>
+        fetchFinal(
+          date,
+          fetchRecordedSweepBrokers(date, code, fresh),
+          Option.match({
+            onNone: () => true,
+            onSome: (value) => value.complete && past,
+          })
+        )
       ).pipe(
         Effect.map((shown) => {
           final = shown.final
