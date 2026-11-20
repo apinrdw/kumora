@@ -3,7 +3,6 @@
 // This module is the one home of its key layout, its writes, and the two
 // answers a cold read sends: a stored answer, sealed, or Not recorded.
 import {
-  ViewerProtocolVersion,
   type RecordedResource,
   type StockCode,
   type WibDate,
@@ -29,17 +28,23 @@ export interface DayBucket {
   ) => Promise<{ readonly body: ReadableStream } | null>
 }
 
+// Decision: the answers' folder names their format's version, not the live
+// socket's: protocol 8 changed only live book readings, so days moved under
+// v7 stay readable and new days still go there. Bump it only with a stored
+// answer's change, converting the days already moved. See apinrdw/kumora#606.
+const ANSWERS_VERSION = 7
+
 // Decision: a day's keys sit under `days/{date}/`. Its answers sit under
-// the viewer protocol's version, as each was built for that version's page;
+// their format's version (`ANSWERS_VERSION`), as each was built for a page;
 // `status.json` (the broker codes protocol's) and `manifest.json` sit beside
 // that folder. A later change to an answer's format converts on read or
 // rewrites the day R2 to R2. See spec apinrdw/kumora#556, "The layout".
 export const dayKeys = (date: WibDate) =>
   Effect.sync(() => {
     const day = `days/${date}`
-    const answers = `${day}/v${ViewerProtocolVersion}`
+    const answers = `${day}/v${ANSWERS_VERSION}`
     return {
-      // The folder of the answers built for this viewer protocol.
+      // The folder of the answers, by their format's version.
       answers,
       // The day's final broker codes status, as its status GET answered at
       // the move (`after` 0: every missing range).

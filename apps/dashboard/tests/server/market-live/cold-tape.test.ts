@@ -3,12 +3,7 @@
 // tape index, and equal the object's answers before the move, on either
 // trade shape.
 import { assert, describe, it } from "@effect/vitest"
-import {
-  TradeNumber,
-  ViewerProtocolVersion,
-  WibDate,
-  type RecordedResource,
-} from "@workspace/relay"
+import { TradeNumber, WibDate, type RecordedResource } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
@@ -193,8 +188,7 @@ describe("the isolate's tape indexes", () => {
     () =>
       Effect.gen(function* () {
         const days = memoryDayBucket()
-        const indexKey = (date: WibDate) =>
-          `days/${date}/v${ViewerProtocolVersion}/tape/index.json`
+        const indexKey = (date: WibDate) => `days/${date}/v7/tape/index.json`
         for (const date of KEPT_DAYS)
           yield* Effect.promise(() =>
             days.bucket.put(indexKey(date), '{"complete":true,"blocks":[]}', {

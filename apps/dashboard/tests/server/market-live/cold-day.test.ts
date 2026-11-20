@@ -27,8 +27,8 @@ import { memoryDayBucket } from "./memory-day-bucket"
 import { memorySql } from "./sql"
 
 const DAY = WibDate.make("2026-11-09")
-// The folder of the day's answers, built for the viewer protocol.
-const ANSWERS = `days/2026-11-09/v${ViewerProtocolVersion}`
+// The folder of the day's answers: protocol 7's, the format they still keep.
+const ANSWERS = "days/2026-11-09/v7"
 const SEALED = "private, max-age=31536000, immutable"
 const CODES: RecordedResource = { _tag: "Codes" }
 const GAPS: RecordedResource = { _tag: "Gaps" }
