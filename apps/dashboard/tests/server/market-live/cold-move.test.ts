@@ -182,6 +182,37 @@ describe("a sealed day's move to R2", () => {
   )
 
   it.effect(
+    "waits past midnight for the rebuild of a batch that corrected the day before its move started",
+    () =>
+      Effect.gen(function* () {
+        const { day } = yield* sealedDay()
+        yield* at("2026-11-09T17:30:00")
+        yield* day.brokerCodes(
+          "Ajaib",
+          [
+            [1, "AK F BK D"],
+            [2, "YP D KZ F"],
+          ],
+          2
+        )
+        yield* day.alarm
+        yield* at("2026-11-09T23:58:00")
+        yield* day.brokerCodes("Ajaib", [[1, "CC D BK D"]])
+
+        yield* at("2026-11-10T00:00:00")
+        yield* day.alarm
+        assert.isFalse(yield* day.emptied)
+        assert.deepStrictEqual(
+          day.alarms.at(-1),
+          instant("2026-11-10T00:03:00")
+        )
+        yield* at("2026-11-10T00:03:00")
+        yield* dueAlarms(day)
+        assert.isTrue(yield* day.emptied)
+      })
+  )
+
+  it.effect(
     "of an incomplete day waits until ten trading days came after it",
     () =>
       Effect.gen(function* () {
