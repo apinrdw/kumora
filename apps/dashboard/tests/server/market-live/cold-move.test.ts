@@ -2,11 +2,19 @@
 // days" and "The move"): once its walk is done, or once it leaves the
 // 10-trading-day window, from midnight after it and outside Streaming hours;
 // and what the emptied day answers a broker codes batch and status GET.
+import { gunzipSync } from "node:zlib"
+
 import { assert, describe, it } from "@effect/vitest"
-import { OrderNumber, WibDate, decodeDayStrip } from "@workspace/relay"
+import {
+  OrderNumber,
+  StockCode,
+  WibDate,
+  decodeDayStrip,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
+import { answerKey } from "@/server/market-live/cold-bucket"
 import { makeDayIndex } from "@/server/market-live/day-index"
 
 import { memoryBrokerTotalsDb } from "../broker-totals/memory-broker-totals-db"
@@ -196,7 +204,7 @@ describe("a sealed day's move to R2", () => {
     "waits past midnight for the rebuild of a batch that corrected the day before its move started",
     () =>
       Effect.gen(function* () {
-        const { day } = yield* sealedDay()
+        const { day, days } = yield* sealedDay()
         yield* at("2026-11-09T17:30:00")
         yield* day.brokerCodes(
           "Ajaib",
@@ -224,7 +232,15 @@ describe("a sealed day's move to R2", () => {
         yield* at("2026-11-10T00:03:00")
         yield* dueAlarms(day)
         assert.isTrue(yield* day.emptied)
-        const after = (yield* day.recordedSweepBrokers("UNTR")).answer
+        // The answer the move stored, cached for good.
+        const key = yield* answerKey(DAY, {
+          _tag: "SweepBrokers",
+          code: StockCode.make("UNTR"),
+        })
+        assert.isDefined(key)
+        const stored = days.objects.get(key)
+        assert.isDefined(stored)
+        const after = JSON.parse(new TextDecoder().decode(gunzipSync(stored)))
         assert.strictEqual(after.takesCodes, false)
       })
   )

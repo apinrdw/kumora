@@ -1855,6 +1855,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
             codeList: codeListStore,
             brokerCodes,
             sweepBrokers,
+            takesCodes,
             sealed,
             liveGaps: Effect.map(
               market.conditions,
@@ -1959,6 +1960,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     store.fact(Fact.move),
     (progress) => progress !== undefined
   )
+
+  // Whether the day still takes broker codes, as its sweep brokers answer
+  // tells a follower (followSweepBrokers): until its move's first step.
+  // Decision: with no cold storage a day never moves, so it takes codes
+  // until ten trading days came after it (`pastWindow`), when the
+  // extension's run stops asking it, and a follower stops too. See PR #632.
+  const takesCodes =
+    options.cold === undefined
+      ? Effect.map(
+          Effect.flatMap(DateTime.now, (now) => pastWindow(options.date, now)),
+          (past) => !past
+        )
+      : Effect.map(moving, (frozen) => !frozen)
 
   yield* sweepIngests
 

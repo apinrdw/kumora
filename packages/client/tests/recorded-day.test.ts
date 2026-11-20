@@ -436,17 +436,15 @@ const sweepBrokersWorker = (
   return { asked, client, turnCold }
 }
 
-// 00:00 WIB the night after DAY, when the evening walks that give its trades
-// order numbers have stopped.
+// 00:00 WIB the night after DAY, which ends no follow by itself.
 const DAY_END = Date.parse("2026-11-09T17:00:00Z")
 
 describe("following a recorded day's sweep brokers", () => {
   it.effect(
-    "while incomplete, asks again every 30 s past the browser's copy, and stops once complete",
+    "while its answer says the day takes codes, asks again every 30 s past the browser's copy, and stops once it says not",
     () => {
       const brokersFrom = sweepBrokersWorker(3)
       return Effect.gen(function* () {
-        yield* TestClock.setTime(DAY_END)
         const shown: Array<
           [sweeps: number, complete: boolean, asksAgain: boolean]
         > = []
@@ -474,7 +472,6 @@ describe("following a recorded day's sweep brokers", () => {
   it.effect("a failed first ask is asked again 30 s later", () => {
     const brokersFrom = sweepBrokersWorker(2, 1)
     return Effect.gen(function* () {
-      yield* TestClock.setTime(DAY_END)
       const shown: Array<
         [sweeps: number, complete: boolean, asksAgain: boolean]
       > = []
@@ -582,10 +579,9 @@ describe("following a recorded day's sweep brokers", () => {
     }
   )
 
-  it.effect("asks once for a day already complete", () => {
+  it.effect("asks once for a day that takes no more codes", () => {
     const brokersFrom = sweepBrokersWorker(1)
     return Effect.gen(function* () {
-      yield* TestClock.setTime(DAY_END)
       yield* Effect.forkChild(followSweepBrokers(DAY, BBCA, () => {}))
       yield* TestClock.adjust("5 minutes")
       assert.deepStrictEqual(brokersFrom.asked, [false])

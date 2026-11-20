@@ -78,6 +78,8 @@ interface RecordedDayOf {
   readonly codeList: CodeListStore
   readonly brokerCodes: BrokerCodesStore
   readonly sweepBrokers: SweepBrokersStore
+  // Whether the day still takes broker codes.
+  readonly takesCodes: Effect.Effect<boolean>
   readonly sealed: boolean
   // The gaps so far, while the day isn't sealed.
   readonly liveGaps: Effect.Effect<ReadonlyArray<RelayGap>>
@@ -162,6 +164,7 @@ export const recordedAnswer = Effect.fnUntraced(function* (
           code: resource.code,
           sweeps: yield* day.sweepBrokers.brokersOf(resource.code),
           complete,
+          takesCodes: yield* day.takesCodes,
         }),
         complete ? COMPLETE_CODES_CACHE : "no-store"
       )
