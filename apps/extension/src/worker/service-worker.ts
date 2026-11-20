@@ -462,9 +462,21 @@ const main = Effect.gen(function* () {
       makeAjaibWalk({ tab: ajaibWalkTab, post, store })
     )
   )
-  // Then the Done Details walk's order numbers, when the extra target holds
-  // fewer of them than Production.
-  const ordersCatchUp = extra.ordersCatchUp(doneDetailsWalk.resend)
+  // Then the order numbers it holds fewer of than Production: the Done
+  // Details walk's held trades, then Stockbit's whole day.
+  const ordersCatchUp = extra.ordersCatchUp({
+    ajaib: doneDetailsWalk.resend,
+    stockbit: (day, post) =>
+      Effect.flatMap(
+        makeStockbitWalk({
+          tab: stockbitWalkTab,
+          post,
+          status: production.status,
+          signedOut: progress.signedOut,
+        }),
+        (walk) => walk.whole(day)
+      ),
+  })
   // Stockbit fills what the Ajaib catch-up left, from the extra target's
   // own missing ranges.
   const stockbitExtraCatchUp = yield* extra.catchUp(

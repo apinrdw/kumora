@@ -650,6 +650,28 @@ describe("Stockbit's walk and order numbers", () => {
   )
 
   it.effect(
+    "walked whole, posts every trade's order numbers again though the day is walked",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib(HOPE_DAY, "20:20:00"))
+        const production = fakeProduction()
+        const walk = yield* walkWith(hopeTape(hope), production)
+        yield* walk.walk(HOPE_DAY)
+        const again = fakeProduction()
+        const whole = yield* makeStockbitWalk({
+          tab: hopeTape(hope),
+          post: again.post,
+          status: production.status,
+        })
+        assert.deepStrictEqual(yield* whole.whole(HOPE_DAY), {
+          _tag: "walked",
+        })
+        assert.deepStrictEqual(postedOrders(again), postedOrders(production))
+        assert.strictEqual(postedOrders(again).size, hope.length)
+      })
+  )
+
+  it.effect(
     "posts none for a row with an order number of 0, and its codes and fields still",
     () =>
       Effect.gen(function* () {

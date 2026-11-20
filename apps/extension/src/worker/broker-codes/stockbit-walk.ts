@@ -463,6 +463,17 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   return {
     walk: (day: WibDate): Effect.Effect<WalkResult> => settle(walkDay(day)),
     gaps: (day: WibDate): Effect.Effect<WalkResult> => settle(gapDay(day)),
+    // The whole day forward from trade 1, whatever a status says: the
+    // extra target's order number catch-up (extra-target.ts).
+    whole: (day: WibDate): Effect.Effect<WalkResult> =>
+      settle(
+        Effect.gen(function* () {
+          dayN = Option.none()
+          yield* start(day)
+          yield* forward(day, Option.none())
+          return { _tag: "walked" } satisfies WalkResult
+        })
+      ),
     start,
     forward,
     finish,

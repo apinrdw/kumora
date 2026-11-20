@@ -7,6 +7,7 @@ import type {
   BrokerCodesBatch,
   BrokerCodesStatus,
   Feed,
+  OrderNumberCounts,
   TradeNumber,
   WibDate,
 } from "@workspace/relay"
@@ -29,6 +30,13 @@ import type { TargetHold } from "./target-hold.ts"
 // either left out. A lane that kept every batch of an unreachable target
 // would hold a whole day's codes. See apinrdw/kumora#250.
 const LANE = 16
+
+// A site's walk of a day for the extra target's order number catch-up,
+// over its post.
+type OrdersWalk = (
+  day: WibDate,
+  post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
+) => Effect.Effect<WalkResult>
 
 // Whether the target lacks a trade, from a status that lists from trade 1:
 // one in a missing range, or past the highest it holds. While its `n` is
@@ -168,20 +176,13 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     return !(Option.isSome(leading) && (yield* holdsSame(leading.value, held)))
   })
 
-  // Whether the extra target, holding `held` of a day, holds fewer trades
-  // with Ajaib's order numbers than Production's status says it holds, or
-  // Production gave no status to compare.
-  const ordersBehind = Effect.fnUntraced(function* (
-    day: WibDate,
-    held: BrokerCodesStatus
-  ) {
+  // Production's order number counts of a day; none when it is unset or
+  // gave no status.
+  const leadingOrders = Effect.fnUntraced(function* (day: WibDate) {
     const production = yield* options.production
-    if (Option.isNone(production)) return true
+    if (Option.isNone(production)) return Option.none<OrderNumberCounts>()
     const leading = yield* statusOnce(options.get, production.value, day)
-    return Option.match(leading, {
-      onNone: () => true,
-      onSome: (status) => held.orderNumbers.ajaib < status.orderNumbers.ajaib,
-    })
+    return Option.map(leading, (status) => status.orderNumbers)
   })
 
   return {
@@ -201,32 +202,43 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
       (batch: BrokerCodesBatch) =>
         Effect.andThen(Queue.offer(lane, batch), production(batch)),
 
-    // The Done Details walk's batches carry order numbers alone, on trades
-    // the extra target may hold already, so the trade catch-up never
-    // resends one its lane dropped.
-    // Decision: while the extra target holds fewer trades with Ajaib's order
-    // numbers than Production, the walk posts it all its held matched trades
-    // again; it holds them until the next day's tape walk keeps trades.
-    // Waiting on every target would hold a day for an unreachable one. See
-    // apinrdw/kumora#632.
-    ordersCatchUp: (
-      resend: (
-        day: WibDate,
-        post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
-      ) => Effect.Effect<WalkResult>
-    ): CatchUpWalk => ({
+    // Order numbers land on trades the extra target may hold already, from
+    // the Done Details walk or Stockbit's, so the trade catch-up never
+    // resends a batch of them its lane dropped. `walks` post to it: the Done
+    // Details walk its held matched trades, Stockbit's walk its whole day.
+    // Decision: the extra target converges on Production's order number
+    // counts: fewer with Ajaib's has the Done Details walk post its held
+    // trades again, then fewer in all has Stockbit's day walked whole. No
+    // batch is kept until the extra target takes it: that would hold a day
+    // for an unreachable target. See apinrdw/kumora#632.
+    ordersCatchUp: (walks: {
+      readonly ajaib: OrdersWalk
+      readonly stockbit: OrdersWalk
+    }): CatchUpWalk => ({
       feed: "Ajaib",
       walk: Effect.fnUntraced(function* (day: WibDate) {
+        const stopped: CatchUpResult = { _tag: "stopped" }
         const walking = yield* hold.settings
-        const held = yield* statusOn(walking, day)
-        if (Option.isNone(held))
-          return { _tag: "stopped" } satisfies CatchUpResult
-        if (!(yield* ordersBehind(day, held.value)))
+        const post = (batch: BrokerCodesBatch) => postTo(walking, batch)
+        const before = yield* statusOn(walking, day)
+        if (Option.isNone(before)) return stopped
+        const leading = yield* leadingOrders(day)
+        if (Option.isNone(leading))
           return { _tag: "walked" } satisfies CatchUpResult
-        const result = yield* resend(day, (batch) => postTo(walking, batch))
-        return result._tag === "stopped"
-          ? ({ _tag: "stopped" } satisfies CatchUpResult)
-          : result
+        let held = before.value.orderNumbers
+        if (held.ajaib < leading.value.ajaib) {
+          if ((yield* walks.ajaib(day, post))._tag === "stopped") return stopped
+          const after = yield* statusOn(walking, day)
+          if (Option.isNone(after)) return stopped
+          held = after.value.orderNumbers
+        }
+        if (
+          held.ajaib + held.stockbit >=
+          leading.value.ajaib + leading.value.stockbit
+        )
+          return { _tag: "walked" } satisfies CatchUpResult
+        const result = yield* walks.stockbit(day, post)
+        return result._tag === "stopped" ? stopped : result
       }),
     }),
 
