@@ -306,6 +306,44 @@ describe("the broker codes run queue", () => {
   )
 
   it.effect(
+    "reports Ajaib's Done Details walk between its tape walk and Stockbit's",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+        const queue = yield* harness((walked) => [
+          fakeWalk("Ajaib", walked),
+          { ...fakeWalk("Ajaib", walked), route: "done-details" as const },
+          fakeWalk("Stockbit", walked),
+        ])
+        yield* queue.trigger
+        const walking = queue.progress.filter(
+          (each) => each.state === "walking" && each.walk === "newest"
+        )
+        assert.deepStrictEqual(walking, [
+          {
+            state: "walking",
+            walk: "newest",
+            day: WibDate.make("2026-11-12"),
+            feed: "Ajaib",
+          },
+          {
+            state: "walking",
+            walk: "newest",
+            day: WibDate.make("2026-11-12"),
+            feed: "Ajaib",
+            route: "done-details",
+          },
+          {
+            state: "walking",
+            walk: "newest",
+            day: WibDate.make("2026-11-12"),
+            feed: "Stockbit",
+          },
+        ])
+      })
+  )
+
+  it.effect(
     "a walk stopped at 08:40 ends the run, and the queue runs again at 16:35",
     () =>
       Effect.gen(function* () {

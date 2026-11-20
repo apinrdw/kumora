@@ -2,7 +2,9 @@
 // extension: the Ajaib walk"): the day's REST tape, one 3-minute block at a
 // time, then a repair pass over every block that took 2+ pages. Each page's
 // rows with valid codes are posted to Production as one batch, each with its
-// fields when they are valid; `end` follows the repair.
+// fields when they are valid; `end` follows the repair. Production's walk
+// keeps each trade with fields for the Done Details walk
+// (done-details-walk.ts).
 import {
   AjaibTradeNum,
   BrokerCodesProtocolVersion,
@@ -27,6 +29,7 @@ import {
   makeAjaibCalls,
   type AjaibWalkTab,
 } from "./ajaib-calls.ts"
+import { keptTrade, type KeptTrade } from "./done-details-walk.ts"
 import { ajaibWindowEnd } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
 import {
@@ -132,24 +135,27 @@ const pageRows = Effect.fnUntraced(function* (answer: Answer) {
 })
 
 // The batch rows of `rows` on `day` inside [from, boundary) with valid
-// codes.
+// codes, and those with valid fields as the Done Details walk keeps them.
 const blockRows = Effect.fnUntraced(function* (
   day: WibDate,
   from: number,
   boundary: number,
   rows: ReadonlyArray<PageRow>
 ) {
-  const kept: Array<BatchRow> = []
+  const batch: Array<BatchRow> = []
+  const kept: Array<KeptTrade> = []
   for (const row of rows) {
     const inBlock =
       row.date === day &&
       row.timestamp >= from &&
       row.timestamp < boundary &&
       row.number !== "0"
-    if (inBlock && Option.isSome(row.codes))
-      kept.push(yield* batchRow(row.number, row.codes.value, row.fields))
+    if (!inBlock || Option.isNone(row.codes)) continue
+    batch.push(yield* batchRow(row.number, row.codes.value, row.fields))
+    if (Option.isSome(row.fields))
+      kept.push(yield* keptTrade(row.number, row.codes.value, row.fields.value))
   }
-  return kept
+  return { batch, kept }
 })
 
 export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
@@ -167,8 +173,15 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   readonly repaired?: (done: number, of: number) => Effect.Effect<void>
   // For the options page too: what the walk is doing, and since when.
   readonly phase?: (phase: WalkPhase) => Effect.Effect<void>
+  // Keeps each page's trades for the Done Details walk, before the page's
+  // batch goes up (done-details-walk.ts).
+  readonly keep?: (
+    day: WibDate,
+    trades: ReadonlyArray<KeptTrade>
+  ) => Effect.Effect<void>
 }) {
   const { tab, store } = options
+  const keep = options.keep ?? (() => Effect.void)
   const trades = options.trades ?? (() => Effect.void)
   const repaired = options.repaired ?? (() => Effect.void)
   const report = options.phase ?? (() => Effect.void)
@@ -277,10 +290,11 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
         windowEnd,
         yield* tapePath(boundary, page, size)
       )
-      const kept = yield* blockRows(day, from, boundary, rows)
-      if (kept.length > 0) yield* post({ day, rows: kept })
+      const { batch, kept } = yield* blockRows(day, from, boundary, rows)
+      if (kept.length > 0) yield* keep(day, kept)
+      if (batch.length > 0) yield* post({ day, rows: batch })
       if (size === PAGE_SIZE) {
-        fetched += kept.length
+        fetched += batch.length
         yield* trades(fetched, dayN)
       }
       const older = rows.some((row) => row.timestamp < from)

@@ -182,6 +182,7 @@ describe("the options page's broker codes section", () => {
           phase: "",
           trades: "460,000 of 1,000,000 trades",
           repair: "",
+          codes: "",
           pace: "300 trades/s",
           left: "30 min left",
         }
@@ -198,10 +199,38 @@ describe("the options page's broker codes section", () => {
           phase: "",
           trades: "",
           repair: "",
+          codes: "",
           pace: "",
           left: "",
         }
       )
+    })
+  )
+
+  it.effect("shows the Done Details walk's codes done of the day's", () =>
+    Effect.gen(function* () {
+      const doneDetails = {
+        state: "walking",
+        walk: "newest",
+        day: DAY,
+        feed: "Ajaib",
+        route: "done-details",
+        phase: { step: "fetching", since: Date.parse("2026-11-12T17:02:00Z") },
+      } as const
+      assert.deepStrictEqual(
+        yield* walkView({ ...doneDetails, stockCodes: { done: 12, of: 900 } }),
+        {
+          walk: "Ajaib Done Details, 2026-11-12 (newest closed day)",
+          phase: "fetching since 00:02",
+          trades: "",
+          repair: "",
+          codes: "12 of 900 codes",
+          pace: "",
+          left: "",
+        }
+      )
+      // Before its first code.
+      assert.strictEqual((yield* walkView(doneDetails)).codes, "")
     })
   )
 
@@ -228,6 +257,7 @@ describe("the options page's broker codes section", () => {
             phase: "",
             trades: "1,597,070 of 1,597,351 trades",
             repair: "repairing page seams: 0 of 87 blocks",
+            codes: "",
             pace: "",
             left: "",
           }
@@ -243,6 +273,7 @@ describe("the options page's broker codes section", () => {
             phase: "",
             trades: "1,597,070 of 1,597,351 trades",
             repair: "repairing page seams: 12 of 87 blocks",
+            codes: "",
             pace: "",
             left: "18 min left",
           }
@@ -267,6 +298,7 @@ describe("the options page's broker codes section", () => {
             phase: "",
             trades: "",
             repair: "repairing page seams: 3 of 75 blocks",
+            codes: "",
             pace: "",
             left: "11 min left",
           }

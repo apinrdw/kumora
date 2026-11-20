@@ -184,6 +184,7 @@ export {
   BrokerCodesVersionMismatch,
   InvestorType,
   MISSING_RANGES,
+  ajaibDetailOrderNumbers,
   ajaibRowCodes,
   ajaibRowFields,
   batchRow,

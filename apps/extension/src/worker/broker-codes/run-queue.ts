@@ -64,9 +64,10 @@ export const haltOnRefusal = (outcome: Exclude<PostOutcome, "sent">) =>
 export const settle = <R>(walk: Effect.Effect<WalkResult, Halt, R>) =>
   Effect.catchTag(walk, "Halt", (stop) => Effect.succeed(stop.result))
 
-// One site's walk of a day.
+// One site's walk of a day. Ajaib's Done Details walk names its route.
 export interface DayWalk {
   readonly feed: Feed
+  readonly route?: "done-details"
   readonly walk: (day: WibDate) => Effect.Effect<WalkResult>
 }
 
@@ -87,7 +88,9 @@ export interface CatchUpWalk {
 // that has fetched trades says how many, of the day's N once known, and its
 // pace (progress.ts). Ajaib's walk in its repair pass says how many blocks
 // it has walked again, of those it had left when it started or restarted,
-// and their pace; its trades are then the first pass's last. A catch-up's
+// and their pace; its trades are then the first pass's last. Ajaib's Done
+// Details walk (route `done-details`) says how many of the day's stock
+// codes it has walked. A catch-up's
 // end reports idle, which has the options page ask the days again, so a day
 // it caught up no longer shows Behind.
 // Ajaib's walk also says what it is doing and since when (epoch ms):
@@ -113,6 +116,7 @@ export const BrokerCodesProgress = Schema.Union([
     walk: Schema.Literals(["newest", "gaps", "history"]),
     day: WibDate,
     feed: Feed,
+    route: Schema.optionalKey(Schema.Literal("done-details")),
     phase: Schema.optionalKey(WalkPhase),
     trades: Schema.optionalKey(
       Schema.Struct({
@@ -127,6 +131,9 @@ export const BrokerCodesProgress = Schema.Union([
         of: Schema.Finite,
         perSecond: Schema.NullOr(Schema.Finite),
       })
+    ),
+    stockCodes: Schema.optionalKey(
+      Schema.Struct({ done: Schema.Finite, of: Schema.Finite })
     ),
   }),
   Schema.Struct({ state: Schema.Literal("catching-up") }),
@@ -285,12 +292,13 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
       .filter((each) => each < day.value)
       .sort()
       .reverse()
-    for (const { feed, walk } of options.newestDay) {
+    for (const { feed, route, walk } of options.newestDay) {
       yield* options.report({
         state: "walking",
         walk: "newest",
         day: day.value,
         feed,
+        ...(route === undefined ? {} : { route }),
       })
       const result = yield* walk(day.value)
       if (result._tag === "stopped")

@@ -32,6 +32,8 @@ import { makeAjaibSession } from "./ajaib-session.ts"
 import { makeBackfill } from "./backfill.ts"
 import { badgeOf } from "./badge.ts"
 import { makeAjaibWalk } from "./broker-codes/ajaib-walk.ts"
+import { doneDetailsStore } from "./broker-codes/done-details-store.ts"
+import { makeDoneDetailsWalk } from "./broker-codes/done-details-walk.ts"
 import { makeExtraTarget } from "./broker-codes/extra-target.ts"
 import { brokerCodesTargets, fetchSend } from "./broker-codes/poster.ts"
 import { makeProductionTarget } from "./broker-codes/production-target.ts"
@@ -424,12 +426,23 @@ const main = Effect.gen(function* () {
     attached: ajaibTab.attached,
     reload: ajaibTab.reload,
   }
+  // The trades Ajaib's walk keeps for its Done Details walk, which then
+  // gives them their order numbers before Stockbit's walk.
+  const keptTrades = yield* doneDetailsStore
   const ajaibWalk = yield* makeAjaibWalk({
     tab: ajaibWalkTab,
     post: extra.tee(production.post),
     store: yield* ajaibWalkStore,
     trades: progress.trades,
     repaired: progress.repair,
+    phase: progress.phase,
+    keep: keptTrades.keep,
+  })
+  const doneDetailsWalk = yield* makeDoneDetailsWalk({
+    tab: ajaibWalkTab,
+    post: extra.tee(production.post),
+    store: keptTrades,
+    codes: progress.codes,
     phase: progress.phase,
   })
   // The Stockbit walks' paced calls, and whether their tab is still there.
@@ -473,8 +486,13 @@ const main = Effect.gen(function* () {
     report: progress.report,
   })
   const brokerCodes = yield* makeRunQueue({
+    // Decision: Ajaib's tape walk, then its Done Details walk of the trades
+    // it kept, then Stockbit's walk, which fills the order numbers Ajaib's
+    // left. A day this browser didn't tape-walk from Ajaib keeps no trades,
+    // so its order numbers come from Stockbit alone. See apinrdw/kumora#627.
     newestDay: [
       { feed: "Ajaib", walk: ajaibWalk.walk },
+      { feed: "Ajaib", route: "done-details", walk: doneDetailsWalk.walk },
       { feed: "Stockbit", walk: stockbitWalk.walk },
     ],
     incompleteDays: incompleteDaysStore,
