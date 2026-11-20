@@ -240,17 +240,17 @@ const SIDE = {
 
 // The log's columns: live, and on a recorded day, whose sweeps can have
 // brokers, with Value wide enough for `Rp325.91 M` and the Buyer and Seller
-// columns for `XL [D] ×22`.
+// columns for `XL [D] ×123`.
 const COLUMNS = {
   live: "grid-cols-[58px_44px_minmax(0,1fr)_64px_10px]",
-  brokers: "grid-cols-[58px_44px_minmax(0,1fr)_76px_88px_88px_10px]",
+  brokers: "grid-cols-[58px_44px_minmax(0,1fr)_76px_80px_80px_10px]",
 } as const
 
 // Decision: a recorded day's columns scroll sideways inside a log narrower
 // than they need, as the tape does (tape-list.tsx): a phone's Sweeps tab
 // (about 360 px), and from lg a log given way below 530 px (layout-b.tsx).
-// Time to Seller need about 536 px with the lots and price path whole.
-const BROKER_COLUMNS_MIN = "min-w-[544px]"
+// Time to Seller need about 520 px with the lots and price path whole.
+const BROKER_COLUMNS_MIN = "min-w-[528px]"
 
 // Shows the sweep tooltip at a broker cell, pinned for a click or a tap, or
 // hides it.
