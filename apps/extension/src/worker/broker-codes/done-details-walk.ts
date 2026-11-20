@@ -230,28 +230,28 @@ const detailRows = Effect.fnUntraced(function* (
   return rows
 })
 
-// The lane a trade or row pairs in: its key and its aggressor side. A row's
-// side is its order pair's later order's, the larger number's; every row
-// also lies in its key's sideless lane, where an auction match's trades,
-// which have no side, find it.
-const lane = (key: string, side: KeptTrade["side"]) =>
+// The side group a trade or row pairs in: its key and its aggressor side.
+// A row's side is its order pair's later order's, the larger number's;
+// every row also lies in its key's sideless group, where an auction match's
+// trades, which have no side, find it.
+const sideGroup = (key: string, side: KeptTrade["side"]) =>
   Effect.succeed(`${key} ${side}`)
-const rowLanes = Effect.fnUntraced(function* (rows: ReadonlyArray<DetailRow>) {
-  const lanes = new Map<string, Array<DetailRow>>()
+const rowGroups = Effect.fnUntraced(function* (rows: ReadonlyArray<DetailRow>) {
+  const groups = new Map<string, Array<DetailRow>>()
   for (const row of rows)
     for (const side of ["none", row.buy > row.sell ? "buy" : "sell"] as const) {
-      const at = yield* lane(row.key, side)
-      lanes.set(at, [...(lanes.get(at) ?? []), row])
+      const at = yield* sideGroup(row.key, side)
+      groups.set(at, [...(groups.get(at) ?? []), row])
     }
-  return lanes
+  return groups
 })
 
-// The kept trades by lane, leaving out a key's sideless trades when it has
-// trades with a side too: its rows can't be told apart between them.
-const tradeLanes = Effect.fnUntraced(function* (
+// The kept trades by side group, leaving out a key's sideless trades when
+// it has trades with a side too: its rows can't be told apart between them.
+const tradeGroups = Effect.fnUntraced(function* (
   trades: ReadonlyArray<KeptTrade>
 ) {
-  const lanes = new Map<string, Array<KeptTrade>>()
+  const groups = new Map<string, Array<KeptTrade>>()
   const sided = new Set<string>()
   const sideless: Array<readonly [string, KeptTrade]> = []
   for (const trade of trades) {
@@ -265,33 +265,33 @@ const tradeLanes = Effect.fnUntraced(function* (
       continue
     }
     sided.add(key)
-    const at = yield* lane(key, trade.side)
-    lanes.set(at, [...(lanes.get(at) ?? []), trade])
+    const at = yield* sideGroup(key, trade.side)
+    groups.set(at, [...(groups.get(at) ?? []), trade])
   }
   for (const [key, trade] of sideless) {
     if (sided.has(key)) continue
-    const at = yield* lane(key, "none")
-    lanes.set(at, [...(lanes.get(at) ?? []), trade])
+    const at = yield* sideGroup(key, "none")
+    groups.set(at, [...(groups.get(at) ?? []), trade])
   }
-  return lanes
+  return groups
 })
 
-// Decision: a lane (one key's one side) whose rows and kept trades are as
-// many gives the rows' order numbers to its trades in any order: tied
-// trades are interchangeable only within one side. A lane whose counts
-// differ, or a row with no trade, gives nothing. See apinrdw/kumora#622
-// and #632.
+// Decision: a side group (one key's one side) whose rows and kept trades
+// are as many gives the rows' order numbers to its trades in any order:
+// tied trades are interchangeable only within one side. A group whose
+// counts differ, or a row with no trade, gives nothing. See
+// apinrdw/kumora#622 and #632.
 const matched = Effect.fnUntraced(function* (
   trades: ReadonlyArray<KeptTrade>,
   rows: ReadonlyArray<DetailRow>
 ) {
-  const byLane = yield* rowLanes(rows)
+  const byGroup = yield* rowGroups(rows)
   const found: Array<MatchedTrade> = []
-  for (const [at, tied] of yield* tradeLanes(trades)) {
-    const laneRows = byLane.get(at) ?? []
-    if (laneRows.length !== tied.length) continue
+  for (const [at, tied] of yield* tradeGroups(trades)) {
+    const groupRows = byGroup.get(at) ?? []
+    if (groupRows.length !== tied.length) continue
     for (const [index, { number, codes }] of tied.entries()) {
-      const { buy, sell } = laneRows[index]!
+      const { buy, sell } = groupRows[index]!
       found.push({ number, codes, buy, sell })
     }
   }
