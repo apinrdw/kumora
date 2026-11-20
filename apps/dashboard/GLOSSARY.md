@@ -126,6 +126,10 @@ The exchange's number for an order. Each running trade has two, its buy order's 
 **Aggressor order**:
 A running trade's order on its aggressor side: the later of its two orders, the one with the larger order number. One aggressor order's trades all fall in one second.
 
+**Passive order**:
+A running trade's order on its other side: the earlier of its two orders, the one with the smaller order number. The sweep tip names an order run's biggest passive order, by its lots summed over the run's trades.
+_Avoid_: Passive side (the side is the Other side), resting order
+
 **Order run**:
 One aggressor broker's aggressor orders in a whole sweep, taken in order-number order, where each order's number is at most 3 above the previous one's. Another broker's orders between them don't break it.
 
