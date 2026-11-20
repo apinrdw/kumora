@@ -248,7 +248,7 @@ describe("viewer protocol", () => {
     Effect.gen(function* () {
       const wire = JSON.stringify({
         _tag: "Select",
-        protocolVersion: ViewerProtocolVersion - 1,
+        protocolVersion: 7,
         selected: "BBCA",
         watchlist: [],
       })
@@ -337,32 +337,18 @@ describe("viewer protocol, down", () => {
 
   it.effect("book readings round trip in a delta and a snapshot", () =>
     Effect.gen(function* () {
-      assert.strictEqual(ViewerProtocolVersion, 7)
+      assert.strictEqual(ViewerProtocolVersion, 8)
       const readings: BookReadings = {
         code: StockCode.make("ERAA"),
         at: DateTime.makeUnsafe("2026-11-18T03:00:00.125Z"),
         imbalance: -0.2345,
-        spread: { ticks: 2, percent: 0.995 },
-        bid: {
-          nearDepth: 14_815_000,
-          lots: 150,
-          emptyTicks: 2,
-          widestGap: 1,
-          lotsPerOrder: 6.25,
-        },
-        offer: {
-          nearDepth: 0,
-          lots: 0,
-          emptyTicks: 0,
-          widestGap: 0,
-          lotsPerOrder: undefined,
-        },
+        bid: { lots: 150, lotsPerOrder: 6.25 },
+        offer: { lots: 0, lotsPerOrder: undefined },
       }
       const thin: BookReadings = {
         ...readings,
         code: StockCode.make("KOTA"),
         imbalance: undefined,
-        spread: undefined,
       }
       const delta: ViewerDown = {
         _tag: "Delta",
@@ -373,6 +359,16 @@ describe("viewer protocol, down", () => {
       }
       const deltaWire = yield* encodeViewerDown(delta)
       assert.deepStrictEqual(yield* decodeViewerDown(deltaWire), delta)
+      // Only imbalance, then each side's lots and lots per order, travel.
+      assert.deepStrictEqual(JSON.parse(deltaWire).bookReadings[0], [
+        "ERAA",
+        Date.parse("2026-11-18T03:00:00.125Z"),
+        -0.2345,
+        150,
+        6.25,
+        0,
+        null,
+      ])
       // A reading travels as a short tuple, not keyed.
       assert.isBelow(
         JSON.stringify(JSON.parse(deltaWire).bookReadings[0]).length,

@@ -15,13 +15,10 @@ import {
 const NOW = Date.parse("2026-11-18T09:30:00+07:00")
 
 const side = (
-  nearDepth: number,
+  lots: number,
   more: Partial<BookReadings["bid"]> = {}
 ): BookReadings["bid"] => ({
-  nearDepth,
-  lots: nearDepth / 100_000,
-  emptyTicks: 0,
-  widestGap: 0,
+  lots,
   lotsPerOrder: 10,
   ...more,
 })
@@ -35,9 +32,8 @@ const reading = (
   code: StockCode.make(code),
   at: DateTime.makeUnsafe(NOW - 1_000),
   imbalance,
-  spread: { ticks: 1, percent: 0.5 },
-  bid: side(100e6),
-  offer: side(100e6),
+  bid: side(1_000),
+  offer: side(1_000),
   ...more,
 })
 
@@ -227,8 +223,8 @@ describe("the halves", () => {
           [
             reading("BBCA", 0),
             reading("BBRI", -0.1),
-            reading("ARCI", 1, { spread: undefined, offer: side(0) }),
-            reading("KOTA", undefined, { spread: undefined }),
+            reading("ARCI", 1, { offer: side(0) }),
+            reading("KOTA", undefined),
           ],
           {},
           { figures: { ARCI: { last: 1_250 } } }
@@ -247,9 +243,7 @@ describe("the halves", () => {
       Effect.gen(function* () {
         // The offers emptied before the last price reached the upper limit,
         // so the readings were taken short of it.
-        const readings = [
-          reading("ARCI", 1, { spread: undefined, offer: side(0) }),
-        ]
+        const readings = [reading("ARCI", 1, { offer: side(0) })]
         const at = yield* run(
           readings,
           {},
@@ -302,22 +296,18 @@ describe("the halves", () => {
     Effect.gen(function* () {
       const readings = [
         reading("AAAA", 0.2, {
-          bid: side(300e6, { emptyTicks: 1, lotsPerOrder: 5 }),
-          offer: side(50e6, { emptyTicks: 0, lotsPerOrder: 5 }),
-          spread: { ticks: 3, percent: 1.5 },
+          bid: side(3000, { lotsPerOrder: 5 }),
+          offer: side(500, { lotsPerOrder: 5 }),
           at: DateTime.makeUnsafe(NOW - 20_000),
         }),
         reading("BBBB", 0.4, {
-          bid: side(100e6, { emptyTicks: 4, lotsPerOrder: 50 }),
-          offer: side(200e6, { emptyTicks: 2, lotsPerOrder: 20 }),
-          spread: { ticks: 1, percent: 0.2 },
+          bid: side(1000, { lotsPerOrder: 50 }),
+          offer: side(2000, { lotsPerOrder: 20 }),
           at: DateTime.makeUnsafe(NOW - 2_000),
         }),
-        // No spread: last whichever way.
         reading("CCCC", 0.6, {
-          bid: side(200e6, { emptyTicks: 2, lotsPerOrder: 1 }),
+          bid: side(2000, { lotsPerOrder: 1 }),
           offer: side(0, { lotsPerOrder: undefined }),
-          spread: undefined,
           at: DateTime.makeUnsafe(NOW - 10_000),
         }),
         reading("DDDD", -0.3),
@@ -330,9 +320,6 @@ describe("the halves", () => {
       const cases: ReadonlyArray<
         readonly [RadarSettings["rankBy"], ReadonlyArray<string>]
       > = [
-        ["bidNearDepth", ["AAAA", "CCCC", "BBBB"]],
-        ["offerNearDepth", ["BBBB", "AAAA", "CCCC"]],
-        ["emptyTicks", ["BBBB", "CCCC", "AAAA"]],
         ["lotsPerOrder", ["BBBB", "AAAA", "CCCC"]],
         ["bookAge", ["AAAA", "CCCC", "BBBB"]],
       ]
@@ -346,15 +333,6 @@ describe("the halves", () => {
           offer: ["DDDD"],
         })
       }
-      assert.deepStrictEqual((yield* ranked({ rankBy: "spread" })).bid, [
-        "AAAA",
-        "BBBB",
-        "CCCC",
-      ])
-      assert.deepStrictEqual(
-        (yield* ranked({ rankBy: "spread", direction: "low" })).bid,
-        ["BBBB", "AAAA", "CCCC"]
-      )
     })
   )
 
@@ -363,21 +341,21 @@ describe("the halves", () => {
       const readings = [
         // Bid-heavy: its bids' 40 count, not its offers' 1.
         reading("AAAA", 0.2, {
-          bid: side(100e6, { lotsPerOrder: 40 }),
-          offer: side(100e6, { lotsPerOrder: 1 }),
+          bid: side(1000, { lotsPerOrder: 40 }),
+          offer: side(1000, { lotsPerOrder: 1 }),
         }),
         reading("BBBB", 0.4, {
-          bid: side(100e6, { lotsPerOrder: 20 }),
-          offer: side(100e6, { lotsPerOrder: 90 }),
+          bid: side(1000, { lotsPerOrder: 20 }),
+          offer: side(1000, { lotsPerOrder: 90 }),
         }),
         // Offer-heavy: its offers' figures.
         reading("CCCC", -0.2, {
-          bid: side(100e6, { lotsPerOrder: 99 }),
-          offer: side(100e6, { lotsPerOrder: 5 }),
+          bid: side(1000, { lotsPerOrder: 99 }),
+          offer: side(1000, { lotsPerOrder: 5 }),
         }),
         reading("DDDD", -0.4, {
-          bid: side(100e6, { lotsPerOrder: 1 }),
-          offer: side(100e6, { lotsPerOrder: 15 }),
+          bid: side(1000, { lotsPerOrder: 1 }),
+          offer: side(1000, { lotsPerOrder: 15 }),
         }),
       ]
       const result = yield* run(readings, { rankBy: "lotsPerOrder" })
@@ -459,29 +437,27 @@ describe("the halves", () => {
 
 describe("the ranked figure", () => {
   it.effect(
-    "shows the heavy side's near depth for Imbalance, else the reading ranked",
+    "shows the heavy side's lots per order against the other's for Imbalance, else the reading ranked",
     () =>
       Effect.gen(function* () {
         const readings = reading("BBCA", -0.2, {
-          bid: side(1.5e9, { emptyTicks: 1, lotsPerOrder: 12.4 }),
-          offer: side(2.25e9, { emptyTicks: 3, lotsPerOrder: 30 }),
-          spread: { ticks: 2, percent: 0.6667 },
+          bid: side(15_000, { lotsPerOrder: 12.4 }),
+          offer: side(22_500, { lotsPerOrder: 30 }),
         })
         assert.strictEqual(
           yield* rankedFigure(readings, "imbalance", NOW),
-          "Rp2.25 B"
+          "30 vs 12"
         )
         assert.strictEqual(
-          yield* rankedFigure(readings, "bidNearDepth", NOW),
-          "Rp1.5 B"
-        )
-        assert.strictEqual(
-          yield* rankedFigure(readings, "emptyTicks", NOW),
-          "1 / 3 empty"
-        )
-        assert.strictEqual(
-          yield* rankedFigure(readings, "spread", NOW),
-          "2t · 0.67%"
+          yield* rankedFigure(
+            reading("BBRI", 0.6, {
+              bid: side(4_000, { lotsPerOrder: 118 }),
+              offer: side(1_000, { lotsPerOrder: undefined }),
+            }),
+            "imbalance",
+            NOW
+          ),
+          "118 vs —"
         )
         // The offer is the heavy side.
         assert.strictEqual(

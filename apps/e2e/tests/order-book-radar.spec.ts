@@ -189,7 +189,8 @@ test("the watchlist, search and price band filter the halves", async ({
 test("Rank by orders each half in both directions, never mixing them", async ({
   page,
 }) => {
-  // Imbalance +50%, +80% and +20%; near depth bid 300, 900 and 150 lots.
+  // Imbalance +50%, +80% and +20%; lots per order on the bid 150, 450 and
+  // 75, each book's levels holding two orders.
   const a = freshCode("RR")
   const b = freshCode("RR")
   const c = freshCode("RR")
@@ -211,9 +212,25 @@ test("Rank by orders each half in both directions, never mixing them", async ({
   await search(page, "RR")
   await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([b, a, c])
   await expect.poll(() => codesOf(page, "Offer-heavy")).toEqual([offer])
+  // Imbalance's figure: the heavy side's lots per order against the other's.
+  await expect(
+    half(page, "Bid-heavy")
+      .locator(`[data-code="${b}"]`)
+      .getByLabel("Ranked by")
+  ).toHaveText("450 vs 50")
   await page.getByRole("button", { name: "High → low" }).click()
   await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([c, a, b])
-  await pickRank(page, "Near depth bid")
+  await page.getByRole("combobox", { name: "Rank by" }).click()
+  for (const removed of [
+    "Near depth bid",
+    "Near depth offer",
+    "Empty ticks",
+    "Spread %",
+  ])
+    await expect(page.getByRole("option", { name: removed })).toHaveCount(0)
+  await page
+    .getByRole("option", { name: "Lots per order", exact: true })
+    .click()
   // A new reading ranks High → low again.
   await expect(page.getByRole("button", { name: "High → low" })).toBeVisible()
   await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([b, a, c])
@@ -221,7 +238,7 @@ test("Rank by orders each half in both directions, never mixing them", async ({
     half(page, "Bid-heavy")
       .locator(`[data-code="${b}"]`)
       .getByLabel("Ranked by")
-  ).toHaveText("Rp90 M")
+  ).toHaveText("450 lots/ord")
   await page.getByRole("button", { name: "High → low" }).click()
   await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([c, a, b])
   await expect.poll(() => codesOf(page, "Offer-heavy")).toEqual([offer])

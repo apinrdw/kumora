@@ -50,10 +50,10 @@ test("the readout shows the selected code's live readings and the disclaimer", a
   await expect(
     readout.getByRole("meter", { name: "Imbalance" })
   ).toHaveAttribute("aria-valuenow", "50")
-  // 1,000 to 1,010 is two Rp5 ticks.
-  await expect(readout.getByLabel("Spread")).toHaveText("2 ticks · 1.00%")
-  // 1,000 × 300 lots × 100 shares, its lots on hover.
-  await expect(readout.getByTitle("300 lots")).toHaveText("Rp30 M")
+  // 300 bid lots in 3 orders, 100 offered in 1; nothing but lots per order.
+  await expect(
+    readout.getByRole("table", { name: "Bid and offer readings" })
+  ).toHaveText("Bid · best 5Offer · best 5Lots per order100100")
   await expect(readout).toContainText(
     "They don't predict price and aren't advice to buy or sell."
   )
@@ -223,7 +223,6 @@ test("on a recorded day the readings follow the replay cursor", async ({
   const readout = page.getByRole("region", { name: "Book readout" })
   // At the close: the 11:00 frame, the offers leading.
   await expect(readout.getByLabel("Imbalance value")).toHaveText("−50%")
-  await expect(readout.getByLabel("Spread")).toHaveText("1 tick · 0.50%")
   await expect(readout).toContainText("recorded frame 11:00:00")
   await page
     .getByRole("slider", { name: "Replay cursor" })

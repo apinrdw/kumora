@@ -19,10 +19,7 @@ const FIRST = StockCode.make("RHAA")
 const SECOND = StockCode.make("RHBB")
 
 const side = (lots: number): BookReadings["bid"] => ({
-  nearDepth: lots * 100_000,
   lots,
-  emptyTicks: 0,
-  widestGap: 0,
   lotsPerOrder: lots / 2,
 })
 
@@ -31,7 +28,6 @@ const readings = (code: StockCode, bid: number): BookReadings => ({
   code,
   at: DateTime.makeUnsafe(Date.now()),
   imbalance: (bid - 100) / (bid + 100),
-  spread: { ticks: 1, percent: 0.5 },
   bid: side(bid),
   offer: side(100),
 })

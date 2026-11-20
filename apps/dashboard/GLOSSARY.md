@@ -158,10 +158,10 @@ _Avoid_: Quote, summary
 
 **Order book**:
 The resting buy orders (bid) and sell orders (offer) for one stock code, as price levels with their lots and number of orders. Live viewers see every code's. A day records a code's order book only from the first time a viewer selects or watches it that day to the close, and only for a code the day's code list names (before the list arrives, up to a fixed cap of codes); a day recorded before that change recorded every code's.
-_Avoid_: Depth, market depth (depth names a reading of the book, never the book)
+_Avoid_: Depth, market depth
 
 **Book reading**:
-A figure the order book radar measures from one stock code's order book, over the best five levels of each side: imbalance, near depth, empty ticks, spread and lots per order. Readings are measured only in sessions 1 and 2; in any other market phase they keep their last values, marked as paused. They describe liquidity and pressure, never which way the price will go.
+A figure the order book radar measures from one stock code's order book, over the best five levels of each side: imbalance, lots per order and heavy side. Readings are measured only in sessions 1 and 2; in any other market phase they keep their last values, marked as paused. They describe liquidity and pressure, never which way the price will go.
 _Avoid_: Signal, indicator
 
 **Scanner**:
@@ -175,18 +175,6 @@ _Avoid_: Liquidity filter, minimum volume
 **Imbalance**:
 Bid lots minus offer lots, over their sum, across the best five levels of each side: from −100% (offers only) to +100% (bids only).
 _Avoid_: Bid share (that is the whole book's bids over its total), pressure
-
-**Near depth**:
-The rupiah resting in one side's best five levels.
-_Avoid_: Depth (alone), liquidity
-
-**Empty ticks**:
-The tick prices with no resting order between one side's best level and its fifth.
-_Avoid_: Gaps, holes
-
-**Spread**:
-The distance from the best bid to the best offer, in ticks, each side's price counted on its own tick, and as a percentage of the price midway between them. None when either side is empty.
-_Avoid_: Bid-ask gap
 
 **Lots per order**:
 A level's lots over its frequency; for a side, its best five levels' lots over their orders.

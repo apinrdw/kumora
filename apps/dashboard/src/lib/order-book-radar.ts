@@ -11,7 +11,7 @@ import {
 import { DateTime, Effect } from "effect"
 
 import { LOWEST_READ_CLOSE, isCheap } from "./book-readings"
-import { compact, plain } from "./format"
+import { plain } from "./format"
 
 // A row as Rank by reads it: its readings, its book events and the market
 // clock's now, in epoch ms.
@@ -32,11 +32,14 @@ interface Ranking {
 const bookAge = ({ readings, now }: RankedRow) =>
   Effect.succeed(Math.max(0, now - DateTime.toEpochMillis(readings.at)))
 
-// The side the imbalance leans to: bids at a balanced book.
-const heavySide = (readings: BookReadings) =>
-  Effect.succeed((readings.imbalance ?? 0) >= 0 ? readings.bid : readings.offer)
+// The side the imbalance leans to, bids at a balanced book, then the other.
+const sidesOf = (readings: BookReadings) =>
+  (readings.imbalance ?? 0) >= 0
+    ? ([readings.bid, readings.offer] as const)
+    : ([readings.offer, readings.bid] as const)
 
-const rupiah = (value: number) => Effect.map(compact(value), (n) => `Rp${n}`)
+const heavySide = (readings: BookReadings) =>
+  Effect.succeed(sidesOf(readings)[0])
 
 const perOrder = (value: number | undefined) =>
   value === undefined ? Effect.succeed("—") : plain(value, 0)
@@ -48,7 +51,8 @@ const ageText = (ms: number) =>
   )
 
 // Rank by's choices, in the menu's order. Imbalance and Lots per order read
-// the heavy side, and its row shows that side's figure. Last event ranks by
+// the heavy side; Imbalance's row shows the heavy side's lots per order
+// against the other's, Lots per order's the heavy side's alone. Last event ranks by
 // its time, so High → low puts the newest first.
 const RANKINGS = {
   imbalance: {
@@ -60,35 +64,8 @@ const RANKINGS = {
           : Math.abs(readings.imbalance)
       ),
     figure: Effect.fnUntraced(function* ({ readings }) {
-      return yield* rupiah((yield* heavySide(readings)).nearDepth)
-    }),
-  },
-  bidNearDepth: {
-    label: "Near depth bid",
-    value: ({ readings }) => Effect.succeed(readings.bid.nearDepth),
-    figure: ({ readings }) => rupiah(readings.bid.nearDepth),
-  },
-  offerNearDepth: {
-    label: "Near depth offer",
-    value: ({ readings }) => Effect.succeed(readings.offer.nearDepth),
-    figure: ({ readings }) => rupiah(readings.offer.nearDepth),
-  },
-  emptyTicks: {
-    label: "Empty ticks",
-    value: ({ readings }) =>
-      Effect.succeed(readings.bid.emptyTicks + readings.offer.emptyTicks),
-    figure: ({ readings }) =>
-      Effect.succeed(
-        `${readings.bid.emptyTicks} / ${readings.offer.emptyTicks} empty`
-      ),
-  },
-  spread: {
-    label: "Spread %",
-    value: ({ readings }) => Effect.succeed(readings.spread?.percent),
-    figure: Effect.fnUntraced(function* ({ readings }) {
-      return readings.spread === undefined
-        ? "—"
-        : `${readings.spread.ticks}t · ${yield* plain(readings.spread.percent, 2)}%`
+      const [heavy, other] = sidesOf(readings)
+      return `${yield* perOrder(heavy.lotsPerOrder)} vs ${yield* perOrder(other.lotsPerOrder)}`
     }),
   },
   lotsPerOrder: {

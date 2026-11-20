@@ -59,48 +59,20 @@ describe("book readings", () => {
   it.effect("measure each side's best five levels", () =>
     Effect.gen(function* () {
       const readings = yield* read(bookOf(BIDS, OFFERS))
-      assert.deepStrictEqual(readings.bid, {
-        nearDepth: 14_815_000,
-        lots: 150,
-        emptyTicks: 2,
-        widestGap: 1,
-        lotsPerOrder: 10,
-      })
-      assert.deepStrictEqual(readings.offer, {
-        nearDepth: 10_262_500,
-        lots: 100,
-        emptyTicks: 4,
-        widestGap: 4,
-        lotsPerOrder: 6.25,
-      })
+      assert.deepStrictEqual(readings.bid, { lots: 150, lotsPerOrder: 10 })
+      assert.deepStrictEqual(readings.offer, { lots: 100, lotsPerOrder: 6.25 })
       assert.strictEqual(readings.imbalance, 0.2)
-      assert.strictEqual(readings.spread?.ticks, 2)
-      assert.closeTo(readings.spread?.percent ?? 0, (10 / 1005) * 100, 1e-9)
       assert.strictEqual(readings.code, "ERAA")
       assert.deepStrictEqual(readings.at, at)
     })
   )
 
-  it.effect("count a spread across a band edge on each side's tick", () =>
-    Effect.gen(function* () {
-      const readings = yield* read(
-        bookOf([level(498, 10, 1)], [level(505, 10, 1)])
-      )
-      // 498 to 500 on Rp2, 500 to 505 on Rp5.
-      assert.strictEqual(readings.spread?.ticks, 2)
-    })
-  )
-
-  it.effect("an empty side tips imbalance whole and has no spread", () =>
+  it.effect("an empty side tips imbalance whole", () =>
     Effect.gen(function* () {
       const readings = yield* read(bookOf(BIDS, []))
       assert.strictEqual(readings.imbalance, 1)
-      assert.strictEqual(readings.spread, undefined)
       assert.deepStrictEqual(readings.offer, {
-        nearDepth: 0,
         lots: 0,
-        emptyTicks: 0,
-        widestGap: 0,
         lotsPerOrder: undefined,
       })
       const none = yield* read(bookOf([], []))

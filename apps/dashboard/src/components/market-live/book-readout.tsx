@@ -23,7 +23,7 @@ import { DateTime, Effect } from "effect"
 import { useSyncExternalStore, type ReactNode } from "react"
 
 import { DISCLAIMER, isCheap, type CodePrices } from "@/lib/book-readings"
-import { compact, lots, plain, signed, tapeTime } from "@/lib/format"
+import { plain, signed, tapeTime } from "@/lib/format"
 import { gapAt } from "@/lib/replay"
 
 import type { BookReadingsStore } from "./book-readings-store"
@@ -84,38 +84,10 @@ function ImbalanceBar({ imbalance }: { imbalance: number | undefined }) {
 
 const figure = (text: string) => <span className="text-right">{text}</span>
 
-const emptyTicks = (side: BookReadings["bid"]) =>
-  Effect.succeed(
-    side.widestGap > 1
-      ? `${side.emptyTicks} (widest ${side.widestGap})`
-      : `${side.emptyTicks}`
-  )
-
 const perOrder = (side: BookReadings["bid"]) =>
   side.lotsPerOrder === undefined
     ? Effect.succeed("—")
     : plain(side.lotsPerOrder, side.lotsPerOrder < 10 ? 1 : 0)
-
-function NearDepth({ side }: { side: BookReadings["bid"] }) {
-  if (side.lots === 0) return figure("—")
-  return (
-    <span
-      className="text-right underline decoration-dotted"
-      title={`${Effect.runSync(lots(side.lots))} lots`}
-    >
-      Rp{Effect.runSync(compact(side.nearDepth))}
-    </span>
-  )
-}
-
-const spreadText = (spread: BookReadings["spread"]) =>
-  spread === undefined
-    ? Effect.succeed("—")
-    : Effect.map(
-        plain(spread.percent, 2),
-        (percent) =>
-          `${spread.ticks} ${spread.ticks === 1 ? "tick" : "ticks"} · ${percent}%`
-      )
 
 // The imbalance row: the bar and the signed figure, none at a limit, where
 // a limit queue isn't pressure.
@@ -194,19 +166,9 @@ function Readings({
           <span className="text-right text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
             Offer · best 5
           </span>
-          <span className="text-muted-foreground">Near depth</span>
-          <NearDepth side={readings.bid} />
-          <NearDepth side={readings.offer} />
-          <span className="text-muted-foreground">Empty ticks</span>
-          {figure(Effect.runSync(emptyTicks(readings.bid)))}
-          {figure(Effect.runSync(emptyTicks(readings.offer)))}
           <span className="text-muted-foreground">Lots per order</span>
           {figure(Effect.runSync(perOrder(readings.bid)))}
           {figure(Effect.runSync(perOrder(readings.offer)))}
-          <span className="text-muted-foreground">Spread</span>
-          <span aria-label="Spread" className="col-span-2 text-right">
-            {Effect.runSync(spreadText(readings.spread))}
-          </span>
         </div>
       </div>
       {paused !== undefined && (

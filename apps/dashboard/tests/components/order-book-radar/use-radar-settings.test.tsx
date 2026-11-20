@@ -35,9 +35,13 @@ const read = async (stored: object) => {
 }
 
 test.each([
-  ["bidDepth", "bidNearDepth"],
-  ["offerDepth", "offerNearDepth"],
-  ["bidNearDepth", "bidNearDepth"],
+  ["bidDepth", "imbalance"],
+  ["offerDepth", "imbalance"],
+  ["bidNearDepth", "imbalance"],
+  ["offerNearDepth", "imbalance"],
+  ["emptyTicks", "imbalance"],
+  ["spread", "imbalance"],
+  ["lotsPerOrder", "lotsPerOrder"],
 ])("a Rank by stored as %s reads as %s", async (stored, shown) => {
   expect(
     await read({ ...DEFAULT_SETTINGS, rankBy: stored, direction: "low" }),

@@ -547,10 +547,6 @@ describe("book readings and the delta", () => {
           "TLKM",
         ])
         const bbcaReadings = readings.find((each) => each.code === "BBCA")!
-        // 5,025 to 5,050 is one Rp25 tick; 5,025 down to 4,970 leaves none
-        // empty across the Rp10 band below 5,000.
-        assert.strictEqual(bbcaReadings.spread?.ticks, 1)
-        assert.strictEqual(bbcaReadings.bid.emptyTicks, 0)
         assert.strictEqual(bbcaReadings.bid.lots, 138_674)
         assert.strictEqual(DateTime.toEpochMillis(bbcaReadings.at), SEEN)
       })

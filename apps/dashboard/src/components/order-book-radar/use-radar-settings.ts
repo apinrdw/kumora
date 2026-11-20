@@ -20,18 +20,26 @@ const Price = Schema.UndefinedOr(Schema.Finite.check(Schema.isGreaterThan(0)))
 
 const RANK_KEYS = RANK_CHOICES.map((choice) => choice.value)
 
-// Decision: Rank by's near depth choices were stored as bidDepth and
-// offerDepth before they took the glossary's name, Near depth; a browser
-// that kept one reads it as the new key, and the next change stores that.
-const RENAMED_RANK_KEYS = {
-  bidDepth: "bidNearDepth",
-  offerDepth: "offerNearDepth",
-} as const satisfies Record<string, RankKey>
+// Decision: a Rank by this browser stored that the scanner no longer offers
+// (Near depth bid or offer, under either stored name, Empty ticks, Spread %)
+// reads as Imbalance, keeping the browser's other settings; the next change
+// stores that. See apinrdw/kumora#601.
+const REMOVED_RANK_KEYS = [
+  "bidDepth",
+  "offerDepth",
+  "bidNearDepth",
+  "offerNearDepth",
+  "emptyTicks",
+  "spread",
+] as const
 
-const RankBy = Schema.Literals([...RANK_KEYS, "bidDepth", "offerDepth"]).pipe(
+const isRankKey = (key: string): key is RankKey =>
+  RANK_KEYS.some((each) => each === key)
+
+const RankBy = Schema.Literals([...RANK_KEYS, ...REMOVED_RANK_KEYS]).pipe(
   Schema.decodeTo(Schema.Literals(RANK_KEYS), {
     decode: SchemaGetter.transform((key) =>
-      key === "bidDepth" || key === "offerDepth" ? RENAMED_RANK_KEYS[key] : key
+      isRankKey(key) ? key : "imbalance"
     ),
     encode: SchemaGetter.transform((key) => key),
   })

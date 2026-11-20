@@ -31,7 +31,9 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // changed code's book readings and the book events found since the last;
 // snapshots carry every code's readings, scanner figures and the latest book
 // events (spec apinrdw/kumora#517).
-export const ViewerProtocolVersion = 7
+// 8: book readings drop near depth, empty ticks and the spread (spec
+// apinrdw/kumora#605).
+export const ViewerProtocolVersion = 8
 
 // Decision: an extension that hits either code stops retrying that target and
 // shows it; any other close, 1006 included, retries with backoff. The token

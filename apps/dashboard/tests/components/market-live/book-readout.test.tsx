@@ -28,13 +28,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 const TODAY = WibDate.make("2026-11-18")
 
-const side = (lots: number) => ({
-  nearDepth: lots * 100 * 1_000,
-  lots,
-  emptyTicks: 3,
-  widestGap: 2,
-  lotsPerOrder: 12,
-})
+const side = (lots: number, lotsPerOrder = 12) => ({ lots, lotsPerOrder })
 
 const readingsOf = (
   code: string,
@@ -43,7 +37,6 @@ const readingsOf = (
   code: StockCode.make(code),
   at: DateTime.makeUnsafe("2026-11-18T03:00:00Z"),
   imbalance: 0.25,
-  spread: { ticks: 2, percent: 0.4 },
   bid: side(1_000),
   offer: side(600),
   ...extra,
@@ -128,15 +121,22 @@ afterEach(() => {
   document.body.innerHTML = ""
 })
 
-test("live readings show imbalance, the bid/offer grid, the spread and the disclaimer", () => {
+test("live readings show imbalance, lots per order a side and the disclaimer", () => {
   const { container } = render(
     "ERAA",
-    snapshot("session-1", [readingsOf("ERAA")])
+    snapshot("session-1", [
+      readingsOf("ERAA", { bid: side(1_000, 118), offer: side(600, 22) }),
+    ])
   )
   const text = container.textContent ?? ""
   expect(text).toContain("+25%")
-  expect(text).toContain("3 (widest 2)")
-  expect(text).toContain("2 ticks · 0.40%")
+  const grid = container.querySelector('[aria-label="Bid and offer readings"]')
+  expect(grid?.textContent).toBe(
+    "Bid · best 5Offer · best 5Lots per order11822"
+  )
+  expect(text).not.toContain("Near depth")
+  expect(text).not.toContain("Empty ticks")
+  expect(text).not.toContain("Spread")
   expect(text).toContain("aren't advice to buy or sell")
   expect(container.querySelector("[data-paused]")).toBeNull()
 })
