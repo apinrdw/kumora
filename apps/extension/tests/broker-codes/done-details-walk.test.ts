@@ -337,6 +337,52 @@ describe("the Done Details walk", () => {
     })
   )
 
+  it.effect(
+    "gives tied trades on opposite sides the orders whose larger number is their aggressor's, whatever Ajaib's order",
+    () =>
+      Effect.gen(function* () {
+        yield* evening
+        const tied = (number: string, side: KeptTrade["side"]): KeptTrade => ({
+          ...HOPE_TRADES[1]!,
+          number: TradeNumber.make(number),
+          code: StockCode.make("BBCA"),
+          side,
+        })
+        const detail = (buy: number, sell: number) => ({
+          ...HOPE_DETAILS[0]!,
+          time: "10:23:18",
+          code: "BBCA",
+          buyer: {
+            ...HOPE_DETAILS[0]!.buyer,
+            order_id: `20261120${String(buy).padStart(10, "0")}`,
+            broker_code: HOPE_TRADES[1]!.codes.buyer,
+          },
+          seller: {
+            ...HOPE_DETAILS[0]!.seller,
+            order_id: `20261120${String(sell).padStart(10, "0")}`,
+            broker_code: HOPE_TRADES[1]!.codes.seller,
+          },
+          board: HOPE_TRADES[1]!.board,
+          price: HOPE_TRADES[1]!.price,
+          qty: HOPE_TRADES[1]!.lots,
+        })
+        const { store } = yield* keptStore([
+          { ...tied("1", "buy"), second: "10:23:18" },
+          { ...tied("2", "sell"), second: "10:23:18" },
+        ])
+        const production = fakeProduction()
+        // The sell's row first: buy order 102 hit by sell order 105.
+        const tab = fakeAjaib({
+          details: { BBCA: [detail(102, 105), detail(100, 90)] },
+        })
+        const walk = yield* walkWith(tab, store, production)
+        yield* walk.walk(DAY)
+        const orders = production.orders()
+        assert.deepStrictEqual(orders.get("1"), [100, 90])
+        assert.deepStrictEqual(orders.get("2"), [102, 105])
+      })
+  )
+
   it.effect("assigns nothing to a key whose row and trade counts differ", () =>
     Effect.gen(function* () {
       yield* evening
