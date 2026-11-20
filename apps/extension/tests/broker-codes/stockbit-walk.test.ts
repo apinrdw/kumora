@@ -4,6 +4,7 @@ import {
   BrokerCodesProtocolVersion,
   MISSING_RANGES,
   StockCode,
+  OrderNumber,
   TradeNumber,
   WibDate,
   decodeBrokerCodesBatch,
@@ -36,6 +37,7 @@ import {
 import type { Answer, TabRequest } from "../../src/worker/broker.ts"
 import { makePacer } from "../../src/worker/pacer.ts"
 import { DashboardOrigin } from "../../src/worker/settings.ts"
+import hope from "./fixtures/stockbit-hope-2026-11-20.json"
 
 const DAY = WibDate.make("2026-11-12")
 
@@ -237,7 +239,7 @@ const fakeProduction = () => {
   const fielded = new Set<number>()
   const takeFields = (batch: BrokerCodesBatch) => {
     for (const [text, , fields] of batch.rows)
-      if (fields !== undefined) fielded.add(Number(text))
+      if (fields !== undefined && fields !== null) fielded.add(Number(text))
   }
   const differences = new Set<number>()
   const batches: Array<BrokerCodesBatch> = []
@@ -322,6 +324,7 @@ const fakeProduction = () => {
                   state: "pending",
                   walkedTo: TradeNumber.make(String(walkedTo)),
                 },
+        orderNumbers: { ajaib: 0, stockbit: 0, differences: 0 },
       }
     })
   return {
@@ -381,7 +384,7 @@ const settle = Effect.fnUntraced(function* (
 })
 
 const walkWith = (
-  tape: ReturnType<typeof fakeStockbit>,
+  tape: Pick<ReturnType<typeof fakeStockbit>, "attached" | "request">,
   production = fakeProduction()
 ) =>
   makeStockbitWalk({
@@ -568,6 +571,128 @@ describe("Stockbit's full walk of a day", () => {
       for (let at = 1; at < tape.times.length; at++)
         assert.isAtLeast((tape.times[at] ?? 0) - (tape.times[at - 1] ?? 0), 334)
     })
+  )
+})
+
+// Spec apinrdw/kumora#627, "Slice 1": HOPE's first 150 rows of 2026-11-20
+// as Stockbit sent them after the close (sb-HOPE-2026-11-20 on
+// research/order-number-routes), each with its buy and sell order number.
+describe("Stockbit's walk and order numbers", () => {
+  const HOPE_DAY = WibDate.make("2026-11-20")
+  type HopeRow = (typeof hope)[number]
+
+  // Stockbit's tape of `rows`, in their captured order, closed.
+  const hopeTape = (rows: ReadonlyArray<HopeRow>) => ({
+    attached: Effect.succeed(true),
+    request: (request: TabRequest) =>
+      Effect.sync(() => {
+        if (request._tag === "cookie")
+          return Option.some(
+            answer(
+              200,
+              request.name === "credentialStorage"
+                ? encodeURIComponent(JSON.stringify({ token: jwt("live") }))
+                : ""
+            )
+          )
+        if (request._tag !== "fetch") return Option.none<Answer>()
+        const params = new URL(request.url).searchParams
+        const cursor = params.get("trade_number")
+        const from =
+          cursor === null
+            ? 0
+            : rows.findIndex((row) => row.trade_number === cursor) + 1
+        const page =
+          params.get("sort") === "DESC"
+            ? rows.slice(-1)
+            : rows.slice(from, from + Number(params.get("limit")))
+        return Option.some(
+          answer(
+            200,
+            JSON.stringify({
+              data: { is_open_market: false, running_trade: page },
+            })
+          )
+        )
+      }),
+  })
+
+  // Each posted row's order numbers by trade number, none for a row
+  // without.
+  const postedOrders = (production: ReturnType<typeof fakeProduction>) =>
+    new Map(
+      production
+        .stockbit()
+        .flatMap((batch) =>
+          batch.rows.map(([number, , , orders]) => [number, orders] as const)
+        )
+    )
+
+  it.effect("posts each trade's buy and sell order number", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib(HOPE_DAY, "20:20:00"))
+      const production = fakeProduction()
+      const walk = yield* walkWith(hopeTape(hope), production)
+      assert.deepStrictEqual(yield* walk.walk(HOPE_DAY), { _tag: "walked" })
+      const posted = postedOrders(production)
+      assert.strictEqual(posted.size, hope.length)
+      for (const row of hope)
+        assert.deepStrictEqual(posted.get(TradeNumber.make(row.trade_number)), [
+          OrderNumber.make(Number(row.buy_order_number)),
+          OrderNumber.make(Number(row.sell_order_number)),
+        ])
+      // HOPE's trade 8799: a buy whose group order is the buy order.
+      assert.deepStrictEqual(posted.get(TradeNumber.make("8799")), [
+        OrderNumber.make(276_574),
+        OrderNumber.make(53_352),
+      ])
+    })
+  )
+
+  it.effect(
+    "walked whole, posts every trade's order numbers again though the day is walked",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib(HOPE_DAY, "20:20:00"))
+        const production = fakeProduction()
+        const walk = yield* walkWith(hopeTape(hope), production)
+        yield* walk.walk(HOPE_DAY)
+        const again = fakeProduction()
+        const whole = yield* makeStockbitWalk({
+          tab: hopeTape(hope),
+          post: again.post,
+          status: production.status,
+        })
+        assert.deepStrictEqual(yield* whole.whole(HOPE_DAY), {
+          _tag: "walked",
+        })
+        assert.deepStrictEqual(postedOrders(again), postedOrders(production))
+        assert.strictEqual(postedOrders(again).size, hope.length)
+      })
+  )
+
+  it.effect(
+    "posts none for a row with an order number of 0, and its codes and fields still",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib(HOPE_DAY, "20:20:00"))
+        const production = fakeProduction()
+        const zeroed = hope.map((row) =>
+          row.trade_number === "8800" ? { ...row, sell_order_number: "0" } : row
+        )
+        const walk = yield* walkWith(hopeTape(zeroed), production)
+        assert.deepStrictEqual(yield* walk.walk(HOPE_DAY), { _tag: "walked" })
+        const row = production
+          .stockbit()
+          .flatMap((batch) => batch.rows)
+          .find(([number]) => number === "8800")
+        assert.isDefined(row)
+        assert.lengthOf(row, 3)
+        assert.isDefined(row[2])
+        assert.isUndefined(
+          postedOrders(production).get(TradeNumber.make("8800"))
+        )
+      })
   )
 })
 
@@ -796,6 +921,7 @@ describe("Stockbit's walk: stopping and carrying on", () => {
           missing: [],
           missingCount: 0,
           sources: { ajaib: 0, stockbit: 11 },
+          orderNumbers: { ajaib: 0, stockbit: 0, differences: 0 },
           crossCheck: { state: "none" },
         }
         const posted = new Set<number>()
@@ -1215,6 +1341,7 @@ describe("the History walk over Stockbit's walk", () => {
           missing: [],
           missingCount: 0,
           sources: { ajaib: 0, stockbit: day === "2026-11-13" ? 10 : 0 },
+          orderNumbers: { ajaib: 0, stockbit: 0, differences: 0 },
           crossCheck: { state: "none" },
         })
       })

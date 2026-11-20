@@ -27,6 +27,7 @@ import {
   tradingDay,
 } from "./day-harness"
 import { memoryDayBucket } from "./memory-day-bucket"
+import { asMoved } from "./moved-answer"
 import { memorySql, rowShapedSql } from "./sql"
 
 // The harness records every day on 2026-11-09; the index lists each under
@@ -240,7 +241,7 @@ describe("the older days' moves", () => {
             assert.isDefined(response, resource._tag)
             answers.push(yield* answered(response!))
           }
-          assert.deepStrictEqual(answers, old.hot)
+          assert.deepStrictEqual(answers, old.hot.map(asMoved))
         }
       }),
     30_000

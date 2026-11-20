@@ -24,6 +24,7 @@ const COMPLETE: BrokerCodesStatus = {
   missing: [],
   missingCount: 0,
   sources: { ajaib: 990, stockbit: 10 },
+  orderNumbers: { ajaib: 0, stockbit: 0, differences: 0 },
   crossCheck: { state: "compared", covered: 1000, differences: 0 },
 }
 const at = (wib: string) => DateTime.makeUnsafe(`${wib}+07:00`)
@@ -51,6 +52,7 @@ describe("the options page's broker codes section", () => {
           more: 0,
           sites: "Ajaib and Stockbit",
           crossCheck: "matches",
+          orderNumbers: "",
           behind: false,
         }
       )
@@ -73,6 +75,7 @@ describe("the options page's broker codes section", () => {
           more: 0,
           sites: "Stockbit",
           crossCheck: "no cross-check",
+          orderNumbers: "",
           behind: false,
         }
       )
@@ -106,9 +109,40 @@ describe("the options page's broker codes section", () => {
         more: 0,
         sites: "",
         crossCheck: "",
+        orderNumbers: "",
         behind: false,
       })
     })
+  )
+
+  // Spec apinrdw/kumora#627, "Slice 1".
+  it.effect(
+    "shows the trades holding order numbers from each site, and how many differed",
+    () =>
+      Effect.gen(function* () {
+        const counted = (orderNumbers: BrokerCodesStatus["orderNumbers"]) =>
+          Effect.map(
+            dayView(Option.some({ ...COMPLETE, orderNumbers }), Option.none()),
+            (view) => view.orderNumbers
+          )
+        assert.strictEqual(
+          yield* counted({ ajaib: 0, stockbit: 1_312, differences: 0 }),
+          "1,312 from Stockbit"
+        )
+        assert.strictEqual(
+          yield* counted({ ajaib: 23_005, stockbit: 23, differences: 4 }),
+          "23,005 from Ajaib, 23 from Stockbit, 4 differ"
+        )
+        assert.strictEqual(
+          yield* counted({ ajaib: 1_311, stockbit: 0, differences: 0 }),
+          "1,311 from Ajaib"
+        )
+        // A day holding none, as every day recorded before them.
+        assert.strictEqual(
+          yield* counted({ ajaib: 0, stockbit: 0, differences: 0 }),
+          ""
+        )
+      })
   )
 
   it.effect("marks a day the extra target holds less of", () =>
@@ -148,6 +182,7 @@ describe("the options page's broker codes section", () => {
           phase: "",
           trades: "460,000 of 1,000,000 trades",
           repair: "",
+          codes: "",
           pace: "300 trades/s",
           left: "30 min left",
         }
@@ -164,10 +199,38 @@ describe("the options page's broker codes section", () => {
           phase: "",
           trades: "",
           repair: "",
+          codes: "",
           pace: "",
           left: "",
         }
       )
+    })
+  )
+
+  it.effect("shows the Done Details walk's codes done of the day's", () =>
+    Effect.gen(function* () {
+      const doneDetails = {
+        state: "walking",
+        walk: "newest",
+        day: DAY,
+        feed: "Ajaib",
+        route: "done-details",
+        phase: { step: "fetching", since: Date.parse("2026-11-12T17:02:00Z") },
+      } as const
+      assert.deepStrictEqual(
+        yield* walkView({ ...doneDetails, stockCodes: { done: 12, of: 900 } }),
+        {
+          walk: "Ajaib Done Details, 2026-11-12 (newest closed day)",
+          phase: "fetching since 00:02",
+          trades: "",
+          repair: "",
+          codes: "12 of 900 codes",
+          pace: "",
+          left: "",
+        }
+      )
+      // Before its first code.
+      assert.strictEqual((yield* walkView(doneDetails)).codes, "")
     })
   )
 
@@ -194,6 +257,7 @@ describe("the options page's broker codes section", () => {
             phase: "",
             trades: "1,597,070 of 1,597,351 trades",
             repair: "repairing page seams: 0 of 87 blocks",
+            codes: "",
             pace: "",
             left: "",
           }
@@ -209,6 +273,7 @@ describe("the options page's broker codes section", () => {
             phase: "",
             trades: "1,597,070 of 1,597,351 trades",
             repair: "repairing page seams: 12 of 87 blocks",
+            codes: "",
             pace: "",
             left: "18 min left",
           }
@@ -233,6 +298,7 @@ describe("the options page's broker codes section", () => {
             phase: "",
             trades: "",
             repair: "repairing page seams: 3 of 75 blocks",
+            codes: "",
             pace: "",
             left: "11 min left",
           }

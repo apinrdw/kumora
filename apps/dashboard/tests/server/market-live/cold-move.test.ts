@@ -2,11 +2,19 @@
 // days" and "The move"): once its walk is done, or once it leaves the
 // 10-trading-day window, from midnight after it and outside Streaming hours;
 // and what the emptied day answers a broker codes batch and status GET.
+import { gunzipSync } from "node:zlib"
+
 import { assert, describe, it } from "@effect/vitest"
-import { WibDate, decodeDayStrip } from "@workspace/relay"
+import {
+  OrderNumber,
+  StockCode,
+  WibDate,
+  decodeDayStrip,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
+import { answerKey } from "@/server/market-live/cold-bucket"
 import { makeDayIndex } from "@/server/market-live/day-index"
 
 import { memoryBrokerTotalsDb } from "../broker-totals/memory-broker-totals-db"
@@ -25,7 +33,11 @@ const at = (wall: string) =>
 // write to a broker totals DB. `bucketReads` counts each time the day reads
 // its bucket.
 const sealedDay = Effect.fnUntraced(function* (
-  recorded: ReadonlyArray<WibDate> = []
+  recorded: ReadonlyArray<WibDate> = [],
+  trades = [
+    stockbitTrade({ number: 1, time: "09:00:10.100", price: 23300, lots: 3 }),
+    stockbitTrade({ number: 2, time: "09:00:20.000", price: 23325, lots: 5 }),
+  ]
 ) {
   yield* at("2026-11-09T09:01:10")
   const index = yield* makeDayIndex(memorySql())
@@ -50,10 +62,7 @@ const sealedDay = Effect.fnUntraced(function* (
         listed.days.some((row) => row.day === date)
       ),
   })
-  yield* day.trades([
-    stockbitTrade({ number: 1, time: "09:00:10.100", price: 23300, lots: 3 }),
-    stockbitTrade({ number: 2, time: "09:00:20.000", price: 23325, lots: 5 }),
-  ])
+  yield* day.trades(trades)
   yield* at("2026-11-09T17:00:00")
   yield* day.alarm
   yield* index.record({ day: DAY, trades: 2, gap: false })
@@ -115,6 +124,150 @@ describe("a sealed day's move to R2", () => {
       })
   )
 
+  // Spec apinrdw/kumora#627: the walks for order numbers run after the tape
+  // walk completes the day, while its move waits for midnight.
+  it.effect(
+    "takes order numbers after its walk completes until its move starts at midnight, then none",
+    () =>
+      Effect.gen(function* () {
+        const trades = [3, 4, 5].map((lots, index) =>
+          stockbitTrade({
+            number: index + 1,
+            time: `09:00:10.${100 + index}`,
+            price: 23300,
+            lots,
+            side: "sell",
+          })
+        )
+        const { day, cold } = yield* sealedDay([], trades)
+        yield* at("2026-11-09T17:30:00")
+        const codes = "KZ D AK D"
+        yield* day.brokerCodes(
+          "Ajaib",
+          [
+            [1, codes],
+            [2, codes],
+            [3, codes],
+          ],
+          3
+        )
+        // The build sets the move for midnight.
+        yield* day.alarm
+        assert.deepStrictEqual(
+          day.alarms.at(-1),
+          instant("2026-11-10T00:00:00")
+        )
+
+        yield* at("2026-11-09T18:00:00")
+        yield* day.brokerCodes("Ajaib", [
+          [1, codes, null, [900, 1001]],
+          [2, codes, null, [900, 1002]],
+        ])
+        yield* day.brokerCodes("Stockbit", [[3, codes, null, [901, 1003]]])
+        const counts = { ajaib: 2, stockbit: 1, differences: 0 }
+        assert.deepStrictEqual((yield* statusOf(day)).orderNumbers, counts)
+        const { answer } = yield* day.recordedSweepBrokers("UNTR")
+        assert.deepStrictEqual(
+          answer.sweeps.flatMap((sweep) =>
+            sweep.pieces.map((piece) => piece.orders)
+          ),
+          [
+            {
+              count: 3,
+              first: OrderNumber.make(1001),
+              last: OrderNumber.make(1003),
+              biggestPassiveLots: 7,
+            },
+          ]
+        )
+
+        // The move's first step copies the answers: a batch after it
+        // writes nothing.
+        yield* at("2026-11-10T00:00:00")
+        yield* day.alarm
+        assert.isFalse(yield* day.emptied)
+        yield* day.brokerCodes("Stockbit", [[3, codes, null, [901, 1009]]])
+        assert.deepStrictEqual((yield* statusOf(day)).orderNumbers, counts)
+        assert.strictEqual(
+          (yield* day.recordedSweepBrokers("UNTR")).answer.takesCodes,
+          false
+        )
+
+        yield* dueAlarms(day)
+        assert.isTrue(yield* day.emptied)
+        assert.isTrue(yield* cold)
+        assert.deepStrictEqual((yield* statusOf(day)).orderNumbers, counts)
+      })
+  )
+
+  it.effect(
+    "waits past midnight for the rebuild of a batch that corrected the day before its move started",
+    () =>
+      Effect.gen(function* () {
+        const { day, days } = yield* sealedDay()
+        yield* at("2026-11-09T17:30:00")
+        yield* day.brokerCodes(
+          "Ajaib",
+          [
+            [1, "AK F BK D"],
+            [2, "YP D KZ F"],
+          ],
+          2
+        )
+        yield* day.alarm
+        yield* at("2026-11-09T23:58:00")
+        yield* day.brokerCodes("Ajaib", [[1, "CC D BK D"]])
+
+        yield* at("2026-11-10T00:00:00")
+        yield* day.alarm
+        assert.isFalse(yield* day.emptied)
+        assert.deepStrictEqual(
+          day.alarms.at(-1),
+          instant("2026-11-10T00:03:00")
+        )
+        // Complete and past midnight, it still takes codes, and says so.
+        const before = (yield* day.recordedSweepBrokers("UNTR")).answer
+        assert.isTrue(before.complete)
+        assert.strictEqual(before.takesCodes, true)
+        yield* at("2026-11-10T00:03:00")
+        yield* dueAlarms(day)
+        assert.isTrue(yield* day.emptied)
+        // The answer the move stored, cached for good.
+        const key = yield* answerKey(DAY, {
+          _tag: "SweepBrokers",
+          code: StockCode.make("UNTR"),
+        })
+        assert.isDefined(key)
+        const stored = days.objects.get(key)
+        assert.isDefined(stored)
+        const after = JSON.parse(new TextDecoder().decode(gunzipSync(stored)))
+        assert.strictEqual(after.takesCodes, false)
+      })
+  )
+
+  it.effect(
+    "with no cold storage, says in its sweep brokers answer that it takes codes until ten trading days came after it",
+    () =>
+      Effect.gen(function* () {
+        yield* at("2026-11-09T09:01:10")
+        const day = yield* tradingDay(
+          memorySql(),
+          [],
+          memoryBrokerTotalsDb().layer
+        )
+        yield* at("2026-11-09T17:00:00")
+        yield* day.alarm
+        const takesCodes = Effect.map(
+          day.recordedSweepBrokers("UNTR"),
+          ({ answer }) => answer.takesCodes
+        )
+        yield* at("2026-11-23T16:59:59")
+        assert.strictEqual(yield* takesCodes, true)
+        yield* at("2026-11-23T17:00:00")
+        assert.strictEqual(yield* takesCodes, false)
+      })
+  )
+
   it.effect(
     "of an incomplete day waits until ten trading days came after it",
     () =>
@@ -173,6 +326,27 @@ describe("a sealed day's move to R2", () => {
         assert.deepStrictEqual((yield* statusOf(day, "after=3")).missing, [])
         assert.strictEqual((yield* day.status("after=x")).status, 400)
         assert.isTrue(days.objects.has("days/2026-11-09/status.json"))
+      })
+  )
+
+  it.effect(
+    "once emptied, answers a status stored at protocol 4 as this protocol's, with no order numbers",
+    () =>
+      Effect.gen(function* () {
+        const { day, days } = yield* sealedDay()
+        yield* at("2026-11-09T17:30:00")
+        yield* day.brokerCodes("Ajaib", [[2, "YP D KZ F"]], 3)
+        const hot = yield* statusOf(day)
+        assert.isTrue(yield* day.movedToR2)
+        const { orderNumbers: _, ...older } = hot
+        days.objects.set(
+          "days/2026-11-09/status.json",
+          new TextEncoder().encode(JSON.stringify({ ...older, version: 4 }))
+        )
+        assert.deepStrictEqual(yield* statusOf(day), {
+          ...hot,
+          orderNumbers: { ajaib: 0, stockbit: 0, differences: 0 },
+        })
       })
   )
 

@@ -24,6 +24,7 @@ import { makeColdDays, recordedDayRoute } from "@/server/market-live/days"
 import { cookiesFrom, linkIn, seam, send, signUp } from "../auth/seam.ts"
 import { stockbitBook, stockbitTrade, tradingDay } from "./day-harness"
 import { memoryDayBucket } from "./memory-day-bucket"
+import { asMoved } from "./moved-answer"
 import { memorySql } from "./sql"
 
 const DAY = WibDate.make("2026-11-09")
@@ -331,7 +332,7 @@ describe("a cold day", () => {
           )
           assert.strictEqual(
             new TextDecoder().decode(gunzipSync(stored)),
-            hot.get(key)
+            asMoved(hot.get(key))
           )
         }
         assert.deepStrictEqual(after.reached, ["index"])
@@ -365,7 +366,7 @@ describe("a cold day", () => {
           )
           assert.strictEqual(
             new TextDecoder().decode(gunzipSync(stored)),
-            hot[index]
+            asMoved(hot[index])
           )
         }
         for (const resource of [

@@ -1249,7 +1249,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     if (source === "relay" || sealed) return
     const trades: Array<RunningTrade> = []
     for (const [tradeNumber, , fields] of batch.rows) {
-      if (fields === undefined) continue
+      if (fields === undefined || fields === null) continue
       const trade: RunningTrade = {
         tradeNumber,
         ...fields,
@@ -1415,10 +1415,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       if ((yield* wakes.deadline("build")) === undefined) yield* moveAfter
     }),
     // One step of the move a run, the next due at once; a failed step is
-    // run again a minute later.
+    // run again a minute later. A move not yet started that is no longer
+    // due (a batch made its build pending) waits for the build to set it.
     move: Effect.fnUntraced(function* (now) {
       const stored = yield* store.fact(Fact.move)
-      if (options.cold === undefined || stored === undefined)
+      if (
+        options.cold === undefined ||
+        (stored === undefined && !(yield* moveDue))
+      )
         return yield* wakes.set("move", undefined)
       const cold = options.cold
       if (cold.anyHour === undefined || !(yield* cold.anyHour)) {
@@ -1426,11 +1430,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         if (DateTime.isLessThan(now, at)) return yield* wakes.set("move", at)
       }
       yield* Effect.gen(function* () {
+        const progress: MoveProgress =
+          stored === undefined ? { _tag: "Answers" } : yield* decodeMove(stored)
+        // The move starts: from here on a batch writes nothing.
+        if (stored === undefined)
+          yield* store.setFact(Fact.move, yield* encodeMove(progress))
         const next = yield* moveStep(
           options.date,
           { bucket: yield* cold.bucket, markCold: cold.markCold },
           dayToMove,
-          yield* decodeMove(stored)
+          progress
         )
         if (next === "Cold") {
           yield* cold.empty
@@ -1846,6 +1855,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
             codeList: codeListStore,
             brokerCodes,
             sweepBrokers,
+            takesCodes,
             sealed,
             liveGaps: Effect.map(
               market.conditions,
@@ -1918,18 +1928,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return yield* pastWindow(options.date, yield* DateTime.now)
   })
 
-  // Starts the day's move when it is due; whether the day moves.
-  // Decision: a move starts at midnight after its day at the earliest:
-  // until then the object serves the live day's viewers, which an emptied
-  // one could not. A day that started its move takes no more broker codes
-  // (`brokerCodes.post`), so its stored answers match what it held. See
-  // spec apinrdw/kumora#556, "Hot and cold days".
+  // Sets the day's move for when it may start, once it is due; whether the
+  // day moves.
+  // Decision: a move starts at midnight after its day at the earliest, as
+  // the object serves the live day's viewers until then. The day takes broker
+  // codes, the order-number walks' too, until its first step runs and none
+  // after (`brokerCodes.post`), so its stored answers match what it held. See
+  // spec apinrdw/kumora#556, "Hot and cold days", and PR #632.
   const startMove = Effect.gen(function* () {
     if (options.cold === undefined) return false
     if ((yield* store.fact(Fact.move)) !== undefined) return true
+    if ((yield* wakes.deadline("move")) !== undefined) return true
     if (!(yield* moveDue)) return false
     const now = yield* DateTime.now
-    yield* store.setFact(Fact.move, yield* encodeMove({ _tag: "Answers" }))
     yield* wakes.set(
       "move",
       DateTime.toEpochMillis(now) < dayEnd ? DateTime.makeUnsafe(dayEnd) : now
@@ -1943,12 +1954,26 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     Effect.asVoid
   )
 
-  // Once the move started, a batch is answered as taken and writes nothing,
-  // as an emptied object's (cold-days.ts `takenUnwritten`).
+  // Once the move's first step ran, a batch is answered as taken and writes
+  // nothing, as an emptied object's (cold-days.ts `takenUnwritten`).
   const moving = Effect.map(
     store.fact(Fact.move),
     (progress) => progress !== undefined
   )
+
+  // Whether the day still takes broker codes, as its sweep brokers answer
+  // tells a follower (followSweepBrokers): until its move's first step.
+  // Decision: with no cold storage a day never moves and writes codes for
+  // good, but tells a follower it takes them only while hot (`pastWindow`),
+  // as a cold stage would: codes a still-incomplete older day gets later
+  // show on the page's next load, not live. See PR #632.
+  const takesCodes =
+    options.cold === undefined
+      ? Effect.map(
+          Effect.flatMap(DateTime.now, (now) => pastWindow(options.date, now)),
+          (past) => !past
+        )
+      : Effect.map(moving, (frozen) => !frozen)
 
   yield* sweepIngests
 
@@ -2027,7 +2052,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       // brokers rows from their minutes' stored trades, in the codes' turn
       // and transaction, before its 200; one that changes none recomputes
       // nothing. See spec apinrdw/kumora#343, "When it is recomputed".
-      // A batch that leaves the day due to move starts its move.
+      // A batch that leaves the day due to move sets its move.
       post: (text: string) =>
         turned(
           Effect.flatMap(moving, (frozen) =>
@@ -2052,6 +2077,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         turned(brokerCodes.status(search), (emptied) => emptied.status(search)),
       held: (tradeNumber: TradeNumber) =>
         turned(brokerCodes.held(tradeNumber), () =>
+          Effect.die("The day moved")
+        ),
+      heldOrders: (tradeNumber: TradeNumber) =>
+        turned(brokerCodes.heldOrders(tradeNumber), () =>
           Effect.die("The day moved")
         ),
     },

@@ -26,6 +26,7 @@ const STATUS: BrokerCodesStatus = {
   missing: [[TradeNumber.make("1"), TradeNumber.make("40")]],
   missingCount: 40,
   sources: { ajaib: 0, stockbit: 60 },
+  orderNumbers: { ajaib: 0, stockbit: 0, differences: 0 },
   crossCheck: { state: "none" },
 }
 

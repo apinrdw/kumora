@@ -6,7 +6,9 @@
 import { gzipSync } from "node:zlib"
 
 import {
+  BrokerCodesProtocolVersion,
   MINUTE_MS,
+  NO_ORDER_NUMBERS,
   StockCode,
   TradeNumber,
   brokerCodesAfter,
@@ -365,6 +367,23 @@ export const coldDayValues = Effect.fnUntraced(function* (
   return stored === null ? noDayValues() : dayValuesResponse(stored.body)
 })
 
+// A stored final status's text as this protocol's status reads it.
+// Decision: a day moved before protocol 5 stored its status at protocol 4,
+// without order numbers; it holds none, so it answers this version with
+// zero counts rather than failing the GET. See spec apinrdw/kumora#627,
+// "Slice 1".
+const decodeStoredStatus = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown))
+)
+const currentStatusText = (text: string) =>
+  Effect.map(decodeStoredStatus(text), (stored) =>
+    JSON.stringify({
+      orderNumbers: NO_ORDER_NUMBERS,
+      ...stored,
+      version: BrokerCodesProtocolVersion,
+    })
+  )
+
 // The broker codes status a cold day's status GET answers: the stored final
 // status, its missing ranges listed past `after` as the hot status lists
 // them. None when the move stored none.
@@ -381,7 +400,9 @@ const storedStatus = Effect.fnUntraced(function* (
   const stored = yield* Effect.promise(() => bucket.get(key))
   if (stored === null) return undefined
   const status = yield* decodeBrokerCodesStatus(
-    yield* Effect.promise(() => new Response(stored.body).text())
+    yield* currentStatusText(
+      yield* Effect.promise(() => new Response(stored.body).text())
+    )
   )
   return {
     ...status,
@@ -400,8 +421,8 @@ const storedStatus = Effect.fnUntraced(function* (
   }
 }, Effect.orDie)
 
-// A broker codes batch of a day whose move started: checked as any, then
-// answered as taken while nothing is written.
+// A broker codes batch of a day whose move's first step ran: checked as
+// any, then answered as taken while nothing is written.
 export const takenUnwritten = Effect.fnUntraced(function* (
   text: string,
   date: WibDate

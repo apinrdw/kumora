@@ -15,6 +15,7 @@ import { CHUNK } from "../../../src/server/market-live/broker-codes"
 import { TRADE_CHUNK } from "../../../src/server/market-live/tape-chunks"
 import type { OperationName } from "../../../billing/operations"
 
+import { asMoved } from "./moved-answer"
 import { BusyDay } from "./workerd"
 
 interface Budget {
@@ -304,7 +305,12 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
           // busy day has no code list, which its object answers in its own
           // words, and the move stores no answer but a 200 (cold-days.ts).
           for (const { resource, hot, cold } of checks)
-            if (hot.status === 200) assert.deepStrictEqual(cold, hot, resource)
+            if (hot.status === 200)
+              assert.deepStrictEqual(
+                cold,
+                { ...hot, body: asMoved(hot.body) },
+                resource
+              )
             else assert.strictEqual(cold.status, hot.status, resource)
           assert.deepStrictEqual(
             checks.map(({ resource, hot }) => `${resource} ${hot.status}`),

@@ -2,12 +2,14 @@ import { assert, describe, it } from "@effect/vitest"
 import {
   BrokerCode,
   BrokerCodesProtocolVersion,
+  OrderNumber,
   TradeNumber,
   WibDate,
   decodeBrokerCodesBatch,
   encodeBrokerCodesStatus,
   type BrokerCodesBatch,
   type BrokerCodesStatus,
+  type Feed,
 } from "@workspace/relay"
 import { Effect, Option } from "effect"
 import { TestClock } from "effect/testing"
@@ -113,6 +115,7 @@ const holding = (options: {
     options.missingCount ??
     options.missing.reduce((sum, [from, to]) => sum + to - from + 1, 0),
   sources: { ajaib: options.held, stockbit: 0 },
+  orderNumbers: { ajaib: 0, stockbit: 0, differences: 0 },
   crossCheck: { state: "none" },
 })
 const COMPLETE = holding({ n: 5, missing: [], held: 5 })
@@ -188,6 +191,119 @@ const harness = Effect.fnUntraced(function* (options: {
 
 // Lets the extra target's lane send what it holds.
 const settle = Effect.repeat(Effect.yieldNow, { times: 50 })
+
+// A dashboard holding a complete day's codes, keeping each trade's order
+// numbers by the site that gave them as the trading-day object does: Ajaib's
+// stand, and a Stockbit row fills a trade without them or agrees with
+// Ajaib's (`both`). Its status counts them.
+const ordersDashboard = () => {
+  const orders = new Map<string, "Ajaib" | "Stockbit" | "both">()
+  const posts: Array<string> = []
+  const written: Array<string> = []
+  return {
+    posts,
+    written,
+    held: () => [...orders].sort(([a], [b]) => Number(a) - Number(b)),
+    send: (request: { url: string; token: string; body: string }) =>
+      Effect.gen(function* () {
+        posts.push(request.url)
+        const sent = yield* Effect.orDie(decodeBrokerCodesBatch(request.body))
+        for (const [number, , , pair] of sent.rows) {
+          written.push(number)
+          if (pair === undefined) continue
+          const was = orders.get(number)
+          orders.set(
+            number,
+            was === undefined || was === sent.feed ? sent.feed : "both"
+          )
+        }
+        return 200
+      }),
+    get: (_request: { url: string; token: string }) =>
+      Effect.map(
+        Effect.orDie(
+          encodeBrokerCodesStatus({
+            ...COMPLETE,
+            orderNumbers: {
+              ajaib: [...orders.values()].filter((site) => site !== "Stockbit")
+                .length,
+              stockbit: [...orders.values()].filter(
+                (site) => site === "Stockbit"
+              ).length,
+              differences: 0,
+            },
+          })
+        ),
+        (body) => ({ status: 200, body })
+      ),
+  }
+}
+
+// A batch of `feed`'s order numbers on trades `numbers`.
+const ordersBatch = (feed: Feed, numbers: ReadonlyArray<number>) =>
+  ({
+    version: BrokerCodesProtocolVersion,
+    feed,
+    day: DAY,
+    rows: numbers.map((number) => [
+      TradeNumber.make(`${number}`),
+      CODES,
+      null,
+      [OrderNumber.make(number * 10), OrderNumber.make(number * 10 + 1)],
+    ]),
+  }) satisfies BrokerCodesBatch
+
+// The order-number catch-up's site walks: the Done Details walk posting its
+// held trades `ajaib` again, and Stockbit's walk of the whole day posting
+// `stockbit`, each counting its walks.
+const orderWalks = (
+  ajaib: ReadonlyArray<number>,
+  stockbit: ReadonlyArray<number>
+) => {
+  const walks = { ajaib: 0, stockbit: 0 }
+  const walked = { _tag: "walked" } satisfies WalkResult
+  const walkOf =
+    (feed: Feed, numbers: ReadonlyArray<number>) =>
+    (
+      _day: WibDate,
+      post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
+    ) =>
+      Effect.suspend(() => {
+        walks[feed === "Ajaib" ? "ajaib" : "stockbit"]++
+        return numbers.length === 0
+          ? Effect.succeed(walked)
+          : Effect.as(post(ordersBatch(feed, numbers)), walked)
+      })
+  return {
+    walks,
+    ajaib: walkOf("Ajaib", ajaib),
+    stockbit: walkOf("Stockbit", stockbit),
+  }
+}
+
+// The extra target, unset while each of `dropped` is posted, so its lane
+// drops them, then set; every other batch of `posted` reaches it. Then its
+// order-number catch-up, over `walks`.
+const ordersCaughtUp = Effect.fnUntraced(function* (options: {
+  readonly posted: ReadonlyArray<BrokerCodesBatch>
+  readonly dropped: ReadonlyArray<BrokerCodesBatch>
+  readonly walks: ReturnType<typeof orderWalks>
+}) {
+  const production = ordersDashboard()
+  const extra = ordersDashboard()
+  const target = yield* harness({
+    production,
+    extra,
+    settings: Option.none(),
+  })
+  for (const each of options.dropped) yield* target.post(each)
+  yield* settle
+  yield* target.switchTo(STAGING)
+  for (const each of options.posted) yield* target.post(each)
+  yield* settle
+  const result = yield* target.extra.ordersCatchUp(options.walks).walk(DAY)
+  return { production, extra, result }
+})
 
 describe("the extra target", () => {
   it.effect("gets every batch a walk posts, from one fetch of each page", () =>
@@ -455,6 +571,76 @@ describe("the extra target", () => {
         assert.deepStrictEqual(extra.written, ["2", "3", "5", "end 5"])
         assert.deepStrictEqual(production.written, [])
         assert.strictEqual(walk?.fetches(), 3)
+      })
+  )
+
+  it.effect(
+    "though complete, gets the Done Details order numbers its lane dropped from the held trades, not Stockbit",
+    () =>
+      Effect.gen(function* () {
+        const walks = orderWalks([1, 2, 3, 4, 5], [])
+        const { production, extra, result } = yield* ordersCaughtUp({
+          dropped: [ordersBatch("Ajaib", [1, 2, 3, 4, 5])],
+          posted: [],
+          walks,
+        })
+        assert.deepStrictEqual(result, { _tag: "walked" })
+        assert.lengthOf(production.held(), 5)
+        assert.deepStrictEqual(extra.held(), production.held())
+        assert.deepStrictEqual(walks.walks, { ajaib: 1, stockbit: 0 })
+      })
+  )
+
+  it.effect(
+    "gets the Stockbit order numbers its lane dropped on trades it holds, by walking Stockbit's day",
+    () =>
+      Effect.gen(function* () {
+        const walks = orderWalks([1, 2, 3], [1, 2, 3, 4, 5])
+        const { production, extra, result } = yield* ordersCaughtUp({
+          dropped: [ordersBatch("Stockbit", [1, 2, 3, 4, 5])],
+          posted: [ordersBatch("Ajaib", [1, 2, 3])],
+          walks,
+        })
+        assert.deepStrictEqual(result, { _tag: "walked" })
+        assert.lengthOf(production.held(), 5)
+        assert.deepStrictEqual(extra.held(), production.held())
+        assert.deepStrictEqual(walks.walks, { ajaib: 0, stockbit: 1 })
+      })
+  )
+
+  it.effect(
+    "on a day only Stockbit gave order numbers, gets those its lane dropped",
+    () =>
+      Effect.gen(function* () {
+        const walks = orderWalks([], [1, 2, 3, 4, 5])
+        const { production, extra, result } = yield* ordersCaughtUp({
+          dropped: [ordersBatch("Stockbit", [3, 4, 5])],
+          posted: [ordersBatch("Stockbit", [1, 2])],
+          walks,
+        })
+        assert.deepStrictEqual(result, { _tag: "walked" })
+        assert.lengthOf(production.held(), 5)
+        assert.deepStrictEqual(extra.held(), production.held())
+        assert.deepStrictEqual(walks.walks, { ajaib: 0, stockbit: 1 })
+      })
+  )
+
+  it.effect(
+    "walks nothing for order numbers when it holds as many from each site as Production",
+    () =>
+      Effect.gen(function* () {
+        const walks = orderWalks([1, 2, 3], [1, 2, 3, 4, 5])
+        const { extra, result } = yield* ordersCaughtUp({
+          dropped: [],
+          posted: [
+            ordersBatch("Ajaib", [1, 2, 3]),
+            ordersBatch("Stockbit", [1, 2, 3, 4, 5]),
+          ],
+          walks,
+        })
+        assert.deepStrictEqual(result, { _tag: "walked" })
+        assert.lengthOf(extra.held(), 5)
+        assert.deepStrictEqual(walks.walks, { ajaib: 0, stockbit: 0 })
       })
   )
 

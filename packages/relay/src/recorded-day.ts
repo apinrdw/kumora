@@ -10,6 +10,7 @@ import {
   BrokerCode,
   DayTradeNumber,
   InvestorType,
+  OrderNumber,
   TradeCodes,
 } from "./broker-codes.ts"
 import { StockCode } from "./codes.ts"
@@ -292,7 +293,8 @@ const SweepBrokerFields = Schema.Struct({
 //
 // The stored rows decode only in these tuples' order, so a change to it, or
 // to the sweep tuple's, needs a new SWEEP_BROKERS_SHAPE (dashboard
-// day-store.ts) to rebuild them.
+// day-store.ts) to rebuild them; an optional element appended at a tuple's
+// end does not.
 const SweepBroker = Schema.Tuple([
   BrokerCode,
   InvestorType,
@@ -322,30 +324,77 @@ const SweepBroker = Schema.Tuple([
 )
 export type SweepBroker = typeof SweepBroker.Type
 
-// One piece of a whole sweep: one aggressor broker's trades of it, a sweep
-// of their own (named by their first trade's number), with each side's
-// brokers, largest lots first. A sided piece has one broker in `aggressor`;
-// an auction match's one piece holds its buyers there and its sellers in
-// `other`.
+// An order run's aggressor orders: how many, the first and last order
+// number, and the lots of its biggest passive order, summed over the run's
+// trades.
+const SweepOrdersFields = Schema.Struct({
+  count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+  first: OrderNumber,
+  last: OrderNumber,
+  biggestPassiveLots: Schema.Finite,
+})
+export type SweepOrders = typeof SweepOrdersFields.Type
+
+const SweepOrders = Schema.Tuple([
+  SweepOrdersFields.fields.count,
+  OrderNumber,
+  OrderNumber,
+  Schema.Finite,
+]).pipe(
+  Schema.decodeTo(Schema.toType(SweepOrdersFields), {
+    decode: SchemaGetter.transform(
+      ([count, first, last, biggestPassiveLots]) => ({
+        count,
+        first,
+        last,
+        biggestPassiveLots,
+      })
+    ),
+    encode: SchemaGetter.transform(
+      (orders) =>
+        [
+          orders.count,
+          orders.first,
+          orders.last,
+          orders.biggestPassiveLots,
+        ] as const
+    ),
+  })
+)
+
+// One piece of a whole sweep: one aggressor broker's trades of it, or one
+// order run's, a sweep of their own (named by their first trade's number),
+// with each side's brokers, largest lots first, and an order run's orders.
+// A sided piece has one broker in `aggressor`; an auction match's one piece
+// holds its buyers there and its sellers in `other`.
 const SweepPieceFields = Schema.Struct({
   ...SweepFields.fields,
   aggressor: Schema.Array(Schema.toType(SweepBroker)),
   other: Schema.Array(Schema.toType(SweepBroker)),
+  orders: Schema.optionalKey(Schema.toType(SweepOrders)),
 })
 
+// Decision: an order run's orders ride as an optional fourth element, after
+// the sides, and a per-broker piece has none, so a row stored before them
+// decodes as it is and SWEEP_BROKERS_SHAPE stays: no old day rebuilds. See
+// spec apinrdw/kumora#627, "Slice 2".
 const SweepPiece = Schema.Tuple([
   Sweep,
   Schema.Array(SweepBroker),
   Schema.Array(SweepBroker),
+  Schema.optionalKey(SweepOrders),
 ]).pipe(
   Schema.decodeTo(Schema.toType(SweepPieceFields), {
-    decode: SchemaGetter.transform(([sweep, aggressor, other]) => ({
+    decode: SchemaGetter.transform(([sweep, aggressor, other, orders]) => ({
       ...sweep,
       aggressor,
       other,
+      ...(orders === undefined ? {} : { orders }),
     })),
-    encode: SchemaGetter.transform(
-      ({ aggressor, other, ...sweep }) => [sweep, aggressor, other] as const
+    encode: SchemaGetter.transform(({ aggressor, other, orders, ...sweep }) =>
+      orders === undefined
+        ? ([sweep, aggressor, other] as const)
+        : ([sweep, aggressor, other, orders] as const)
     ),
   })
 )
@@ -373,12 +422,17 @@ export type SweepBrokers = typeof SweepBrokers.Type
 
 // The sweep brokers answer: every whole sweep and auction match of one code
 // (one whose every trade has stored codes) with its pieces, in trade order,
-// and whether the day's broker codes status is complete. Never inside the
+// whether the day's broker codes status is complete, and whether the day
+// still takes broker codes, so a later answer may differ. Never inside the
 // sweeps answer, which a sealed day caches for a year.
 const RecordedSweepBrokers = Schema.Struct({
   code: StockCode,
   sweeps: Schema.Array(SweepBrokers),
   complete: Schema.Boolean,
+  // Decision: optional, read as false when absent: only a move stored an
+  // answer without it, of a day that took no more codes, and a cold day's
+  // answer is kept for good. See PR #632.
+  takesCodes: Schema.optionalKey(Schema.Boolean),
 })
 export type RecordedSweepBrokers = typeof RecordedSweepBrokers.Type
 

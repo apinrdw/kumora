@@ -114,9 +114,24 @@ const crossCheckLabel = Effect.fnUntraced(function* (
   return `${yield* count(crossCheck.differences)} differences`
 })
 
+// The trades holding order numbers from each site and how many of
+// Stockbit's differed, as "1,311 from Ajaib, 23 from Stockbit, 4 differ";
+// blank for a day holding none, as every day recorded before them.
+const orderNumbersLabel = Effect.fnUntraced(function* ({
+  ajaib,
+  stockbit,
+  differences,
+}: BrokerCodesStatus["orderNumbers"]) {
+  const parts: Array<string> = []
+  if (ajaib > 0) parts.push(`${yield* count(ajaib)} from Ajaib`)
+  if (stockbit > 0) parts.push(`${yield* count(stockbit)} from Stockbit`)
+  if (differences > 0) parts.push(`${yield* count(differences)} differ`)
+  return parts.join(", ")
+})
+
 // One of the last 10 days: complete or how many trades are missing and
-// which, which site supplied it, its cross-check, and whether the extra
-// target's copy is behind Production's.
+// which, which site supplied it, its cross-check, its trades with order
+// numbers, and whether the extra target's copy is behind Production's.
 export const dayView = Effect.fnUntraced(function* (
   production: Option.Option<BrokerCodesStatus>,
   extra: Option.Option<BrokerCodesStatus>
@@ -128,6 +143,7 @@ export const dayView = Effect.fnUntraced(function* (
       more: 0,
       sites: "",
       crossCheck: "",
+      orderNumbers: "",
       behind: false,
     }
   const status = production.value
@@ -136,6 +152,7 @@ export const dayView = Effect.fnUntraced(function* (
     ...(yield* missingLabels(status)),
     sites: yield* sitesLabel(status.sources),
     crossCheck: yield* crossCheckLabel(status.crossCheck),
+    orderNumbers: yield* orderNumbersLabel(status.orderNumbers),
     behind:
       Option.isSome(extra) &&
       !extra.value.complete &&
@@ -180,15 +197,24 @@ const phaseLabel = Effect.fnUntraced(function* (phase: WalkPhase | undefined) {
 })
 
 // The walk in progress: its site and day, what it is doing since when,
-// trades fetched of N, pace and time left, each blank until known. In Ajaib's repair pass the trades are
+// trades fetched of N, the Done Details walk's codes walked of the day's,
+// pace and time left, each blank until known. In Ajaib's repair pass the trades are
 // the first pass's last, so its blocks show in place of the trades' pace,
 // and the time left is the blocks'.
 export const walkView = Effect.fnUntraced(function* (
   progress: Extract<BrokerCodesProgress, { state: "walking" }>
 ) {
-  const walk = `${progress.feed}, ${progress.day} (${walkNames[progress.walk]})`
+  const site =
+    progress.route === "done-details"
+      ? `${progress.feed} Done Details`
+      : progress.feed
+  const walk = `${site}, ${progress.day} (${walkNames[progress.walk]})`
   const phase = yield* phaseLabel(progress.phase)
-  const { trades, repair } = progress
+  const { trades, repair, stockCodes } = progress
+  const codes =
+    stockCodes === undefined
+      ? ""
+      : `${yield* count(stockCodes.done)} of ${yield* count(stockCodes.of)} codes`
   const fetched =
     trades === undefined
       ? ""
@@ -201,17 +227,19 @@ export const walkView = Effect.fnUntraced(function* (
       phase,
       trades: fetched,
       repair: `repairing page seams: ${yield* count(repair.done)} of ${yield* count(repair.of)} blocks`,
+      codes,
       pace: "",
       left: yield* leftLabel(repair.of - repair.done, repair.perSecond),
     }
   if (trades === undefined)
-    return { walk, phase, trades: "", repair: "", pace: "", left: "" }
+    return { walk, phase, trades: "", repair: "", codes, pace: "", left: "" }
   const { of, perSecond } = trades
   return {
     walk,
     phase,
     trades: fetched,
     repair: "",
+    codes,
     pace: perSecond === null ? "" : `${yield* count(perSecond)} trades/s`,
     left: yield* leftLabel(of === null ? null : of - trades.fetched, perSecond),
   }

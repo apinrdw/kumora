@@ -135,6 +135,7 @@ export type {
   SweepBroker,
   SweepBrokers,
   SweepPiece,
+  SweepOrders,
   RecordedResource,
   TapeCursor,
 } from "./recorded-day.ts"
@@ -177,6 +178,7 @@ export {
 export type { HeatLevel, HeatSlice, RecordedHeatmap } from "./heatmap.ts"
 export type { IndexHasNoBook, OrderBook } from "./order-book.ts"
 export {
+  BATCH_ROWS,
   BROKER_CODES_AUTH_SCHEME,
   BROKER_CODES_BATCH_LIMIT,
   BrokerCode,
@@ -184,6 +186,10 @@ export {
   BrokerCodesVersionMismatch,
   InvestorType,
   MISSING_RANGES,
+  NO_ORDER_NUMBERS,
+  OrderNumber,
+  OrderNumberCounts,
+  ajaibDetailOrderNumbers,
   ajaibRowCodes,
   ajaibRowFields,
   batchRow,
@@ -197,6 +203,7 @@ export {
   encodeBrokerCodesStatus,
   stockbitRowCodes,
   stockbitRowFields,
+  stockbitRowOrderNumbers,
   TradeCodes,
 } from "./broker-codes.ts"
 export type {
@@ -204,6 +211,7 @@ export type {
   BrokerCodesBatch,
   BrokerCodesStatus,
   CrossCheck,
+  OrderNumbers,
   TradeFields,
 } from "./broker-codes.ts"
 export type { RecordedSweeps } from "./sweeps.ts"

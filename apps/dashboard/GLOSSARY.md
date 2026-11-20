@@ -120,12 +120,25 @@ _Avoid_: Top broker (top names the top-N filter), main broker
 A sweep every one of whose trades has stored broker codes. Only a whole sweep shows brokers, and a whole sweep is the one that splits by aggressor broker; a sweep missing any trade's codes shows none and stays unsplit, rather than read from part of it.
 _Avoid_: Complete sweep (complete names the day's broker codes status), coded sweep
 
+**Order number**:
+The exchange's number for an order. Each running trade has two, its buy order's and its sell order's, known once the day has closed. One count serves every stock code and both sides, rising as orders arrive and starting again each day.
+
+**Aggressor order**:
+A running trade's order on its aggressor side: the later of its two orders, the one with the larger order number. One aggressor order's trades all fall in one second.
+
+**Passive order**:
+A running trade's order on its other side: the earlier of its two orders, the one with the smaller order number. The sweep tip names an order run's biggest passive order, by its lots summed over the run's trades.
+_Avoid_: Passive side (the side is the Other side), resting order
+
+**Order run**:
+One aggressor broker's aggressor orders in a whole sweep, taken in order-number order, where each order's number is at most 3 above the previous one's. Another broker's orders between them don't break it.
+
 **Piece**:
-One of the sweeps a whole sweep splits into: one aggressor broker's trades of it, with its own lots, value, first and last price, trade count and time, and its first trade's number as its id. A whole sweep with one aggressor broker is one piece; an auction match's entry also holds one piece, though it is no sweep. The sweep log's rows and the candle chart's bubbles show pieces in place of the whole sweeps they came from.
+One of the sweeps a whole sweep splits into: one aggressor broker's trades of it, or, when every trade of the sweep has its order numbers, one order run's trades, with its own lots, value, first and last price, trade count and time, and its first trade's number as its id. A whole sweep with one aggressor broker is one piece; an auction match's entry also holds one piece, though it is no sweep. The sweep log's rows and the candle chart's bubbles show pieces in place of the whole sweeps they came from.
 _Avoid_: Split sweep (in code), sub-sweep, part
 
 **Other side**:
-The side of a sweep opposite its aggressor side: the sellers a buy sweep took from, or the buyers a sell sweep hit. The sweep log's Other side column shows its lead broker.
+The side of a sweep opposite its aggressor side: the sellers a buy sweep took from, or the buyers a sell sweep hit. The sweep log shows its lead broker in the Seller column of a buy sweep's row and the Buyer column of a sell sweep's; the aggressor broker takes the other column.
 _Avoid_: Passive side, counterparty
 
 **Own lots**:
@@ -317,7 +330,7 @@ A recorded day whose walk is done, or one older than ten trading days. It is fix
 _Avoid_: Archive day, archived day
 
 **Move**:
-How a hot day turns cold: after the day ends and outside streaming hours, its views are stored as they will be replayed, then it is marked cold. From the moment its move starts it takes no more broker codes. Each night the newest hot days are asked to move, then a few older ones, oldest first; a day not yet due is asked again the next night.
+How a hot day turns cold: after the day ends and outside streaming hours, its views are stored as they will be replayed, then it is marked cold. It takes broker codes until its first step runs, and none after. Each night the newest hot days are asked to move, then a few older ones, oldest first; a day not yet due is asked again the next night.
 _Avoid_: archiving, migration
 
 **Relay gap**:
