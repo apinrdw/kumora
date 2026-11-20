@@ -4,7 +4,7 @@
 // and Stockbit's signed-out wait over them.
 import { Clock, Effect, Option } from "effect"
 
-import type { BrokerCodesProgress } from "./run-queue.ts"
+import type { BrokerCodesProgress, WalkPhase } from "./run-queue.ts"
 
 // Decision: a walk's trades are written at most once a second; a walk
 // fetching 3 pages a second would otherwise write session storage, and
@@ -82,6 +82,15 @@ export const makeProgress = Effect.fnUntraced(function* (
       }
       yield* write(now)
     }),
+
+    // What the walk in progress is doing, written at once: a phase changes
+    // a few times a walk.
+    phase: (phase: WalkPhase) =>
+      Effect.suspend(() => {
+        if (reported.state !== "walking") return Effect.void
+        reported = { ...reported, phase }
+        return show
+      }),
 
     // Ajaib's repair pass has walked `done` of its `of` blocks again. Its
     // pace is a fraction of a block a second, so it isn't rounded. The

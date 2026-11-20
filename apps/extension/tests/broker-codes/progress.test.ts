@@ -46,6 +46,28 @@ describe("the broker codes progress", () => {
     })
   )
 
+  it.effect(
+    "writes a walk's phase at once, and the next walk starts without it",
+    () =>
+      Effect.gen(function* () {
+        const { saved, progress } = yield* harness()
+        yield* progress.report(WALKING)
+        yield* progress.trades(100, Option.none())
+        yield* progress.phase({ step: "fetching", since: 1 })
+        assert.lengthOf(saved, 3)
+        assert.deepStrictEqual(
+          saved.at(-1)?.state === "walking" && saved.at(-1),
+          {
+            ...WALKING,
+            phase: { step: "fetching", since: 1 },
+            trades: { fetched: 100, of: null, perSecond: null },
+          }
+        )
+        yield* progress.report(WALKING)
+        assert.deepStrictEqual(saved.at(-1), WALKING)
+      })
+  )
+
   it.effect("writes a walk's trades at most once a second", () =>
     Effect.gen(function* () {
       const { saved, progress } = yield* harness()

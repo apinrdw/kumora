@@ -90,6 +90,22 @@ export interface CatchUpWalk {
 // and their pace; its trades are then the first pass's last. A catch-up's
 // end reports idle, which has the options page ask the days again, so a day
 // it caught up no longer shows Behind.
+// Ajaib's walk also says what it is doing and since when (epoch ms):
+// waiting for Ajaib's close, waiting for a usable token with the tab
+// reloads so far, or fetching since its first page.
+const WalkPhase = Schema.Union([
+  Schema.Struct({
+    step: Schema.Literals(["awaiting-close", "fetching"]),
+    since: Schema.Finite,
+  }),
+  Schema.Struct({
+    step: Schema.Literal("awaiting-token"),
+    since: Schema.Finite,
+    reloads: Schema.Finite,
+  }),
+])
+export type WalkPhase = typeof WalkPhase.Type
+
 export const BrokerCodesProgress = Schema.Union([
   Schema.Struct({ state: Schema.Literal("idle") }),
   Schema.Struct({
@@ -97,6 +113,7 @@ export const BrokerCodesProgress = Schema.Union([
     walk: Schema.Literals(["newest", "gaps", "history"]),
     day: WibDate,
     feed: Feed,
+    phase: Schema.optionalKey(WalkPhase),
     trades: Schema.optionalKey(
       Schema.Struct({
         fetched: Schema.Finite,

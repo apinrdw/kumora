@@ -14,6 +14,7 @@ import {
   type AjaibWalkStore,
 } from "../../src/worker/broker-codes/ajaib-walk.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
+import type { WalkPhase } from "../../src/worker/broker-codes/run-queue.ts"
 import type { Answer, TabRequest } from "../../src/worker/broker.ts"
 
 const DAY = WibDate.make("2026-11-12")
@@ -546,6 +547,80 @@ describe("Ajaib's walk: when it starts", { timeout: WALK_TIMEOUT }, () => {
       assert.isTrue(bearers.slice(1).every((bearer) => bearer === fresh))
       assert.strictEqual(tab.reloads(), 0)
     })
+  )
+
+  it.effect(
+    "never sends an expired token, whose 401 the browser hides as a CORS error, and walks with the cookie's",
+    () =>
+      Effect.gen(function* () {
+        const start = wib("2026-11-12", "17:30:00")
+        yield* TestClock.setTime(start)
+        const production = fakeProduction()
+        const jwt = (exp: number) =>
+          `eyJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({ exp })).replaceAll("=", "")}.c2lnbmF0dXJl`
+        const stale = jwt(start / 1000 - 3600)
+        const fresh = jwt(start / 1000 + 86_400)
+        const bearers: Array<string | undefined> = []
+        const tab = fakeAjaib({
+          token: () => stale,
+          cookie: () => fresh,
+          answer: (request) => {
+            if (request._tag !== "page-fetch") return undefined
+            bearers.push(request.bearer)
+            return request.bearer === fresh
+              ? undefined
+              : Effect.succeed(undefined)
+          },
+        })
+        const walk = yield* walkWith(tab, production)
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("0 millis")
+        yield* TestClock.adjust("1 minute")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.deepStrictEqual(missingOf(production.held()), [])
+        assert.isTrue(bearers.every((bearer) => bearer === fresh))
+      })
+  )
+
+  it.effect(
+    "reports waiting for the close, a token wait with its reloads, then fetching, each since when",
+    () =>
+      Effect.gen(function* () {
+        const start = wib("2026-11-12", "16:40:00")
+        yield* TestClock.setTime(start)
+        const phases: Array<WalkPhase> = []
+        let calls = 0
+        const tab = fakeAjaib({
+          market: (now) => (now >= start + 2 * MINUTE ? "CLOSED" : "OPEN"),
+          answer: (request) => {
+            if (request._tag !== "page-fetch") return undefined
+            calls++
+            return calls === 1 ? Effect.succeed(STATUS(401)) : undefined
+          },
+          token: (now) => (now >= start + 90_000 ? "new" : "old"),
+        })
+        const walk = yield* makeAjaibWalk({
+          tab,
+          post: fakeProduction().post,
+          store: memoryStore().store,
+          phase: (phase) =>
+            Effect.sync(() => {
+              phases.push(phase)
+            }),
+        })
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("0 millis")
+        yield* TestClock.adjust("5 minutes")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.deepStrictEqual(phases, [
+          { step: "awaiting-close", since: start },
+          { step: "awaiting-token", since: start, reloads: 0 },
+          { step: "awaiting-token", since: start, reloads: 1 },
+          { step: "awaiting-close", since: start },
+          // The close is seen on the minute's poll after the token wait.
+          { step: "fetching", since: start + 150_000 },
+        ])
+      })
   )
 
   it.effect(
