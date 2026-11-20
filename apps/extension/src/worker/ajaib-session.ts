@@ -157,18 +157,20 @@ export const makeAjaibSession = Effect.fnUntraced(function* (options: {
     )
   })
 
-  // The account id: from the tab's own token, else the PIN sign-in's; none
-  // before either.
+  // The account id: the one the tab's own token names, else the PIN
+  // sign-in's; none before either names one.
+  const idOf = (token: Option.Option<string>) =>
+    Option.isSome(token)
+      ? ajaibAccountId(token.value)
+      : Effect.succeed(Option.none<AjaibAccountId>())
   const accountId = Effect.gen(function* () {
     const own = yield* tab.request({ _tag: "page-token" })
     const tabToken = Option.filter(
       Option.map(own, (answered) => answered.body),
       (body) => Option.isSome(own) && own.value.status === 200 && body !== ""
     )
-    const token = Option.isSome(tabToken) ? tabToken : yield* fallbackToken
-    return Option.isSome(token)
-      ? yield* ajaibAccountId(token.value)
-      : Option.none<AjaibAccountId>()
+    const fromTab = yield* idOf(tabToken)
+    return Option.isSome(fromTab) ? fromTab : yield* idOf(yield* fallbackToken)
   })
 
   return { tick, fallbackToken, accountId }
