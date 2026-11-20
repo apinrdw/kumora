@@ -19,6 +19,7 @@ import {
   encodeIngestUp,
   type BrokerCodesBatch,
   type Feed,
+  type OrderNumbers,
   type RecordedDay,
   type RecordedResource,
   type TradeCodes,
@@ -115,10 +116,12 @@ const tradingDay = Effect.fnUntraced(function* (
 
   const post = Effect.fnUntraced(function* (
     feed: Feed,
-    // A row's fields are FIELDS unless it names its own, or null for none.
+    // A row's fields are FIELDS unless it names its own, or null for none,
+    // and it carries order numbers when it names them.
     rows: ReadonlyArray<
       | readonly [number, TradeCodes]
       | readonly [number, TradeCodes, TradeFields | null]
+      | readonly [number, TradeCodes, TradeFields | null, OrderNumbers]
     >,
     end?: number
   ) {
@@ -126,10 +129,12 @@ const tradingDay = Effect.fnUntraced(function* (
       version: BrokerCodesProtocolVersion,
       feed,
       day: date,
-      rows: rows.map(([number, each, fields = FIELDS]) =>
-        fields === null
-          ? [TradeNumber.make(String(number)), each]
-          : [TradeNumber.make(String(number)), each, fields]
+      rows: rows.map(([number, each, fields = FIELDS, orders]) =>
+        orders !== undefined
+          ? [TradeNumber.make(String(number)), each, fields, orders]
+          : fields === null
+            ? [TradeNumber.make(String(number)), each]
+            : [TradeNumber.make(String(number)), each, fields]
       ),
       ...(end === undefined
         ? {}
@@ -160,6 +165,9 @@ const tradingDay = Effect.fnUntraced(function* (
   const status = Effect.flatMap(statusText, decodeBrokerCodesStatus)
   const held = (number: number) =>
     day.brokerCodes.held(TradeNumber.make(String(number)))
+  const orderNumbers = Effect.map(status, (each) => each.orderNumbers)
+  const heldOrders = (number: number) =>
+    day.brokerCodes.heldOrders(TradeNumber.make(String(number)))
   const missing = Effect.map(status, (each) =>
     each.missing.map(([from, to]) => [Number(from), Number(to)])
   )
@@ -219,6 +227,8 @@ const tradingDay = Effect.fnUntraced(function* (
     statusTextAfter,
     statusAnswer,
     held,
+    orderNumbers,
+    heldOrders,
     missing,
     alarms,
     indexed,
@@ -525,6 +535,141 @@ describe("the merge rules", () => {
           ajaib: 2,
           stockbit: 2,
         })
+      })
+  )
+})
+
+// Spec apinrdw/kumora#627, "Slice 1": HOPE's trades 8799–8801 on
+// 2026-11-20 and their order numbers, as Stockbit sent them
+// (sb-HOPE-2026-11-20 on research/order-number-routes).
+describe("a day's order numbers", () => {
+  const HOPE_8799: OrderNumbers = [276_574, 53_352]
+  const HOPE_8800: OrderNumbers = [276_574, 125_666]
+  const HOPE_8801: OrderNumbers = [276_574, 79_327]
+
+  it.effect(
+    "Ajaib's stand: Stockbit's agreeing marks both, differing counts one difference, and fills a trade Ajaib's lack",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* tradingDay()
+        yield* day.post("Ajaib", [
+          [1, YP_CC, null, HOPE_8799],
+          [2, YP_CC, null, HOPE_8800],
+          [3, YP_CC],
+        ])
+        assert.deepStrictEqual(yield* day.orderNumbers, {
+          ajaib: 2,
+          stockbit: 0,
+          differences: 0,
+        })
+        const stockbit = [
+          [1, YP_CC, FIELDS, HOPE_8799],
+          [2, YP_CC, FIELDS, HOPE_8801],
+          [3, YP_CC, FIELDS, HOPE_8801],
+        ] as const
+        yield* day.post("Stockbit", stockbit)
+        const counts = { ajaib: 2, stockbit: 1, differences: 1 }
+        assert.deepStrictEqual(yield* day.orderNumbers, counts)
+        assert.deepStrictEqual(
+          yield* day.heldOrders(1),
+          Option.some({ orders: HOPE_8799, source: "both" as const })
+        )
+        assert.deepStrictEqual(
+          yield* day.heldOrders(2),
+          Option.some({ orders: HOPE_8800, source: "Ajaib" as const })
+        )
+        assert.deepStrictEqual(
+          yield* day.heldOrders(3),
+          Option.some({ orders: HOPE_8801, source: "Stockbit" as const })
+        )
+        assert.isTrue(Option.isNone(yield* day.heldOrders(4)))
+
+        // A resent batch counts nothing twice.
+        const before = yield* day.statusText
+        yield* day.post("Stockbit", stockbit)
+        assert.strictEqual(yield* day.statusText, before)
+        assert.deepStrictEqual(yield* day.orderNumbers, counts)
+      })
+  )
+
+  it.effect(
+    "Ajaib's replace Stockbit's, counting a difference when they differ",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* tradingDay()
+        yield* day.post("Stockbit", [
+          [1, YP_CC, FIELDS, HOPE_8799],
+          [2, YP_CC, FIELDS, HOPE_8801],
+        ])
+        yield* day.post("Ajaib", [
+          [1, YP_CC, null, HOPE_8799],
+          [2, YP_CC, null, HOPE_8800],
+        ])
+        assert.deepStrictEqual(yield* day.orderNumbers, {
+          ajaib: 2,
+          stockbit: 0,
+          differences: 1,
+        })
+        assert.deepStrictEqual(
+          yield* day.heldOrders(2),
+          Option.some({ orders: HOPE_8800, source: "Ajaib" as const })
+        )
+      })
+  )
+
+  it.effect(
+    "never decide whether the day is complete or which trades are missing",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* tradingDay()
+        yield* day.post(
+          "Stockbit",
+          [
+            [1, YP_CC, FIELDS, HOPE_8799],
+            [2, YP_CC],
+            [3, YP_CC, null, HOPE_8801],
+          ],
+          4
+        )
+        const status = yield* day.status
+        assert.isFalse(status.complete)
+        assert.deepStrictEqual(yield* day.missing, [[3, 4]])
+        yield* day.post("Stockbit", [
+          [3, YP_CC],
+          [4, YP_CC],
+        ])
+        const complete = yield* day.status
+        assert.isTrue(complete.complete)
+        assert.deepStrictEqual(complete.orderNumbers, {
+          ajaib: 0,
+          stockbit: 2,
+          differences: 0,
+        })
+      })
+  )
+
+  it.effect(
+    "a day whose batches carry none never gets their table, and counts none",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        const day = yield* tradingDay({ sql })
+        yield* day.post("Ajaib", [[1, YP_CC]], 1)
+        yield* day.post("Stockbit", [[1, YP_CC]], 1)
+        const tables = () =>
+          sql
+            .exec("SELECT name FROM sqlite_schema WHERE type = 'table'")
+            .map((row) => String(row.name))
+        assert.notInclude(tables(), "order_number_chunks")
+        assert.deepStrictEqual(yield* day.orderNumbers, {
+          ajaib: 0,
+          stockbit: 0,
+          differences: 0,
+        })
+        assert.isTrue(Option.isNone(yield* day.heldOrders(1)))
+
+        yield* day.post("Stockbit", [[1, YP_CC, FIELDS, HOPE_8799]])
+        assert.include(tables(), "order_number_chunks")
       })
   )
 })

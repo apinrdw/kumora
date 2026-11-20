@@ -177,6 +177,27 @@ describe("a sealed day's move to R2", () => {
   )
 
   it.effect(
+    "once emptied, answers a status stored at protocol 4 as this protocol's, with no order numbers",
+    () =>
+      Effect.gen(function* () {
+        const { day, days } = yield* sealedDay()
+        yield* at("2026-11-09T17:30:00")
+        yield* day.brokerCodes("Ajaib", [[2, "YP D KZ F"]], 3)
+        const hot = yield* statusOf(day)
+        assert.isTrue(yield* day.movedToR2)
+        const { orderNumbers: _, ...older } = hot
+        days.objects.set(
+          "days/2026-11-09/status.json",
+          new TextEncoder().encode(JSON.stringify({ ...older, version: 4 }))
+        )
+        assert.deepStrictEqual(yield* statusOf(day), {
+          ...hot,
+          orderNumbers: { ajaib: 0, stockbit: 0, differences: 0 },
+        })
+      })
+  )
+
+  it.effect(
     "of a complete day, once emptied, answers its status complete",
     () =>
       Effect.gen(function* () {

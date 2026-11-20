@@ -17,6 +17,7 @@ import {
   type BrokerCodesStatus,
   type CrossCheck,
   type Feed,
+  type OrderNumbers,
   type RunningTrade,
   type TradeCodes,
   type TradeFields,
@@ -47,6 +48,55 @@ export const SOURCE = 6
 // for Ajaib's that Stockbit's copy agreed with: the cross-check's covered
 // trades are counted from it, so a resent Stockbit batch counts none twice.
 export const Source = { ajaib: 65, stockbit: 83, both: 66 } as const
+
+// Decision: order numbers get their own chunk table, chunked as CHUNK, of
+// 9-byte records: buy and sell order number as big-endian uint32, then the
+// source byte; all zero is an absent trade. The first batch carrying order
+// numbers makes the table, so a day recorded before them never has it and
+// reads as before. See apinrdw/kumora#624.
+const ORDER_RECORD = 9
+const ORDER_SOURCE = 8
+const ORDER_NUMBER_CHUNKS = `CREATE TABLE IF NOT EXISTS order_number_chunks (
+    chunk INTEGER PRIMARY KEY,
+    orders BLOB NOT NULL
+  )`
+
+// Decision: an order record's source byte is Source's `A`, `S` or `B`, or
+// `D` for Ajaib's that Stockbit's differed from. Ajaib's stand: a Stockbit
+// row fills a trade without order numbers and is otherwise only compared.
+// The status's counts move with each record's source byte, so a resent
+// batch counts none twice. See spec apinrdw/kumora#627, "Slice 1".
+const OrderSource = { ...Source, differed: 68 } as const
+
+// The status's order number counts, kept as the `order-numbers` fact.
+const OrderNumberCounts = Schema.fromJsonString(
+  Schema.Struct({
+    ajaib: Schema.Int,
+    stockbit: Schema.Int,
+    differences: Schema.Int,
+  })
+)
+type OrderNumberCounts = typeof OrderNumberCounts.Type
+const decodeOrderNumberCounts = Schema.decodeUnknownOption(OrderNumberCounts)
+const encodeOrderNumberCounts = Schema.encodeSync(OrderNumberCounts)
+const NO_ORDER_NUMBERS: OrderNumberCounts = {
+  ajaib: 0,
+  stockbit: 0,
+  differences: 0,
+}
+
+// What one order record's source byte adds to the counts: Stockbit's to
+// Stockbit's, every other to Ajaib's, and a difference to the differences.
+const countsOf = (source: number): OrderNumberCounts => ({
+  ajaib:
+    source === OrderSource.ajaib ||
+    source === OrderSource.both ||
+    source === OrderSource.differed
+      ? 1
+      : 0,
+  stockbit: source === OrderSource.stockbit ? 1 : 0,
+  differences: source === OrderSource.differed ? 1 : 0,
+})
 
 // What a day recorded before apinrdw/kumora#561 holds and the store drops
 // at its start: the broker trades index, one row per side of each trade, and
@@ -345,15 +395,69 @@ const mergeStockbit = Effect.fnUntraced(function* (
     : ([held.slice(at, at + SOURCE), codes] as const)
 })
 
+// One trade's order numbers as their record's first eight bytes.
+const orderBytesOf = ([buy, sell]: OrderNumbers) => {
+  const bytes = new Uint8Array(ORDER_SOURCE)
+  const view = new DataView(bytes.buffer)
+  view.setUint32(0, buy)
+  view.setUint32(4, sell)
+  return bytes
+}
+
+// The order numbers a record's first eight bytes hold, which the store
+// wrote.
+const ordersOf = (record: Uint8Array): OrderNumbers => {
+  const view = new DataView(record.buffer, record.byteOffset, ORDER_SOURCE)
+  return [view.getUint32(0), view.getUint32(4)]
+}
+
+const sameOrders = (held: Uint8Array, at: number, orders: Uint8Array) => {
+  for (let index = 0; index < ORDER_SOURCE; index++)
+    if (held[at + index] !== orders[index]) return false
+  return true
+}
+
+// The source byte a feed's row leaves on a record, by the record's source
+// byte (0 when absent): the first when the row's order numbers agree with
+// the held ones, the second when they differ. Ajaib's against Stockbit's
+// agree (`B`) or differ (`D`), against a `B` record's they differ from the
+// Stockbit copy that agreed, and a `D` record stays one. Stockbit's fill an
+// absent record or Stockbit's own; against Ajaib's they only compare.
+const { ajaib: A, stockbit: S, both: B, differed: D } = OrderSource
+const NEXT_ORDER_SOURCE: Record<
+  Feed,
+  Record<number, readonly [agree: number, differ: number]>
+> = {
+  Ajaib: { 0: [A, A], [A]: [A, A], [S]: [B, D], [B]: [B, D], [D]: [D, D] },
+  Stockbit: { 0: [S, S], [S]: [S, S], [A]: [B, D], [B]: [B, D], [D]: [B, D] },
+}
+
+// A row's order numbers into the held record at `at`, by `feed`'s rule:
+// Ajaib's replace what is held, Stockbit's land only on a record they leave
+// Stockbit's. Answers the record's source byte before it.
+const mergeOrders = (
+  feed: Feed,
+  held: Uint8Array,
+  at: number,
+  orders: Uint8Array
+) => {
+  const source = held[at + ORDER_SOURCE]!
+  const [agree, differ] = NEXT_ORDER_SOURCE[feed][source]!
+  const next = sameOrders(held, at, orders) ? agree : differ
+  if (feed === "Ajaib" || next === S) held.set(orders, at)
+  held[at + ORDER_SOURCE] = next
+  return source
+}
+
 // A row's fields as walk_trades stores them, in its column order: none for
 // a row without fields, or when walk_trades `keeps` none.
 const fieldsRows = (
   number: number,
-  fields: TradeFields | undefined,
+  fields: TradeFields | null | undefined,
   keeps: boolean
 ) =>
   Effect.succeed(
-    fields === undefined || !keeps
+    fields === undefined || fields === null || !keeps
       ? []
       : [
           [
@@ -378,6 +482,10 @@ interface Merged {
   // The trades whose kept codes the batch changed. A trade whose source
   // byte alone changed, as the cross-check marks it, is not one.
   readonly changed: Array<TradeNumber>
+  // The order number chunks the batch's order numbers touched, and the
+  // day's counts after them; none when it carried none.
+  readonly orders: Map<number, Uint8Array>
+  orderCounts: Option.Option<OrderNumberCounts>
 }
 
 // Whether a chunk's first `slots` records all hold codes.
@@ -568,6 +676,26 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         : new Uint8Array(row.codes as Uint8Array)
     })
 
+  // The day's order number counts; none before a batch carried any.
+  const orderCountsFact = Effect.map(
+    fact(Fact.orderNumbers),
+    decodeOrderNumberCounts
+  )
+
+  // A chunk's order records, empty while the day has no table for them.
+  const orderChunkOf = (chunk: number, tabled: boolean) =>
+    Effect.sync(() => {
+      const [row] = tabled
+        ? sql.exec(
+            "SELECT orders FROM order_number_chunks WHERE chunk = ?",
+            chunk
+          )
+        : []
+      return row === undefined
+        ? new Uint8Array(CHUNK * ORDER_RECORD)
+        : new Uint8Array(row.orders as Uint8Array)
+    })
+
   const crossCheckFact = Effect.map(fact(Fact.crossCheck), (text) =>
     Option.getOrElse(decodeCrossCheck(text), (): CrossCheckFact => ({
       walkedTo: TradeNumber.make("0"),
@@ -625,6 +753,8 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       facts: [],
       fields: [],
       changed: [],
+      orders: new Map(),
+      orderCounts: Option.none(),
     }
     const recorded = new Map<number, Map<number, Uint8Array>>()
     // Stockbit's copy of a trade Ajaib's held copy differs on: this batch's
@@ -646,8 +776,12 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     // batch writes none and skips `writeFields`'s check against the tape: 0
     // rows, against 10 K read for a walk day's Ajaib page of 5,000.
     const keepsFields = yield* options.walkRowsHold
+    const countsBefore = batch.rows.some((row) => row[3] !== undefined)
+      ? yield* orderCountsFact
+      : Option.none<OrderNumberCounts>()
+    const tabled = Option.isSome(countsBefore)
     let highest = 0
-    for (const [tradeNumber, codes, fields] of batch.rows) {
+    for (const [tradeNumber, codes, fields, orders] of batch.rows) {
       const number = Number(tradeNumber)
       highest = Math.max(highest, number)
       merged.fields.push(...(yield* fieldsRows(number, fields, keepsFields)))
@@ -669,6 +803,24 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         merged.agreed.delete(number)
         merged.differences.set(number, outcome)
       }
+      if (orders === undefined) continue
+      const counts = Option.getOrElse(
+        Option.orElse(merged.orderCounts, () => countsBefore),
+        () => NO_ORDER_NUMBERS
+      )
+      const heldOrders =
+        merged.orders.get(chunk) ?? (yield* orderChunkOf(chunk, tabled))
+      merged.orders.set(chunk, heldOrders)
+      const orderAt = ((number - 1) % CHUNK) * ORDER_RECORD
+      const was = countsOf(
+        mergeOrders(batch.feed, heldOrders, orderAt, orderBytesOf(orders))
+      )
+      const now = countsOf(heldOrders[orderAt + ORDER_SOURCE]!)
+      merged.orderCounts = Option.some({
+        ajaib: counts.ajaib - was.ajaib + now.ajaib,
+        stockbit: counts.stockbit - was.stockbit + now.stockbit,
+        differences: counts.differences - was.differences + now.differences,
+      })
     }
     merged.facts.push(...(yield* factsOf(batch, highest)))
     return merged
@@ -785,6 +937,20 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       )
     for (const number of merged.agreed)
       sql.exec("DELETE FROM cross_check_differences WHERE number = ?", number)
+    if (Option.isSome(merged.orderCounts)) {
+      sql.exec(ORDER_NUMBER_CHUNKS)
+      for (const [chunk, orders] of merged.orders)
+        sql.exec(
+          "INSERT OR REPLACE INTO order_number_chunks VALUES (?, ?)",
+          chunk,
+          orders
+        )
+      sql.exec(
+        "INSERT OR REPLACE INTO facts VALUES (?, ?)",
+        Fact.orderNumbers,
+        encodeOrderNumberCounts(merged.orderCounts.value)
+      )
+    }
     for (const [key, value] of merged.facts)
       sql.exec("INSERT OR REPLACE INTO facts VALUES (?, ?)", key, value)
     recountCodesCompleteIfStale(raisesN(merged))
@@ -849,6 +1015,30 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         record.value[SOURCE] === Source.stockbit
           ? ("Stockbit" as const)
           : ("Ajaib" as const),
+    })
+  })
+
+  // The kept order numbers of one trade and the site that supplied them,
+  // `both` when Stockbit's agreed with Ajaib's; none when the day holds no
+  // order numbers for it.
+  const heldOrders = Effect.fnUntraced(function* (tradeNumber: TradeNumber) {
+    const number = Number(tradeNumber)
+    const orders = yield* orderChunkOf(
+      Math.floor((number - 1) / CHUNK),
+      Option.isSome(yield* orderCountsFact)
+    )
+    const at = ((number - 1) % CHUNK) * ORDER_RECORD
+    const source = orders[at + ORDER_SOURCE]
+    if (source === 0 || source === undefined)
+      return Option.none<{ orders: OrderNumbers; source: Feed | "both" }>()
+    return Option.some({
+      orders: ordersOf(orders.subarray(at, at + ORDER_RECORD)),
+      source:
+        source === OrderSource.stockbit
+          ? ("Stockbit" as const)
+          : source === OrderSource.both
+            ? ("both" as const)
+            : ("Ajaib" as const),
     })
   })
 
@@ -1016,6 +1206,10 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         yield* crossCheckFact,
         differences
       ),
+      orderNumbers: Option.getOrElse(
+        yield* orderCountsFact,
+        () => NO_ORDER_NUMBERS
+      ),
     }
     return day
   })
@@ -1139,6 +1333,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     post,
     status: statusAnswer,
     held,
+    heldOrders,
     heldCodes,
     codesComplete,
     codesCompleteFactForSeal,

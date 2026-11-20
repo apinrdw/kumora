@@ -1249,7 +1249,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     if (source === "relay" || sealed) return
     const trades: Array<RunningTrade> = []
     for (const [tradeNumber, , fields] of batch.rows) {
-      if (fields === undefined) continue
+      if (fields === undefined || fields === null) continue
       const trade: RunningTrade = {
         tradeNumber,
         ...fields,
@@ -2052,6 +2052,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         turned(brokerCodes.status(search), (emptied) => emptied.status(search)),
       held: (tradeNumber: TradeNumber) =>
         turned(brokerCodes.held(tradeNumber), () =>
+          Effect.die("The day moved")
+        ),
+      heldOrders: (tradeNumber: TradeNumber) =>
+        turned(brokerCodes.heldOrders(tradeNumber), () =>
           Effect.die("The day moved")
         ),
     },

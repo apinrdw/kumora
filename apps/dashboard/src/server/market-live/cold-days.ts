@@ -6,6 +6,7 @@
 import { gzipSync } from "node:zlib"
 
 import {
+  BrokerCodesProtocolVersion,
   MINUTE_MS,
   StockCode,
   TradeNumber,
@@ -365,6 +366,21 @@ export const coldDayValues = Effect.fnUntraced(function* (
   return stored === null ? noDayValues() : dayValuesResponse(stored.body)
 })
 
+// A stored final status's text as this protocol's status reads it.
+// Decision: a day moved before protocol 5 stored its status at protocol 4,
+// without order numbers; it holds none, so it answers this version with
+// zero counts rather than failing the GET. See spec apinrdw/kumora#627,
+// "Slice 1".
+const currentStatusText = (text: string) =>
+  Effect.sync(() => {
+    const stored = JSON.parse(text) as Record<string, unknown>
+    return JSON.stringify({
+      orderNumbers: { ajaib: 0, stockbit: 0, differences: 0 },
+      ...stored,
+      version: BrokerCodesProtocolVersion,
+    })
+  })
+
 // The broker codes status a cold day's status GET answers: the stored final
 // status, its missing ranges listed past `after` as the hot status lists
 // them. None when the move stored none.
@@ -381,7 +397,9 @@ const storedStatus = Effect.fnUntraced(function* (
   const stored = yield* Effect.promise(() => bucket.get(key))
   if (stored === null) return undefined
   const status = yield* decodeBrokerCodesStatus(
-    yield* Effect.promise(() => new Response(stored.body).text())
+    yield* currentStatusText(
+      yield* Effect.promise(() => new Response(stored.body).text())
+    )
   )
   return {
     ...status,
