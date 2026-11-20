@@ -197,6 +197,7 @@ export {
   encodeBrokerCodesStatus,
   stockbitRowCodes,
   stockbitRowFields,
+  stockbitRowOrderNumbers,
   TradeCodes,
 } from "./broker-codes.ts"
 export type {
@@ -204,6 +205,7 @@ export type {
   BrokerCodesBatch,
   BrokerCodesStatus,
   CrossCheck,
+  OrderNumbers,
   TradeFields,
 } from "./broker-codes.ts"
 export type { RecordedSweeps } from "./sweeps.ts"

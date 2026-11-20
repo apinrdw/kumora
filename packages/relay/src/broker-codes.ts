@@ -21,11 +21,11 @@ import { WibDate } from "./schedule.ts"
 // accepted: the Worker answers any other with 426, which the extension shows
 // as `reload-extension`. Separate from IngestProtocolVersion.
 // Decision: 2 since the status lists at most MISSING_RANGES ranges; 3 since
-// each row carries its trade fields (apinrdw/kumora#425); 4 since those
-// fields carry time and side, which a day whose tape source is the walks
-// takes as its tape, and 0.0.29 sends version 3 without them (#437). An older extension
-// gets 426 and shows `reload-extension`.
-export const BrokerCodesProtocolVersion = 4
+// rows carry trade fields (apinrdw/kumora#425); 4 since they carry time and
+// side, which a walk day takes as its tape, and 0.0.29 sent 3 without them
+// (#437); 5 since a row may carry order numbers and the status counts them
+// (#627). An older extension gets 426 and shows `reload-extension`.
+export const BrokerCodesProtocolVersion = 5
 
 const PREFIX = "/api/broker-codes"
 
@@ -115,6 +115,20 @@ export const DayTradeNumber = TradeNumber.check(
   Schema.isPattern(/^[1-9]\d{0,9}$/)
 )
 
+// One order's number on its day, as Stockbit sends it and as the last 10
+// digits of Ajaib's `order_id`: one count over every stock code and both
+// sides, from 1 each day.
+// Decision: at most 2^32 - 1, so the trading-day object keeps each as a
+// uint32 (#624). A day's count reached about 3.1 M by HOPE's last trade on
+// 2026-11-20, three orders of magnitude below it.
+const OrderNumber = Schema.Int.check(
+  Schema.isBetween({ minimum: 1, maximum: 0xff_ff_ff_ff })
+)
+
+// A trade's buy order's and sell order's numbers.
+const OrderNumbers = Schema.Tuple([OrderNumber, OrderNumber])
+export type OrderNumbers = typeof OrderNumbers.Type
+
 // The day's highest trade number, as the walk that sends it confirmed it.
 const End = Schema.Struct({ n: DayTradeNumber })
 
@@ -129,31 +143,52 @@ const BATCH_ROWS = 5_000
 export const BROKER_CODES_BATCH_LIMIT = 1_200_000
 
 // One walk's trades of `day` from `feed`, posted to the day's path: each
-// row's trade number, codes and fields. A walk sends no row it read without
-// valid codes, and leaves out the fields of a row without valid fields, so
-// either way the trade counts as missing. A batch may be `end` alone, once
-// a walk confirmed the day's highest number.
+// row's trade number, codes and fields, and its order numbers when the walk
+// read them. A walk sends no row it read without valid codes, and leaves out
+// the fields of a row without valid fields, so either way the trade counts
+// as missing. A row with order numbers but no fields holds null in place of
+// its fields. A batch may be `end` alone, once a walk confirmed the day's
+// highest number.
 const BrokerCodesBatch = Schema.Struct({
   version: Schema.Literal(BrokerCodesProtocolVersion),
   feed: Feed,
   day: WibDate,
   rows: Schema.Array(
-    Schema.Tuple([DayTradeNumber, TradeCodes, Schema.optionalKey(TradeFields)])
+    Schema.Tuple([
+      DayTradeNumber,
+      TradeCodes,
+      Schema.optionalKey(Schema.NullOr(TradeFields)),
+      Schema.optionalKey(OrderNumbers),
+    ])
   ).check(Schema.isMaxLength(BATCH_ROWS)),
   end: Schema.optionalKey(End),
 })
 export type BrokerCodesBatch = typeof BrokerCodesBatch.Type
 export type BatchRow = BrokerCodesBatch["rows"][number]
 
-// A trade's batch row: its fields only when the walk read them valid.
+// A trade's batch row: its fields and its order numbers only when the walk
+// read them valid.
 export const batchRow = (
   number: TradeNumber,
   codes: TradeCodes,
-  fields: Option.Option<TradeFields>
+  fields: Option.Option<TradeFields>,
+  orders: Option.Option<OrderNumbers> = Option.none()
 ) =>
   Effect.succeed<BatchRow>(
-    Option.isSome(fields) ? [number, codes, fields.value] : [number, codes]
+    Option.isSome(orders)
+      ? [number, codes, Option.getOrNull(fields), orders.value]
+      : Option.isSome(fields)
+        ? [number, codes, fields.value]
+        : [number, codes]
   )
+
+// The day's trades holding order numbers from each site, and the Stockbit
+// rows whose order numbers differed from Ajaib's held ones.
+const OrderNumberCounts = Schema.Struct({
+  ajaib: Schema.Int,
+  stockbit: Schema.Int,
+  differences: Schema.Int,
+})
 
 // The day's cross-check: Ajaib supplied nothing, so Stockbit's copy has
 // nothing to compare against; Stockbit's walk has reached `walkedTo`; or
@@ -183,7 +218,10 @@ export const MISSING_RANGES = 1_000
 // 1..(highest held) while n is unknown: `missingCount` counts them all, and
 // `missing` lists the first MISSING_RANGES ranges of them past the GET's
 // `after`, clipped to start after it. `complete` is n known and none
-// missing. `sources` counts the kept codes each site supplied.
+// missing. `sources` counts the kept codes each site supplied, and
+// `orderNumbers` the trades holding order numbers from each site and the
+// Stockbit rows that disagreed with Ajaib's; order numbers never decide
+// `complete` or `missing`.
 const BrokerCodesStatus = Schema.Struct({
   version: Schema.Literal(BrokerCodesProtocolVersion),
   day: WibDate,
@@ -195,6 +233,7 @@ const BrokerCodesStatus = Schema.Struct({
   missingCount: Schema.Int,
   sources: Schema.Struct({ ajaib: Schema.Int, stockbit: Schema.Int }),
   crossCheck: CrossCheck,
+  orderNumbers: OrderNumberCounts,
 })
 export type BrokerCodesStatus = typeof BrokerCodesStatus.Type
 
@@ -300,6 +339,28 @@ export const stockbitRowCodes = Effect.fnUntraced(function* (row: unknown) {
     })
   )
 })
+
+// Stockbit's row's `buy_order_number` and `sell_order_number`, digit strings
+// filled once the day has closed. Its `group_order_number` names the passive
+// order in about a third of trades (#617), so it is not read.
+const StockbitOrdersRow = Schema.Struct({
+  buy_order_number: Schema.String.check(Schema.isPattern(/^\d+$/)),
+  sell_order_number: Schema.String.check(Schema.isPattern(/^\d+$/)),
+})
+const decodeStockbitOrdersRow = Schema.decodeUnknownOption(StockbitOrdersRow)
+const decodeOrderNumbers = Schema.decodeUnknownOption(OrderNumbers)
+
+// A Stockbit row's order numbers; none unless both are positive integers,
+// so the trade simply lacks them.
+export const stockbitRowOrderNumbers = (row: unknown) =>
+  Effect.sync(() =>
+    Option.flatMap(decodeStockbitOrdersRow(row), (valid) =>
+      decodeOrderNumbers([
+        Number(valid.buy_order_number),
+        Number(valid.sell_order_number),
+      ])
+    )
+  )
 
 // Ajaib's and Stockbit's REST running-trade rows (`v1/stock/detail/
 // running_trades/`, `order-trade/running-trade`), read alike by the walks and
