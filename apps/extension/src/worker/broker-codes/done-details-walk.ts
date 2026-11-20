@@ -124,11 +124,11 @@ export interface DoneDetailsStore {
     day: WibDate,
     trades: ReadonlyArray<MatchedTrade>
   ) => Effect.Effect<void>
-  // The first `limit` matched trades of `day` numbered above `after`, in
-  // trade order.
+  // The first `limit` matched trades of `day` numbered above `after`, or
+  // from the first without it, in trade order.
   readonly matched: (
     day: WibDate,
-    after: number,
+    after: Option.Option<TradeNumber>,
     limit: number
   ) => Effect.Effect<ReadonlyArray<MatchedTrade>>
   // Forgets everything: the walk of the day has ended.
@@ -344,7 +344,7 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
     day: WibDate,
     post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
   ) {
-    for (let after = 0; ;) {
+    for (let after = Option.none<TradeNumber>(); ;) {
       const trades = yield* store.matched(day, after, BATCH_ROWS)
       const last = trades.at(-1)
       if (last === undefined) return
@@ -365,7 +365,7 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
         rows,
       })
       if (outcome !== "sent") return yield* haltOnRefusal(outcome)
-      after = Number(last.number)
+      after = Option.some(last.number)
     }
   })
 

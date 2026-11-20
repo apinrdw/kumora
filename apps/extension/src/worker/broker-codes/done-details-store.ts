@@ -190,7 +190,10 @@ export const doneDetailsStore = Effect.gen(function* () {
           answer([])
           if (!Option.contains(stored, day)) return
           const request = stores.matched.getAll(
-            IDBKeyRange.lowerBound(after, true),
+            Option.match(after, {
+              onNone: () => null,
+              onSome: (last) => IDBKeyRange.lowerBound(Number(last), true),
+            }),
             limit
           )
           request.onsuccess = () =>
