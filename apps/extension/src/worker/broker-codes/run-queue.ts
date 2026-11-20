@@ -71,14 +71,15 @@ export interface DayWalk {
   readonly walk: (day: WibDate) => Effect.Effect<WalkResult>
 }
 
-// One site's catch-up walk of a day on the extra target (extra-target.ts).
-// Its stop has no cause: it ends the catch-up only, and what stops the
+// A catch-up walk of a day on the extra target (extra-target.ts): one
+// site's, `feed`, or the order numbers', which walks both sites and names
+// none. Its stop has no cause: it ends the catch-up only, and what stops the
 // extra target shows in its Target state.
 export type CatchUpResult =
   | Exclude<WalkResult, { readonly _tag: "stopped" }>
   | { readonly _tag: "stopped" }
 export interface CatchUpWalk {
-  readonly feed: Feed
+  readonly feed?: Feed
   readonly walk: (day: WibDate) => Effect.Effect<CatchUpResult>
 }
 

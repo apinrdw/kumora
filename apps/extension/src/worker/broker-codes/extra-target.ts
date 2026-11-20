@@ -215,7 +215,6 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
       readonly ajaib: OrdersWalk
       readonly stockbit: OrdersWalk
     }): CatchUpWalk => ({
-      feed: "Ajaib",
       walk: Effect.fnUntraced(function* (day: WibDate) {
         const stopped: CatchUpResult = { _tag: "stopped" }
         const walking = yield* hold.settings
