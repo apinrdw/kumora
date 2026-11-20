@@ -233,6 +233,59 @@ const walkWith = (
 
 const evening = TestClock.setTime(wib("17:30:00"))
 
+// A market of 40 codes trading in turn from 09:00:00 to 15:50, 500 trades
+// each, every trade's buy and sell order numbers on its Done Details row.
+const MARKET_CODES = Array.from({ length: 40 }, (_, at) =>
+  StockCode.make(`C${String(at).padStart(3, "0")}`)
+)
+const MARKET_TRADES = Array.from({ length: 20_000 }, (_, at): KeptTrade => {
+  const n = at + 1
+  const seconds = 9 * 3_600 + Math.floor((at * 24_600) / 20_000)
+  const clock = [seconds / 3_600, (seconds / 60) % 60, seconds % 60]
+    .map((part) => String(Math.floor(part)).padStart(2, "0"))
+    .join(":")
+  return {
+    ...HOPE_TRADES[1]!,
+    number: TradeNumber.make(String(n)),
+    code: MARKET_CODES[n % MARKET_CODES.length]!,
+    second: clock,
+    price: 1_000 + (n % MARKET_CODES.length),
+    lots: 1 + (n % 7),
+    side: n % 2 === 0 ? "buy" : "sell",
+  }
+})
+const marketDetails = () => {
+  const details: Record<string, Array<unknown>> = {}
+  for (const trade of MARKET_TRADES) {
+    const n = Number(trade.number)
+    const [buy, sell] =
+      trade.side === "buy" ? [2 * n + 1, 2 * n] : [2 * n, 2 * n + 1]
+    const id = (order: number) => `20261120${String(order).padStart(10, "0")}`
+    details[trade.code] = [
+      ...(details[trade.code] ?? []),
+      {
+        ...HOPE_DETAILS[0]!,
+        time: trade.second,
+        code: trade.code,
+        board: trade.board,
+        price: trade.price,
+        qty: trade.lots,
+        buyer: {
+          ...HOPE_DETAILS[0]!.buyer,
+          order_id: id(buy),
+          broker_code: trade.codes.buyer,
+        },
+        seller: {
+          ...HOPE_DETAILS[0]!.seller,
+          order_id: id(sell),
+          broker_code: trade.codes.seller,
+        },
+      },
+    ]
+  }
+  return details
+}
+
 describe("the Done Details walk", () => {
   it.effect(
     "gives 1,311 of HOPE's 1,312 trades Ajaib's order numbers, as Stockbit reads them",
@@ -384,6 +437,48 @@ describe("the Done Details walk", () => {
         const orders = production.orders()
         assert.deepStrictEqual(orders.get("1"), orderPair(100, 90))
         assert.deepStrictEqual(orders.get("2"), orderPair(102, 105))
+      })
+  )
+
+  it.effect(
+    "posts every code's matched trades after the last code, in trade order, so each batch touches a narrow run of minutes",
+    () =>
+      Effect.gen(function* () {
+        yield* evening
+        const { store } = yield* keptStore(MARKET_TRADES)
+        const production = fakeProduction()
+        const walk = yield* walkWith(
+          fakeAjaib({ details: marketDetails() }),
+          store,
+          production
+        )
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        assert.strictEqual(production.orders().size, MARKET_TRADES.length)
+        // The dashboard recomputes each minute a batch's trades fall in
+        // (sweep-brokers.ts, `recompute`), reading the whole market's
+        // minute: batches in trade order touch each minute about once.
+        const minuteOf = new Map(
+          MARKET_TRADES.map((trade) => [trade.number, trade.second.slice(0, 5)])
+        )
+        const touched = production.batches.map(
+          (batch) =>
+            new Set(batch.rows.map(([number]) => minuteOf.get(number))).size
+        )
+        const minutes = new Set(minuteOf.values()).size
+        const recomputed = touched.reduce((sum, each) => sum + each, 0)
+        assert.strictEqual(minutes, 410)
+        assert.deepStrictEqual(
+          production.batches.map((batch) => batch.rows.length),
+          [5_000, 5_000, 5_000, 5_000]
+        )
+        assert.isAtMost(recomputed, minutes + production.batches.length - 1)
+        const numbers = production.batches.flatMap((batch) =>
+          batch.rows.map(([number]) => Number(number))
+        )
+        assert.deepStrictEqual(
+          numbers,
+          [...numbers].sort((a, b) => a - b)
+        )
       })
   )
 
