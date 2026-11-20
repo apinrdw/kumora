@@ -46,7 +46,9 @@ test("the readout shows the selected code's live readings and the disclaimer", a
     stockbitOrderBookFrame(code, "OFFER", [[1010, 1, 100]]),
   ])
   // 300 bid lots against 100 offered.
-  await expect(readout.getByLabel("Imbalance value")).toHaveText("+50%")
+  await expect(
+    readout.getByLabel("Imbalance reading").getByLabel("Imbalance value")
+  ).toHaveText("+50%")
   await expect(
     readout.getByRole("meter", { name: "Imbalance" })
   ).toHaveAttribute("aria-valuenow", "50")
@@ -226,7 +228,9 @@ test("on a recorded day the readings follow the replay cursor", async ({
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}`)
   const readout = page.getByRole("region", { name: "Book readout" })
   // At the close: the 11:00 frame, the offers leading.
-  await expect(readout.getByLabel("Imbalance value")).toHaveText("−50%")
+  await expect(
+    readout.getByLabel("Imbalance reading").getByLabel("Imbalance value")
+  ).toHaveText("−50%")
   await expect(readout).toContainText("recorded frame 11:00:00")
   // 300 offered lots in 1 order against 100 bid in 1.
   await expect(readout.getByLabel("Imbalance reading")).toHaveText(
@@ -235,7 +239,9 @@ test("on a recorded day the readings follow the replay cursor", async ({
   await page
     .getByRole("slider", { name: "Replay cursor" })
     .fill(String(morning + 30_000))
-  await expect(readout.getByLabel("Imbalance value")).toHaveText("+50%")
+  await expect(
+    readout.getByLabel("Imbalance reading").getByLabel("Imbalance value")
+  ).toHaveText("+50%")
   await expect(readout).toContainText("recorded frame 10:00:00")
   await expect(readout.getByLabel("Imbalance reading")).toHaveText(
     "+50% · Bid-heavy · small orders"

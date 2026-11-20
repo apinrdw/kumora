@@ -388,8 +388,8 @@ test("blocked storage falls back to the default size and still estimates", () =>
   expect(fillTable(container)).toContain("1,010")
 })
 
-// The line under the imbalance bar: the signed figure, the heavy side and
-// its chip.
+// The imbalance row's reading beside its bar: the signed figure, the heavy
+// side and its chip.
 const imbalanceLine = (container: HTMLElement) =>
   container.querySelector('[aria-label="Imbalance reading"]')
 
@@ -407,6 +407,14 @@ test("a lopsided book's imbalance line names the heavy side and its orders, live
   expect(imbalanceLine(container)?.textContent).toBe(
     "−72% · Offer-heavy · big orders"
   )
+  expect(
+    container.textContent?.split("−72%").length,
+    "one imbalance line, the figure said once"
+  ).toBe(2)
+  expect(
+    imbalanceLine(container)?.querySelector('[aria-label="Imbalance value"]')
+      ?.textContent
+  ).toBe("−72%")
   const small = render(
     "BBRI",
     snapshot("session-1", [

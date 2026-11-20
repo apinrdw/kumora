@@ -93,36 +93,10 @@ const perOrder = (side: BookReadings["bid"]) =>
 
 const LEANS = { bid: "Bid-heavy", offer: "Offer-heavy" } as const
 
-// The line under the imbalance row: the signed figure, the side it leans
-// to, and the heavy side's chip when tagged, e.g. "−72% · Offer-heavy · big
-// orders".
-function ImbalanceLine({
-  readings,
-  imbalance,
-}: {
-  readings: BookReadings
-  imbalance: number
-}) {
-  // The line shows only away from a limit (`Imbalance`).
-  const heavy = Effect.runSync(heavySideOf(readings, undefined))
-  return (
-    <p
-      aria-label="Imbalance reading"
-      className="flex flex-wrap items-center gap-1 tabular-nums"
-    >
-      {`${Effect.runSync(signed(imbalance * 100, 0))}% · ${LEANS[imbalance >= 0 ? "bid" : "offer"]}`}
-      {heavy !== undefined && (
-        <>
-          {" · "}
-          <HeavySideChip heavy={heavy} />
-        </>
-      )}
-    </p>
-  )
-}
-
-// The imbalance row: the bar and the signed figure, none at a limit, where
-// a limit queue isn't pressure, then the imbalance line.
+// The imbalance row: the bar, then one line with the signed figure, the
+// side it leans to and the heavy side's chip when tagged, e.g. "−72% ·
+// Offer-heavy · big orders". At a limit, where a limit queue isn't
+// pressure, it shows none.
 function Imbalance({
   readings,
   limit,
@@ -131,15 +105,21 @@ function Imbalance({
   limit: Limit | undefined
 }) {
   const shown = limit === undefined ? readings.imbalance : undefined
+  const heavy =
+    shown === undefined
+      ? undefined
+      : Effect.runSync(heavySideOf(readings, undefined))
   return (
-    <>
-      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
-        <span className="text-muted-foreground">Imbalance</span>
-        <ImbalanceBar imbalance={shown} />
+    <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+      <span className="text-muted-foreground">Imbalance</span>
+      <ImbalanceBar imbalance={shown} />
+      <p
+        aria-label="Imbalance reading"
+        className="flex flex-wrap items-center justify-end gap-1 tabular-nums"
+      >
         <b
           aria-label="Imbalance value"
           className={cn(
-            "tabular-nums",
             shown === undefined
               ? "text-muted-foreground"
               : shown >= 0
@@ -151,11 +131,15 @@ function Imbalance({
             ? "—"
             : `${Effect.runSync(signed(shown * 100, 0))}%`}
         </b>
-      </div>
-      {shown !== undefined && (
-        <ImbalanceLine readings={readings} imbalance={shown} />
-      )}
-    </>
+        {shown !== undefined && ` · ${LEANS[shown >= 0 ? "bid" : "offer"]}`}
+        {heavy !== undefined && (
+          <>
+            {" · "}
+            <HeavySideChip heavy={heavy} />
+          </>
+        )}
+      </p>
+    </div>
   )
 }
 
