@@ -17,6 +17,7 @@ import {
   type DoneDetailsPosition,
   type DoneDetailsStore,
   type KeptTrade,
+  type MatchedTrade,
 } from "../../src/worker/broker-codes/done-details-walk.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
 import type { Answer, TabRequest } from "../../src/worker/broker.ts"
@@ -144,14 +145,17 @@ const memoryStore = () => {
   let trades: Array<KeptTrade> = []
   let position = Option.none<DoneDetailsPosition>()
   let rows: Array<DetailRow> = []
+  let matched = new Map<number, MatchedTrade>()
+  const forget = () => {
+    trades = []
+    position = Option.none()
+    rows = []
+    matched = new Map()
+  }
   const store: DoneDetailsStore = {
     keep: (of, kept) =>
       Effect.sync(() => {
-        if (!Option.contains(day, of)) {
-          trades = []
-          position = Option.none()
-          rows = []
-        }
+        if (!Option.contains(day, of)) forget()
         day = Option.some(of)
         const numbers = new Set(kept.map((trade) => trade.number))
         trades = [
@@ -176,22 +180,39 @@ const memoryStore = () => {
     rows: (of, code) =>
       Effect.sync(() =>
         Option.contains(day, of) &&
-        Option.exists(position, (at) => at.code === code)
+        Option.exists(
+          position,
+          (at) => at._tag === "Walking" && at.code === code
+        )
           ? rows
           : []
       ),
     page: (of, next, fetched) =>
       Effect.sync(() => {
         if (!Option.contains(day, of)) return
-        if (!Option.exists(position, (at) => at.code === next.code)) rows = []
+        if (next._tag !== "Walking" || next.page === 1) rows = []
+        if (next._tag === "Posted") trades = []
         rows = [...rows, ...fetched]
         position = Option.some(next)
       }),
+    match: (of, found) =>
+      Effect.sync(() => {
+        if (!Option.contains(day, of)) return
+        for (const trade of found) matched.set(Number(trade.number), trade)
+      }),
+    matched: (of, after, limit) =>
+      Effect.sync(() =>
+        Option.contains(day, of)
+          ? [...matched.entries()]
+              .filter(([number]) => number > after)
+              .sort(([a], [b]) => a - b)
+              .slice(0, limit)
+              .map(([, trade]) => trade)
+          : []
+      ),
     clear: Effect.sync(() => {
       day = Option.none()
-      trades = []
-      position = Option.none()
-      rows = []
+      forget()
     }),
   }
   return { store, position: () => position }
@@ -578,7 +599,11 @@ describe("the Done Details walk", () => {
         yield* Fiber.interrupt(fiber)
         assert.deepStrictEqual(
           memory.position(),
-          Option.some({ code: StockCode.make("HOPE"), page: 2 })
+          Option.some({
+            _tag: "Walking",
+            code: StockCode.make("HOPE"),
+            page: 2,
+          })
         )
         // A restarted worker's walk asks HOPE's second page first.
         const production = fakeProduction()

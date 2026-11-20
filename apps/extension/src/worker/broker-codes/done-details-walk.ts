@@ -64,12 +64,27 @@ export const DetailRow = Schema.Struct({
 })
 export type DetailRow = typeof DetailRow.Type
 
-// The page the walk asks next, of a code the kept trades hold.
-export const DoneDetailsPosition = Schema.Struct({
-  code: StockCode,
-  page: Schema.Finite,
+// A kept trade given its Done Details row's order numbers, held until the
+// walk posts it.
+export const MatchedTrade = Schema.Struct({
+  number: TradeNumber,
+  codes: TradeCodes,
+  buy: OrderNumber,
+  sell: OrderNumber,
 })
+export type MatchedTrade = typeof MatchedTrade.Type
+
+// Where the walk of a day stands: at the page it asks next, of a code the
+// kept trades hold; past the last code, posting the matched trades; or
+// done, its matched trades held for the extra target's catch-up.
+export const DoneDetailsPosition = Schema.Union([
+  Schema.TaggedStruct("Walking", { code: StockCode, page: Schema.Finite }),
+  Schema.TaggedStruct("Posting", {}),
+  Schema.TaggedStruct("Posted", {}),
+])
 export type DoneDetailsPosition = typeof DoneDetailsPosition.Type
+const POSTING: DoneDetailsPosition = { _tag: "Posting" }
+const POSTED: DoneDetailsPosition = { _tag: "Posted" }
 
 // What the walk keeps across a worker restart, for one day at a time
 // (done-details-store.ts keeps it in IndexedDB).
@@ -96,12 +111,26 @@ export interface DoneDetailsStore {
   ) => Effect.Effect<ReadonlyArray<DetailRow>>
   // Moves the walk to `next`, with the rows of `next.code` the page before
   // it gave; another code's rows are forgotten. One write, so a restart
-  // never holds a page's rows twice.
+  // never holds a page's rows twice. At Posted the kept trades are
+  // forgotten too, and the matched ones stay.
   readonly page: (
     day: WibDate,
     next: DoneDetailsPosition,
     rows: ReadonlyArray<DetailRow>
   ) => Effect.Effect<void>
+  // Holds a code's matched trades of `day`; holding one again changes
+  // nothing.
+  readonly match: (
+    day: WibDate,
+    trades: ReadonlyArray<MatchedTrade>
+  ) => Effect.Effect<void>
+  // The first `limit` matched trades of `day` numbered above `after`, in
+  // trade order.
+  readonly matched: (
+    day: WibDate,
+    after: number,
+    limit: number
+  ) => Effect.Effect<ReadonlyArray<MatchedTrade>>
   // Forgets everything: the walk of the day has ended.
   readonly clear: Effect.Effect<void>
 }
@@ -260,23 +289,16 @@ const matched = Effect.fnUntraced(function* (
   rows: ReadonlyArray<DetailRow>
 ) {
   const byLane = yield* rowLanes(rows)
-  const batch: Array<BatchRow> = []
+  const found: Array<MatchedTrade> = []
   for (const [at, tied] of yield* tradeLanes(trades)) {
-    const found = byLane.get(at) ?? []
-    if (found.length !== tied.length) continue
-    for (const [index, trade] of tied.entries()) {
-      const row = found[index]!
-      batch.push(
-        yield* batchRow(
-          trade.number,
-          trade.codes,
-          Option.none(),
-          Option.some([row.buy, row.sell] as const)
-        )
-      )
+    const laneRows = byLane.get(at) ?? []
+    if (laneRows.length !== tied.length) continue
+    for (const [index, { number, codes }] of tied.entries()) {
+      const { buy, sell } = laneRows[index]!
+      found.push({ number, codes, buy, sell })
     }
   }
-  return batch
+  return found
 })
 
 const detailsPath = (day: WibDate, code: StockCode, page: number) =>
@@ -316,22 +338,47 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
     }
   })
 
-  const post = Effect.fnUntraced(function* (
+  // Decision: the matched trades are held (in IndexedDB) until the last
+  // code is walked, then posted in trade order, BATCH_ROWS a batch. Trade
+  // numbers run in time order, so each batch spans a minute or two of the
+  // market, as the Stockbit walk's do, and the dashboard's sweep brokers
+  // recompute, which regroups the whole market's minute for each minute a
+  // batch touches, reads each minute about once. Posting each code as it
+  // ended touched every minute the code traded in, once per code: 800
+  // codes regrouped a busy day's 1.46 M trades some 800 times over. A
+  // dashboard that coalesced recomputes across batches would break its rule
+  // that a batch's sweep brokers rows are written before its 200. See
+  // apinrdw/kumora#627, "Slice 4".
+  const postMatched = Effect.fnUntraced(function* (
     day: WibDate,
-    rows: ReadonlyArray<BatchRow>
+    post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
   ) {
-    for (let at = 0; at < rows.length; at += BATCH_ROWS) {
-      const outcome = yield* options.post({
+    for (let after = 0; ;) {
+      const trades = yield* store.matched(day, after, BATCH_ROWS)
+      const last = trades.at(-1)
+      if (last === undefined) return
+      const rows: Array<BatchRow> = []
+      for (const { number, codes, buy, sell } of trades)
+        rows.push(
+          yield* batchRow(
+            number,
+            codes,
+            Option.none(),
+            Option.some([buy, sell] as const)
+          )
+        )
+      const outcome = yield* post({
         version: BrokerCodesProtocolVersion,
         feed: "Ajaib",
         day,
-        rows: rows.slice(at, at + BATCH_ROWS),
+        rows,
       })
       if (outcome !== "sent") return yield* haltOnRefusal(outcome)
+      after = Number(last.number)
     }
   })
 
-  // One code's pages from `page` on, then its matched trades posted.
+  // One code's pages from `page` on, then its matched trades held.
   const walkCode = Effect.fnUntraced(function* (
     day: WibDate,
     windowEnd: DateTime.Utc,
@@ -345,45 +392,68 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
       )
       const rows = yield* detailRows(day, answer.transactions)
       if (answer.has_next && answer.transactions.length > 0) {
-        yield* store.page(day, { code, page: page + 1 }, rows)
+        yield* store.page(day, { _tag: "Walking", code, page: page + 1 }, rows)
         continue
       }
       const all = [...(yield* store.rows(day, code)), ...rows]
-      return yield* post(
+      return yield* store.match(
         day,
         yield* matched(yield* store.trades(day, code), all)
       )
     }
   })
 
-  const walkDay = Effect.fnUntraced(function* (day: WibDate) {
-    const codes = yield* store.codes(day)
-    // A day this browser didn't tape-walk from Ajaib, or one whose walk
-    // ended, has no kept trades.
-    if (codes.length === 0) return { _tag: "walked" } satisfies WalkResult
+  // Every kept code's pages from the held position on, then on to posting.
+  const walkCodes = Effect.fnUntraced(function* (
+    day: WibDate,
+    codes: ReadonlyArray<StockCode>,
+    held: Option.Option<DoneDetailsPosition>
+  ) {
     const windowEnd = yield* ajaibWindowEnd(day)
     yield* guard(windowEnd)
     yield* enter("fetching")
-    const held = yield* store.position(day)
-    const start = Option.match(held, {
+    const walking = Option.flatMap(held, (position) =>
+      position._tag === "Walking" ? Option.some(position) : Option.none()
+    )
+    const start = Option.match(walking, {
       onNone: () => 0,
       onSome: ({ code }) => Math.max(0, codes.indexOf(code)),
     })
     for (let at = start; at < codes.length; at++) {
       const code = codes[at]!
       yield* codesDone(at, codes.length)
-      const page = Option.match(held, {
+      const page = Option.match(walking, {
         onNone: () => 1,
         onSome: (position) => (position.code === code ? position.page : 1),
       })
       yield* walkCode(day, windowEnd, code, page)
       const next = codes[at + 1]
-      if (next !== undefined)
-        yield* store.page(day, { code: next, page: 1 }, [])
+      yield* store.page(
+        day,
+        next === undefined ? POSTING : { _tag: "Walking", code: next, page: 1 },
+        []
+      )
     }
     yield* codesDone(codes.length, codes.length)
-    yield* store.clear
-    return { _tag: "walked" } satisfies WalkResult
+  })
+
+  const walkDay = Effect.fnUntraced(function* (day: WibDate) {
+    const walked = { _tag: "walked" } satisfies WalkResult
+    const step = Option.map(
+      yield* store.position(day),
+      (position) => position._tag
+    )
+    if (Option.contains(step, "Posted")) return walked
+    if (!Option.contains(step, "Posting")) {
+      const codes = yield* store.codes(day)
+      // A day this browser didn't tape-walk from Ajaib, or one whose walk
+      // ended, has no kept trades.
+      if (codes.length === 0) return walked
+      yield* walkCodes(day, codes, yield* store.position(day))
+    }
+    yield* postMatched(day, options.post)
+    yield* store.page(day, POSTED, [])
+    return walked
   })
 
   // Past Ajaib's window the walk has ended too, and its kept trades go.
