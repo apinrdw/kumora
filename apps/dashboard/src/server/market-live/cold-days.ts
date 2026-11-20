@@ -13,6 +13,7 @@ import {
   decodeBrokerCodesStatus,
   encodeBrokerCodesStatus,
   encodeRecordedBookEvents,
+  encodeRecordedOrderFlowEvents,
   ViewerProtocolVersion,
   type RecordedResource,
   type WibDate,
@@ -46,12 +47,13 @@ import { dayValuesResponse, noDayValues } from "./previous-values.ts"
 const Manifest = Schema.Struct({ viewerProtocol: Schema.Int })
 const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(Manifest))
 
-// Whether the day recorded book events (`bookEvents` in cold-bucket.ts).
-const BookEventsRecorded = Schema.fromJsonString(
+// Whether the day recorded book events or order flow events (`bookEvents`
+// and `orderFlowEvents` in cold-bucket.ts).
+const EventsRecorded = Schema.fromJsonString(
   Schema.Struct({ recorded: Schema.Boolean })
 )
-const encodeBookEventsRecorded = Schema.encodeEffect(BookEventsRecorded)
-const decodeBookEventsRecorded = Schema.decodeUnknownEffect(BookEventsRecorded)
+const encodeEventsRecorded = Schema.encodeEffect(EventsRecorded)
+const decodeEventsRecorded = Schema.decodeUnknownEffect(EventsRecorded)
 
 // The resources the move writes, each once for the day.
 const DAY_RESOURCES: ReadonlyArray<RecordedResource> = [
@@ -60,7 +62,7 @@ const DAY_RESOURCES: ReadonlyArray<RecordedResource> = [
 ]
 
 // Each code's views the move writes, one object per view and code; and
-// BookEvents for each code with an event.
+// BookEvents and OrderFlowEvents for each code with an event of that kind.
 const CODE_VIEWS = ["Candles", "Sweeps", "SweepBrokers", "Heatmap"] as const
 
 // What a move writes to and tells.
@@ -68,6 +70,12 @@ export interface ColdTarget {
   readonly bucket: DayBucket
   // Marks the day cold in the day index; run once the manifest is written.
   readonly markCold: Effect.Effect<void, unknown, WorkerEnv>
+}
+
+// Whether a day recorded one kind of event, and the codes with one stored.
+interface RecordedEvents {
+  readonly recorded: Effect.Effect<boolean>
+  readonly codes: Effect.Effect<ReadonlyArray<StockCode>>
 }
 
 // What a move reads its day through: the day's own answers
@@ -81,11 +89,10 @@ export interface DayToMove {
   // Its answer to the next trading day's ask for its values
   // (previous-values.ts).
   readonly dayValues: Effect.Effect<Response, unknown>
-  // Whether the day recorded book events, and the codes with one stored.
-  readonly bookEvents: {
-    readonly recorded: Effect.Effect<boolean>
-    readonly codes: Effect.Effect<ReadonlyArray<StockCode>>
-  }
+  // Whether the day recorded book events, and the codes with one stored;
+  // the same of order flow events.
+  readonly bookEvents: RecordedEvents
+  readonly orderFlowEvents: RecordedEvents
   // Every code with a view to store, ascending.
   readonly codes: Effect.Effect<ReadonlyArray<StockCode>, unknown>
   readonly tape: TapeSource
@@ -185,24 +192,31 @@ const writeAnswers = Effect.fnUntraced(function* (
   })
   if (after === undefined) {
     for (const resource of DAY_RESOURCES) yield* writeAnswer(resource)
-    yield* putObject(
-      bucket,
-      (yield* dayKeys(date)).bookEvents,
-      yield* encodeBookEventsRecorded({
-        recorded: yield* day.bookEvents.recorded,
-      }),
-      "application/json"
-    )
+    const keys = yield* dayKeys(date)
+    for (const [key, events] of [
+      [keys.bookEvents, day.bookEvents],
+      [keys.orderFlowEvents, day.orderFlowEvents],
+    ] as const)
+      yield* putObject(
+        bucket,
+        key,
+        yield* encodeEventsRecorded({ recorded: yield* events.recorded }),
+        "application/json"
+      )
   }
   const { run, more } = yield* slice(yield* day.codes, after, CODES_PER_RUN)
   // Decision: BookEvents is stored only for a code with an event; every
   // other code's answer is built from whether the day recorded them, stored
   // once (`noBookEvents`): book events are found only for codes a viewer
   // watched. A day moved before then answers BookEvents 404.
+  // OrderFlowEvents is stored the same way.
   const withEvents = new Set(yield* day.bookEvents.codes)
+  const withFlow = new Set(yield* day.orderFlowEvents.codes)
   for (const code of run) {
     for (const _tag of CODE_VIEWS) yield* writeAnswer({ _tag, code })
     if (withEvents.has(code)) yield* writeAnswer({ _tag: "BookEvents", code })
+    if (withFlow.has(code))
+      yield* writeAnswer({ _tag: "OrderFlowEvents", code })
   }
   const next: MoveProgress = more
     ? { _tag: "Answers", after: run.at(-1)! }
@@ -329,26 +343,35 @@ export const coldAnswer = Effect.fnUntraced(function* (
   if (key === undefined) return undefined
   const stored = yield* Effect.promise(() => bucket.get(key))
   if (stored !== null) return yield* sealedAnswer(stored.body, "gzip")
-  return resource._tag === "BookEvents"
-    ? yield* noBookEvents(bucket, date, resource.code)
+  return resource._tag === "BookEvents" || resource._tag === "OrderFlowEvents"
+    ? yield* noEvents(bucket, date, resource)
     : yield* notStored
 })
 
-// A code's BookEvents answer when it stored none: no events, recorded as
-// the day stored; not recorded when the day stored neither.
-const noBookEvents = Effect.fnUntraced(function* (
+// A code's BookEvents or OrderFlowEvents answer when it stored none: no
+// events, recorded as the day stored; not recorded when the day stored
+// neither.
+const noEvents = Effect.fnUntraced(function* (
   bucket: DayBucket,
   date: WibDate,
-  code: StockCode
+  resource: Extract<
+    RecordedResource,
+    { readonly _tag: "BookEvents" | "OrderFlowEvents" }
+  >
 ) {
-  const { bookEvents: key } = yield* dayKeys(date)
+  const keys = yield* dayKeys(date)
+  const key =
+    resource._tag === "BookEvents" ? keys.bookEvents : keys.orderFlowEvents
   const stored = yield* Effect.promise(() => bucket.get(key))
   if (stored === null) return yield* notStored
-  const { recorded } = yield* decodeBookEventsRecorded(
+  const { recorded } = yield* decodeEventsRecorded(
     yield* Effect.promise(() => new Response(stored.body).text())
   )
+  const answer = { code: resource.code, recorded, events: [] }
   return yield* sealedAnswer(
-    yield* encodeRecordedBookEvents({ code, recorded, events: [] }),
+    resource._tag === "BookEvents"
+      ? yield* encodeRecordedBookEvents(answer)
+      : yield* encodeRecordedOrderFlowEvents(answer),
     "plain"
   )
 }, Effect.orDie)

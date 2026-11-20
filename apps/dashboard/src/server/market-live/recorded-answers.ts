@@ -8,10 +8,12 @@ import {
   encodeRecordedBrokerCodes,
   encodeRecordedCandles,
   encodeRecordedGaps,
+  encodeRecordedOrderFlowEvents,
   encodeRecordedSweepBrokers,
   encodeRecordedSweeps,
   encodeRecordedTape,
   type BookEvent,
+  type OrderFlowEvent,
   type RecordedResource,
   type RecordedSweeps,
   type RelayGap,
@@ -95,6 +97,11 @@ interface RecordedDayOf {
   readonly bookEvents: (code: StockCode) => Effect.Effect<{
     readonly recorded: boolean
     readonly events: ReadonlyArray<BookEvent>
+  }>
+  // A code's order flow events so far, and whether the day records them.
+  readonly orderFlowEvents: (code: StockCode) => Effect.Effect<{
+    readonly recorded: boolean
+    readonly events: ReadonlyArray<OrderFlowEvent>
   }>
 }
 
@@ -189,6 +196,17 @@ export const recordedAnswer = Effect.fnUntraced(function* (
         yield* encodeRecordedBookEvents({
           code: resource.code,
           ...(yield* day.bookEvents(resource.code)),
+        }),
+        cacheControl
+      )
+    // Decision: a day recorded before order flow events answers none,
+    // marked not recorded, as for book events. See spec apinrdw/kumora#605,
+    // "Order flow events: data".
+    case "OrderFlowEvents":
+      return yield* json(
+        yield* encodeRecordedOrderFlowEvents({
+          code: resource.code,
+          ...(yield* day.orderFlowEvents(resource.code)),
         }),
         cacheControl
       )
