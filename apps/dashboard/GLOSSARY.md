@@ -134,7 +134,7 @@ One of the sweeps a whole sweep splits into: one aggressor broker's trades of it
 _Avoid_: Split sweep (in code), sub-sweep, part
 
 **Other side**:
-The side of a sweep opposite its aggressor side: the sellers a buy sweep took from, or the buyers a sell sweep hit. The sweep log's Other side column shows its lead broker.
+The side of a sweep opposite its aggressor side: the sellers a buy sweep took from, or the buyers a sell sweep hit. The sweep log shows its lead broker in the Seller column of a buy sweep's row and the Buyer column of a sell sweep's; the aggressor broker takes the other column.
 _Avoid_: Passive side, counterparty
 
 **Own lots**:
