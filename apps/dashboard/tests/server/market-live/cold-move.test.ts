@@ -3,7 +3,7 @@
 // 10-trading-day window, from midnight after it and outside Streaming hours;
 // and what the emptied day answers a broker codes batch and status GET.
 import { assert, describe, it } from "@effect/vitest"
-import { WibDate, decodeDayStrip } from "@workspace/relay"
+import { OrderNumber, WibDate, decodeDayStrip } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
@@ -163,7 +163,14 @@ describe("a sealed day's move to R2", () => {
           answer.sweeps.flatMap((sweep) =>
             sweep.pieces.map((piece) => piece.orders)
           ),
-          [{ count: 3, first: 1001, last: 1003, biggestPassiveLots: 7 }]
+          [
+            {
+              count: 3,
+              first: OrderNumber.make(1001),
+              last: OrderNumber.make(1003),
+              biggestPassiveLots: 7,
+            },
+          ]
         )
 
         // The move's first step copies the answers: a batch after it
