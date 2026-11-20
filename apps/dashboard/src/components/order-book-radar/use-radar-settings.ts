@@ -5,6 +5,7 @@ import { useCallback, useSyncExternalStore } from "react"
 import {
   DEFAULT_SETTINGS,
   FLOORS,
+  HEAVY_SIDE_FILTERS,
   RANK_CHOICES,
   type RadarSettings,
   type RankKey,
@@ -45,12 +46,19 @@ const RankBy = Schema.Literals([...RANK_KEYS, ...REMOVED_RANK_KEYS]).pipe(
   })
 )
 
+// Decision: settings this browser stored before the Heavy side filter read
+// as Any, keeping the rest. See apinrdw/kumora#601.
+const HeavySide = Schema.Literals(HEAVY_SIDE_FILTERS).pipe(
+  Schema.withDecodingDefaultKey(Effect.succeed("any" as const))
+)
+
 const Stored = Schema.Struct({
   floor: Schema.Literals(FLOORS),
   codes: Schema.Literals(["all", "watchlist"]),
   search: Schema.String,
   priceMin: Schema.optionalKey(Price),
   priceMax: Schema.optionalKey(Price),
+  heavySide: HeavySide,
   rankBy: RankBy,
   direction: Schema.Literals(["high", "low"]),
 })

@@ -5,8 +5,10 @@ import {
   StockCode,
   bookReadingsOf,
   fillEstimateOf,
+  heavySideOf,
   limitOf,
   type BookLevel,
+  type BookReadings,
   type OrderBook,
 } from "@workspace/relay"
 
@@ -228,6 +230,84 @@ describe("fill estimate", () => {
         amount: 100_000,
       })
       assert.strictEqual(small, undefined)
+    })
+  )
+})
+
+describe("heavy side", () => {
+  // Readings with `imbalance` and each side's lots per order; a side with no
+  // lots per order is empty.
+  const lopsided = (
+    imbalance: number,
+    bidPerOrder: number | undefined,
+    offerPerOrder: number | undefined
+  ): BookReadings => ({
+    code: StockCode.make("ERAA"),
+    at,
+    imbalance,
+    bid: {
+      lots: bidPerOrder === undefined ? 0 : 300,
+      lotsPerOrder: bidPerOrder,
+    },
+    offer: {
+      lots: offerPerOrder === undefined ? 0 : 100,
+      lotsPerOrder: offerPerOrder,
+    },
+  })
+
+  it.effect("a book 50% lopsided is read; one just inside is not", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* heavySideOf(lopsided(0.5, 30, 20), undefined),
+        { side: "bid", orders: "big", ratio: 1.5 }
+      )
+      assert.deepStrictEqual(
+        yield* heavySideOf(lopsided(-0.5, 10, 10), undefined),
+        { side: "offer", orders: "small", ratio: 1 }
+      )
+      assert.strictEqual(
+        yield* heavySideOf(lopsided(0.4999, 30, 20), undefined),
+        undefined
+      )
+      assert.strictEqual(
+        yield* heavySideOf(lopsided(-0.4999, 10, 30), undefined),
+        undefined
+      )
+    })
+  )
+
+  it.effect(
+    "big orders from 1.5× the other side's lots per order, small orders at 1× or less, none between",
+    () =>
+      Effect.gen(function* () {
+        const orders = (heavy: number, other: number) =>
+          Effect.map(
+            heavySideOf(lopsided(-0.72, other, heavy), undefined),
+            (heavySide) => heavySide?.orders
+          )
+        assert.strictEqual(yield* orders(118, 22), "big")
+        assert.strictEqual(yield* orders(15, 10), "big")
+        assert.strictEqual(yield* orders(14.9, 10), undefined)
+        assert.strictEqual(yield* orders(10.1, 10), undefined)
+        assert.strictEqual(yield* orders(10, 10), "small")
+        assert.strictEqual(yield* orders(9, 31), "small")
+      })
+  )
+
+  it.effect("an empty side or a limit reads no heavy side", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(
+        yield* heavySideOf(lopsided(1, 30, undefined), undefined),
+        undefined
+      )
+      assert.strictEqual(
+        yield* heavySideOf(lopsided(-1, undefined, 30), undefined),
+        undefined
+      )
+      assert.strictEqual(
+        yield* heavySideOf(lopsided(0.6, 30, 10), "upper"),
+        undefined
+      )
     })
   )
 })

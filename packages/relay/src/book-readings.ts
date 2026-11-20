@@ -132,6 +132,46 @@ export const limitOf = Effect.fnUntraced(function* (
   return undefined
 })
 
+// Decision: a book is read for a heavy side when its imbalance is at least
+// 50% either way: one side holds 3× the other's lots over the best five
+// levels. See apinrdw/kumora#601.
+const HEAVY_IMBALANCE = 0.5
+// Decision: big orders when the heavy side's lots per order is at least 1.5×
+// the other side's, small orders at 1× or less, and none between, so a
+// near-tie doesn't flip the tag and fire alerts. See apinrdw/kumora#601.
+const BIG_ORDERS_RATIO = 1.5
+const SMALL_ORDERS_RATIO = 1
+
+// A lopsided book's heavy side, and whether it holds big or small orders
+// against the other: `ratio` is its lots per order over the other's.
+export interface HeavySide {
+  readonly side: "bid" | "offer"
+  readonly orders: "big" | "small"
+  readonly ratio: number
+}
+
+// The heavy side of `readings` at `limit`, the code's limit mark: none for a
+// book under 50% lopsided, with an empty side, at a limit, or with a ratio
+// between small and big orders. Like the limit, it is derived on the page
+// (the Decision at `limitOf`), so the wire carries nothing new.
+export const heavySideOf = (readings: BookReadings, limit: Limit | undefined) =>
+  Effect.sync((): HeavySide | undefined => {
+    const { imbalance } = readings
+    if (limit !== undefined || imbalance === undefined) return undefined
+    if (Math.abs(imbalance) < HEAVY_IMBALANCE) return undefined
+    const side = imbalance > 0 ? "bid" : "offer"
+    const [heavy, other] =
+      side === "bid"
+        ? [readings.bid, readings.offer]
+        : [readings.offer, readings.bid]
+    if (heavy.lotsPerOrder === undefined || other.lotsPerOrder === undefined)
+      return undefined
+    const ratio = heavy.lotsPerOrder / other.lotsPerOrder
+    if (ratio >= BIG_ORDERS_RATIO) return { side, orders: "big", ratio }
+    if (ratio <= SMALL_ORDERS_RATIO) return { side, orders: "small", ratio }
+    return undefined
+  })
+
 // `book`'s readings.
 export const bookReadingsOf = (book: OrderBook) =>
   Effect.sync(() => {

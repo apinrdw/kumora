@@ -50,6 +50,10 @@ test("the readout shows the selected code's live readings and the disclaimer", a
   await expect(
     readout.getByRole("meter", { name: "Imbalance" })
   ).toHaveAttribute("aria-valuenow", "50")
+  // 100 lots per order a side: the heavy bids hold small orders.
+  await expect(readout.getByLabel("Imbalance reading")).toHaveText(
+    "+50% · Bid-heavy · small orders"
+  )
   // 300 bid lots in 3 orders, 100 offered in 1; nothing but lots per order.
   await expect(
     readout.getByRole("table", { name: "Bid and offer readings" })
@@ -184,7 +188,7 @@ test("on a recorded day the readings follow the replay cursor", async ({
             : book(
                 turn,
                 [{ price: 1000, lots: 100, orders: 1 }],
-                [{ price: 1005, lots: 300, orders: 3 }]
+                [{ price: 1005, lots: 300, orders: 1 }]
               ),
         deltas: [],
       })
@@ -224,11 +228,18 @@ test("on a recorded day the readings follow the replay cursor", async ({
   // At the close: the 11:00 frame, the offers leading.
   await expect(readout.getByLabel("Imbalance value")).toHaveText("−50%")
   await expect(readout).toContainText("recorded frame 11:00:00")
+  // 300 offered lots in 1 order against 100 bid in 1.
+  await expect(readout.getByLabel("Imbalance reading")).toHaveText(
+    "−50% · Offer-heavy · big orders"
+  )
   await page
     .getByRole("slider", { name: "Replay cursor" })
     .fill(String(morning + 30_000))
   await expect(readout.getByLabel("Imbalance value")).toHaveText("+50%")
   await expect(readout).toContainText("recorded frame 10:00:00")
+  await expect(readout.getByLabel("Imbalance reading")).toHaveText(
+    "+50% · Bid-heavy · small orders"
+  )
 })
 
 // Ten 1,000-lot bids from 1,000 down; at 990, a wall of 6,000 lots in 2

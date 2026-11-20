@@ -2,7 +2,13 @@
 // layout D: the Bid-heavy and Offer-heavy halves, each row unfolding its
 // best 5 levels, the codes at a limit under them, each row with its last
 // book or order flow event's chip.
-import type { BookEventSide, BookLevel, StockCode } from "@workspace/relay"
+import {
+  heavySideOf,
+  type BookEventSide,
+  type BookLevel,
+  type BookReadings,
+  type StockCode,
+} from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { IconStarFilled } from "@tabler/icons-react"
 import { DateTime, Effect } from "effect"
@@ -10,6 +16,7 @@ import { memo, useSyncExternalStore } from "react"
 
 import { KButton } from "@/components/k/button"
 import type { BookReadingsStore } from "@/components/market-live/book-readings-store"
+import { HeavySideChip } from "@/components/market-live/heavy-side-chip"
 import type { OrderBookStore } from "@/components/market-live/order-book-store"
 import { EventChip } from "@/components/market-live/event-mark"
 import { lots, price, signed, wibClock } from "@/lib/format"
@@ -88,6 +95,17 @@ function LastEvent({
           </span>
         </>
       )}
+    </span>
+  )
+}
+
+// The row's heavy side chip, if any. The halves hold no code at a limit
+// (`scan`).
+function HeavySideCell({ readings }: { readings: BookReadings }) {
+  const heavy = Effect.runSync(heavySideOf(readings, undefined))
+  return (
+    <span className="flex justify-start">
+      {heavy !== undefined && <HeavySideChip heavy={heavy} />}
     </span>
   )
 }
@@ -241,7 +259,7 @@ const Row = memo(function Row({
         type="button"
         aria-expanded={unfolded}
         onClick={() => onUnfold(unfolded ? undefined : code)}
-        className="hover:bg-elevated grid w-full grid-cols-[88px_1fr_48px_16px] items-center gap-2 px-2.5 py-1.5 text-left text-[12px] sm:grid-cols-[96px_1fr_52px_100px_64px]"
+        className="hover:bg-elevated grid w-full grid-cols-[72px_1fr_44px_78px_16px] items-center gap-2 px-2.5 py-1.5 text-left text-[12px] sm:grid-cols-[96px_1fr_52px_78px_100px_64px]"
       >
         <span className="flex items-center gap-1 font-bold tracking-[0.02em]">
           {code}
@@ -262,6 +280,7 @@ const Row = memo(function Row({
         >
           {Effect.runSync(signed(imbalance * 100, 0))}%
         </span>
+        <HeavySideCell readings={readings} />
         <span
           aria-label="Ranked by"
           className="hidden text-right text-muted-foreground tabular-nums sm:block"

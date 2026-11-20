@@ -1,16 +1,42 @@
-// Book event alerts (spec apinrdw/kumora#517, "Alerts"): which events a
+// Book event alerts (spec apinrdw/kumora#517, "Alerts") and heavy side
+// alerts (spec apinrdw/kumora#605, "Heavy side alerts"): which events a
 // browser's alert rules match, the rate limit on telling them, and the
 // day's history of what was told.
 import {
+  heavySideOf,
   levelValue,
+  limitOf,
   type BookEvent,
-  type BookEventKind,
+  type BookReadings,
+  type HeavySide,
   type StockCode,
   type WibDate,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import { BOOK_EVENT_NAMES } from "./book-events"
+import { BOOK_EVENT_NAMES, bookEventDetail, bookEventKey } from "./book-events"
+import type { CodePrices } from "./book-readings"
+import { plain, signed } from "./format"
+
+// A code's heavy side tag becoming big or small orders (`heavySideChanges`).
+export interface HeavySideChange {
+  readonly kind: "bigOrders" | "smallOrders"
+  readonly code: StockCode
+  // The readings' as-of.
+  readonly at: DateTime.Utc
+  readonly side: HeavySide["side"]
+  readonly imbalance: number
+  // The heavy side's lots per order, and the other side's.
+  readonly heavyPerOrder: number
+  readonly otherPerOrder: number
+}
+
+// What an alert rule matches: a book event, or a heavy side change.
+export type AlertEvent = BookEvent | HeavySideChange
+export type AlertKind = AlertEvent["kind"]
+
+const isHeavySideChange = (event: AlertEvent): event is HeavySideChange =>
+  event.kind === "bigOrders" || event.kind === "smallOrders"
 
 // Decision: a rule's optional minimum level or wall value: any, Rp1 B, Rp5 B
 // or Rp20 B. See spec apinrdw/kumora#517, "Alerts".
@@ -24,7 +50,7 @@ export type AlertScope =
 
 export interface AlertRule {
   readonly id: string
-  readonly kinds: ReadonlyArray<BookEventKind>
+  readonly kinds: ReadonlyArray<AlertKind>
   readonly scope: AlertScope
   readonly minValue: MinValue
 }
@@ -68,31 +94,139 @@ const levelValueOf = (event: BookEvent) =>
     }
   })
 
+// A rule's minimum value holds only a book event, the one kind with a level
+// or wall to value.
+const valueHolds = (rule: AlertRule, event: AlertEvent) =>
+  isHeavySideChange(event)
+    ? Effect.succeed(true)
+    : Effect.map(levelValueOf(event), (value) => value >= rule.minValue)
+
 export const ruleMatches = Effect.fnUntraced(function* (
   rule: AlertRule,
-  event: BookEvent,
+  event: AlertEvent,
   context: MatchContext
 ) {
   return (
     rule.kinds.includes(event.kind) &&
     !context.excluded(event.code) &&
     (yield* inScope(rule.scope, event.code, context)) &&
-    (yield* levelValueOf(event)) >= rule.minValue
+    (yield* valueHolds(rule, event))
   )
 })
 
 // An alert's title names a wall's kind in full: the list's "Pulled" chip
 // sits beside its wall, a toast stands alone.
-export const ALERT_KIND_NAMES: Readonly<Record<BookEventKind, string>> = {
-  ...BOOK_EVENT_NAMES,
-  pulled: "Wall pulled",
+const BOOK_EVENT_ALERT_NAMES = { ...BOOK_EVENT_NAMES, pulled: "Wall pulled" }
+
+const HEAVY_SIDE_ALERT_NAMES = {
+  bigOrders: "Big orders",
+  smallOrders: "Small orders",
 }
 
-// "BBCA · Wall pulled on the bid".
-export const alertTitle = (event: BookEvent) =>
-  Effect.sync(
-    () => `${event.code} · ${ALERT_KIND_NAMES[event.kind]} on the ${event.side}`
+// Each kind's name, in the rule editor's order: book events, then heavy
+// side.
+export const ALERT_KIND_NAMES: Readonly<Record<AlertKind, string>> = {
+  ...BOOK_EVENT_ALERT_NAMES,
+  ...HEAVY_SIDE_ALERT_NAMES,
+}
+
+// Whether a rule kind is a book event's: the only kinds a minimum value
+// holds.
+export const isBookEventKind = (kind: AlertKind) => kind in BOOK_EVENT_NAMES
+
+const LEANS = { bid: "Bid-heavy", offer: "Offer-heavy" } as const
+const ORDERS = { bigOrders: "big orders", smallOrders: "small orders" } as const
+
+// "BBCA · Wall pulled on the bid", "BBCA · Offer-heavy with big orders".
+export const alertTitle = (event: AlertEvent) =>
+  Effect.sync(() =>
+    isHeavySideChange(event)
+      ? `${event.code} · ${LEANS[event.side]} with ${ORDERS[event.kind]}`
+      : `${event.code} · ${ALERT_KIND_NAMES[event.kind]} on the ${event.side}`
   )
+
+// A heavy side alert's detail: "−72% · 118 vs 22 lots per order".
+const heavySideDetail = Effect.fnUntraced(function* (change: HeavySideChange) {
+  const imbalance = yield* signed(change.imbalance * 100, 0)
+  const heavy = yield* plain(change.heavyPerOrder, 0)
+  const other = yield* plain(change.otherPerOrder, 0)
+  return `${imbalance}% · ${heavy} vs ${other} lots per order`
+})
+
+// A heavy side alert's key: unique per code, kind, side and time. Market
+// Live's readout picks no event by it.
+const heavySideKey = (change: HeavySideChange) =>
+  Effect.sync(
+    () =>
+      `${change.code}|${change.kind}|${change.side}|${DateTime.toEpochMillis(change.at)}`
+  )
+
+// The alert told for an event: its key, title and detail.
+export const alertOf = Effect.fnUntraced(function* (event: AlertEvent) {
+  const heavy = isHeavySideChange(event)
+  return {
+    key: heavy ? yield* heavySideKey(event) : yield* bookEventKey(event),
+    code: event.code,
+    side: event.side,
+    title: yield* alertTitle(event),
+    detail: heavy
+      ? yield* heavySideDetail(event)
+      : yield* bookEventDetail(event),
+    at: DateTime.toEpochMillis(event.at),
+  } satisfies Alert
+})
+
+// Each code's heavy side tag as of the readings heard so far; a code
+// missing has none.
+export type HeavySideTags = ReadonlyMap<StockCode, HeavySide>
+
+const changeOf = (
+  readings: BookReadings,
+  heavy: HeavySide
+): HeavySideChange => {
+  const [mine, other] =
+    heavy.side === "bid"
+      ? [readings.bid, readings.offer]
+      : [readings.offer, readings.bid]
+  return {
+    kind: heavy.orders === "big" ? "bigOrders" : "smallOrders",
+    code: readings.code,
+    at: readings.at,
+    side: heavy.side,
+    imbalance: readings.imbalance ?? 0,
+    heavyPerOrder: mine.lotsPerOrder ?? 0,
+    otherPerOrder: other.lotsPerOrder ?? 0,
+  }
+}
+
+// The tags after `readings`, and each code whose tag became big or small
+// orders: from none, the other tag, or the other side's. A tag that stays,
+// or goes to none, is no change. `pricesOf` tells a code at a limit, which
+// has no tag.
+export const heavySideChanges = Effect.fnUntraced(function* (
+  tags: HeavySideTags,
+  readings: ReadonlyArray<BookReadings>,
+  pricesOf: (code: StockCode) => CodePrices | undefined
+) {
+  const next = new Map(tags)
+  const changes: Array<HeavySideChange> = []
+  for (const each of readings) {
+    const prices = pricesOf(each.code) ?? {
+      last: undefined,
+      previousClose: undefined,
+    }
+    const heavy = yield* heavySideOf(each, yield* limitOf(each, prices))
+    const before = tags.get(each.code)
+    if (heavy === undefined) {
+      next.delete(each.code)
+      continue
+    }
+    next.set(each.code, heavy)
+    if (before?.side !== heavy.side || before.orders !== heavy.orders)
+      changes.push(changeOf(each, heavy))
+  }
+  return { tags: next as HeavySideTags, changes }
+})
 
 // Decision: the same code and kind alert at most once in 2 minutes, and at
 // most 6 alerts a minute; the rest of that minute fold into one count. See
@@ -126,7 +260,7 @@ const FORGET_MS = 1_800_000
 // limits after it.
 export const admitAlert = (
   limits: AlertLimits,
-  event: BookEvent,
+  event: AlertEvent,
   now: number
 ) =>
   Effect.sync((): { verdict: AlertVerdict; limits: AlertLimits } => {
@@ -157,10 +291,11 @@ export const admitAlert = (
 
 // One alert as the bell lists it.
 export interface Alert {
-  // The event's key (lib/book-events.ts), which Open picks on Market Live.
+  // The event's key (lib/book-events.ts, or `heavySideKey`), which Open
+  // picks on Market Live when it is a book event's.
   readonly key: string
   readonly code: StockCode
-  readonly side: BookEvent["side"]
+  readonly side: AlertEvent["side"]
   readonly title: string
   readonly detail: string
   // The event's time.

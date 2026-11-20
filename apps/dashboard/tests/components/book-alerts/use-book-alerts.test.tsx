@@ -1,5 +1,10 @@
 // @vitest-environment happy-dom
-import { StockCode, type BookEvent, type ViewerDown } from "@workspace/relay"
+import {
+  StockCode,
+  type BookEvent,
+  type BookReadings,
+  type ViewerDown,
+} from "@workspace/relay"
 import { DateTime } from "effect"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
@@ -281,4 +286,112 @@ test("a page reloaded within the minute keeps its count of 6", async () => {
   expect(toasts.told.at(-1), "the seventh alert of the minute folds").toBe(
     "+1 more alerts this minute"
   )
+})
+
+// BBCA's readings at `at`: offer-heavy with big orders, or untagged.
+const readingsAt = (at: number, tagged: boolean): BookReadings => ({
+  code: StockCode.make("BBCA"),
+  at: DateTime.makeUnsafe(at),
+  imbalance: tagged ? -0.72 : 0.1,
+  bid: { lots: tagged ? 1_400 : 5_500, lotsPerOrder: 22 },
+  offer: { lots: tagged ? 8_600 : 4_500, lotsPerOrder: 118 },
+})
+
+// A delta carrying BBCA's readings at `at`, half a second after them.
+const readingsDelta = (at: number, tagged: boolean): ViewerDown => ({
+  _tag: "Delta",
+  at: DateTime.makeUnsafe(at + 500),
+  tape: [],
+  candles: [],
+  bookReadings: [readingsAt(at, tagged)],
+})
+
+// A browser with Web Locks and one rule on BBCA of `kinds`.
+const browserWith = (kinds: ReadonlyArray<string>, codes = ["BBCA"]) => {
+  browser()
+  window.localStorage.setItem(
+    "kumora:book-alerts:rules",
+    JSON.stringify([
+      { id: "rule", kinds, scope: { _tag: "codes", codes }, minValue: 20e9 },
+    ])
+  )
+}
+
+test("a heavy side tag alerts when it appears, and not while it stays", async () => {
+  browserWith(["bigOrders"])
+  const radar = await openTab()
+  act(() => {
+    radar.hear(readingsDelta(T0, false))
+    radar.hear(readingsDelta(T0 + 1_000, true))
+  })
+  await settle()
+  act(() => radar.hear(readingsDelta(T0 + 180_000, true)))
+  await settle()
+  expect(toasts.told, "one alert, past the minimum value").toEqual([
+    "BBCA · Offer-heavy with big orders",
+  ])
+})
+
+test("a tag going to none and back within 2 minutes alerts once", async () => {
+  browserWith(["bigOrders"])
+  const radar = await openTab()
+  act(() => {
+    radar.hear(readingsDelta(T0, true))
+    radar.hear(readingsDelta(T0 + 30_000, false))
+    radar.hear(readingsDelta(T0 + 60_000, true))
+  })
+  await settle()
+  expect(toasts.told, "the return cools").toHaveLength(1)
+  act(() => {
+    radar.hear(readingsDelta(T0 + 150_000, false))
+    radar.hear(readingsDelta(T0 + 160_000, true))
+  })
+  await settle()
+  expect(toasts.told, "a return past 2 minutes alerts again").toHaveLength(2)
+})
+
+test("a tag the page opened on doesn't alert", async () => {
+  browserWith(["bigOrders"])
+  const radar = await openTab()
+  const snapshot = {
+    _tag: "Snapshot",
+    at: DateTime.makeUnsafe(T0 + 500),
+    bookReadings: [readingsAt(T0, true)],
+  } as unknown as ViewerDown
+  act(() => {
+    radar.hear(snapshot)
+    radar.hear(readingsDelta(T0 + 1_000, true))
+  })
+  await settle()
+  expect(toasts.told).toEqual([])
+})
+
+test("heavy side alerts share the minute's count with book events", async () => {
+  const codes = ["AALI", "ADRO", "ANTM", "ASII", "BBNI", "BBRI", "BBCA"]
+  browserWith(["eaten", "bigOrders"], codes)
+  const radar = await openTab()
+  act(() => {
+    for (const [i, code] of codes.slice(0, 6).entries())
+      radar.hear(
+        deltaOf({
+          ...eaten,
+          code: StockCode.make(code),
+          at: DateTime.makeUnsafe(T0 + i * 1_000),
+        })
+      )
+  })
+  await settle()
+  act(() => radar.hear(readingsDelta(T0 + 6_000, true)))
+  await settle()
+  expect(toasts.told.at(-1), "the heavy side alert folds").toBe(
+    "+1 more alerts this minute"
+  )
+})
+
+test("a recorded day's page never tells a heavy side alert", async () => {
+  browserWith(["bigOrders"])
+  const recorded = await openTab(false)
+  act(() => recorded.hear(readingsDelta(T0, true)))
+  await settle()
+  expect(toasts.told).toEqual([])
 })
