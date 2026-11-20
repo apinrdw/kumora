@@ -430,12 +430,17 @@ const sweepBrokersWorker = (
   return { asked, client, turnCold }
 }
 
+// 00:00 WIB the night after DAY, when the evening walks that give its trades
+// order numbers have stopped.
+const DAY_END = Date.parse("2026-11-09T17:00:00Z")
+
 describe("following a recorded day's sweep brokers", () => {
   it.effect(
     "while incomplete, asks again every 30 s past the browser's copy, and stops once complete",
     () => {
       const brokersFrom = sweepBrokersWorker(3)
       return Effect.gen(function* () {
+        yield* TestClock.setTime(DAY_END)
         const shown: Array<
           [sweeps: number, complete: boolean, asksAgain: boolean]
         > = []
@@ -463,6 +468,7 @@ describe("following a recorded day's sweep brokers", () => {
   it.effect("a failed first ask is asked again 30 s later", () => {
     const brokersFrom = sweepBrokersWorker(2, 1)
     return Effect.gen(function* () {
+      yield* TestClock.setTime(DAY_END)
       const shown: Array<
         [sweeps: number, complete: boolean, asksAgain: boolean]
       > = []
@@ -573,11 +579,39 @@ describe("following a recorded day's sweep brokers", () => {
   it.effect("asks once for a day already complete", () => {
     const brokersFrom = sweepBrokersWorker(1)
     return Effect.gen(function* () {
+      yield* TestClock.setTime(DAY_END)
       yield* Effect.forkChild(followSweepBrokers(DAY, BBCA, () => {}))
       yield* TestClock.adjust("5 minutes")
       assert.deepStrictEqual(brokersFrom.asked, [false])
     }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
   })
+
+  it.effect(
+    "keeps asking a complete day every 30 s until 00:00 WIB after it, as its order numbers may still land",
+    () => {
+      const brokersFrom = sweepBrokersWorker(1)
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(DAY_END - 60_000)
+        const shown: Array<
+          [sweeps: number, complete: boolean, asksAgain: boolean]
+        > = []
+        yield* Effect.forkChild(
+          followSweepBrokers(DAY, BBCA, (answer, asksAgain) =>
+            shown.push([answer.sweeps.length, answer.complete, asksAgain])
+          )
+        )
+        yield* TestClock.adjust("30 seconds")
+        yield* TestClock.adjust("30 seconds")
+        yield* TestClock.adjust("5 minutes")
+        assert.deepStrictEqual(brokersFrom.asked, [false, true, true])
+        assert.deepStrictEqual(shown, [
+          [1, true, true],
+          [2, true, true],
+          [3, true, false],
+        ])
+      }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
+    }
+  )
 })
 
 describe("a recorded day's GETs", () => {
