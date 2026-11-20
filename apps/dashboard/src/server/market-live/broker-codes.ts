@@ -483,6 +483,9 @@ interface Merged {
   // whose source byte alone changed, as the cross-check marks it, is not
   // one.
   readonly changed: Array<TradeNumber>
+  // Whether the batch changed a trade's kept codes, not only its order
+  // numbers.
+  codesChanged: boolean
   // The order number chunks the batch's order numbers touched, and the
   // day's counts after them; none when it carried none.
   readonly orders: Map<number, Uint8Array>
@@ -799,6 +802,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       facts: [],
       fields: [],
       changed: [],
+      codesChanged: false,
       orders: new Map(),
       orderCounts: Option.none(),
     }
@@ -840,8 +844,10 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         batch.feed === "Ajaib"
           ? yield* mergeAjaib(held, at, bytes, yield* stockbitOf(number, chunk))
           : yield* mergeStockbit(held, at, bytes)
-      if (!(yield* sameCodes(before, 0, held.subarray(at, at + SOURCE))))
+      if (!(yield* sameCodes(before, 0, held.subarray(at, at + SOURCE)))) {
         merged.changed.push(tradeNumber)
+        merged.codesChanged = true
+      }
       if (outcome === "agreed") {
         merged.agreed.add(number)
         merged.differences.delete(number)
@@ -1025,8 +1031,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       )
     // Whether the batch corrected the day: changed a trade's kept codes,
     // filled its fields, or raised N, which a built day's missing count
-    // reads.
-    return merged.changed.length > 0 || filled || raisesN(merged)
+    // reads. Order numbers alone regroup only the sweep brokers above: the
+    // broker totals read none. See spec apinrdw/kumora#627, "Slice 2".
+    return merged.codesChanged || filled || raisesN(merged)
   })
 
   // One trade's record, its chunk read once into `chunks`; none when the day

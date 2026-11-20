@@ -530,6 +530,21 @@ describe("a built day's correction", () => {
   )
 
   it.effect(
+    "is not a batch that changes only order numbers: the day stays built, no rebuild set",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        const day = yield* builtDay(db)
+        yield* at("18:00:00")
+        yield* day.brokerCodes("Ajaib", [[2, "AK D YP D", null, [101, 202]]])
+        yield* day.brokerCodes("Ajaib", [[2, "AK D YP D", null, [101, 203]]])
+        yield* at("18:05:00")
+        yield* day.alarm
+        assert.deepStrictEqual(yield* read(db, UNTR), UNTR_BUILT)
+      })
+  )
+
+  it.effect(
     "that fills a trade's fields alone rebuilds the day, a gap while its codes-only trade waited",
     () =>
       Effect.gen(function* () {
