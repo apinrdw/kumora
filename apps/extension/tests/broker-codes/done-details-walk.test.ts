@@ -312,6 +312,52 @@ const marketDetails = () => {
   return details
 }
 
+// BBCA's trades at 10:23:18 tied on one key (board, price, lots and
+// brokers), each numbered and sided, and their Done Details rows by buy and
+// sell order.
+const tied = (number: string, side: KeptTrade["side"]): KeptTrade => ({
+  ...HOPE_TRADES[1]!,
+  number: TradeNumber.make(number),
+  code: StockCode.make("BBCA"),
+  second: "10:23:18",
+  side,
+})
+const tiedDetail = (buy: number, sell: number) => ({
+  ...HOPE_DETAILS[0]!,
+  time: "10:23:18",
+  code: "BBCA",
+  buyer: {
+    ...HOPE_DETAILS[0]!.buyer,
+    order_id: `20261120${String(buy).padStart(10, "0")}`,
+    broker_code: HOPE_TRADES[1]!.codes.buyer,
+  },
+  seller: {
+    ...HOPE_DETAILS[0]!.seller,
+    order_id: `20261120${String(sell).padStart(10, "0")}`,
+    broker_code: HOPE_TRADES[1]!.codes.seller,
+  },
+  board: HOPE_TRADES[1]!.board,
+  price: HOPE_TRADES[1]!.price,
+  qty: HOPE_TRADES[1]!.lots,
+})
+// The order numbers the walk posts for kept `trades` from BBCA's `rows`, by
+// trade number.
+const tiedOrders = Effect.fnUntraced(function* (
+  trades: ReadonlyArray<KeptTrade>,
+  rows: ReadonlyArray<unknown>
+) {
+  yield* evening
+  const { store } = yield* keptStore(trades)
+  const production = fakeProduction()
+  const walk = yield* walkWith(
+    fakeAjaib({ details: { BBCA: rows } }),
+    store,
+    production
+  )
+  yield* walk.walk(DAY)
+  return production.orders()
+})
+
 describe("the Done Details walk", () => {
   it.effect(
     "gives 1,311 of HOPE's 1,312 trades Ajaib's order numbers, as Stockbit reads them",
@@ -424,45 +470,51 @@ describe("the Done Details walk", () => {
     "gives tied trades on opposite sides the orders whose larger number is their aggressor's, whatever Ajaib's order",
     () =>
       Effect.gen(function* () {
-        yield* evening
-        const tied = (number: string, side: KeptTrade["side"]): KeptTrade => ({
-          ...HOPE_TRADES[1]!,
-          number: TradeNumber.make(number),
-          code: StockCode.make("BBCA"),
-          side,
-        })
-        const detail = (buy: number, sell: number) => ({
-          ...HOPE_DETAILS[0]!,
-          time: "10:23:18",
-          code: "BBCA",
-          buyer: {
-            ...HOPE_DETAILS[0]!.buyer,
-            order_id: `20261120${String(buy).padStart(10, "0")}`,
-            broker_code: HOPE_TRADES[1]!.codes.buyer,
-          },
-          seller: {
-            ...HOPE_DETAILS[0]!.seller,
-            order_id: `20261120${String(sell).padStart(10, "0")}`,
-            broker_code: HOPE_TRADES[1]!.codes.seller,
-          },
-          board: HOPE_TRADES[1]!.board,
-          price: HOPE_TRADES[1]!.price,
-          qty: HOPE_TRADES[1]!.lots,
-        })
-        const { store } = yield* keptStore([
-          { ...tied("1", "buy"), second: "10:23:18" },
-          { ...tied("2", "sell"), second: "10:23:18" },
-        ])
-        const production = fakeProduction()
         // The sell's row first: buy order 102 hit by sell order 105.
-        const tab = fakeAjaib({
-          details: { BBCA: [detail(102, 105), detail(100, 90)] },
-        })
-        const walk = yield* walkWith(tab, store, production)
-        yield* walk.walk(DAY)
-        const orders = production.orders()
+        const orders = yield* tiedOrders(
+          [tied("1", "buy"), tied("2", "sell")],
+          [tiedDetail(102, 105), tiedDetail(100, 90)]
+        )
         assert.deepStrictEqual(orders.get("1"), orderPair(100, 90))
         assert.deepStrictEqual(orders.get("2"), orderPair(102, 105))
+      })
+  )
+
+  it.effect(
+    "gives one side's tied trades with no other trade of the code between them its rows in order of their aggressor orders",
+    () =>
+      Effect.gen(function* () {
+        const orders = yield* tiedOrders(
+          [tied("1", "buy"), tied("2", "buy")],
+          [tiedDetail(102, 50), tiedDetail(100, 50)]
+        )
+        assert.deepStrictEqual(orders.get("1"), orderPair(100, 50))
+        assert.deepStrictEqual(orders.get("2"), orderPair(102, 50))
+      })
+  )
+
+  // Trades 1 and 2 are one whole sweep, 4 another: their rows can't be told
+  // apart by key, so none of them is given one.
+  it.effect(
+    "leaves one side's tied trades unmatched when another trade of the code falls between them",
+    () =>
+      Effect.gen(function* () {
+        const orders = yield* tiedOrders(
+          [
+            tied("1", "buy"),
+            tied("2", "buy"),
+            tied("3", "sell"),
+            tied("4", "buy"),
+          ],
+          [
+            tiedDetail(900, 50),
+            tiedDetail(101, 905),
+            tiedDetail(102, 50),
+            tiedDetail(100, 50),
+          ]
+        )
+        assert.deepStrictEqual([...orders.keys()], ["3"])
+        assert.deepStrictEqual(orders.get("3"), orderPair(101, 905))
       })
   )
 
