@@ -245,6 +245,57 @@ test("Rank by orders each half in both directions, never mixing them", async ({
   relay.close()
 })
 
+test("Heavy side tags lopsided rows, filters the halves and ranks them", async ({
+  page,
+}) => {
+  // Bid-heavy +80%: 450 lots per order against 50, big orders; 900 lots
+  // in 60 orders against 50, small orders; and +20%, untagged.
+  const big = freshCode("RH")
+  const small = freshCode("RH")
+  const untagged = freshCode("RH")
+  const relay = await openIngest()
+  await relay.sendStockbit([
+    ...book(big, 900, 100),
+    stockbitOrderBookFrame(small, "BID", [[1000, 60, 900]]),
+    stockbitOrderBookFrame(small, "OFFER", [[1005, 2, 100]]),
+    ...book(untagged, 150, 100),
+  ])
+  await withFigures(page, {
+    [big]: { previousValue: 2e9 },
+    [small]: { previousValue: 2e9 },
+    [untagged]: { previousValue: 2e9 },
+  })
+  await page.goto(`${DASHBOARD}${PAGE}`)
+  await search(page, "RH")
+  const row = (code: string) =>
+    half(page, "Bid-heavy").locator(`[data-code="${code}"]`)
+  await expect(row(big).getByLabel("Heavy side")).toHaveText("big orders")
+  await expect(row(small).getByLabel("Heavy side")).toHaveText("small orders")
+  await expect(row(untagged).getByLabel("Heavy side")).toHaveCount(0)
+  await pickRank(page, "Heavy side")
+  await expect
+    .poll(() => codesOf(page, "Bid-heavy"))
+    .toEqual([big, small, untagged])
+  await expect(row(big).getByLabel("Ranked by")).toHaveText("9.0×")
+  const pickHeavySide = async (label: string) => {
+    await page.getByRole("combobox", { name: "Heavy side" }).click()
+    await page.getByRole("option", { name: label, exact: true }).click()
+  }
+  await pickHeavySide("Big orders")
+  await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([big])
+  await pickHeavySide("Small orders")
+  await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([small])
+  // Kept in this browser.
+  await page.reload()
+  await search(page, "RH")
+  await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([small])
+  await pickHeavySide("Any")
+  await expect
+    .poll(() => codesOf(page, "Bid-heavy"))
+    .toEqual([big, small, untagged])
+  relay.close()
+})
+
 test("the order holds while the pointer is on the list and re-sorts after", async ({
   page,
 }) => {
