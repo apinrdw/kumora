@@ -368,13 +368,12 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
   // minute setting it, again, for that side only: as if the trade had
   // arrived before the minute was folded, which is how a restart replays
   // it. A move in a minute the window no longer holds, an auction minute's
-  // or one over PUSH_MINUTES back, is not judged.
+  // or one over PUSH_MINUTES back, is not judged. Rules read a minute judged
+  // again from its window entry, so Failed break counts its value once.
   // Decision: a late trade's new high or low is judged once, at the next
-  // judge, as the minute it traded in, rather than left unjudged or credited
-  // to a later minute: its event then matches the one a restart's replay
-  // finds. Rules read a minute judged again from its window entry, so
-  // Failed break counts its value once. See spec apinrdw/kumora#605, "Order
-  // flow events: the rules" ("Each new high is judged once").
+  // judge, as the minute it traded in, not left unjudged or credited to a
+  // later minute: its event matches the one a restart's replay finds. See
+  // spec apinrdw/kumora#605, "Order flow events: the rules".
   const judgeLate = Effect.fnUntraced(function* (
     code: StockCode,
     flow: CodeFlow,
