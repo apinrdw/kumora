@@ -360,7 +360,7 @@ const tiedOrders = Effect.fnUntraced(function* (
 
 describe("the Done Details walk", () => {
   it.effect(
-    "gives 1,311 of HOPE's 1,312 trades Ajaib's order numbers, as Stockbit reads them",
+    "gives 1,230 of HOPE's 1,312 trades Ajaib's order numbers, each as Stockbit reads it",
     () =>
       Effect.gen(function* () {
         yield* evening
@@ -370,41 +370,35 @@ describe("the Done Details walk", () => {
         const walk = yield* walkWith(tab, store, production)
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
         const orders = production.orders()
-        assert.strictEqual(orders.size, 1_311)
-        // Tied trades (same second, board, price, lots and brokers) take
-        // their key's orders in any order, so each key's set is compared.
-        const ties = new Map<string, Array<string>>()
-        for (const trade of HOPE_TRADES) {
-          const tie = JSON.stringify([
+        assert.strictEqual(orders.size, 1_230)
+        for (const [number, posted] of orders)
+          assert.deepStrictEqual(posted, STOCKBIT.get(number)?.orders)
+        // The one RG trade Ajaib's route doesn't list, and 81 trades tied on
+        // their second, board, price, lots, brokers and side with another
+        // that a trade of HOPE falls between.
+        const tieOf = (trade: KeptTrade) =>
+          JSON.stringify([
             trade.second,
             trade.board,
             trade.price,
             trade.lots,
             trade.codes.buyer,
             trade.codes.seller,
+            trade.side,
           ])
-          ties.set(tie, [...(ties.get(tie) ?? []), trade.number])
-        }
-        const sorted = (all: ReadonlyArray<unknown>) =>
-          all.map((each) => JSON.stringify(each)).sort()
-        for (const numbers of ties.values()) {
-          const posted = numbers.flatMap((number) =>
-            Option.toArray(Option.fromNullishOr(orders.get(number)))
-          )
-          if (posted.length === 0) continue
-          assert.deepStrictEqual(
-            sorted(posted),
-            sorted(numbers.map((number) => STOCKBIT.get(number)?.orders))
-          )
-        }
-        // The one RG trade Ajaib's route doesn't list.
+        const ties = new Map<string, number>()
+        for (const trade of HOPE_TRADES)
+          ties.set(tieOf(trade), (ties.get(tieOf(trade)) ?? 0) + 1)
         const unmatched = HOPE_TRADES.filter(
           (trade) => !orders.has(trade.number)
         )
         assert.deepStrictEqual(
-          unmatched.map((trade) => trade.second),
+          unmatched
+            .filter((trade) => ties.get(tieOf(trade)) === 1)
+            .map((trade) => trade.second),
           ["09:47:59"]
         )
+        assert.lengthOf(unmatched, 82)
         // Two pages of 1,000 for HOPE.
         assert.deepStrictEqual(
           tab.paths.map((path) => [
@@ -609,7 +603,7 @@ describe("the Done Details walk", () => {
       )
       yield* walk.walk(DAY)
       const orders = production.orders()
-      assert.strictEqual(orders.size, 1_310)
+      assert.strictEqual(orders.size, 1_229)
       const doubled = HOPE_TRADES.filter(
         (trade) => trade.second === "15:48:34" && trade.lots === 213
       )
@@ -703,7 +697,7 @@ describe("the Done Details walk", () => {
           second.paths.map((path) => paramOf(path, "page")),
           ["2"]
         )
-        assert.strictEqual(production.orders().size, 1_311)
+        assert.strictEqual(production.orders().size, 1_230)
       })
   )
 
@@ -742,7 +736,7 @@ describe("the Done Details walk", () => {
         tab.paths.map((path) => paramOf(path, "page")),
         ["1", "1", "2"]
       )
-      assert.strictEqual(production.orders().size, 1_311)
+      assert.strictEqual(production.orders().size, 1_230)
       assert.isAtLeast(yield* Clock.currentTimeMillis, wib("17:30:10"))
     })
   )

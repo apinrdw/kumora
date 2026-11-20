@@ -276,11 +276,43 @@ const tradeGroups = Effect.fnUntraced(function* (
   return groups
 })
 
-// Decision: a side group (one key's one side) whose rows and kept trades
-// are as many gives the rows' order numbers to its trades in any order:
-// tied trades are interchangeable only within one side. A group whose
-// counts differ, or a row with no trade, gives nothing. See
-// apinrdw/kumora#622 and #632.
+// Whether `tied` are one run of the code's kept trades: none of `trades`
+// lies between them in trade order.
+const oneRun = (
+  trades: ReadonlyArray<KeptTrade>,
+  tied: ReadonlyArray<KeptTrade>
+) =>
+  Effect.sync(() => {
+    const numbers = tied.map(({ number }) => Number(number))
+    const first = Math.min(...numbers)
+    const last = Math.max(...numbers)
+    return trades.every(({ number }) => {
+      const n = Number(number)
+      return n < first || n > last || numbers.includes(n)
+    })
+  })
+
+// A side group's rows in order of their aggressor orders, the larger of
+// each row's pair, then of their passive orders.
+const byAggressor = (rows: ReadonlyArray<DetailRow>) =>
+  Effect.sync(() =>
+    rows.toSorted(
+      (a, b) =>
+        Math.max(a.buy, a.sell) - Math.max(b.buy, b.sell) ||
+        Math.min(a.buy, a.sell) - Math.min(b.buy, b.sell)
+    )
+  )
+
+// Decision: a side group (one key's one side) gives its rows' order numbers
+// to its kept trades only when they are as many and the trades are one run,
+// no other kept trade of the code between them in trade order. A run is one
+// aggressor broker's part of one whole sweep, so which tied trade takes
+// which row changes no order run; they take the rows in trade order and
+// aggressor order alike. Tied trades another trade splits may be two whole
+// sweeps the key can't tell apart: they get nothing, nor does a group whose
+// counts differ, and Stockbit's walk, which reads trade numbers, gives
+// theirs. A trade the tape walk kept no fields for is unseen between them.
+// See apinrdw/kumora#622 and #632.
 const matched = Effect.fnUntraced(function* (
   trades: ReadonlyArray<KeptTrade>,
   rows: ReadonlyArray<DetailRow>
@@ -289,9 +321,14 @@ const matched = Effect.fnUntraced(function* (
   const found: Array<MatchedTrade> = []
   for (const [at, tied] of yield* tradeGroups(trades)) {
     const groupRows = byGroup.get(at) ?? []
-    if (groupRows.length !== tied.length) continue
-    for (const [index, { number, codes }] of tied.entries()) {
-      const { buy, sell } = groupRows[index]!
+    if (groupRows.length !== tied.length || !(yield* oneRun(trades, tied)))
+      continue
+    const inOrder = yield* byAggressor(groupRows)
+    const tradesInOrder = tied.toSorted(
+      (a, b) => Number(a.number) - Number(b.number)
+    )
+    for (const [index, { number, codes }] of tradesInOrder.entries()) {
+      const { buy, sell } = inOrder[index]!
       found.push({ number, codes, buy, sell })
     }
   }
