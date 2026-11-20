@@ -18,7 +18,9 @@ import { makeFiguresStore } from "@/components/order-book-radar/figures-store"
 import { useRadarSettings } from "@/components/order-book-radar/use-radar-settings"
 import {
   admitAlert,
+  alertLink,
   alertOf,
+  alertRises,
   heavySideChanges,
   ruleMatches,
   withAlert,
@@ -133,10 +135,11 @@ const tellAlert = Effect.fnUntraced(function* (
       { body: alert.detail, tag: alert.key },
       () => open(alert)
     )
-  const tone = alert.side === "bid" ? kToast.success : kToast.error
+  const rises = alertRises(alert)
+  const tone = rises ? kToast.success : kToast.error
   yield* tone(alert.title, {
     description: alert.detail,
-    icon: alert.side === "bid" ? IconArrowUp : IconArrowDown,
+    icon: rises ? IconArrowUp : IconArrowDown,
     duration: ALERT_MS,
     action: { label: "Open", onClick: () => open(alert) },
   })
@@ -163,8 +166,9 @@ const admitAll = Effect.fnUntraced(function* (
 
 /**
  * Tells this browser's alert rules' matches among a live page's book events
- * (spec apinrdw/kumora#517, "Alerts") and heavy side changes (spec
- * apinrdw/kumora#605, "Heavy side alerts"), once per browser from the page that
+ * (spec apinrdw/kumora#517, "Alerts"), order flow events and heavy side
+ * changes (spec apinrdw/kumora#605, "Order flow alerts" and "Heavy side
+ * alerts"), once per browser from the page that
  * holds the alert lock (use-alert-owner.ts): a toast on the visible page, a
  * notification from a background tab. The page feeds it every message of
  * its viewer socket; only a delta's new events alert, and a tag a delta's
@@ -199,7 +203,7 @@ export function useBookAlerts(live = true) {
     (alert: Alert) =>
       void navigate({
         to: "/market-live",
-        search: { code: alert.code, event: alert.key },
+        search: Effect.runSync(alertLink(alert)),
       }),
     [navigate]
   )
@@ -222,7 +226,11 @@ export function useBookAlerts(live = true) {
       )
       tags.current = changes.tags
       if (message._tag !== "Delta") return
-      const events = [...(message.bookEvents ?? []), ...changes.changes]
+      const events: ReadonlyArray<AlertEvent> = [
+        ...(message.bookEvents ?? []),
+        ...(message.orderFlowEvents ?? []),
+        ...changes.changes,
+      ]
       const rules = alertRules.get()
       if (events.length === 0 || rules.length === 0 || !owns.current) return
       const now = DateTime.toEpochMillis(message.at)
