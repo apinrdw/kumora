@@ -24,6 +24,7 @@ export {
   fetchRecordedCandles,
   fetchRecordedGaps,
   fetchRecordedBookEvents,
+  fetchRecordedOrderFlowEvents,
   fetchRecordedHeatmap,
   followSweepBrokers,
   fetchRecordedSweeps,
