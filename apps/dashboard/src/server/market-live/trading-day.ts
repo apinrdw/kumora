@@ -1963,9 +1963,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // Whether the day still takes broker codes, as its sweep brokers answer
   // tells a follower (followSweepBrokers): until its move's first step.
-  // Decision: with no cold storage a day never moves, so it takes codes
-  // until ten trading days came after it (`pastWindow`), when the
-  // extension's run stops asking it, and a follower stops too. See PR #632.
+  // Decision: with no cold storage a day never moves and writes codes for
+  // good, but tells a follower it takes them only while hot (`pastWindow`),
+  // as a cold stage would: codes a still-incomplete older day gets later
+  // show on the page's next load, not live. See PR #632.
   const takesCodes =
     options.cold === undefined
       ? Effect.map(
