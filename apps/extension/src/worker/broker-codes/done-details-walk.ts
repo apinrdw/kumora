@@ -6,6 +6,7 @@
 import {
   BATCH_ROWS,
   Board,
+  BrokerCode,
   BrokerCodesProtocolVersion,
   OrderNumber,
   StockCode,
@@ -122,20 +123,20 @@ const DetailKeyRow = Schema.Struct({
   board: Board,
   price: Schema.Finite,
   qty: Schema.Finite,
-  buyer: Schema.Struct({ broker_code: Schema.String }),
-  seller: Schema.Struct({ broker_code: Schema.String }),
+  buyer: Schema.Struct({ broker_code: BrokerCode }),
+  seller: Schema.Struct({ broker_code: BrokerCode }),
 })
 const decodePage = Schema.decodeUnknownOption(DetailsPage)
 const decodeKeyRow = Schema.decodeUnknownOption(DetailKeyRow)
 
 const keyOf = (fields: {
-  readonly code: string
+  readonly code: StockCode
   readonly second: string
-  readonly board: string
+  readonly board: typeof Board.Type
   readonly price: number
   readonly lots: number
-  readonly buyer: string
-  readonly seller: string
+  readonly buyer: BrokerCode
+  readonly seller: BrokerCode
 }) =>
   Effect.succeed(
     [
