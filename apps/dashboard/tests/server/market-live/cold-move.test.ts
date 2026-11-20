@@ -25,7 +25,11 @@ const at = (wall: string) =>
 // write to a broker totals DB. `bucketReads` counts each time the day reads
 // its bucket.
 const sealedDay = Effect.fnUntraced(function* (
-  recorded: ReadonlyArray<WibDate> = []
+  recorded: ReadonlyArray<WibDate> = [],
+  trades = [
+    stockbitTrade({ number: 1, time: "09:00:10.100", price: 23300, lots: 3 }),
+    stockbitTrade({ number: 2, time: "09:00:20.000", price: 23325, lots: 5 }),
+  ]
 ) {
   yield* at("2026-11-09T09:01:10")
   const index = yield* makeDayIndex(memorySql())
@@ -50,10 +54,7 @@ const sealedDay = Effect.fnUntraced(function* (
         listed.days.some((row) => row.day === date)
       ),
   })
-  yield* day.trades([
-    stockbitTrade({ number: 1, time: "09:00:10.100", price: 23300, lots: 3 }),
-    stockbitTrade({ number: 2, time: "09:00:20.000", price: 23325, lots: 5 }),
-  ])
+  yield* day.trades(trades)
   yield* at("2026-11-09T17:00:00")
   yield* day.alarm
   yield* index.record({ day: DAY, trades: 2, gap: false })
@@ -112,6 +113,71 @@ describe("a sealed day's move to R2", () => {
         yield* dueAlarms(day)
         assert.isTrue(yield* day.emptied)
         assert.isTrue(yield* cold)
+      })
+  )
+
+  // Spec apinrdw/kumora#627: the walks for order numbers run after the tape
+  // walk completes the day, while its move waits for midnight.
+  it.effect(
+    "takes order numbers after its walk completes until its transfer starts at midnight, then none",
+    () =>
+      Effect.gen(function* () {
+        const trades = [3, 4, 5].map((lots, index) =>
+          stockbitTrade({
+            number: index + 1,
+            time: `09:00:10.${100 + index}`,
+            price: 23300,
+            lots,
+            side: "sell",
+          })
+        )
+        const { day, cold } = yield* sealedDay([], trades)
+        yield* at("2026-11-09T17:30:00")
+        const codes = "KZ D AK D"
+        yield* day.brokerCodes(
+          "Ajaib",
+          [
+            [1, codes],
+            [2, codes],
+            [3, codes],
+          ],
+          3
+        )
+        // The build arms the transfer for midnight.
+        yield* day.alarm
+        assert.deepStrictEqual(
+          day.alarms.at(-1),
+          instant("2026-11-10T00:00:00")
+        )
+
+        yield* at("2026-11-09T18:00:00")
+        yield* day.brokerCodes("Ajaib", [
+          [1, codes, null, [900, 1001]],
+          [2, codes, null, [900, 1002]],
+        ])
+        yield* day.brokerCodes("Stockbit", [[3, codes, null, [901, 1003]]])
+        const counts = { ajaib: 2, stockbit: 1, differences: 0 }
+        assert.deepStrictEqual((yield* statusOf(day)).orderNumbers, counts)
+        const { answer } = yield* day.recordedSweepBrokers("UNTR")
+        assert.deepStrictEqual(
+          answer.sweeps.flatMap((sweep) =>
+            sweep.pieces.map((piece) => piece.orders)
+          ),
+          [{ count: 3, first: 1001, last: 1003, biggestPassiveLots: 7 }]
+        )
+
+        // The transfer's first step copies the answers: a batch after it
+        // writes nothing.
+        yield* at("2026-11-10T00:00:00")
+        yield* day.alarm
+        assert.isFalse(yield* day.emptied)
+        yield* day.brokerCodes("Stockbit", [[3, codes, null, [901, 1009]]])
+        assert.deepStrictEqual((yield* statusOf(day)).orderNumbers, counts)
+
+        yield* dueAlarms(day)
+        assert.isTrue(yield* day.emptied)
+        assert.isTrue(yield* cold)
+        assert.deepStrictEqual((yield* statusOf(day)).orderNumbers, counts)
       })
   )
 
