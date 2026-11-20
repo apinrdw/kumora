@@ -341,6 +341,23 @@ describe("Exhaustion", () => {
   )
 })
 
+describe("a day past the baked schedule", () => {
+  it.effect("has no continuous minutes, so nothing is judged", () =>
+    Effect.gen(function* () {
+      const flow = yield* makeOrderFlow(WibDate.make("2025-11-19"))
+      flow.settled(
+        CODE,
+        Date.parse("2025-11-19T09:40:00+07:00"),
+        print(1200, 1, "buy")
+      )
+      assert.deepStrictEqual(
+        yield* flow.judge(Date.parse("2025-11-19T10:00:00+07:00"), []),
+        []
+      )
+    })
+  )
+})
+
 describe("relay gaps", () => {
   it.effect("ignore a 9 s gap in the window", () =>
     Effect.gen(function* () {

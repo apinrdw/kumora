@@ -299,7 +299,11 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
   // and of the minute after its last. Session 1's last second (12:00:00,
   // 11:30:00 on Friday) is no minute of its own.
   const sessions: Array<{ readonly from: number; readonly to: number }> = []
-  for (const phase of yield* marketPhases(date))
+  // A day past the baked schedule has none: nothing is judged on it.
+  const phases = yield* marketPhases(date).pipe(
+    Effect.catchTag("ScheduleYearMissing", () => Effect.succeed([]))
+  )
+  for (const phase of phases)
     if (phase.phase === "session-1" || phase.phase === "session-2") {
       const from = DateTime.toEpochMillis(phase.from)
       const end = DateTime.toEpochMillis(phase.to)
