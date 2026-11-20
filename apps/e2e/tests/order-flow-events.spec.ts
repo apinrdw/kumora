@@ -1,7 +1,8 @@
 // Order flow events on the page, spec apinrdw/kumora#605 ("Order flow
 // events: on the page"): an Exhaustion's row in the radar's Events feed with
 // its ▲E mark, the scanner row's last-event chip, and the row opening Market
-// Live with `?code=&event=`, whose Book readout lists it picked.
+// Live with `?code=&event=`, whose Book readout lists it picked and whose
+// candle and footprint charts mark it, ringed, with its tooltip on hover.
 //
 // The code's book goes through the relay to the Test stage's trading-day
 // object, so the scanner has its row. An Exhaustion needs six minutes of
@@ -10,7 +11,13 @@
 import type { Page } from "@playwright/test"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
-import { freshCode, openIngest } from "../support/ingest"
+import { marketNow, wibTime } from "../support/clock"
+import {
+  ajaibTradeToday,
+  freshCode,
+  freshTradeNumbers,
+  openIngest,
+} from "../support/ingest"
 import { stockbitOrderBookFrame } from "../support/stockbit"
 import { expect, test } from "../support/test"
 
@@ -63,7 +70,7 @@ const withExhaustion = (page: Page, code: string) => {
   })
 }
 
-test("an Exhaustion lists in the radar's feed and chip, and opens on Market Live's readout", async ({
+test("an Exhaustion lists in the radar's feed and chip, and opens on Market Live's readout and charts", async ({
   page,
 }) => {
   const code = freshCode("OF")
@@ -71,6 +78,16 @@ test("an Exhaustion lists in the radar's feed and chip, and opens on Market Live
   await relay.sendStockbit([
     stockbitOrderBookFrame(code, "BID", [[1245, 2, 300]]),
     stockbitOrderBookFrame(code, "OFFER", [[1250, 2, 100]]),
+  ])
+  // One trade, so the charts have a price scale to mark on.
+  await relay.sendAjaib([
+    ajaibTradeToday({
+      seq: freshTradeNumbers() + 1,
+      time: wibTime(marketNow() - 5_000),
+      ticker: code,
+      price: 1250,
+      lot: 1,
+    }),
   ])
   await withExhaustion(page, code)
   await page.goto(`${DASHBOARD}/order-book-radar`)
@@ -100,5 +117,27 @@ test("an Exhaustion lists in the radar's feed and chip, and opens on Market Live
     .getByRole("button", { name: /Buying exhaustion/ })
   await expect(picked).toHaveAttribute("aria-pressed", "true")
   await expect(picked).toContainText("▲E")
+
+  const footprint = page.locator('[data-chart="footprint"]')
+  await expect(footprint).toHaveAttribute("data-order-flow-marks", "1")
+  await expect(footprint).toHaveAttribute("data-picked-order-flow-at", /,/)
+  const candles = page.locator('[data-chart="candles"]')
+  await expect(candles).toHaveAttribute("data-order-flow-marks", "1")
+  await expect(candles).toHaveAttribute("data-picked-order-flow-at", /,/)
+  const [x, y] = (
+    (await candles.getAttribute("data-picked-order-flow-at")) ?? ""
+  )
+    .split(",")
+    .map(Number)
+  await candles.scrollIntoViewIfNeeded()
+  // The mark's centre is in the candle pane's pixels, from the chart's
+  // top left.
+  const shown = (await candles.boundingBox())!
+  await page.mouse.move(shown.x + x!, shown.y + y!)
+  const tip = page.getByRole("tooltip", { name: "Order flow event" })
+  await expect(tip).toContainText("Buying exhaustion at the day's high")
+  await expect(tip).toContainText(
+    "buy-aggressor lots 2,400 → 900 a minute · range 5 → 1 ticks"
+  )
   relay.close()
 })
