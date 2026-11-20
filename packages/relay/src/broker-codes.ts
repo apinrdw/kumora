@@ -121,7 +121,7 @@ export const DayTradeNumber = TradeNumber.check(
 // Decision: at most 2^32 - 1, so the trading-day object keeps each as a
 // uint32 (#624). A day's count reached about 3.1 M by HOPE's last trade on
 // 2026-11-20, three orders of magnitude below it.
-const OrderNumber = Schema.Int.check(
+export const OrderNumber = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: 0xff_ff_ff_ff })
 )
 
