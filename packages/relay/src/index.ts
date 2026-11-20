@@ -135,6 +135,7 @@ export type {
   SweepBroker,
   SweepBrokers,
   SweepPiece,
+  SweepOrders,
   RecordedResource,
   TapeCursor,
 } from "./recorded-day.ts"

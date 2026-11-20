@@ -14,18 +14,20 @@ import {
   sweepsOf,
   type BrokerCode,
   type InvestorType,
+  type OrderNumbers,
   type RunningTrade,
   type Sweep,
   type StockCode,
   type SweepBroker,
   type SweepBrokers,
+  type SweepOrders,
   type SweepPiece,
   type TradeCodes,
   MINUTE_MS,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import type { BrokerCodesStore, HeldCodes } from "./broker-codes.ts"
+import type { BrokerCodesStore, HeldReads } from "./broker-codes.ts"
 import {
   Fact,
   SWEEP_BROKERS_BUILT,
@@ -120,11 +122,18 @@ const PARTIES = {
   { aggressor: TradeParty; other: TradeParty }
 >
 
+// The kept codes and order numbers of a minute's trades, by trade number.
+interface MinuteHeld {
+  readonly codes: ReadonlyMap<TradeNumber, TradeCodes>
+  readonly orders: ReadonlyMap<TradeNumber, OrderNumbers>
+}
+
 // One piece of a whole sweep: its member trades, in trade order, as a sweep
-// of their own, with each side's brokers.
+// of their own, with each side's brokers, and an order run's orders.
 const pieceOf = Effect.fnUntraced(function* (
   trades: ReadonlyArray<RunningTrade>,
-  codes: ReadonlyMap<TradeNumber, TradeCodes>
+  codes: MinuteHeld["codes"],
+  orders?: SweepOrders
 ) {
   // One side and one second: one sweep.
   const [sweep] = yield* sweepsOf(trades)
@@ -144,46 +153,125 @@ const pieceOf = Effect.fnUntraced(function* (
     ...sweep!,
     aggressor: yield* partyOf(parties.aggressor),
     other: yield* partyOf(parties.other),
+    ...(orders === undefined ? {} : { orders }),
   }
   return piece
+})
+
+// Decision: an order run joins one aggressor broker's next aggressor order
+// while its number is at most this far above the previous one's. The
+// order-number count is market-wide, about 113 a second: one sender's
+// bursts step by 1–3, a retail broker's customers in the same second by
+// hundreds. See apinrdw/kumora#621 and its measurement, #620.
+const ORDER_RUN_GAP = 3
+
+// Which of a trade's [buy, sell] order numbers is its aggressor order on
+// each side, the other its passive order's.
+const AGGRESSOR_ORDER = { buy: 0, sell: 1 } as const
+
+// One aggressor broker's trades of a whole sweep split into order runs,
+// each run's trades in trade order with its orders.
+const orderRunsOf = Effect.fnUntraced(function* (
+  trades: ReadonlyArray<RunningTrade>,
+  side: "buy" | "sell",
+  orders: MinuteHeld["orders"]
+) {
+  const aggressorAt = AGGRESSOR_ORDER[side]
+  const numbers = [
+    ...new Set(
+      trades.map((trade) => orders.get(trade.tradeNumber)![aggressorAt])
+    ),
+  ].sort((a, b) => a - b)
+  // Each run's aggressor orders, its trades, and its passive orders' lots.
+  const runs: Array<{
+    readonly numbers: Array<number>
+    readonly trades: Array<RunningTrade>
+    readonly passive: Map<number, number>
+  }> = []
+  const runOf = new Map<number, (typeof runs)[number]>()
+  for (const number of numbers) {
+    const last = runs.at(-1)
+    const joins =
+      last !== undefined && number - last.numbers.at(-1)! <= ORDER_RUN_GAP
+    const into = joins
+      ? last
+      : { numbers: [], trades: [], passive: new Map<number, number>() }
+    if (!joins) runs.push(into)
+    into.numbers.push(number)
+    runOf.set(number, into)
+  }
+  for (const trade of trades) {
+    const held = orders.get(trade.tradeNumber)!
+    const into = runOf.get(held[aggressorAt])!
+    into.trades.push(trade)
+    const passive = held[1 - aggressorAt]!
+    into.passive.set(passive, (into.passive.get(passive) ?? 0) + trade.lots)
+  }
+  return runs.map((run) => ({
+    trades: run.trades,
+    orders: {
+      count: run.numbers.length,
+      first: run.numbers[0]!,
+      last: run.numbers.at(-1)!,
+      biggestPassiveLots: Math.max(...run.passive.values()),
+    } satisfies SweepOrders,
+  }))
+})
+
+// A sided whole sweep's pieces, in trade order: each aggressor broker's
+// members one piece however interleaved, or, when every member has order
+// numbers, each of its order runs one piece.
+const sidedPieces = Effect.fnUntraced(function* (
+  members: ReadonlyArray<RunningTrade>,
+  side: "buy" | "sell",
+  held: MinuteHeld
+) {
+  const aggressor = PARTIES[side].aggressor
+  const byAggressor = new Map<BrokerCode, Array<RunningTrade>>()
+  for (const trade of members) {
+    const code = held.codes.get(trade.tradeNumber)![aggressor]
+    const piece = byAggressor.get(code) ?? []
+    piece.push(trade)
+    byAggressor.set(code, piece)
+  }
+  const pieces: Array<SweepPiece> = []
+  const ordered = members.every((trade) => held.orders.has(trade.tradeNumber))
+  for (const trades of byAggressor.values()) {
+    if (!ordered) {
+      pieces.push(yield* pieceOf(trades, held.codes))
+      continue
+    }
+    for (const run of yield* orderRunsOf(trades, side, held.orders))
+      pieces.push(yield* pieceOf(run.trades, held.codes, run.orders))
+  }
+  return pieces.sort((a, b) => Number(a.firstTrade) - Number(b.firstTrade))
 })
 
 // One code's whole sweeps and auction matches in a minute with their
 // pieces, in trade order. A sweep's members are the next `trades` of the
 // code's trades, and one with any member lacking codes is left out.
 // Decision: a whole sweep splits by aggressor broker, each broker's
-// members one piece however interleaved. An auction match has no
+// members one piece however interleaved; once every member has order
+// numbers, it splits by order run instead. An auction match has no
 // aggressor: one piece. See spec apinrdw/kumora#384, "Where the split
-// happens".
+// happens", and #627, "Slice 2".
 const wholeSweeps = Effect.fnUntraced(function* (
   { trades, sweeps }: CodeMinute,
-  codes: ReadonlyMap<TradeNumber, TradeCodes>
+  held: MinuteHeld
 ) {
   const whole: Array<SweepBrokers> = []
   let next = 0
   for (const sweep of sweeps) {
     const members = trades.slice(next, next + sweep.trades)
     next += sweep.trades
-    if (members.some((trade) => !codes.has(trade.tradeNumber))) continue
-    if (sweep.side === "none") {
-      whole.push({
-        firstTrade: sweep.firstTrade,
-        pieces: [yield* pieceOf(members, codes)],
-      })
-      continue
-    }
-    const aggressor = PARTIES[sweep.side].aggressor
-    const byAggressor = new Map<BrokerCode, Array<RunningTrade>>()
-    for (const trade of members) {
-      const code = codes.get(trade.tradeNumber)![aggressor]
-      const piece = byAggressor.get(code) ?? []
-      piece.push(trade)
-      byAggressor.set(code, piece)
-    }
-    const pieces: Array<SweepPiece> = []
-    for (const piece of byAggressor.values())
-      pieces.push(yield* pieceOf(piece, codes))
-    whole.push({ firstTrade: sweep.firstTrade, pieces })
+    if (members.some((trade) => !held.codes.has(trade.tradeNumber))) continue
+    whole.push({
+      firstTrade: sweep.firstTrade,
+      pieces:
+        sweep.side === "none"
+          ? [yield* pieceOf(members, held.codes)]
+          : yield* sidedPieces(members, sweep.side, held),
+    })
   }
   return whole
 })
@@ -223,7 +311,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   readonly store: DayStore
   readonly brokerCodes: Pick<
     BrokerCodesStore,
-    "heldCodes" | "codesComplete" | "holdsNone"
+    "heldCodes" | "heldOrderNumbers" | "codesComplete" | "holdsNone"
   >
 }) {
   const { sql, store, brokerCodes } = options
@@ -242,29 +330,29 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     return row === undefined ? undefined : yield* textOf(row.sweeps)
   })
 
-  // One minute's rows worked out again from the codes `heldCodes` reads,
-  // metering the rows it read: for each code, its whole sweeps' and auction
-  // matches' text, or none when none is whole.
+  // One minute's rows worked out again from the codes and order numbers
+  // `held` reads, metering the rows it read: for each code, its whole
+  // sweeps' and auction matches' text, or none when none is whole.
   // Decision: a row whose text is already stored, gzipped or plain, is left
   // out, and so is a delete of a row never stored, so a batch writes only
   // the rows it changes, not every code's row of each minute it touches. See
   // apinrdw/kumora#348.
-  const minuteRows = (minute: number, heldCodes: HeldCodes) =>
+  const minuteRows = (minute: number, held: HeldReads) =>
     store.sweepBrokerMinute(
       Effect.gen(function* () {
         const codeMinutes = yield* regroupMinute(
           yield* store.minuteTrades(minute)
         )
-        const codes = new Map(
-          yield* heldCodes(
-            codeMinutes.flatMap(({ trades }) =>
-              trades.map((trade) => trade.tradeNumber)
-            )
-          )
+        const numbers = codeMinutes.flatMap(({ trades }) =>
+          trades.map((trade) => trade.tradeNumber)
         )
+        const minuteHeld: MinuteHeld = {
+          codes: new Map(yield* held.codes(numbers)),
+          orders: new Map(yield* held.orders(numbers)),
+        }
         const rows: Array<MinuteRows[number]> = []
         for (const codeMinute of codeMinutes) {
-          const whole = yield* wholeSweeps(codeMinute, codes)
+          const whole = yield* wholeSweeps(codeMinute, minuteHeld)
           const text = whole.length === 0 ? undefined : yield* sweepsText(whole)
           if (text !== (yield* storedText(codeMinute.code, minute)))
             rows.push([
@@ -300,7 +388,10 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     minute: number,
     facts: Readonly<Record<string, string>>
   ) {
-    const rows = yield* minuteRows(minute, brokerCodes.heldCodes)
+    const rows = yield* minuteRows(minute, {
+      codes: brokerCodes.heldCodes,
+      orders: brokerCodes.heldOrderNumbers,
+    })
     // Decision: a minute whose rows are all stored still writes `facts`, the
     // build's progress, so a build cut off after a long run of such minutes
     // resumes past them. See apinrdw/kumora#371.
@@ -405,17 +496,18 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
         )
   )
 
-  // The rows are worked out from the codes `heldCodes` reads, the batch's,
-  // and written with `writeCodes` in one transaction (broker-codes.ts,
-  // `write`), so the meter's billed rows written count the batch's own
-  // chunk and fact writes too: a few rows per batch.
-  // Decision: a batch recomputes the minutes its trade numbers fall in,
-  // found per run of consecutive numbers (trade numbers run in time order),
-  // so a sparse Stockbit fill recomputes only the minutes it touched. See
-  // spec apinrdw/kumora#343, "When it is recomputed".
+  // The rows are worked out from the codes and order numbers `held` reads,
+  // the batch's, and written with `writeCodes` in one transaction
+  // (broker-codes.ts, `write`), so the meter's billed rows written count the
+  // batch's own chunk and fact writes too: a few rows per batch.
+  // Decision: a batch recomputes the minutes its changed trades' numbers
+  // fall in, found per run of consecutive numbers (trade numbers run in time
+  // order), so a sparse Stockbit fill recomputes only the minutes it
+  // touched. A batch that changed only order numbers counts the same. See
+  // spec apinrdw/kumora#343, "When it is recomputed", and #627, "Slice 2".
   const recompute = Effect.fnUntraced(function* (
     numbers: ReadonlyArray<TradeNumber>,
-    heldCodes: HeldCodes,
+    held: HeldReads,
     writeCodes: () => void
   ) {
     const minutes = new Set<number>()
@@ -425,7 +517,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     const rows: Array<readonly [number, MinuteRows]> = []
     let count = 0
     for (const minute of [...minutes].sort((a, b) => a - b)) {
-      const changed = yield* minuteRows(minute, heldCodes)
+      const changed = yield* minuteRows(minute, held)
       rows.push([minute, changed])
       count += changed.length
     }
