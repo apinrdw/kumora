@@ -119,7 +119,7 @@ describe("a sealed day's move to R2", () => {
   // Spec apinrdw/kumora#627: the walks for order numbers run after the tape
   // walk completes the day, while its move waits for midnight.
   it.effect(
-    "takes order numbers after its walk completes until its transfer starts at midnight, then none",
+    "takes order numbers after its walk completes until its move starts at midnight, then none",
     () =>
       Effect.gen(function* () {
         const trades = [3, 4, 5].map((lots, index) =>
@@ -143,7 +143,7 @@ describe("a sealed day's move to R2", () => {
           ],
           3
         )
-        // The build arms the transfer for midnight.
+        // The build sets the move for midnight.
         yield* day.alarm
         assert.deepStrictEqual(
           day.alarms.at(-1),
@@ -166,7 +166,7 @@ describe("a sealed day's move to R2", () => {
           [{ count: 3, first: 1001, last: 1003, biggestPassiveLots: 7 }]
         )
 
-        // The transfer's first step copies the answers: a batch after it
+        // The move's first step copies the answers: a batch after it
         // writes nothing.
         yield* at("2026-11-10T00:00:00")
         yield* day.alarm

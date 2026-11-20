@@ -330,7 +330,7 @@ A recorded day whose walk is done, or one older than ten trading days. It is fix
 _Avoid_: Archive day, archived day
 
 **Move**:
-How a hot day turns cold: after the day ends and outside streaming hours, its views are stored as they will be replayed, then it is marked cold. From the moment its move starts it takes no more broker codes. Each night the newest hot days are asked to move, then a few older ones, oldest first; a day not yet due is asked again the next night.
+How a hot day turns cold: after the day ends and outside streaming hours, its views are stored as they will be replayed, then it is marked cold. It takes broker codes until its first step runs, and none after. Each night the newest hot days are asked to move, then a few older ones, oldest first; a day not yet due is asked again the next night.
 _Avoid_: archiving, migration
 
 **Relay gap**:
