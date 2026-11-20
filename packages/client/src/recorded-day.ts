@@ -172,7 +172,9 @@ export const makeNewestWins = Effect.sync(() => {
 export const CODES_RECHECK = Duration.seconds(30)
 
 // Decision: a follower stops once an answer it shows is final: complete, or
-// fetched after the strip named the day cold, so served from R2. A hot
+// fetched after the strip named the day cold, so served from R2. The sweep
+// brokers follower counts a complete answer final only once asked at or
+// past 00:00 WIB after the day (`followSweepBrokers`, #632). A hot
 // answer keeps it rechecking; the first recheck that finds cold fetches once
 // more and stops. Cold is read before each fetch from the browser's strip; a
 // strip that fails counts the day hot. See apinrdw/kumora#556 and PR #585.
