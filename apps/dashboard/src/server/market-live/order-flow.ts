@@ -7,8 +7,8 @@
 //
 // A rule judges every folded minute of every share, once per side, and keeps
 // whatever it needs between minutes in its own per-code memory. Delta
-// divergence and Failed break join `judging` in makeOrderFlow beside
-// Exhaustion.
+// divergence joins `judging` in makeOrderFlow beside Exhaustion and Failed
+// break.
 import {
   FLUSH_PAST_MINUTE,
   INDEX_CODES,
@@ -69,6 +69,25 @@ const PUSH_FLOOR = 100_000_000
 // Session 2 has no such skip. See apinrdw/kumora#602.
 const OPEN_SKIP_MINUTES = 5
 
+// Decision: a Failed break's level is the day's extreme as it stood, set at
+// least 10 minutes before the break (candle start times), so a push's own
+// new extremes are never levels. See apinrdw/kumora#597.
+const LEVEL_AGE_MINUTES = 10
+
+// Decision: a break trades at least 1 tick past the level. See
+// apinrdw/kumora#597.
+const BREAK_TICKS = 1
+
+// Decision: from the breaking minute through the return, the side's
+// aggressor value at prices strictly past the level totals at least
+// Rp100 M, the book events' floor. See apinrdw/kumora#597 and
+// apinrdw/kumora#599.
+const BREAK_FLOOR = 100_000_000
+
+// Decision: a minute closes back inside within 3 minutes counting the
+// breaking minute, so a one-minute wick counts. See apinrdw/kumora#597.
+const RETURN_MINUTES = 3
+
 // What the rules read of one minute of one code: its range and close, and
 // each aggressor side's lots and value (lots × 100 × price, as the
 // footprint's cells sum it). A minute with no trades has 0 lots, and the
@@ -84,6 +103,9 @@ interface MinuteFigures {
   buyValue: number
   sellValue: number
   traded: boolean
+  // Each price's buy-aggressor and sell-aggressor lots, as the footprint's
+  // cells.
+  readonly cells: Map<number, { buy: number; sell: number }>
 }
 
 // The price a side's day extreme stands at, and the minute that set it.
@@ -237,6 +259,105 @@ const makeExhaustion = Effect.sync((): OrderFlowRule => {
   }
 })
 
+// The side's aggressor value at prices strictly past `level` in one minute.
+const valuePast = Effect.fnUntraced(function* (
+  side: OrderFlowSide,
+  figures: MinuteFigures,
+  level: number
+) {
+  let value = 0
+  for (const [price, cell] of figures.cells)
+    if (yield* beyond(side, price, level))
+      value += (side === "buy" ? cell.buy : cell.sell) * 100 * price
+  return value
+})
+
+// A break under way: the level it went past, its breaking minute, the
+// side's aggressor value past the level so far, and the farthest price it
+// traded.
+interface Break {
+  readonly level: number
+  readonly from: number
+  value: number
+  far: number
+}
+
+// Failed break (spec apinrdw/kumora#605, "Order flow events: the rules"):
+// trades past a day's extreme set at least 10 minutes before, with real
+// aggressor value past it, then a minute closing back inside within 3
+// minutes of the same session. A break that stays out ends there: its own
+// extreme is the day's, and becomes a level 10 minutes on.
+const makeFailedBreak = Effect.sync((): OrderFlowRule => {
+  // Each code's side's break under way.
+  const open = new Map<string, Break>()
+
+  // The break this minute starts, if it sets the day's extreme past a level
+  // old enough.
+  const started = Effect.fnUntraced(function* (
+    minute: FoldedMinute,
+    side: OrderFlowSide
+  ) {
+    const { before, set } = minute.sides[side]
+    const { figures } = minute
+    if (!set || before === undefined) return undefined
+    if (figures.minute - before.at < LEVEL_AGE_MINUTES * MINUTE_MS)
+      return undefined
+    const past = yield* ticksShort(
+      side,
+      before.price,
+      yield* extremeOf(side, figures)
+    )
+    if (past < BREAK_TICKS) return undefined
+    return {
+      level: before.price,
+      from: figures.minute,
+      value: 0,
+      far: before.price,
+    } satisfies Break
+  })
+
+  return {
+    judge: Effect.fnUntraced(function* (minute, side) {
+      const key = `${minute.code}|${side}`
+      const { figures } = minute
+      const held = open.get(key)
+      open.delete(key)
+      // Rules only judge continuous minutes, and no session ends within
+      // RETURN_MINUTES of the next one's start: a break still within them
+      // is in its own session.
+      const going =
+        held !== undefined &&
+        figures.minute < held.from + RETURN_MINUTES * MINUTE_MS
+          ? held
+          : yield* started(minute, side)
+      if (going === undefined) return undefined
+      going.value += yield* valuePast(side, figures, going.level)
+      const reach = yield* extremeOf(side, figures)
+      if (yield* beyond(side, reach, going.far)) going.far = reach
+      if (!(yield* beyond(side, going.level, figures.close))) {
+        open.set(key, going)
+        return undefined
+      }
+      if (
+        going.value < BREAK_FLOOR ||
+        (yield* minute.blocked(going.from, figures.minute))
+      )
+        return undefined
+      return {
+        kind: "failedBreak",
+        code: minute.code,
+        at: DateTime.makeUnsafe(figures.minute),
+        side,
+        price: going.level,
+        to: going.far,
+        value: going.value,
+        close: figures.close,
+        minutes: (figures.minute - going.from) / MINUTE_MS,
+      } satisfies OrderFlowEvent
+    }),
+  }
+})
+
 interface CodeFlow {
   // Minutes with trades not folded yet, by minute.
   readonly pending: Map<number, MinuteFigures>
@@ -267,6 +388,7 @@ const emptyAt = (minute: number, price: number): MinuteFigures => ({
   buyValue: 0,
   sellValue: 0,
   traded: false,
+  cells: new Map(),
 })
 
 // Adds one trade to a minute's figures. Plain: the Decision at `settled`.
@@ -282,13 +404,21 @@ const addPrint = (figures: MinuteFigures, print: Print) => {
     figures.close = print.close
     figures.closeOrder = print.closeOrder
   }
+  if (print.buyValue <= 0 && print.sellValue <= 0) return
+  let cell = figures.cells.get(print.close)
+  if (cell === undefined) {
+    cell = { buy: 0, sell: 0 }
+    figures.cells.set(print.close, cell)
+  }
   if (print.buyValue > 0) {
     figures.buyLots += print.volume
     figures.buyValue += print.buyValue
+    cell.buy += print.volume
   }
   if (print.sellValue > 0) {
     figures.sellLots += print.volume
     figures.sellValue += print.sellValue
+    cell.sell += print.volume
   }
 }
 
@@ -341,8 +471,11 @@ const printsOf = (stored: StoredMinute) =>
 // Every code's order flow state for the trading day `date`. It resets only
 // with the day: one trading-day object holds one day.
 export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
-  // Delta divergence and Failed break join here.
-  const judging: ReadonlyArray<OrderFlowRule> = [yield* makeExhaustion]
+  // Delta divergence joins here.
+  const judging: ReadonlyArray<OrderFlowRule> = [
+    yield* makeExhaustion,
+    yield* makeFailedBreak,
+  ]
   // Each session's continuous minutes, as the starts of its first minute
   // and of the minute after its last. Session 1's last second (12:00:00,
   // 11:30:00 on Friday) is no minute of its own.
