@@ -74,8 +74,8 @@ export type TabRequest =
     }
   // A JSON POST from the tab, with its cookies and the page's headers.
   | { readonly _tag: "page-post"; readonly url: string; readonly body: string }
-  // The bearer token of the page's latest REST request; status 0 before it
-  // made one.
+  // The token of the page's latest signed REST request, without its
+  // `jwt` scheme; status 0 before it made one.
   | { readonly _tag: "page-token" }
   // Ajaib: one synthetic `mousemove` on the page's document, which re-arms
   // its idle PIN lock (ajaib-lock.ts).

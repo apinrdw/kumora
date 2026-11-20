@@ -89,6 +89,49 @@ describe("the Ajaib account id", () => {
   )
 })
 
+describe("the relayed tab's Ajaib account", () => {
+  it.effect("is the one the tab's token names, else the PIN sign-in's", () =>
+    Effect.gen(function* () {
+      const accountOf = (tabToken: string) =>
+        Effect.flatMap(
+          makeAjaibSession({
+            tab: {
+              attached: Effect.succeed(true),
+              request: () => Effect.succeed(Option.some(answer(200, tabToken))),
+            } as unknown as PacedTab & {
+              readonly attached: Effect.Effect<boolean>
+            },
+            store: {
+              latest: Effect.succeed(
+                Option.some({
+                  pin: Option.none(),
+                  signIn: {
+                    state: "signed-in",
+                    accessToken: jwt({ sub: 4999301 }),
+                  },
+                  typing: false,
+                  wipePin: Effect.void,
+                  setSignIn: () => Effect.void,
+                  setTyping: () => Effect.void,
+                })
+              ),
+            },
+          }),
+          (session) => session.accountId
+        )
+      assert.deepStrictEqual(
+        yield* accountOf(jwt({ sub: 7 })),
+        Option.some(AjaibAccountId.make(7))
+      )
+      // A tab token that names no account leaves the PIN sign-in's.
+      assert.deepStrictEqual(
+        yield* accountOf(jwt({ exp: 1 })),
+        Option.some(AjaibAccountId.make(4999301))
+      )
+    })
+  )
+})
+
 describe("Ajaib's PIN answer", () => {
   it.effect("a right PIN signs in with the access token", () =>
     Effect.gen(function* () {

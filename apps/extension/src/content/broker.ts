@@ -144,6 +144,18 @@ const read = async (
   response.headers.get("cf-mitigated") === "challenge" || undefined,
 ]
 
+// Decision: Ajaib signs its API calls `authorization: jwt <token>`, not
+// Bearer, as captured on 2026-11-20; a token the relay supplies is sent the
+// same way. Matching only Bearer read no page token and sent the cookie's
+// token in a form Ajaib refused, which stalled the walk.
+const AUTHORIZATION = /^(?<scheme>\S+)\s+(?<token>\S+)$/
+const authorization = () =>
+  AUTHORIZATION.exec(
+    Object.entries(pageRequest?.headers ?? {}).find(
+      ([name]) => name.toLowerCase() === "authorization"
+    )?.[1] ?? ""
+  )?.groups
+
 // A page-fetch's headers: the page's own with `bearer` in place of their
 // token; before the page made a call, `bearer` or `token` alone; none
 // without any.
@@ -158,7 +170,8 @@ const pageHeaders = (
   const own = Object.entries(pageRequest?.headers ?? {}).filter(
     ([name]) => name.toLowerCase() !== "authorization"
   )
-  return { ...Object.fromEntries(own), authorization: `Bearer ${sent}` }
+  const scheme = authorization()?.scheme ?? "jwt"
+  return { ...Object.fromEntries(own), authorization: `${scheme} ${sent}` }
 }
 
 const answer = async (
@@ -197,10 +210,7 @@ const answer = async (
       return [response.status, await response.text()]
     }
     case "page-token": {
-      const header = Object.entries(pageRequest?.headers ?? {}).find(
-        ([name]) => name.toLowerCase() === "authorization"
-      )?.[1]
-      const token = header?.match(/^Bearer (.+)$/i)?.[1]
+      const token = authorization()?.token
       return token === undefined ? [0, ""] : [200, token]
     }
   }
