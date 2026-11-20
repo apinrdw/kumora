@@ -421,8 +421,8 @@ const storedStatus = Effect.fnUntraced(function* (
   }
 }, Effect.orDie)
 
-// A broker codes batch of a day whose move started: checked as any, then
-// answered as taken while nothing is written.
+// A broker codes batch of a day whose move's first step ran: checked as
+// any, then answered as taken while nothing is written.
 export const takenUnwritten = Effect.fnUntraced(function* (
   text: string,
   date: WibDate

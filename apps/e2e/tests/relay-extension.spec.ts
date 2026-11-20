@@ -730,7 +730,8 @@ test("after Ajaib's tape walk, its Done Details walk posts the kept trades' orde
 
     // The tape walk posted every trade first, then the Done Details walk
     // posted HOPE's three with their order numbers and no fields; BBCA's
-    // has none. The tied trades take their key's orders in any order.
+    // has none. The tied trades are one run, and take their rows in order
+    // of their aggressor orders.
     expect(
       rows()
         .filter(([, , , pair]) => pair === undefined)
@@ -739,10 +740,8 @@ test("after Ajaib's tape walk, its Done Details walk posts the kept trades' orde
     ).toEqual(["1", "2", "3", "4"])
     const posted = new Map(orders())
     expect(posted.get("1")).toEqual([1_000, 1_500])
-    expect([posted.get("2"), posted.get("3")].map(String).sort()).toEqual([
-      "2002,1800",
-      "2003,1800",
-    ])
+    expect(posted.get("2")).toEqual([2_002, 1_800])
+    expect(posted.get("3")).toEqual([2_003, 1_800])
     for (const [, codes, fields, pair] of rows())
       if (pair !== undefined) {
         expect(fields).toBeNull()
