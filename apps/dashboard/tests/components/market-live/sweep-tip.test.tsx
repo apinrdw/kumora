@@ -82,6 +82,57 @@ test("an open tooltip shows a sweep's brokers once a recheck brings them", async
   await act(() => root.unmount())
 })
 
+test("an order run's tooltip names its aggressor orders and biggest passive order", async () => {
+  const store = Effect.runSync(makeSweepStore(BBCA))
+  store.answer(0, { code: BBCA, sweeps: [buy] })
+  store.answerBrokers(
+    {
+      code: BBCA,
+      sweeps: [
+        {
+          firstTrade: buy.firstTrade,
+          pieces: [
+            {
+              ...buy,
+              aggressor: [
+                { code: BrokerCode.make("XL"), investorType: "D", lots: 30 },
+              ],
+              other: [
+                { code: BrokerCode.make("CC"), investorType: "D", lots: 30 },
+              ],
+              orders: {
+                count: 2,
+                first: 1_515_640,
+                last: 1_515_642,
+                biggestPassiveLots: 4,
+              },
+            },
+          ],
+        },
+      ],
+      complete: true,
+    },
+    true
+  )
+  const root = createRoot(
+    document.body.appendChild(document.createElement("div"))
+  )
+  await act(() => root.render(<SweepTip store={store} withBrokers />))
+  await act(() =>
+    store.tip.set({
+      id: buy.firstTrade,
+      x: 10,
+      y: 10,
+      from: "log",
+      pinned: false,
+    })
+  )
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(
+    "2 aggressor orders #1515640–1515642 · biggest passive order 4 lots"
+  )
+  await act(() => root.unmount())
+})
+
 test("a sweep with more brokers than fit stays inside the viewport, and pinned, scrolls to every broker", async () => {
   const store = Effect.runSync(makeSweepStore(BBCA))
   store.answer(0, { code: BBCA, sweeps: [buy] })

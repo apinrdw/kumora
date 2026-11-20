@@ -285,6 +285,52 @@ describe("a sweep's tooltip", () => {
       expect((yield* sweepTip(buy, undefined)).sides).toBeUndefined()
     })
   )
+
+  it.effect(
+    "names an order run's aggressor orders, first to last, and its biggest passive order",
+    () =>
+      Effect.gen(function* () {
+        const tip = yield* sweepTip(buy, {
+          aggressor,
+          other,
+          orders: {
+            count: 22,
+            first: 1_515_610,
+            last: 1_515_642,
+            biggestPassiveLots: 1_997,
+          },
+        })
+        expect(tip.orders).toBe(
+          "22 aggressor orders #1515610–1515642 · biggest passive order 1,997 lots"
+        )
+      })
+  )
+
+  it.effect("names a one-order run's one order number", () =>
+    Effect.gen(function* () {
+      const tip = yield* sweepTip(sell, {
+        aggressor: other,
+        other: aggressor,
+        orders: {
+          count: 1,
+          first: 3_114_901,
+          last: 3_114_901,
+          biggestPassiveLots: 7,
+        },
+      })
+      expect(tip.orders).toBe(
+        "1 aggressor order #3114901 · biggest passive order 7 lots"
+      )
+    })
+  )
+
+  it.effect("names no orders for a per-broker piece", () =>
+    Effect.gen(function* () {
+      expect(
+        (yield* sweepTip(buy, { aggressor, other })).orders
+      ).toBeUndefined()
+    })
+  )
 })
 
 describe("the note while a day's codes arrive", () => {
