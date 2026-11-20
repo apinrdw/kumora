@@ -92,7 +92,7 @@ async function renderLog(pieces: ReadonlyArray<SweepPiece>) {
       />
     )
   )
-  mounted.push(() => act(() => root.unmount()))
+  mounted.push(() => act(async () => root.unmount()))
 }
 
 // A row's Buyer and Seller cells, as read.
