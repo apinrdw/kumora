@@ -6,6 +6,7 @@ import {
   BrokerCode,
   BrokerCodesProtocolVersion,
   MISSING_RANGES,
+  OrderNumber,
   TradeNumber,
   WibDate,
   StockCode,
@@ -674,6 +675,12 @@ describe("a Stockbit row", () => {
           )
       })
   )
+
+  it("keeps an order number apart from a plain number", () => {
+    // @ts-expect-error a plain number is not an order number
+    const plain: typeof OrderNumber.Type = 276_574
+    assert.strictEqual(OrderNumber.make(276_574), plain)
+  })
 
   it.effect(
     "reads an Ajaib Done Details row's order numbers from its order ids' last 10 digits",
