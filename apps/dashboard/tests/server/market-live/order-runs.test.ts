@@ -269,7 +269,7 @@ const sweepsAt = (sweeps: ReadonlyArray<SweepBrokers>, time: string) =>
 
 describe("BBCA's captured whole sweeps of 2026-11-20", () => {
   it.effect(
-    "split XL's 10:23:18 sell burst into a 22-order run and a 2-order run",
+    "split XL's 10:23:18 sell sweep into a 22-order run and a 2-order run",
     () =>
       Effect.gen(function* () {
         const day = yield* capturedDay()
