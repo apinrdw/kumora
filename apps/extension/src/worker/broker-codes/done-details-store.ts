@@ -43,7 +43,8 @@ const openDatabase = Effect.callback<IDBDatabase>((resume) => {
 
 // Decision: each operation is one transaction whose requests are all made
 // from IndexedDB's own callbacks: a request made after an Effect resumes
-// may find the transaction already committed.
+// may find the transaction already committed. So `run` starts in the
+// callback that read the stored day, which it is given.
 const transact = <A>(
   db: IDBDatabase,
   mode: IDBTransactionMode,
@@ -53,37 +54,27 @@ const transact = <A>(
       readonly rows: IDBObjectStore
       readonly meta: IDBObjectStore
     },
+    stored: Option.Option<WibDate>,
     answer: (value: A) => void
   ) => void
 ) =>
   Effect.callback<A>((resume) => {
     const tx = db.transaction([TRADES, ROWS, META], mode)
+    const stores = {
+      trades: tx.objectStore(TRADES),
+      rows: tx.objectStore(ROWS),
+      meta: tx.objectStore(META),
+    }
     let value: A | undefined
-    run(
-      {
-        trades: tx.objectStore(TRADES),
-        rows: tx.objectStore(ROWS),
-        meta: tx.objectStore(META),
-      },
-      (answered) => {
+    const day = stores.meta.get(DAY_KEY)
+    day.onsuccess = () =>
+      run(stores, decodeDay(day.result), (answered) => {
         value = answered
-      }
-    )
+      })
     tx.oncomplete = () => resume(Effect.succeed(value as A))
     tx.onerror = () => resume(Effect.die(tx.error))
     tx.onabort = () => resume(Effect.die(tx.error))
   })
-
-// Runs `then` once the stored day is known: whether it is `day`.
-const onDay = (
-  meta: IDBObjectStore,
-  day: WibDate,
-  then: (same: boolean) => void
-) => {
-  const request = meta.get(DAY_KEY)
-  request.onsuccess = () =>
-    then(Option.contains(decodeDay(request.result), day))
-}
 
 export const doneDetailsStore = Effect.gen(function* () {
   const database = yield* Effect.cached(openDatabase)
@@ -94,23 +85,22 @@ export const doneDetailsStore = Effect.gen(function* () {
 
   const store: DoneDetailsStore = {
     keep: (day, trades) =>
-      inTransaction<void>("readwrite", (stores) =>
-        onDay(stores.meta, day, (same) => {
-          if (!same) {
-            stores.trades.clear()
-            stores.rows.clear()
-            stores.meta.clear()
-            stores.meta.put(day, DAY_KEY)
-          }
-          for (const trade of trades) stores.trades.put(trade)
-        })
-      ),
+      inTransaction<void>("readwrite", (stores, stored) => {
+        if (!Option.contains(stored, day)) {
+          stores.trades.clear()
+          stores.rows.clear()
+          stores.meta.clear()
+          stores.meta.put(day, DAY_KEY)
+        }
+        for (const trade of trades) stores.trades.put(trade)
+      }),
     codes: (day) =>
-      inTransaction<ReadonlyArray<StockCode>>("readonly", (stores, answer) =>
-        onDay(stores.meta, day, (same) => {
+      inTransaction<ReadonlyArray<StockCode>>(
+        "readonly",
+        (stores, stored, answer) => {
           const codes: Array<StockCode> = []
           answer(codes)
-          if (!same) return
+          if (!Option.contains(stored, day)) return
           const cursor = stores.trades
             .index(BY_CODE)
             .openKeyCursor(null, "nextunique")
@@ -121,13 +111,14 @@ export const doneDetailsStore = Effect.gen(function* () {
             if (Option.isSome(code)) codes.push(code.value)
             at.continue()
           }
-        })
+        }
       ),
     trades: (day, code) =>
-      inTransaction<ReadonlyArray<KeptTrade>>("readonly", (stores, answer) =>
-        onDay(stores.meta, day, (same) => {
+      inTransaction<ReadonlyArray<KeptTrade>>(
+        "readonly",
+        (stores, stored, answer) => {
           answer([])
-          if (!same) return
+          if (!Option.contains(stored, day)) return
           const request = stores.trades.index(BY_CODE).getAll(code)
           request.onsuccess = () =>
             answer(
@@ -135,24 +126,24 @@ export const doneDetailsStore = Effect.gen(function* () {
                 Option.toArray(decodeTrade(each))
               )
             )
-        })
+        }
       ),
     position: (day) =>
       inTransaction<Option.Option<DoneDetailsPosition>>(
         "readonly",
-        (stores, answer) =>
-          onDay(stores.meta, day, (same) => {
-            answer(Option.none())
-            if (!same) return
-            const request = stores.meta.get(POSITION_KEY)
-            request.onsuccess = () => answer(decodePosition(request.result))
-          })
+        (stores, stored, answer) => {
+          answer(Option.none())
+          if (!Option.contains(stored, day)) return
+          const request = stores.meta.get(POSITION_KEY)
+          request.onsuccess = () => answer(decodePosition(request.result))
+        }
       ),
     rows: (day, code) =>
-      inTransaction<ReadonlyArray<DetailRow>>("readonly", (stores, answer) =>
-        onDay(stores.meta, day, (same) => {
+      inTransaction<ReadonlyArray<DetailRow>>(
+        "readonly",
+        (stores, stored, answer) => {
           answer([])
-          if (!same) return
+          if (!Option.contains(stored, day)) return
           const position = stores.meta.get(POSITION_KEY)
           position.onsuccess = () => {
             const at = decodePosition(position.result)
@@ -165,22 +156,20 @@ export const doneDetailsStore = Effect.gen(function* () {
                 )
               )
           }
-        })
+        }
       ),
     page: (day, next, rows) =>
-      inTransaction<void>("readwrite", (stores) =>
-        onDay(stores.meta, day, (same) => {
-          if (!same) return
-          const position = stores.meta.get(POSITION_KEY)
-          position.onsuccess = () => {
-            const at = decodePosition(position.result)
-            if (!Option.exists(at, (each) => each.code === next.code))
-              stores.rows.clear()
-            for (const row of rows) stores.rows.add(row)
-            stores.meta.put(next, POSITION_KEY)
-          }
-        })
-      ),
+      inTransaction<void>("readwrite", (stores, stored) => {
+        if (!Option.contains(stored, day)) return
+        const position = stores.meta.get(POSITION_KEY)
+        position.onsuccess = () => {
+          const at = decodePosition(position.result)
+          if (!Option.exists(at, (each) => each.code === next.code))
+            stores.rows.clear()
+          for (const row of rows) stores.rows.add(row)
+          stores.meta.put(next, POSITION_KEY)
+        }
+      }),
     clear: inTransaction<void>("readwrite", (stores) => {
       stores.trades.clear()
       stores.rows.clear()
