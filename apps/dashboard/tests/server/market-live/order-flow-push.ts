@@ -11,7 +11,7 @@ type Day = Effect.Success<ReturnType<typeof tradingDay>>
 export const at = (time: string) =>
   TestClock.setTime(Date.parse(`2026-11-09T${time}+07:00`))
 
-const PUSH: ReadonlyArray<readonly [string, number, number, number]> = [
+export const PUSH: ReadonlyArray<readonly [string, number, number, number]> = [
   ["09:39", 1200, 1200, 200],
   ["09:40", 1200, 1215, 1000],
   ["09:41", 1215, 1230, 1500],

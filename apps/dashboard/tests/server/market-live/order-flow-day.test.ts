@@ -19,7 +19,7 @@ import { TestClock } from "effect/testing"
 import { SEALED_CACHE } from "@/server/market-live/routes"
 
 import { tradingDay } from "./day-harness"
-import { at, push, pushJudged, trade } from "./order-flow-push"
+import { PUSH, at, push, pushJudged, trade } from "./order-flow-push"
 import { memorySql } from "./sql"
 
 const UNTR = StockCode.make("UNTR")
@@ -157,6 +157,141 @@ describe("order flow events", () => {
           recorded: false,
           events: [],
         })
+      })
+  )
+
+  it.effect(
+    "a restarted object still answers the day's stored events, once each",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:38:59.000")
+        const sql = memorySql()
+        const day = yield* tradingDay(sql)
+        yield* pushJudged(day)
+        yield* day.evicted
+        const restarted = yield* tradingDay(sql)
+        const untr = yield* restarted.viewer("UNTR")
+        const [snapshot] = yield* received(untr)
+        assert(snapshot?._tag === "Snapshot")
+        assert.deepStrictEqual(
+          named(snapshot.orderFlowEvents ?? []),
+          EXHAUSTION
+        )
+        assert.deepStrictEqual(
+          named(snapshot.selectedOrderFlowEvents ?? []),
+          EXHAUSTION
+        )
+        yield* restarted.left(untr)
+        assert.deepStrictEqual(
+          named((yield* recordedEvents(restarted)).answer.events),
+          EXHAUSTION
+        )
+      })
+  )
+
+  it.effect(
+    "an object restarted mid-push still finds the Exhaustion from the stored minutes",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:38:59.000")
+        const sql = memorySql()
+        const day = yield* tradingDay(sql)
+        yield* push(day, PUSH.slice(0, 6))
+        yield* at("09:45:00.000")
+        yield* day.trades([trade("09:45:00", "BBCA", 1000, 1)])
+        // 09:44 flushed 5 s past its close.
+        yield* at("09:45:06.000")
+        yield* TestClock.adjust("1 second")
+        yield* day.evicted
+        const restarted = yield* tradingDay(sql)
+        const page = yield* restarted.viewer("BBCA")
+        // 09:45's 900 lots at 1240 and 1245, then BBCA on to 09:46:00.
+        for (const second of [10, 20, 30, 40, 50]) {
+          const time = `09:45:${second}`
+          yield* at(`${time}.000`)
+          yield* restarted.trades([
+            ...(second === 20 ? [trade(time, "UNTR", 1240, 450)] : []),
+            ...(second === 30 ? [trade(time, "UNTR", 1245, 450)] : []),
+            trade(time, "BBCA", 1000, 1),
+          ])
+          yield* TestClock.adjust("300 millis")
+        }
+        yield* at("09:46:00.000")
+        yield* restarted.trades([trade("09:46:00", "BBCA", 1000, 1)])
+        yield* at("09:46:06.000")
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(named(yield* deltaEvents(page)), EXHAUSTION)
+        assert.deepInclude((yield* deltaEvents(page))[0], {
+          lots: 900,
+          peakLots: 2400,
+          widestTicks: 5,
+        })
+        yield* restarted.left(page)
+      })
+  )
+
+  it.effect(
+    "an object restarted after the day's high finds no Exhaustion below it",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:19:59.000")
+        const sql = memorySql()
+        const day = yield* tradingDay(sql)
+        yield* push(day, [["09:20", 1300, 1300, 200]])
+        yield* at("09:21:06.000")
+        yield* TestClock.adjust("1 second")
+        yield* day.evicted
+        yield* at("09:38:59.000")
+        const restarted = yield* tradingDay(sql)
+        const page = yield* restarted.viewer("BBCA")
+        yield* push(restarted)
+        yield* at("09:46:00.000")
+        yield* restarted.trades([trade("09:46:00", "BBCA", 1000, 1)])
+        yield* at("09:46:06.000")
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(yield* deltaEvents(page), [])
+        yield* restarted.left(page)
+      })
+  )
+
+  it.effect(
+    "an event found but not flushed before a restart is found again, stored, and not sent again",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:38:59.000")
+        const sql = memorySql()
+        const day = yield* tradingDay(sql)
+        const before = yield* day.viewer("BBCA")
+        yield* push(day)
+        yield* at("09:46:00.000")
+        yield* day.trades([trade("09:46:00", "BBCA", 1000, 1)])
+        yield* at("09:46:06.000")
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(named(yield* deltaEvents(before)), EXHAUSTION)
+        yield* day.evicted
+        const restarted = yield* tradingDay(sql)
+        const page = yield* restarted.viewer("UNTR")
+        for (const second of [10, 20, 30, 40, 50, 60]) {
+          const time = second === 60 ? "09:47:00" : `09:46:${String(second)}`
+          yield* at(`${time}.000`)
+          yield* restarted.trades([trade(time, "BBCA", 1000, 1)])
+          yield* TestClock.adjust("300 millis")
+        }
+        yield* at("09:47:06.000")
+        yield* TestClock.adjust("1 second")
+        const [snapshot] = yield* received(page)
+        assert(snapshot?._tag === "Snapshot")
+        assert.deepStrictEqual(
+          named(snapshot.selectedOrderFlowEvents ?? []),
+          EXHAUSTION
+        )
+        assert.deepStrictEqual(yield* deltaEvents(page), [])
+        yield* restarted.left(page)
+        yield* restarted.evicted
+        assert.deepStrictEqual(
+          named((yield* recordedEvents(yield* tradingDay(sql))).answer.events),
+          EXHAUSTION
+        )
       })
   )
 })
