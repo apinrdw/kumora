@@ -439,17 +439,15 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
 
   const walkDay = Effect.fnUntraced(function* (day: WibDate) {
     const walked = { _tag: "walked" } satisfies WalkResult
-    const step = Option.map(
-      yield* store.position(day),
-      (position) => position._tag
-    )
+    const held = yield* store.position(day)
+    const step = Option.map(held, (position) => position._tag)
     if (Option.contains(step, "Posted")) return walked
     if (!Option.contains(step, "Posting")) {
       const codes = yield* store.codes(day)
       // A day this browser didn't tape-walk from Ajaib, or one whose walk
       // ended, has no kept trades.
       if (codes.length === 0) return walked
-      yield* walkCodes(day, codes, yield* store.position(day))
+      yield* walkCodes(day, codes, held)
     }
     yield* postMatched(day, options.post)
     yield* store.page(day, POSTED, [])
