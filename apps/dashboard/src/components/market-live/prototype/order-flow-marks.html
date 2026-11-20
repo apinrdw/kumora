@@ -1,0 +1,350 @@
+<title>Order Flow Marks Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: Market Live's charts on the left (candles + footprint), radar scanner, feed and Book readout on the right. Marks swap by #arrows / #lettered / #lane. Single dark theme on purpose: it copies the dashboard's terminal palette. */
+:root {
+  --bg-canvas: #0b1421; --bg-surface: #142234; --bg-elevated: #1b2c40; --bg-selected: #173a43;
+  --border-subtle: #26394e; --border-strong: #3e566b;
+  --text-primary: #edf4fb; --text-secondary: #b0c2d2; --text-muted: #839aae;
+  --accent: #55d9c7; --up: #51dda2; --down: #ff7987; --warn: #f4c36e;
+  --up-soft: color-mix(in oklab, var(--up) 18%, transparent);
+  --down-soft: color-mix(in oklab, var(--down) 18%, transparent);
+  --grid: #1f3044; --proto: #b3a0ff; --edge: #0b1421;
+  --font-sans: "Manrope", Arial, sans-serif; --font-data: "JetBrains Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg-canvas); color: var(--text-primary); font: 13px/1.4 var(--font-sans); }
+button, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.num { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.up { color: var(--up); } .down { color: var(--down); } .muted { color: var(--text-muted); }
+.app { display: flex; flex-direction: column; gap: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 12px 96px; }
+.proto-strip { color: var(--proto); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.question { border: 1px dashed color-mix(in oklab, var(--proto) 55%, transparent); border-radius: 6px; padding: 8px 10px; color: var(--text-secondary); font-size: 12px; max-width: 110ch; }
+.question b { color: var(--proto); font-weight: 600; }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+header.top h1 { margin: 0; font-size: 18px; }
+.layout { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 420px; align-items: start; }
+@media (max-width: 1100px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px; min-width: 0; }
+.card h2 { margin: 0 0 8px; font-size: 14px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.card h2 .r { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--text-muted); }
+.chart { position: relative; height: 340px; }
+.chart canvas { width: 100%; height: 100%; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+.legend span { display: inline-flex; gap: 5px; align-items: center; }
+.tip { position: absolute; pointer-events: none; z-index: 5; max-width: 320px; background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 5px; padding: 6px 8px; font-size: 12px; box-shadow: 0 6px 18px rgb(0 0 0 / .4); }
+.tip b { display: block; margin-bottom: 2px; }
+
+/* footprint */
+.fpwrap { overflow-x: auto; }
+.fp { display: grid; gap: 1px; font-family: var(--font-data); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 560px; }
+.fp .c { padding: 2px 4px; text-align: center; white-space: nowrap; background: var(--bg-canvas); }
+.fp .px { text-align: right; color: var(--text-muted); background: transparent; }
+.fp .hd { color: var(--text-muted); background: transparent; }
+.fp .ev { background: transparent; min-height: 20px; display: flex; justify-content: center; align-items: center; gap: 3px; }
+.fp .lane { background: color-mix(in oklab, var(--bg-elevated) 60%, transparent); }
+.fp .foot { background: transparent; }
+.fp .hi { outline: 1px solid var(--border-strong); }
+
+/* marks as DOM */
+.tri { display: inline-block; width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; }
+.tri.buy { border-bottom: 10px solid var(--up); }
+.tri.sell { border-top: 10px solid var(--down); }
+.dia { display: inline-block; width: 9px; height: 9px; transform: rotate(45deg); }
+.sq { display: inline-block; width: 9px; height: 9px; }
+.dia.bid, .sq.bid { background: var(--up); } .dia.offer, .sq.offer { background: var(--down); }
+.tag { display: inline-flex; align-items: center; gap: 3px; font: 600 10px/1 var(--font-data); padding: 2px 4px; border-radius: 3px; }
+.tag.buy { background: var(--up-soft); color: var(--up); } .tag.sell { background: var(--down-soft); color: var(--down); }
+.mk { cursor: pointer; border: 0; background: none; padding: 0; display: inline-flex; align-items: center; gap: 3px; }
+
+/* scanner */
+table.scan { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.scan th { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); font-weight: 500; text-align: left; padding: 0 4px 4px; }
+table.scan td { padding: 5px 4px; border-top: 1px solid var(--border-subtle); white-space: nowrap; vertical-align: middle; }
+table.scan td.r { text-align: right; }
+.bar { position: relative; width: 70px; height: 8px; background: var(--bg-canvas); border-radius: 2px; display: inline-block; vertical-align: middle; }
+.bar::before { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border-strong); }
+.bar i { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; font-size: 11px; border: 1px solid var(--border-strong); color: var(--text-secondary); }
+.chip.big { border-color: color-mix(in oklab, var(--warn) 70%, transparent); color: var(--warn); }
+.toolbar { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; align-items: center; }
+.toolbar select { background: var(--bg-canvas); border: 1px solid var(--border-strong); border-radius: 5px; padding: 2px 6px; }
+
+/* feed + event list */
+.feed { display: flex; flex-direction: column; }
+.row { display: grid; grid-template-columns: 58px 40px 30px minmax(0, 1fr); gap: 6px; align-items: start; padding: 6px 4px; border-top: 1px solid var(--border-subtle); font-size: 12px; cursor: pointer; border-radius: 3px; }
+.row:hover { background: var(--bg-elevated); }
+.row.sel { background: var(--bg-selected); }
+.row .t { font-family: var(--font-data); color: var(--text-muted); }
+.row .code { font-weight: 700; }
+.row .what b { font-weight: 600; }
+.row .fig { color: var(--text-secondary); font-family: var(--font-data); font-size: 11px; }
+.kindtag { white-space: nowrap; font-size: 10px; color: var(--text-muted); letter-spacing: .06em; text-transform: uppercase; }
+
+/* readout */
+.imbrow { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; margin-bottom: 4px; }
+.imbbar { position: relative; height: 10px; background: var(--bg-canvas); border-radius: 2px; }
+.imbbar::before { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border-strong); }
+.imbbar i { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+.readings { display: grid; grid-template-columns: auto 1fr 1fr; gap: 3px 10px; font-size: 12px; margin-top: 8px; }
+.readings .h { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); text-align: right; }
+.readings .v { font-family: var(--font-data); text-align: right; }
+
+.switcher { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 20; display: flex; align-items: center; gap: 4px; background: var(--proto); color: #1a1033; border-radius: 999px; padding: 4px; box-shadow: 0 8px 24px rgb(0 0 0 / .5); font-weight: 600; font-size: 13px; max-width: calc(100vw - 32px); }
+.switcher button { background: rgb(255 255 255 / .35); border: 0; border-radius: 999px; width: 30px; height: 30px; color: #1a1033; font-size: 15px; }
+.switcher span { padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+
+<div class="app">
+  <div class="proto-strip">Prototype · throwaway · simulated BBCA data, 10:00–10:59 WIB · ticket “How the order flow marks, event rows and heavy side chip look”</div>
+  <div class="question"><b>The question:</b> do the new marks read clearly next to the book events’ ◆ and ■, and does a mark need its kind’s letter, or is a tooltip enough? Flip variants with the bar at the bottom (or ← →). Hover or tap a mark, or click a feed row to move the footprint to that event. The heavy side chip, scanner figure and readout line are the same in every variant.</div>
+  <header class="top"><h1>BBCA</h1><span class="num" style="font-size:18px;font-weight:700" id="last"></span><span class="muted" id="varname"></span></header>
+  <div class="layout">
+    <div class="col">
+      <section class="card">
+        <h2>Candles <span class="r">1-minute · book heatmap off for clarity</span></h2>
+        <div class="chart" id="chartbox"><canvas id="chart"></canvas><div class="tip" id="tip" hidden></div></div>
+        <div class="legend">
+          <span><i class="tri buy"></i>/<i class="tri sell"></i> order flow event (buying / selling side)</span>
+          <span><i class="dia bid"></i><i class="dia offer"></i> absorbed · eaten · reloaded</span>
+          <span><i class="sq offer"></i> wall event</span>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Footprint <span class="r" id="fpwin"></span></h2>
+        <div class="fpwrap"><div class="fp" id="fp"></div></div>
+        <div class="legend"><span>cells: sell × buy aggressor lots</span><span>Δ per minute · CVD cumulative delta</span></div>
+      </section>
+    </div>
+    <div class="col">
+      <section class="card">
+        <h2>Order book radar <span class="r">scanner</span></h2>
+        <div class="toolbar">
+          <label>Rank by <select id="rank"><option>Imbalance</option><option>Heavy side</option></select></label>
+          <label>Heavy side <select id="hs"><option>Any</option><option>Big orders</option><option>Small orders</option></select></label>
+        </div>
+        <div style="overflow-x:auto"><table class="scan"><thead><tr><th>Code</th><th>Imbalance</th><th></th><th class="r">Lots/ord</th><th>Last event</th></tr></thead><tbody id="scan"></tbody></table></div>
+      </section>
+      <section class="card">
+        <h2>Feed <span class="r">book and order flow events</span></h2>
+        <div class="feed" id="feed"></div>
+      </section>
+      <section class="card">
+        <h2>Book readout <span class="r">BBCA · live</span></h2>
+        <div class="imbrow"><span class="num down">−72%</span><div class="imbbar"><i style="left:14%;right:50%;background:var(--down)"></i></div></div>
+        <div style="font-size:12px">−72% · Offer-heavy · <span class="chip big">big orders</span></div>
+        <div class="readings"><span></span><span class="h">Bid</span><span class="h">Offer</span><span class="muted">Lots per order</span><span class="v">22</span><span class="v">118</span></div>
+        <div style="margin-top:10px" class="feed" id="list"></div>
+      </section>
+    </div>
+  </div>
+</div>
+<div class="switcher" role="group" aria-label="Prototype variant"><button id="prev" aria-label="Previous variant">←</button><span id="label"></span><button id="next" aria-label="Next variant">→</button></div>
+
+<script>
+const VARIANTS = [
+  { key: "arrows", name: "A · ▲/▼ only, tooltip names the kind" },
+  { key: "lettered", name: "B · ▲/▼ with the kind's letter (E, D, F)" },
+  { key: "lane", name: "C · event lane under the candles, no marks on price" },
+];
+const TICK = 25, T0 = 10 * 60; // 10:00
+const hm = (m) => { const t = T0 + m; return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
+const fmt = (n) => Math.round(n).toLocaleString("en-US");
+const sgn = (n) => (n >= 0 ? "+" : "−") + fmt(Math.abs(n));
+let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+
+// Price path: keypoint closes, then explicit highs/lows where an event needs them.
+const keys = [[0,5625],[1,5625],[5,5625],[8,5650],[10,5700],[12,5725],[13,5700],[14,5700],[18,5650],[24,5625],[29,5625],[30,5625],[34,5650],[40,5675],[46,5700],[50,5725],[52,5725],[55,5700],[59,5700]];
+const closeAt = (m) => { for (let i = 1; i < keys.length; i++) if (m <= keys[i][0]) { const [a, pa] = keys[i-1], [b, pb] = keys[i]; return Math.round((pa + (pb - pa) * (m - a) / (b - a)) / TICK) * TICK; } return 5700; };
+const special = { 1:{low:5600}, 9:{high:5675}, 10:{low:5650,high:5725}, 12:{high:5725}, 13:{high:5725,low:5700}, 30:{low:5575}, 52:{high:5750}, 53:{high:5725} };
+const bias = (m) => m <= 12 ? 0.7 : m <= 14 ? 0.5 : m <= 31 ? 0.3 : m <= 52 ? 0.47 : 0.5;
+const vol = (m) => m >= 8 && m <= 12 ? 14000 + rnd() * 6000 : m === 13 ? 2600 : m >= 28 && m <= 31 ? 16000 : 5000 + rnd() * 5000;
+const candles = []; let prev = 5625;
+for (let m = 0; m < 60; m++) {
+  const close = closeAt(m), open = prev, s = special[m] || {};
+  const high = s.high ?? Math.max(open, close) + (rnd() < .3 ? TICK : 0);
+  const low = s.low ?? Math.min(open, close) - (rnd() < .3 ? TICK : 0);
+  const cap = (v) => Math.min(Math.max(v, 5575), 5750);
+  const c = { m, open, close: m === 13 ? 5700 : close, high: cap(Math.min(high, m < 52 ? 5725 : 5750)), low: cap(Math.max(low, m === 30 ? 5575 : 5600)), vol: vol(m), cells: [] };
+  if (m === 1) c.low = 5600; if (m === 30) c.low = 5575; if (m === 52) c.high = 5750; if (m === 12) c.high = 5725;
+  // Footprint: spread volume over the minute's prices, buy share around the minute's bias.
+  const prices = []; for (let p = c.low; p <= c.high; p += TICK) prices.push(p);
+  let buy = 0, sell = 0;
+  prices.forEach((p, i) => { const w = 1 + Math.min(i, prices.length - 1 - i); const lots = c.vol * w / prices.reduce((a, _, j) => a + 1 + Math.min(j, prices.length - 1 - j), 0); const b = Math.round(lots * Math.min(.95, Math.max(.05, bias(m) + (rnd() - .5) * .2))); const sl = Math.round(lots) - b; c.cells.push({ p, buy: b, sell: sl }); buy += b; sell += sl; });
+  c.buy = buy; c.sell = sell; c.delta = buy - sell;
+  candles.push(c); prev = c.close;
+}
+let cvd = 0; for (const c of candles) { cvd += c.delta; c.cvd = cvd; }
+const ticks = (c) => (c.high - c.low) / TICK;
+
+// The three order flow events, figures computed from the data above.
+const push = candles.slice(8, 13), busiest = push.reduce((a, b) => b.buy > a.buy ? b : a), widest = Math.max(...push.map(ticks));
+const c13 = candles[13], c30 = candles[30], c12 = candles[12], c52 = candles[52];
+const beyondLots = c30.cells.filter(x => x.p < 5600).reduce((a, x) => a + x.sell, 0);
+const OF = [
+  { kind: "Exhaustion", letter: "E", side: "buy", m: 13, sec: 59, price: c13.high, title: "Buying exhaustion at the day's high",
+    fig: `buy-aggressor lots ${fmt(busiest.buy)} → ${fmt(c13.buy)} a minute · range ${widest} → ${ticks(c13)} ticks` },
+  { kind: "Failed break", letter: "F", side: "sell", m: 30, sec: 59, price: c30.low, title: "Failed break of the day's low",
+    fig: `traded to 5,575 past 5,600 on Rp${fmt(beyondLots * 100 * 5575 / 1e6)} M sell-aggressor · closed back at ${fmt(c30.close)} the same minute` },
+  { kind: "Delta divergence", letter: "D", side: "buy", m: 52, sec: 59, price: c52.high, title: "Delta divergence at the day's high",
+    fig: `new high 5,750 · cumulative delta ${sgn(c52.cvd)} lots vs ${sgn(c12.cvd)} at 10:12's high 5,725` },
+];
+const BOOK = [
+  { kind: "Absorbed", side: "bid", shape: "dia", m: 29, sec: 40, price: 5600, title: "Absorbed on the bid at 5,600", fig: "3,420 lots traded · 1,180 shown · 41 orders" },
+  { kind: "Wall pulled", side: "offer", shape: "sq", m: 48, sec: 12, price: 5750, title: "Wall pulled on the offer at 5,750", fig: "Pulled 52,000 lots · 6 orders · 2 ticks away, as price approached" },
+  { kind: "Eaten", side: "offer", shape: "dia", m: 51, sec: 30, price: 5725, title: "Eaten on the offer at 5,725", fig: "8,900 lots traded · 0.92 of its peak" },
+];
+
+let variant = 0, selected = 0, hits = [];
+const $ = (id) => document.getElementById(id);
+$("last").textContent = fmt(candles[59].close);
+
+function markHTML(e, extra = "") {
+  const v = VARIANTS[variant].key;
+  const tri = `<i class="tri ${e.side}"></i>`;
+  if (v === "arrows") return tri;
+  return `<span class="tag ${e.side}">${v === "lettered" ? tri : ""}${e.letter}</span>`;
+}
+
+function drawChart() {
+  const cv = $("chart"), box = $("chartbox"), dpr = window.devicePixelRatio || 1;
+  const W = box.clientWidth, H = box.clientHeight; cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const css = getComputedStyle(document.documentElement), col = (n) => css.getPropertyValue(n).trim();
+  const lane = VARIANTS[variant].key === "lane";
+  const right = 48, top = 18, volH = 46, laneH = lane ? 26 : 0, bottom = 18;
+  const priceH = H - top - volH - laneH - bottom - 8;
+  const pMin = 5550, pMax = 5775, x = (m) => 6 + (m + .5) * (W - right - 12) / 60, cw = Math.max(3, (W - right - 12) / 60 * .62);
+  const y = (p) => top + (pMax - p) / (pMax - pMin) * priceH;
+  g.font = "10px JetBrains Mono, monospace"; g.fillStyle = col("--text-muted"); g.strokeStyle = col("--grid"); g.lineWidth = 1;
+  for (let p = 5575; p <= 5750; p += 50) { g.beginPath(); g.moveTo(0, y(p) + .5); g.lineTo(W - right, y(p) + .5); g.stroke(); g.fillText(fmt(p), W - right + 4, y(p) + 3); }
+  for (let m = 0; m < 60; m += 10) g.fillText(hm(m), x(m) - 14, H - 4);
+  const vmax = Math.max(...candles.map(c => c.vol)), vTop = H - bottom - volH;
+  for (const c of candles) {
+    const up = c.close >= c.open; g.strokeStyle = g.fillStyle = up ? col("--up") : col("--down");
+    g.beginPath(); g.moveTo(x(c.m), y(c.high)); g.lineTo(x(c.m), y(c.low)); g.stroke();
+    const yo = y(Math.max(c.open, c.close)), h = Math.max(1, Math.abs(y(c.open) - y(c.close)));
+    g.fillRect(x(c.m) - cw / 2, yo, cw, h);
+    g.globalAlpha = .35; const vh = c.vol / vmax * volH; g.fillRect(x(c.m) - cw / 2, vTop + volH - vh, cw, vh); g.globalAlpha = 1;
+  }
+  hits = [];
+  // Book events: ◆ / ■ at price and second, as today.
+  for (const e of BOOK) {
+    const bx = x(e.m) - (W - right - 12) / 120 + (e.sec / 60) * (W - right - 12) / 60, by = y(e.price), r = 5;
+    g.fillStyle = e.side === "bid" ? col("--up") : col("--down"); g.strokeStyle = col("--edge"); g.beginPath();
+    if (e.shape === "sq") g.rect(bx - r, by - r, 2 * r, 2 * r); else { g.moveTo(bx, by - r - 1); g.lineTo(bx + r + 1, by); g.lineTo(bx, by + r + 1); g.lineTo(bx - r - 1, by); g.closePath(); }
+    g.fill(); g.stroke(); hits.push({ x: bx, y: by, e });
+  }
+  // Order flow events.
+  OF.forEach((e, i) => {
+    const bx = x(e.m), c = candles[e.m];
+    if (lane) {
+      const ly = vTop - laneH / 2 - 4;
+      if (i === 0) { g.fillStyle = col("--bg-elevated"); g.globalAlpha = .6; g.fillRect(0, vTop - laneH - 4, W - right, laneH); g.globalAlpha = 1; g.fillStyle = col("--text-muted"); g.fillText("events", W - right + 4, ly + 3); }
+      g.fillStyle = e.side === "buy" ? col("--up") : col("--down");
+      g.globalAlpha = .2; g.fillRect(bx - 9, ly - 8, 18, 16); g.globalAlpha = 1;
+      g.font = "600 11px JetBrains Mono, monospace"; g.fillText(e.letter, bx - 3.5, ly + 4); g.font = "10px JetBrains Mono, monospace";
+      g.strokeStyle = g.fillStyle; g.globalAlpha = .35; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(bx, ly - 8); g.lineTo(bx, e.side === "buy" ? y(c.high) : y(c.low)); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+      hits.push({ x: bx, y: ly, e });
+    } else {
+      // ▲ above the high for a buying-side event, ▼ below the low for a selling-side one.
+      const above = e.side === "buy", s = 6, cy = above ? y(c.high) - 2.2 * s : y(c.low) + 2.2 * s;
+      g.fillStyle = above ? col("--up") : col("--down"); g.strokeStyle = col("--edge");
+      g.beginPath();
+      if (above) { g.moveTo(bx, cy - s); g.lineTo(bx + s, cy + .8 * s); g.lineTo(bx - s, cy + .8 * s); }
+      else { g.moveTo(bx, cy + s); g.lineTo(bx + s, cy - .8 * s); g.lineTo(bx - s, cy - .8 * s); }
+      g.closePath(); g.fill(); g.stroke();
+      if (VARIANTS[variant].key === "lettered") { g.fillStyle = above ? col("--up") : col("--down"); g.font = "600 11px JetBrains Mono, monospace"; g.fillText(e.letter, bx + s + 3, cy + 4); g.font = "10px JetBrains Mono, monospace"; }
+      if (i === selected) { g.strokeStyle = col("--text-primary"); g.lineWidth = 1.5; g.beginPath(); g.arc(bx, cy, 11, 0, Math.PI * 2); g.stroke(); g.lineWidth = 1; }
+      hits.push({ x: bx, y: cy, e });
+    }
+  });
+}
+
+function showTip(ev) {
+  const r = $("chart").getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  const h = hits.find(k => Math.hypot(k.x - mx, k.y - my) < 11), tip = $("tip");
+  if (!h) { tip.hidden = true; return; }
+  tip.innerHTML = `<b class="${h.e.side === "buy" || h.e.side === "bid" ? "up" : "down"}">${hm(h.e.m)} · ${h.e.title}</b><span class="num muted">${h.e.fig}</span>`;
+  tip.hidden = false; tip.style.left = Math.min(mx + 12, r.width - 330) + "px"; tip.style.top = (my + 12) + "px";
+}
+
+function drawFootprint() {
+  const e = OF[selected], from = Math.max(0, e.m - 6), mins = candles.slice(from, e.m + 1);
+  $("fpwin").textContent = `${hm(from)}–${hm(e.m)} · around “${e.kind}”`;
+  const lo = Math.min(...mins.map(c => c.low)), hi = Math.max(...mins.map(c => c.high));
+  const lane = VARIANTS[variant].key === "lane", fp = $("fp");
+  fp.style.gridTemplateColumns = `56px repeat(${mins.length}, minmax(0, 1fr))`;
+  const maxLots = Math.max(...mins.flatMap(c => c.cells.map(x => x.buy + x.sell)));
+  let html = `<div class="c hd ${lane ? "lane" : ""}">${lane ? "events" : ""}</div>`;
+  for (const c of mins) {
+    const of = OF.find(o => o.m === c.m);
+    html += `<div class="c ev ${lane ? "lane" : ""}">${of ? `<button class="mk" title="${of.title}: ${of.fig}">${markHTML(of)}</button>` : ""}</div>`;
+  }
+  html += `<div class="c hd"></div>` + mins.map(c => `<div class="c hd">${hm(c.m)}</div>`).join("");
+  for (let p = hi; p >= lo; p -= TICK) {
+    html += `<div class="c px">${fmt(p)}</div>`;
+    for (const c of mins) {
+      const cell = c.cells.find(x => x.p === p);
+      if (!cell) { html += `<div class="c"></div>`; continue; }
+      const a = (cell.buy + cell.sell) / maxLots, tone = cell.buy >= cell.sell ? "--up" : "--down";
+      html += `<div class="c" style="background:color-mix(in oklab, var(${tone}) ${Math.round(8 + a * 30)}%, var(--bg-canvas))">${fmt(cell.sell)} × ${fmt(cell.buy)}</div>`;
+    }
+  }
+  html += `<div class="c px">Δ</div>` + mins.map(c => `<div class="c foot ${c.delta >= 0 ? "up" : "down"}">${sgn(c.delta)}</div>`).join("");
+  html += `<div class="c px">CVD</div>` + mins.map(c => `<div class="c foot ${c.cvd >= 0 ? "up" : "down"}">${sgn(c.cvd)}</div>`).join("");
+  fp.innerHTML = html;
+}
+
+function eventRow(e, i, withCode) {
+  const isOF = "letter" in e;
+  const mark = isOF ? markHTML(e) : `<i class="${e.shape} ${e.side}"></i>`;
+  return `<div class="row ${isOF && i === selected ? "sel" : ""}" ${isOF ? `data-of="${i}"` : ""}>
+    <span class="t">${hm(e.m)}:${String(e.sec).padStart(2, "0")}</span>
+    <span class="code">${withCode ? "BBCA" : ""}</span>
+    <span>${mark}</span>
+    <span class="what"><b>${e.title}</b> <span class="kindtag">${isOF ? "order flow" : "book"}</span><br><span class="fig">${e.fig}</span></span>
+  </div>`;
+}
+
+function drawLists() {
+  const all = [...OF.map((e, i) => ({ e, i })), ...BOOK.map(e => ({ e, i: -1 }))].sort((a, b) => (b.e.m * 60 + b.e.sec) - (a.e.m * 60 + a.e.sec));
+  const other = `<div class="row"><span class="t">10:58:41</span><span class="code">TLKM</span><span>${markHTML({ side: "sell", letter: "E" })}</span><span class="what"><b>Selling exhaustion at the day's low</b> <span class="kindtag">order flow</span><br><span class="fig">sell-aggressor lots 41,200 → 6,050 a minute · range 4 → 1 ticks</span></span></div>`;
+  $("feed").innerHTML = other + all.map(({ e, i }) => eventRow(e, i, true)).join("");
+  $("list").innerHTML = all.map(({ e, i }) => eventRow(e, i, false)).join("");
+  const last = OF[2];
+  const rows = [
+    ["BBCA", -72, "big orders", "118 vs 22", `${markHTML(last)} <span class="muted num">10:52</span>`],
+    ["BBRI", 58, "big orders", "210 vs 64", `<i class="dia bid"></i> <span class="muted num">10:57</span>`],
+    ["TLKM", 64, "small orders", "9 vs 31", `${markHTML({ side: "sell", letter: "E" })} <span class="muted num">10:58</span>`],
+    ["GOTO", -55, "small orders", "1,900 vs 4,100", `<span class="muted">—</span>`],
+    ["ASII", 21, "", "40 vs 36", `<i class="sq offer"></i> <span class="muted num">10:44</span>`],
+  ];
+  $("scan").innerHTML = rows.map(([code, imb, tag, fig, ev]) => `<tr>
+    <td><b>${code}</b></td>
+    <td><span class="num ${imb >= 0 ? "up" : "down"}">${imb >= 0 ? "+" : "−"}${Math.abs(imb)}%</span> <span class="bar"><i style="${imb >= 0 ? `left:50%;right:${50 - imb / 2}%;background:var(--up)` : `left:${50 + imb / 2}%;right:50%;background:var(--down)`}"></i></span></td>
+    <td>${tag ? `<span class="chip ${tag === "big orders" ? "big" : ""}">${tag}</span>` : ""}</td>
+    <td class="r num">${fig}</td><td>${ev}</td></tr>`).join("");
+  document.querySelectorAll("[data-of]").forEach(el => el.addEventListener("click", () => { selected = +el.dataset.of; render(); }));
+}
+
+function render() {
+  $("label").textContent = VARIANTS[variant].name;
+  $("varname").textContent = "Variant " + VARIANTS[variant].name;
+  drawChart(); drawFootprint(); drawLists();
+}
+function go(i) { variant = (i + VARIANTS.length) % VARIANTS.length; history.replaceState(null, "", "#" + VARIANTS[variant].key); render(); }
+function fromHash() { const k = location.hash.slice(1); const i = VARIANTS.findIndex(v => v.key === k); variant = i < 0 ? 0 : i; render(); }
+$("prev").onclick = () => go(variant - 1); $("next").onclick = () => go(variant + 1);
+addEventListener("keydown", (e) => { if (e.target.closest("input,textarea,select,[contenteditable]")) return; if (e.key === "ArrowLeft") go(variant - 1); if (e.key === "ArrowRight") go(variant + 1); });
+addEventListener("hashchange", fromHash); addEventListener("resize", drawChart);
+$("chart").addEventListener("mousemove", showTip); $("chart").addEventListener("mouseleave", () => ($("tip").hidden = true));
+$("chart").addEventListener("click", (ev) => { showTip(ev); const r = $("chart").getBoundingClientRect(); const h = hits.find(k => Math.hypot(k.x - (ev.clientX - r.left), k.y - (ev.clientY - r.top)) < 11); if (h && "letter" in h.e) { selected = OF.indexOf(h.e); render(); } });
+document.fonts?.ready.then(drawChart);
+fromHash();
+</script>
