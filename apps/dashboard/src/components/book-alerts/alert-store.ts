@@ -2,7 +2,7 @@
 // apinrdw/kumora#517, "Alerts"), outside React, plus whether the bell is
 // open, so an alert's View on any page can open it.
 import { clientRuntime, StockCode } from "@workspace/client"
-import { BookEventSide, WibDate } from "@workspace/relay"
+import { WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 import { useSyncExternalStore } from "react"
 
@@ -38,8 +38,11 @@ const History = Schema.Struct({
   alerts: Schema.Array(
     Schema.Struct({
       key: Schema.String,
+      event: Schema.optional(Schema.String),
       code: StockCode,
-      side: BookEventSide,
+      // A book event's or heavy side's book side, an order flow event's
+      // aggressor side.
+      side: Schema.Literals(["bid", "offer", "buy", "sell"]),
       title: Schema.String,
       detail: Schema.String,
       at: Schema.Finite,

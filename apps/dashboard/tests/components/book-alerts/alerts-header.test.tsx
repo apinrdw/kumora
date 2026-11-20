@@ -35,3 +35,25 @@ test("the rule editor says when a picked kind ignores the minimum value", () => 
   expect(document.body.textContent).toContain(NOTE)
   act(() => root.unmount())
 })
+
+test("the rule editor lists order flow kinds between book event and heavy side kinds", () => {
+  const root = createRoot(
+    document.body.appendChild(document.createElement("div"))
+  )
+  act(() => root.render(<AlertRules />))
+  act(() => buttonNamed("Alert rules").click())
+  const names = [...document.querySelectorAll("button")].map(
+    (button) => button.textContent
+  )
+  const at = (name: string) => names.indexOf(name)
+  expect(at("Wall moved")).toBeGreaterThan(-1)
+  expect(
+    ["Exhaustion", "Delta divergence", "Failed break", "Big orders"].map(at)
+  ).toEqual([1, 2, 3, 4].map((i) => at("Wall moved") + i))
+  act(() => buttonNamed("Exhaustion").click())
+  expect(
+    document.body.textContent,
+    "an order flow kind ignores the minimum value"
+  ).toContain(NOTE)
+  act(() => root.unmount())
+})

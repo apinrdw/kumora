@@ -3,6 +3,7 @@ import {
   StockCode,
   type BookEvent,
   type BookReadings,
+  type OrderFlowEvent,
   type ViewerDown,
 } from "@workspace/relay"
 import { DateTime } from "effect"
@@ -394,4 +395,127 @@ test("a recorded day's page never tells a heavy side alert", async () => {
   act(() => recorded.hear(readingsDelta(T0, true)))
   await settle()
   expect(toasts.told).toEqual([])
+})
+
+const exhaustion: OrderFlowEvent = {
+  kind: "exhaustion",
+  code: StockCode.make("BBCA"),
+  at: DateTime.makeUnsafe(T0),
+  side: "buy",
+  price: 9_100,
+  lots: 400,
+  peakLots: 3_000,
+  ticks: 1,
+  widestTicks: 5,
+}
+
+// A delta carrying the order flow `event`, five seconds after its minute.
+const flowDelta = (event: OrderFlowEvent): ViewerDown => ({
+  _tag: "Delta",
+  at: DateTime.makeUnsafe(DateTime.toEpochMillis(event.at) + 65_000),
+  tape: [],
+  candles: [],
+  orderFlowEvents: [event],
+})
+
+test("an order flow event in a live delta alerts", async () => {
+  browserWith(["exhaustion"])
+  const radar = await openTab()
+  act(() => radar.hear(flowDelta(exhaustion)))
+  await settle()
+  expect(toasts.told).toEqual(["BBCA · Buying exhaustion at the day's high"])
+})
+
+test("an order flow event in a snapshot doesn't alert", async () => {
+  browserWith(["exhaustion"])
+  const radar = await openTab()
+  const snapshot = {
+    _tag: "Snapshot",
+    at: DateTime.makeUnsafe(T0 + 65_000),
+    orderFlowEvents: [exhaustion],
+    selectedOrderFlowEvents: [exhaustion],
+  } as unknown as ViewerDown
+  act(() => radar.hear(snapshot))
+  await settle()
+  expect(toasts.told).toEqual([])
+})
+
+test("a recorded day's page never tells an order flow alert", async () => {
+  browserWith(["exhaustion"])
+  const recorded = await openTab(false)
+  act(() => recorded.hear(flowDelta(exhaustion)))
+  await settle()
+  expect(toasts.told).toEqual([])
+})
+
+test("the same code's order flow kind alerts once in 2 minutes", async () => {
+  browserWith(["exhaustion", "failedBreak"])
+  const radar = await openTab()
+  const failedBreak: OrderFlowEvent = {
+    kind: "failedBreak",
+    code: StockCode.make("BBCA"),
+    at: DateTime.makeUnsafe(T0 + 60_000),
+    side: "sell",
+    price: 8_900,
+    to: 8_850,
+    value: 250e6,
+    close: 8_925,
+    minutes: 0,
+  }
+  act(() => {
+    radar.hear(flowDelta(exhaustion))
+    radar.hear(flowDelta(failedBreak))
+    radar.hear(
+      flowDelta({ ...exhaustion, at: DateTime.makeUnsafe(T0 + 60_000) })
+    )
+  })
+  await settle()
+  expect(toasts.told, "another kind alerts, the same kind cools").toEqual([
+    "BBCA · Buying exhaustion at the day's high",
+    "BBCA · Failed break of the day's low",
+  ])
+  act(() =>
+    radar.hear(
+      flowDelta({ ...exhaustion, at: DateTime.makeUnsafe(T0 + 120_000) })
+    )
+  )
+  await settle()
+  expect(toasts.told, "2 minutes on, it alerts again").toHaveLength(3)
+})
+
+test("order flow alerts share the minute's count with book events", async () => {
+  const codes = ["AALI", "ADRO", "ANTM", "ASII", "BBNI", "BBRI", "BBCA"]
+  browserWith(["eaten", "divergence"], codes)
+  const radar = await openTab()
+  act(() => {
+    for (const [i, code] of codes.slice(0, 6).entries())
+      radar.hear(
+        deltaOf({
+          ...eaten,
+          code: StockCode.make(code),
+          at: DateTime.makeUnsafe(T0 + i * 1_000),
+        })
+      )
+  })
+  await settle()
+  act(() =>
+    radar.hear({
+      ...flowDelta({
+        kind: "divergence",
+        code: StockCode.make("BBCA"),
+        at: DateTime.makeUnsafe(T0),
+        side: "buy",
+        price: 9_150,
+        delta: 1_000,
+        earlierAt: DateTime.makeUnsafe(T0 - 1_200_000),
+        earlierPrice: 9_100,
+        earlierDelta: 5_000,
+      }),
+      at: DateTime.makeUnsafe(T0 + 7_000),
+    })
+  )
+  await settle()
+  expect(toasts.told.at(-1), "the order flow alert folds").toBe(
+    "+1 more alerts this minute"
+  )
 })

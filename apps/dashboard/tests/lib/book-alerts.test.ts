@@ -4,10 +4,13 @@ import {
   WibDate,
   type BookEvent,
   type BookReadings,
+  type OrderFlowEvent,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import {
+  alertLink,
+  alertOf,
   alertTitle,
   historyOf,
   admitAlert,
@@ -438,6 +441,136 @@ describe("heavy side alerts", () => {
       for (const [i, code] of codes.entries())
         yield* limits.admit(pulled(StockCode.make(code), T0 + i), T0 + i)
       assert.strictEqual((yield* limits.admit(change, T0 + 10))._tag, "Folded")
+    })
+  )
+})
+
+describe("order flow alerts", () => {
+  const exhaustion: OrderFlowEvent = {
+    kind: "exhaustion",
+    code: BBCA,
+    at: DateTime.makeUnsafe(T0),
+    side: "buy",
+    price: 9_100,
+    lots: 400,
+    peakLots: 3_000,
+    ticks: 1,
+    widestTicks: 5,
+  }
+  const divergence: OrderFlowEvent = {
+    kind: "divergence",
+    code: BBCA,
+    at: DateTime.makeUnsafe(T0),
+    side: "sell",
+    price: 8_900,
+    delta: -1_000,
+    earlierAt: DateTime.makeUnsafe(T0 - 1_200_000),
+    earlierPrice: 8_950,
+    earlierDelta: -5_000,
+  }
+  const failedBreak: OrderFlowEvent = {
+    kind: "failedBreak",
+    code: BBCA,
+    at: DateTime.makeUnsafe(T0),
+    side: "buy",
+    price: 9_100,
+    to: 9_150,
+    value: 250e6,
+    close: 9_075,
+    minutes: 1,
+  }
+
+  it.effect("match their kind at any minimum value", () =>
+    Effect.gen(function* () {
+      const kinds = rule({ kinds: ["exhaustion"], minValue: 20e9 })
+      assert.isTrue(yield* ruleMatches(kinds, exhaustion, context()))
+      assert.isFalse(yield* ruleMatches(kinds, failedBreak, context()))
+    })
+  )
+
+  it.effect("never match an excluded code", () =>
+    Effect.gen(function* () {
+      const kinds = rule({ kinds: ["exhaustion"] })
+      assert.isFalse(
+        yield* ruleMatches(kinds, exhaustion, context({ excluded: () => true }))
+      )
+    })
+  )
+
+  it.effect("are titled by the event's title", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(
+        yield* alertTitle(exhaustion),
+        "BBCA · Buying exhaustion at the day's high"
+      )
+      assert.strictEqual(
+        yield* alertTitle(divergence),
+        "BBCA · Delta divergence at the day's low"
+      )
+      assert.strictEqual(
+        yield* alertTitle(failedBreak),
+        "BBCA · Failed break of the day's high"
+      )
+    })
+  )
+
+  it.effect("open Market Live on the event", () =>
+    Effect.gen(function* () {
+      const told = yield* alertOf(exhaustion)
+      assert.deepStrictEqual(yield* alertLink(told), {
+        code: BBCA,
+        event: `BBCA|exhaustion|buy|9100|${T0}`,
+      })
+      assert.strictEqual(
+        told.detail,
+        "buy-aggressor lots 3,000 → 400 a minute · range 5 → 1 ticks"
+      )
+    })
+  )
+
+  it.effect("cool on their own code and kind", () =>
+    Effect.gen(function* () {
+      const limits = yield* makeAlertLimits
+      assert.strictEqual((yield* limits.admit(exhaustion, T0))._tag, "Shown")
+      assert.strictEqual(
+        (yield* limits.admit(failedBreak, T0 + 1))._tag,
+        "Shown"
+      )
+      const again = { ...exhaustion, at: DateTime.makeUnsafe(T0 + 60_000) }
+      assert.strictEqual(
+        (yield* limits.admit(again, T0 + 60_000))._tag,
+        "Cooled"
+      )
+    })
+  )
+})
+
+describe("an alert's link", () => {
+  it.effect("names a book event", () =>
+    Effect.gen(function* () {
+      const told = yield* alertOf(pulled(BBCA, T0))
+      assert.deepStrictEqual(yield* alertLink(told), {
+        code: BBCA,
+        event: `BBCA|pulled|bid|9000|${T0}`,
+      })
+    })
+  )
+
+  it.effect("names no event for a heavy side change", () =>
+    Effect.gen(function* () {
+      const told = yield* alertOf({
+        kind: "bigOrders",
+        code: BBCA,
+        at: DateTime.makeUnsafe(T0),
+        side: "offer",
+        imbalance: -0.72,
+        heavyPerOrder: 118,
+        otherPerOrder: 22,
+      })
+      assert.deepStrictEqual(yield* alertLink(told), {
+        code: BBCA,
+        event: undefined,
+      })
     })
   )
 })
