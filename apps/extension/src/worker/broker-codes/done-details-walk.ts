@@ -462,5 +462,20 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
       result._tag === "unserved" ? store.clear : Effect.void
     )
 
-  return { walk }
+  // The extra target's catch-up (extra-target.ts): the matched trades of
+  // `day` posted again, once the walk has posted them to Production.
+  const resend = (
+    day: WibDate,
+    post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
+  ): Effect.Effect<WalkResult> =>
+    settle(
+      Effect.gen(function* () {
+        const held = yield* store.position(day)
+        if (Option.exists(held, (position) => position._tag === "Posted"))
+          yield* postMatched(day, post)
+        return { _tag: "walked" } satisfies WalkResult
+      })
+    )
+
+  return { walk, resend }
 })

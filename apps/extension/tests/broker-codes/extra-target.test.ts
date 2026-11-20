@@ -481,7 +481,7 @@ describe("the extra target", () => {
           )
           assert.strictEqual(catchUp.feed, "Ajaib")
           assert.deepStrictEqual(yield* catchUp.walk(DAY), { _tag: "walked" })
-          assert.deepStrictEqual(extra.written, resent)
+          assert.deepStrictEqual(extra.written, [...resent])
           assert.deepStrictEqual(production.written, [])
         }
       })

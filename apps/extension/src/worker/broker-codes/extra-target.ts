@@ -26,8 +26,9 @@ import type { TargetHold } from "./target-hold.ts"
 // Decision: the batches handed to the extra target wait in a lane of 16
 // (~80,000 trades at Ajaib's 5,000 a batch). A batch past that is dropped,
 // as is one being sent when the settings change; the catch-up sends what
-// either left out. A lane that kept every batch of an unreachable target
-// would hold a whole day's codes. See apinrdw/kumora#250.
+// either left out, the order-number catch-up (`ordersCatchUp`) the Done
+// Details walk's order numbers. A lane that kept every batch of an
+// unreachable target would hold a whole day's codes. See apinrdw/kumora#250.
 const LANE = 16
 
 // Whether the target lacks a trade, from a status that lists from trade 1:
@@ -168,6 +169,22 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     return !(Option.isSome(leading) && (yield* holdsSame(leading.value, held)))
   })
 
+  // Whether the extra target, holding `held` of a day, holds fewer trades
+  // with Ajaib's order numbers than Production's status says it holds, or
+  // Production gave no status to compare.
+  const ordersBehind = Effect.fnUntraced(function* (
+    day: WibDate,
+    held: BrokerCodesStatus
+  ) {
+    const production = yield* options.production
+    if (Option.isNone(production)) return true
+    const leading = yield* statusOnce(options.get, production.value, day)
+    return Option.match(leading, {
+      onNone: () => true,
+      onSome: (status) => held.orderNumbers.ajaib < status.orderNumbers.ajaib,
+    })
+  })
+
   return {
     // Sends the lane's batches to the extra target, one at a time, each
     // resent until it is written or its settings halt.
@@ -184,6 +201,37 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
       (production: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>) =>
       (batch: BrokerCodesBatch) =>
         Effect.andThen(Queue.offer(lane, batch), production(batch)),
+
+    // Decision: the Done Details walk's batches carry order numbers alone,
+    // on trades the extra target may already hold, so the trade catch-up
+    // never resends one its lane dropped. The walk holds its matched trades
+    // until the next day's tape walk keeps trades (done-details-store.ts),
+    // and this catch-up has it post them all to the extra target again
+    // whenever the extra target holds fewer trades with Ajaib's order
+    // numbers than Production. Resending changes nothing it holds. Holding
+    // the batches until every target took them would keep a whole day's
+    // for an unreachable target, as the lane's Decision says. See
+    // apinrdw/kumora#627.
+    ordersCatchUp: (
+      resend: (
+        day: WibDate,
+        post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
+      ) => Effect.Effect<WalkResult>
+    ): CatchUpWalk => ({
+      feed: "Ajaib",
+      walk: Effect.fnUntraced(function* (day: WibDate) {
+        const walking = yield* hold.settings
+        const held = yield* statusOn(walking, day)
+        if (Option.isNone(held))
+          return { _tag: "stopped" } satisfies CatchUpResult
+        if (!(yield* ordersBehind(day, held.value)))
+          return { _tag: "walked" } satisfies CatchUpResult
+        const result = yield* resend(day, (batch) => postTo(walking, batch))
+        return result._tag === "stopped"
+          ? ({ _tag: "stopped" } satisfies CatchUpResult)
+          : result
+      }),
+    }),
 
     // The extra target's origin while its settings go on, for the History
     // catch-up's store (settings.ts).
