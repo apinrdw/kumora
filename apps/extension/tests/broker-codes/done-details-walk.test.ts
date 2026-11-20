@@ -204,7 +204,12 @@ const memoryStore = () => {
       Effect.sync(() =>
         Option.contains(day, of)
           ? [...matched.entries()]
-              .filter(([number]) => number > after)
+              .filter(([number]) =>
+                Option.match(after, {
+                  onNone: () => true,
+                  onSome: (last) => number > Number(last),
+                })
+              )
               .sort(([a], [b]) => a - b)
               .slice(0, limit)
               .map(([, trade]) => trade)
