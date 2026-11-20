@@ -160,6 +160,7 @@ const statusOf =
         : [],
       missingCount: incomplete.includes(day) ? 1000 : 0,
       sources: { ajaib: 0, stockbit: 1000 },
+      orderNumbers: { ajaib: 0, stockbit: 0, differences: 0 },
       crossCheck: { state: "none" },
     })
 

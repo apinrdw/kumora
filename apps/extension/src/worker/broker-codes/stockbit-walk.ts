@@ -1,9 +1,9 @@
 // Stockbit's walk of a day (spec apinrdw/kumora#244, "The extension: the
 // Stockbit walk"): the day's REST tape forward from trade 1, 100 rows a
 // call, on every board. After Ajaib's walk it is the day's cross-check; on a
-// day Ajaib can't serve it is the day's only source. Each 10 calls' codes
-// and fields go to Production as one batch; `end` follows once a
-// newest-first call agrees.
+// day Ajaib can't serve it is the day's only source. Each 10 calls' codes,
+// fields and order numbers go to Production as one batch; `end` follows
+// once a newest-first call agrees.
 //
 // `forward`, `start` and `finish` are the walk's parts, kept apart so the
 // gap walk (cursor over missing ranges) and the History walk reuse them.
@@ -13,10 +13,12 @@ import {
   TradeNumber,
   stockbitRowCodes,
   stockbitRowFields,
+  stockbitRowOrderNumbers,
   batchRow,
   type BatchRow,
   type BrokerCodesBatch,
   type BrokerCodesStatus,
+  type OrderNumbers,
   type TradeCodes,
   type TradeFields,
   type WibDate,
@@ -57,13 +59,14 @@ const RowNumber = Schema.Struct({ trade_number: TradeNumber })
 const decodePage = Schema.decodeUnknownOption(TapePage)
 const decodeRowNumber = Schema.decodeUnknownOption(RowNumber)
 
-// A row of the tape: its trade number, and its codes and fields when they
-// are valid.
+// A row of the tape: its trade number, and its codes, fields and order
+// numbers when they are valid.
 interface TapeRow {
   readonly number: TradeNumber
   readonly value: bigint
   readonly codes: Option.Option<TradeCodes>
   readonly fields: Option.Option<TradeFields>
+  readonly orders: Option.Option<OrderNumbers>
 }
 
 interface Page {
@@ -113,6 +116,7 @@ const pageOf = Effect.fnUntraced(function* (day: WibDate, body: string) {
       value: BigInt(number),
       codes: yield* stockbitRowCodes(raw),
       fields: yield* stockbitRowFields(day, raw),
+      orders: yield* stockbitRowOrderNumbers(raw),
     })
   }
   return Option.some<Page>({ open: page.value.data.is_open_market, rows })
@@ -340,7 +344,12 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
           if (row.value > 0n && Option.isSome(row.codes))
             held.set(
               row.number,
-              yield* batchRow(row.number, row.codes.value, row.fields)
+              yield* batchRow(
+                row.number,
+                row.codes.value,
+                row.fields,
+                row.orders
+              )
             )
         if (++calls >= CALLS_PER_BATCH) yield* flush
         if (until(page.rows)) return

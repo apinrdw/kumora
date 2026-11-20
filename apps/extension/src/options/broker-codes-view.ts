@@ -114,9 +114,24 @@ const crossCheckLabel = Effect.fnUntraced(function* (
   return `${yield* count(crossCheck.differences)} differences`
 })
 
+// The trades holding order numbers from each site and how many of
+// Stockbit's differed, as "1,311 from Ajaib, 23 from Stockbit, 4 differ";
+// blank for a day holding none, as every day recorded before them.
+const orderNumbersLabel = Effect.fnUntraced(function* ({
+  ajaib,
+  stockbit,
+  differences,
+}: BrokerCodesStatus["orderNumbers"]) {
+  const parts: Array<string> = []
+  if (ajaib > 0) parts.push(`${yield* count(ajaib)} from Ajaib`)
+  if (stockbit > 0) parts.push(`${yield* count(stockbit)} from Stockbit`)
+  if (differences > 0) parts.push(`${yield* count(differences)} differ`)
+  return parts.join(", ")
+})
+
 // One of the last 10 days: complete or how many trades are missing and
-// which, which site supplied it, its cross-check, and whether the extra
-// target's copy is behind Production's.
+// which, which site supplied it, its cross-check, its trades with order
+// numbers, and whether the extra target's copy is behind Production's.
 export const dayView = Effect.fnUntraced(function* (
   production: Option.Option<BrokerCodesStatus>,
   extra: Option.Option<BrokerCodesStatus>
@@ -128,6 +143,7 @@ export const dayView = Effect.fnUntraced(function* (
       more: 0,
       sites: "",
       crossCheck: "",
+      orderNumbers: "",
       behind: false,
     }
   const status = production.value
@@ -136,6 +152,7 @@ export const dayView = Effect.fnUntraced(function* (
     ...(yield* missingLabels(status)),
     sites: yield* sitesLabel(status.sources),
     crossCheck: yield* crossCheckLabel(status.crossCheck),
+    orderNumbers: yield* orderNumbersLabel(status.orderNumbers),
     behind:
       Option.isSome(extra) &&
       !extra.value.complete &&

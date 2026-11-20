@@ -222,6 +222,7 @@ function RecentDays({
           <th>Codes</th>
           <th>Site</th>
           <th>Cross-check</th>
+          <th>Order numbers</th>
           <th>Extra target</th>
         </tr>
       </thead>
@@ -248,6 +249,7 @@ function RecentDays({
             </td>
             <td>{row.sites}</td>
             <td>{row.crossCheck}</td>
+            <td>{row.orderNumbers}</td>
             <td>{row.behind ? "Behind" : ""}</td>
           </tr>
         ))}

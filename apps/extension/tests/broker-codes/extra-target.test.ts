@@ -113,6 +113,7 @@ const holding = (options: {
     options.missingCount ??
     options.missing.reduce((sum, [from, to]) => sum + to - from + 1, 0),
   sources: { ajaib: options.held, stockbit: 0 },
+  orderNumbers: { ajaib: 0, stockbit: 0, differences: 0 },
   crossCheck: { state: "none" },
 })
 const COMPLETE = holding({ n: 5, missing: [], held: 5 })
