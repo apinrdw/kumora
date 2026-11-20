@@ -25,10 +25,9 @@ import type { TargetHold } from "./target-hold.ts"
 
 // Decision: the batches handed to the extra target wait in a lane of 16
 // (~80,000 trades at Ajaib's 5,000 a batch). A batch past that is dropped,
-// as is one being sent when the settings change; the catch-up sends what
-// either left out, the order-number catch-up (`ordersCatchUp`) the Done
-// Details walk's order numbers. A lane that kept every batch of an
-// unreachable target would hold a whole day's codes. See apinrdw/kumora#250.
+// as is one being sent when the settings change; the catch-ups send what
+// either left out. A lane that kept every batch of an unreachable target
+// would hold a whole day's codes. See apinrdw/kumora#250.
 const LANE = 16
 
 // Whether the target lacks a trade, from a status that lists from trade 1:
@@ -202,16 +201,14 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
       (batch: BrokerCodesBatch) =>
         Effect.andThen(Queue.offer(lane, batch), production(batch)),
 
-    // Decision: the Done Details walk's batches carry order numbers alone,
-    // on trades the extra target may already hold, so the trade catch-up
-    // never resends one its lane dropped. The walk holds its matched trades
-    // until the next day's tape walk keeps trades (done-details-store.ts),
-    // and this catch-up has it post them all to the extra target again
-    // whenever the extra target holds fewer trades with Ajaib's order
-    // numbers than Production. Resending changes nothing it holds. Holding
-    // the batches until every target took them would keep a whole day's
-    // for an unreachable target, as the lane's Decision says. See
-    // apinrdw/kumora#627.
+    // The Done Details walk's batches carry order numbers alone, on trades
+    // the extra target may hold already, so the trade catch-up never
+    // resends one its lane dropped.
+    // Decision: while the extra target holds fewer trades with Ajaib's order
+    // numbers than Production, the walk posts it all its held matched trades
+    // again; it holds them until the next day's tape walk keeps trades.
+    // Waiting on every target would hold a day for an unreachable one. See
+    // apinrdw/kumora#632.
     ordersCatchUp: (
       resend: (
         day: WibDate,

@@ -276,14 +276,11 @@ const tradeLanes = Effect.fnUntraced(function* (
   return lanes
 })
 
-// Decision: rows and kept trades pair within a lane, one key's one side: a
-// buy trade takes the rows whose buy order is the larger, a sell trade the
-// rows whose sell order is. A lane whose rows and trades are as many gives
-// the rows' order numbers to its trades in any order: tied trades of one
-// side share second, price, lots and both brokers, so no order run's orders
-// change, while ties across sides would swap aggressor and passive orders.
-// A lane whose counts differ, or a row with no trade, gives nothing. See
-// apinrdw/kumora#622.
+// Decision: a lane (one key's one side) whose rows and kept trades are as
+// many gives the rows' order numbers to its trades in any order: tied
+// trades are interchangeable only within one side. A lane whose counts
+// differ, or a row with no trade, gives nothing. See apinrdw/kumora#622
+// and #632.
 const matched = Effect.fnUntraced(function* (
   trades: ReadonlyArray<KeptTrade>,
   rows: ReadonlyArray<DetailRow>
@@ -338,17 +335,11 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
     }
   })
 
-  // Decision: the matched trades are held (in IndexedDB) until the last
-  // code is walked, then posted in trade order, BATCH_ROWS a batch. Trade
-  // numbers run in time order, so each batch spans a minute or two of the
-  // market, as the Stockbit walk's do, and the dashboard's sweep brokers
-  // recompute, which regroups the whole market's minute for each minute a
-  // batch touches, reads each minute about once. Posting each code as it
-  // ended touched every minute the code traded in, once per code: 800
-  // codes regrouped a busy day's 1.46 M trades some 800 times over. A
-  // dashboard that coalesced recomputes across batches would break its rule
-  // that a batch's sweep brokers rows are written before its 200. See
-  // apinrdw/kumora#627, "Slice 4".
+  // Decision: matched trades are held until the last code is walked, then
+  // posted in trade order, BATCH_ROWS a batch, so each batch spans a minute
+  // or two and the dashboard's sweep brokers recompute regroups each market
+  // minute about once, not once per code. Coalescing on the dashboard would
+  // write rows after a batch's 200. See apinrdw/kumora#632.
   const postMatched = Effect.fnUntraced(function* (
     day: WibDate,
     post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
