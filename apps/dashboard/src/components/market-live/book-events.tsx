@@ -2,7 +2,11 @@
 // "The Book readout" and "Book events"): the readout's list, and the recent
 // events the ladder marks. Live from the viewer socket, or a recorded day's
 // from its GET, dimmed past the cursor.
-import { clientRuntime, fetchRecordedBookEvents } from "@workspace/client"
+import {
+  clientRuntime,
+  fetchRecordedBookEvents,
+  fetchRecordedOrderFlowEvents,
+} from "@workspace/client"
 import {
   INDEX_CODES,
   READING_PHASES,
@@ -32,8 +36,10 @@ import {
 import { dayLabel, tapeTime } from "@/lib/format"
 import {
   MarketEventOrder,
+  ORDER_FLOW_EVENTS_FROM,
   marketEventDetail,
   marketEventKey,
+  marketEventKnownAt,
   type MarketEvent,
 } from "@/lib/order-flow-events"
 
@@ -51,22 +57,37 @@ const MARK_MS = 120_000
 const TICK_MS = 1_000
 
 // The selected code's book event store for the recorded `day`, or live.
-// A recorded day's is loaded once by its GET; live, the page feeds it the
+// A recorded day's is loaded once by its two GETs; live, the page feeds it the
 // socket's messages. An index has no book, so nothing is asked.
 export function useBookEvents(code: StockCode, day: WibDate | undefined) {
   const store = useMemo(() => Effect.runSync(makeBookEventStore(code)), [code])
   useEffect(() => {
     if (day === undefined || INDEX_CODES.includes(code)) return
     const fiber = clientRuntime.runFork(
-      loadedOrSignIn(
-        fetchRecordedBookEvents(day, code).pipe(
-          Effect.tap((answer) =>
-            Effect.sync(() => {
-              if (Option.isSome(answer)) store.load(answer.value)
-            })
-          )
-        ),
-        "Book events"
+      Effect.all(
+        [
+          loadedOrSignIn(
+            fetchRecordedBookEvents(day, code).pipe(
+              Effect.tap((answer) =>
+                Effect.sync(() => {
+                  if (Option.isSome(answer)) store.load(answer.value)
+                })
+              )
+            ),
+            "Book events"
+          ),
+          loadedOrSignIn(
+            fetchRecordedOrderFlowEvents(day, code).pipe(
+              Effect.tap((answer) =>
+                Effect.sync(() => {
+                  if (Option.isSome(answer)) store.loadOrderFlow(answer.value)
+                })
+              )
+            ),
+            "Order flow events"
+          ),
+        ],
+        { concurrency: 2 }
       )
     )
     return () => void clientRuntime.runFork(Fiber.interrupt(fiber))
@@ -280,6 +301,11 @@ export function BookEventList({
     store.recorded,
     store.recorded
   )
+  const orderFlowRecorded = useSyncExternalStore(
+    store.subscribe,
+    store.orderFlowRecorded,
+    store.orderFlowRecorded
+  )
   const now = useNow(store, cursor)
   const phase = useMarketPhase()
   const note = Effect.runSync(
@@ -305,6 +331,11 @@ export function BookEventList({
         Events
       </h3>
       {note !== undefined && <Note>{note}</Note>}
+      {recorded && !orderFlowRecorded && (
+        <Note>
+          {`Order flow events not recorded before ${Effect.runSync(dayLabel(ORDER_FLOW_EVENTS_FROM))}.`}
+        </Note>
+      )}
       {recorded && events.length > 0 && (
         <ol ref={list} className="max-h-[230px] overflow-auto">
           {[...events].reverse().map((event) => {
@@ -315,7 +346,8 @@ export function BookEventList({
                 eventKey={key}
                 event={event}
                 after={
-                  cursor !== undefined && DateTime.toEpochMillis(event.at) > now
+                  cursor !== undefined &&
+                  Effect.runSync(marketEventKnownAt(event)) > now
                 }
                 picked={picked === key}
                 onPick={() => store.pick(picked === key ? undefined : key)}

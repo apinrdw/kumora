@@ -57,6 +57,9 @@ export const dayKeys = (date: WibDate) =>
       // Whether the day recorded book events: what a code without a stored
       // BookEvents answer answers.
       bookEvents: `${answers}/book-events.json`,
+      // Whether the day recorded order flow events: what a code without a
+      // stored OrderFlowEvents answer answers.
+      orderFlowEvents: `${answers}/order-flow-events.json`,
       // One code's order books: its chunks behind a minute index
       // (cold-books.ts).
       book: (code: StockCode) => `${answers}/book/${code}.bin`,
@@ -70,8 +73,13 @@ export type DayKeys = Effect.Success<ReturnType<typeof dayKeys>>
 
 // The key of a resource answered by one stored object; none for one read
 // otherwise: Tape and BrokerCodes read tape blocks (cold-tape.ts), and Book
-// reads ranges of its code's object. A code with no stored BookEvents answer
-// answers none from the day's `bookEvents` (cold-days.ts).
+// reads ranges of its code's object. A code with no stored BookEvents or
+// OrderFlowEvents answer answers none from the day's `bookEvents` or
+// `orderFlowEvents` (cold-days.ts).
+// Decision: order flow events sit in the answers' folder, `v7`, not the
+// spec's `v9`: that folder names the stored answers' format, which protocol
+// 9 left alone, and the days already moved sit under it. See
+// apinrdw/kumora#606 and apinrdw/kumora#612.
 export const answerKey = (date: WibDate, resource: RecordedResource) =>
   Effect.map(dayKeys(date), ({ answers: folder }) => {
     switch (resource._tag) {
@@ -89,6 +97,8 @@ export const answerKey = (date: WibDate, resource: RecordedResource) =>
         return `${folder}/heatmap/${resource.code}.json.gz`
       case "BookEvents":
         return `${folder}/book-events/${resource.code}.json.gz`
+      case "OrderFlowEvents":
+        return `${folder}/order-flow-events/${resource.code}.json.gz`
       default:
         return undefined
     }

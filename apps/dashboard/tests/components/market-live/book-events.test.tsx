@@ -315,3 +315,35 @@ test("live, the code's order flow events list among its book events and a link l
     },
   ])
 })
+
+test("a recorded day lists its order flow events with its book events, dimmed until their minute closed by the cursor", () => {
+  const store = Effect.runSync(makeBookEventStore(FOLK))
+  store.load({ code: FOLK, recorded: true, events: [appeared(34, 100)] })
+  store.loadOrderFlow({
+    code: FOLK,
+    recorded: true,
+    events: [exhaustion(0), exhaustion(60)],
+  })
+  // 09:18:05: the 09:17 minute closed, the 09:18 minute not yet.
+  const host = render(
+    <BookEventList store={store} cursor={cursorAt(T0 + 65_000)} />
+  )
+  expect(rows(host).map((row) => [row.text?.slice(0, 10), row.dimmed])).toEqual(
+    [
+      ["09:18:00▼E", true],
+      ["09:17:34Wa", false],
+      ["09:17:00▼E", false],
+    ]
+  )
+})
+
+test("a day recorded before order flow events lists its book events and says so", () => {
+  const store = Effect.runSync(makeBookEventStore(FOLK))
+  store.load({ code: FOLK, recorded: true, events: [appeared(34, 100)] })
+  store.loadOrderFlow({ code: FOLK, recorded: false, events: [] })
+  const host = render(
+    <BookEventList store={store} cursor={cursorAt(T0 + 65_000)} />
+  )
+  expect(rows(host)).toHaveLength(1)
+  expect(host.textContent).toContain("Order flow events not recorded before")
+})

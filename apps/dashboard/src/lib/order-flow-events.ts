@@ -2,10 +2,12 @@
 // events: the rules" and "on the page"): each kind's letter, title and
 // figures line. The scanner's feed and chips and the Book readout list show
 // them with book events, as one kind of row.
-import type {
-  BookEvent,
-  OrderFlowEvent,
-  OrderFlowEventKind,
+import {
+  MINUTE_MS,
+  WibDate,
+  type BookEvent,
+  type OrderFlowEvent,
+  type OrderFlowEventKind,
 } from "@workspace/relay"
 import { DateTime, Effect, Order } from "effect"
 
@@ -21,6 +23,12 @@ export const MarketEventOrder: Order.Order<MarketEvent> = Order.mapInput(
   Order.Number,
   (event: MarketEvent) => DateTime.toEpochMillis(event.at)
 )
+
+// Decision: the first day the trading-day object records order flow events,
+// named on an earlier day's readout. Its GET says whether a day kept them;
+// this date is only the copy, set to the day they ship. See spec
+// apinrdw/kumora#605, "Order flow events: data".
+export const ORDER_FLOW_EVENTS_FROM = WibDate.make("2026-11-23")
 
 // The letter beside each kind's ▲/▼ mark.
 export const ORDER_FLOW_LETTERS: Readonly<Record<OrderFlowEventKind, string>> =
@@ -84,6 +92,18 @@ export const marketEventName = Effect.fnUntraced(function* (
   return flow === undefined
     ? BOOK_EVENT_NAMES[(event as BookEvent).kind]
     : yield* orderFlowEventTitle(flow)
+})
+
+// When an event was known: a book event at its instant, an order flow event
+// at its minute's close, when the rules judged it.
+// Decision: a recorded day's cursor shows an order flow event from its
+// minute's close on, not its start: before then the minute that makes it
+// hadn't traded. See apinrdw/kumora#612.
+export const marketEventKnownAt = Effect.fnUntraced(function* (
+  event: MarketEvent
+) {
+  const at = DateTime.toEpochMillis(event.at)
+  return (yield* asOrderFlowEvent(event)) === undefined ? at : at + MINUTE_MS
 })
 
 // Either kind's detail line.

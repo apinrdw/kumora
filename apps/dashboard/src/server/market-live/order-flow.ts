@@ -26,6 +26,7 @@ import {
 import { Array as Arr, DateTime, Effect } from "effect"
 
 import type { CandleFigures } from "./candles.ts"
+import type { Cells } from "./footprint-cells.ts"
 
 // Decision: a relay gap shorter than 10 s never blocks a check; one of 10 s
 // or longer that overlaps a rule's window does, and so does one still open.
@@ -481,6 +482,52 @@ const addPrint = (figures: MinuteFigures, print: Print) => {
   }
 }
 
+// One stored minute of one code, as a restart reads it back: its candle's
+// figures and its footprint's cells (none for an index).
+export interface StoredMinute {
+  readonly minute: number
+  readonly figures: Pick<CandleFigures, "high" | "low" | "close" | "closeOrder">
+  readonly cells: Cells | undefined
+}
+
+// A stored minute as the prints `settled` adds: the range's ends and each
+// cell's lots by side, then the close.
+// Decision: a restart reads candles and footprints back, not the day's
+// trades: a minute's figures are its range, close and lots by side and
+// price, which these hold, at two rows a minute against a busy day's
+// millions of trades.
+const printsOf = (stored: StoredMinute) =>
+  Effect.sync(() => {
+    const at = (price: number, closeOrder = -1n) => ({
+      close: price,
+      closeOrder,
+      volume: 0,
+      buyValue: 0,
+      sellValue: 0,
+    })
+    const prints: Array<Print> = [
+      at(stored.figures.high),
+      at(stored.figures.low),
+    ]
+    for (const [price, lots] of stored.cells ?? []) {
+      const value = (count: number) => count * SHARES_PER_LOT * price
+      if (lots.buy > 0)
+        prints.push({
+          ...at(price),
+          volume: lots.buy,
+          buyValue: value(lots.buy),
+        })
+      if (lots.sell > 0)
+        prints.push({
+          ...at(price),
+          volume: lots.sell,
+          sellValue: value(lots.sell),
+        })
+    }
+    prints.push(at(stored.figures.close, stored.figures.closeOrder))
+    return prints
+  })
+
 // Every code's order flow state for the trading day `date`. It resets only
 // with the day: one trading-day object holds one day.
 export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
@@ -687,6 +734,24 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
     return yield* judgeFolded(folded)
   })
 
+  // Folds one code's minutes after `after` up to `through`, in time order:
+  // its traded ones and every continuous one.
+  const foldCode = Effect.fnUntraced(function* (
+    code: StockCode,
+    flow: CodeFlow,
+    continuous: ReadonlyArray<number>,
+    through: number,
+    blocked: FoldedMinute["blocked"]
+  ) {
+    const minutes = new Set(continuous)
+    for (const minute of flow.pending.keys())
+      if (minute <= through) minutes.add(minute)
+    const found: Array<OrderFlowEvent> = []
+    for (const minute of [...minutes].sort((a, b) => a - b))
+      found.push(...(yield* fold(code, flow, minute, blocked)))
+    return found
+  })
+
   // The continuous minutes after `after` up to `through`.
   const continuousBetween = (after: number, through: number) =>
     Effect.sync(() => {
@@ -713,16 +778,51 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
     const continuous = yield* continuousBetween(foldedThrough, through)
     const blocked = blockedBy(gaps)
     const found: Array<OrderFlowEvent> = []
-    for (const [code, flow] of codes) {
-      const minutes = new Set(continuous)
-      for (const minute of flow.pending.keys())
-        if (minute <= through) minutes.add(minute)
-      for (const minute of [...minutes].sort((a, b) => a - b))
-        found.push(...(yield* fold(code, flow, minute, blocked)))
-    }
+    for (const [code, flow] of codes)
+      found.push(...(yield* foldCode(code, flow, continuous, through, blocked)))
     foldedThrough = through
     return Arr.sort(found, OrderFlowEventOrder)
   })
 
-  return { settled, due, judge }
+  // Rebuilds the state after a restart from each code's stored minutes, one
+  // code at a time, judging every minute due at `now` as `judge` did, under
+  // the day's relay gaps with any still open ended at `now`. Returns the
+  // events the rules found again, oldest first. Run before any trade.
+  // Decision: the restart replays the day through the rules rather than
+  // storing their state: the day's high and low, cumulative delta, windows
+  // and each rule's memory come back as the minutes made them, whatever a
+  // rule keeps. A gap the restart opened ends at `now`, so it blocks no
+  // minute before it. See apinrdw/kumora#612.
+  const restore = Effect.fnUntraced(function* <E>(
+    stored: ReadonlyArray<StockCode>,
+    minutesOf: (
+      code: StockCode
+    ) => Effect.Effect<ReadonlyArray<StoredMinute>, E>,
+    now: number,
+    gaps: ReadonlyArray<RelayGap>
+  ) {
+    const through = yield* dueAt(now)
+    const continuous = yield* continuousBetween(
+      Number.NEGATIVE_INFINITY,
+      through
+    )
+    const blocked = blockedBy(
+      gaps.map((gap) => ({ ...gap, to: gap.to ?? DateTime.makeUnsafe(now) }))
+    )
+    const found: Array<OrderFlowEvent> = []
+    for (const code of stored) {
+      for (const minute of yield* minutesOf(code))
+        for (const print of yield* printsOf(minute))
+          settled(code, minute.minute, print)
+      const flow = codes.get(code)
+      if (flow !== undefined)
+        found.push(
+          ...(yield* foldCode(code, flow, continuous, through, blocked))
+        )
+    }
+    foldedThrough = Math.max(foldedThrough, through)
+    return Arr.sort(found, OrderFlowEventOrder)
+  })
+
+  return { settled, due, judge, restore }
 })

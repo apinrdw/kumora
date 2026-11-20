@@ -9,6 +9,7 @@ import {
   type OrderBook,
   type OrderFlowEvent,
   type RecordedBookEvents,
+  type RecordedOrderFlowEvents,
   type StockCode,
   type ViewerDown,
 } from "@workspace/relay"
@@ -20,10 +21,13 @@ export interface BookEventStore {
   // MAX_CODE_BOOK_EVENTS, as its snapshot and its recorded day's answer hold.
   readonly events: () => ReadonlyArray<BookEvent>
   // The code's order flow events for the day, oldest first: its newest
-  // MAX_CODE_ORDER_FLOW_EVENTS, live from the socket.
+  // MAX_CODE_ORDER_FLOW_EVENTS, as its snapshot and its recorded day's
+  // answer hold.
   readonly orderFlowEvents: () => ReadonlyArray<OrderFlowEvent>
   // False for a recorded day kept before book events were.
   readonly recorded: () => boolean
+  // False for a recorded day kept before order flow events were.
+  readonly orderFlowRecorded: () => boolean
   // The event picked in the list, book or order flow, by its key
   // (lib/order-flow-events.ts, marketEventKey), whose heatmap mark is
   // ringed.
@@ -38,13 +42,14 @@ export interface BookEventStore {
   // on.
   readonly now: (local: number) => number
   readonly apply: (message: ViewerDown) => void
-  // A recorded day's GET answer.
+  // A recorded day's GET answers.
   readonly load: (answer: RecordedBookEvents) => void
+  readonly loadOrderFlow: (answer: RecordedOrderFlowEvents) => void
   readonly subscribe: (listener: () => void) => () => void
 }
 
 // The selected code's book and order flow events, outside React: live from
-// the viewer socket, or a recorded day's book events from its GET. A
+// the viewer socket, or a recorded day's from its GETs. A
 // snapshot of this code replaces them and a delta's of this code add to
 // them. Its books' side times, kept
 // for the window, say whether it is too quiet to read.
@@ -53,6 +58,7 @@ export const makeBookEventStore = (code: StockCode) =>
     let events: ReadonlyArray<BookEvent> = []
     let orderFlowEvents: ReadonlyArray<OrderFlowEvent> = []
     let recorded = true
+    let orderFlowRecorded = true
     let picked: string | undefined
     // The object's clock less this one's, at its last message.
     let skew = 0
@@ -84,6 +90,7 @@ export const makeBookEventStore = (code: StockCode) =>
       events: () => events,
       orderFlowEvents: () => orderFlowEvents,
       recorded: () => recorded,
+      orderFlowRecorded: () => orderFlowRecorded,
       picked: () => picked,
       pick: (key) => {
         picked = key
@@ -132,6 +139,11 @@ export const makeBookEventStore = (code: StockCode) =>
       load: (answer) => {
         events = answer.events
         recorded = answer.recorded
+        tell()
+      },
+      loadOrderFlow: (answer) => {
+        orderFlowEvents = answer.events
+        orderFlowRecorded = answer.recorded
         tell()
       },
       subscribe: (listener) => {
