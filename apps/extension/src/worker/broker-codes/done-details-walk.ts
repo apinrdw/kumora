@@ -108,7 +108,7 @@ export const MatchedTrade = Schema.Struct({
 export type MatchedTrade = typeof MatchedTrade.Type
 
 // Where the walk of a day stands: at the page it asks next, of a code the
-// kept trades hold; past the last code, posting the matched trades; or
+// tape trades hold; past the last code, posting the matched trades; or
 // done, its matched trades held for the extra target's catch-up.
 export const DoneDetailsPosition = Schema.Union([
   Schema.TaggedStruct("Walking", { code: StockCode, page: Schema.Finite }),
@@ -128,7 +128,7 @@ export interface DoneDetailsStore {
     day: WibDate,
     trades: ReadonlyArray<TapeTrade>
   ) => Effect.Effect<void>
-  // The codes `day`'s kept trades hold, in order; none for another day.
+  // The codes `day`'s tape trades hold, in order; none for another day.
   readonly codes: (day: WibDate) => Effect.Effect<ReadonlyArray<StockCode>>
   readonly trades: (
     day: WibDate,
@@ -152,7 +152,7 @@ export interface DoneDetailsStore {
   ) => Effect.Effect<ReadonlyArray<DetailRow>>
   // Moves the walk to `next`, with the rows of `next.code` the page before
   // it gave; another code's rows are forgotten. One write, so a restart
-  // never holds a page's rows twice. At Posted the kept trades are
+  // never holds a page's rows twice. At Posted the tape trades are
   // forgotten too, and the matched ones stay.
   readonly page: (
     day: WibDate,
@@ -542,7 +542,7 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
     if (!Option.contains(step, "Posting")) {
       const codes = yield* store.codes(day)
       // A day this browser didn't tape-walk from Ajaib, or one whose walk
-      // ended, has no kept trades.
+      // ended, has no tape trades.
       if (codes.length === 0) return walked
       yield* walkCodes(day, codes, held)
     }
@@ -551,7 +551,7 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
     return walked
   })
 
-  // Past Ajaib's window the walk has ended too, and its kept trades go.
+  // Past Ajaib's window the walk has ended too, and its tape trades go.
   const walk = (day: WibDate): Effect.Effect<WalkResult> =>
     Effect.tap(settle(walkDay(day)), (result) =>
       result._tag === "unserved" ? store.clear : Effect.void
