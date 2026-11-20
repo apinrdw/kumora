@@ -120,8 +120,17 @@ _Avoid_: Top broker (top names the top-N filter), main broker
 A sweep every one of whose trades has stored broker codes. Only a whole sweep shows brokers, and a whole sweep is the one that splits by aggressor broker; a sweep missing any trade's codes shows none and stays unsplit, rather than read from part of it.
 _Avoid_: Complete sweep (complete names the day's broker codes status), coded sweep
 
+**Order number**:
+The exchange's number for an order. Each running trade has two, its buy order's and its sell order's, known once the day has closed. One count serves every stock code and both sides, rising as orders arrive and starting again each day.
+
+**Aggressor order**:
+A running trade's order on its aggressor side: the later of its two orders, the one with the larger order number. One aggressor order's trades all fall in one second.
+
+**Order run**:
+One aggressor broker's aggressor orders in a whole sweep, taken in order-number order, where each order's number is at most 3 above the previous one's. Another broker's orders between them don't break it.
+
 **Piece**:
-One of the sweeps a whole sweep splits into: one aggressor broker's trades of it, with its own lots, value, first and last price, trade count and time, and its first trade's number as its id. A whole sweep with one aggressor broker is one piece; an auction match's entry also holds one piece, though it is no sweep. The sweep log's rows and the candle chart's bubbles show pieces in place of the whole sweeps they came from.
+One of the sweeps a whole sweep splits into: one aggressor broker's trades of it, or, when every trade of the sweep has its order numbers, one order run's trades, with its own lots, value, first and last price, trade count and time, and its first trade's number as its id. A whole sweep with one aggressor broker is one piece; an auction match's entry also holds one piece, though it is no sweep. The sweep log's rows and the candle chart's bubbles show pieces in place of the whole sweeps they came from.
 _Avoid_: Split sweep (in code), sub-sweep, part
 
 **Other side**:
