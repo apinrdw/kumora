@@ -9,6 +9,7 @@ import {
   BrokerCode,
   BrokerCodesProtocolVersion,
   OrderNumber,
+  Side,
   StockCode,
   TradeCodes,
   TradeNumber,
@@ -40,7 +41,8 @@ const DETAILS_PATH = "v1/stock/data/broker-transaction"
 const PAGE_SIZE = 1_000
 
 // A trade the tape walk kept for this walk to match: its number and codes,
-// and the fields its key reads, its time as the WIB second `HH:mm:ss`.
+// and the fields its key reads, its time as the WIB second `HH:mm:ss`, and
+// its aggressor side.
 export const KeptTrade = Schema.Struct({
   number: TradeNumber,
   code: StockCode,
@@ -48,6 +50,7 @@ export const KeptTrade = Schema.Struct({
   board: Board,
   price: Schema.Finite,
   lots: Schema.Finite,
+  side: Side,
   codes: TradeCodes,
 })
 export type KeptTrade = typeof KeptTrade.Type
@@ -165,6 +168,7 @@ export const keptTrade = (
     board: fields.board,
     price: fields.price,
     lots: fields.lots,
+    side: fields.side,
     codes,
   }))
 
@@ -197,33 +201,71 @@ const detailRows = Effect.fnUntraced(function* (
   return rows
 })
 
-// Decision: a key whose rows and kept trades are as many gives the rows'
-// order numbers to its trades in any order: tied trades share second,
-// price, lots and both brokers, so no order run's orders change. A key
-// whose counts differ, or a row with no trade, gives nothing. See
-// apinrdw/kumora#622.
-const matched = Effect.fnUntraced(function* (
-  trades: ReadonlyArray<KeptTrade>,
-  rows: ReadonlyArray<DetailRow>
-) {
-  const byKey = new Map<string, Array<DetailRow>>()
+// The lane a trade or row pairs in: its key and its aggressor side. A row's
+// side is its order pair's later order's, the larger number's; every row
+// also lies in its key's sideless lane, where an auction match's trades,
+// which have no side, find it.
+const lane = (key: string, side: KeptTrade["side"]) =>
+  Effect.succeed(`${key} ${side}`)
+const rowLanes = Effect.fnUntraced(function* (rows: ReadonlyArray<DetailRow>) {
+  const lanes = new Map<string, Array<DetailRow>>()
   for (const row of rows)
-    byKey.set(row.key, [...(byKey.get(row.key) ?? []), row])
-  const tradesByKey = new Map<string, Array<KeptTrade>>()
+    for (const side of ["none", row.buy > row.sell ? "buy" : "sell"] as const) {
+      const at = yield* lane(row.key, side)
+      lanes.set(at, [...(lanes.get(at) ?? []), row])
+    }
+  return lanes
+})
+
+// The kept trades by lane, leaving out a key's sideless trades when it has
+// trades with a side too: its rows can't be told apart between them.
+const tradeLanes = Effect.fnUntraced(function* (
+  trades: ReadonlyArray<KeptTrade>
+) {
+  const lanes = new Map<string, Array<KeptTrade>>()
+  const sided = new Set<string>()
+  const sideless: Array<readonly [string, KeptTrade]> = []
   for (const trade of trades) {
     const key = yield* keyOf({
       ...trade,
       buyer: trade.codes.buyer,
       seller: trade.codes.seller,
     })
-    tradesByKey.set(key, [...(tradesByKey.get(key) ?? []), trade])
+    if (trade.side === "none") {
+      sideless.push([key, trade])
+      continue
+    }
+    sided.add(key)
+    const at = yield* lane(key, trade.side)
+    lanes.set(at, [...(lanes.get(at) ?? []), trade])
   }
+  for (const [key, trade] of sideless) {
+    if (sided.has(key)) continue
+    const at = yield* lane(key, "none")
+    lanes.set(at, [...(lanes.get(at) ?? []), trade])
+  }
+  return lanes
+})
+
+// Decision: rows and kept trades pair within a lane, one key's one side: a
+// buy trade takes the rows whose buy order is the larger, a sell trade the
+// rows whose sell order is. A lane whose rows and trades are as many gives
+// the rows' order numbers to its trades in any order: tied trades of one
+// side share second, price, lots and both brokers, so no order run's orders
+// change, while ties across sides would swap aggressor and passive orders.
+// A lane whose counts differ, or a row with no trade, gives nothing. See
+// apinrdw/kumora#622.
+const matched = Effect.fnUntraced(function* (
+  trades: ReadonlyArray<KeptTrade>,
+  rows: ReadonlyArray<DetailRow>
+) {
+  const byLane = yield* rowLanes(rows)
   const batch: Array<BatchRow> = []
-  for (const [key, tied] of tradesByKey) {
-    const found = byKey.get(key) ?? []
+  for (const [at, tied] of yield* tradeLanes(trades)) {
+    const found = byLane.get(at) ?? []
     if (found.length !== tied.length) continue
-    for (const [at, trade] of tied.entries()) {
-      const row = found[at]!
+    for (const [index, trade] of tied.entries()) {
+      const row = found[index]!
       batch.push(
         yield* batchRow(
           trade.number,

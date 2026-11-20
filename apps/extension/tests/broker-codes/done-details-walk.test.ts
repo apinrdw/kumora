@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import {
   BrokerCode,
+  OrderNumber,
   StockCode,
   TradeNumber,
   WibDate,
@@ -22,6 +23,8 @@ import type { Answer, TabRequest } from "../../src/worker/broker.ts"
 import hope from "./fixtures/done-details-hope-2026-11-20.json"
 
 const DAY = WibDate.make("2026-11-20")
+const orderPair = (buy: number, sell: number) =>
+  [OrderNumber.make(buy), OrderNumber.make(sell)] as const
 const wib = (time: string) => Date.parse(`2026-11-20T${time}+07:00`)
 
 // HOPE's 1,312 trades on 2026-11-20 as Stockbit's tape gave them, with the
@@ -36,6 +39,7 @@ const tradeOf = (trade: HopeTrade): KeptTrade => ({
   board: trade[2] as KeptTrade["board"],
   price: Number(trade[3]),
   lots: Number(trade[4]),
+  side: trade[11] as KeptTrade["side"],
   codes: {
     buyer: BrokerCode.make(String(trade[5])),
     buyerType: trade[6] as "D" | "F",
@@ -378,8 +382,8 @@ describe("the Done Details walk", () => {
         const walk = yield* walkWith(tab, store, production)
         yield* walk.walk(DAY)
         const orders = production.orders()
-        assert.deepStrictEqual(orders.get("1"), [100, 90])
-        assert.deepStrictEqual(orders.get("2"), [102, 105])
+        assert.deepStrictEqual(orders.get("1"), orderPair(100, 90))
+        assert.deepStrictEqual(orders.get("2"), orderPair(102, 105))
       })
   )
 

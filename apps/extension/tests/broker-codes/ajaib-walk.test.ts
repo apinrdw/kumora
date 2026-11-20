@@ -388,6 +388,7 @@ describe("Ajaib's walk of the day", { timeout: WALK_TIMEOUT }, () => {
           board: "RG",
           price: 8_025,
           lots: 2,
+          side: "sell",
           codes: {
             buyer: BrokerCode.make("YP"),
             buyerType: "D",
