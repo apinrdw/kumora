@@ -184,11 +184,19 @@ export const batchRow = (
 
 // The day's trades holding order numbers from each site, and the Stockbit
 // rows whose order numbers differed from Ajaib's held ones.
-const OrderNumberCounts = Schema.Struct({
+export const OrderNumberCounts = Schema.Struct({
   ajaib: Schema.Int,
   stockbit: Schema.Int,
   differences: Schema.Int,
 })
+export type OrderNumberCounts = typeof OrderNumberCounts.Type
+
+// The counts of a day holding no order numbers.
+export const NO_ORDER_NUMBERS: OrderNumberCounts = {
+  ajaib: 0,
+  stockbit: 0,
+  differences: 0,
+}
 
 // The day's cross-check: Ajaib supplied nothing, so Stockbit's copy has
 // nothing to compare against; Stockbit's walk has reached `walkedTo`; or

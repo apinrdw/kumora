@@ -8,6 +8,8 @@ import {
   BrokerCode,
   BrokerCodesProtocolVersion,
   MISSING_RANGES,
+  NO_ORDER_NUMBERS,
+  OrderNumberCounts,
   TradeNumber,
   type StockCode,
   brokerCodesAfter,
@@ -69,34 +71,59 @@ const ORDER_NUMBER_CHUNKS = `CREATE TABLE IF NOT EXISTS order_number_chunks (
 const OrderSource = { ...Source, differed: 68 } as const
 
 // The status's order number counts, kept as the `order-numbers` fact.
-const OrderNumberCounts = Schema.fromJsonString(
-  Schema.Struct({
-    ajaib: Schema.Int,
-    stockbit: Schema.Int,
-    differences: Schema.Int,
-  })
+const OrderNumberCountsFact = Schema.fromJsonString(OrderNumberCounts)
+const decodeOrderNumberCounts = Schema.decodeUnknownOption(
+  OrderNumberCountsFact
 )
-type OrderNumberCounts = typeof OrderNumberCounts.Type
-const decodeOrderNumberCounts = Schema.decodeUnknownOption(OrderNumberCounts)
-const encodeOrderNumberCounts = Schema.encodeSync(OrderNumberCounts)
-const NO_ORDER_NUMBERS: OrderNumberCounts = {
-  ajaib: 0,
-  stockbit: 0,
-  differences: 0,
+const encodeOrderNumberCounts = Schema.encodeSync(OrderNumberCountsFact)
+
+// What each order record source byte means, 0 for an absent record:
+// - `counts`, what it adds to the status's counts: Stockbit's to Stockbit's,
+//   every other to Ajaib's, and a difference to the differences;
+// - `site`, the site `heldOrders` names; none for an absent record;
+// - `next`, the source byte a feed's row leaves on it: the first when the
+//   row's order numbers agree with the held ones, the second when they
+//   differ. Ajaib's against Stockbit's agree (`B`) or differ (`D`), against
+//   a `B` record's they differ from the Stockbit copy that agreed, and a `D`
+//   record stays one. Stockbit's fill an absent record or Stockbit's own;
+//   against Ajaib's they only compare.
+interface OrderSourceRule {
+  readonly counts: OrderNumberCounts
+  readonly site: Option.Option<Feed | "both">
+  readonly next: Record<Feed, readonly [agree: number, differ: number]>
+}
+const { ajaib: A, stockbit: S, both: B, differed: D } = OrderSource
+const ORDER_SOURCES: Record<number, OrderSourceRule> = {
+  0: {
+    counts: NO_ORDER_NUMBERS,
+    site: Option.none(),
+    next: { Ajaib: [A, A], Stockbit: [S, S] },
+  },
+  [A]: {
+    counts: { ajaib: 1, stockbit: 0, differences: 0 },
+    site: Option.some("Ajaib"),
+    next: { Ajaib: [A, A], Stockbit: [B, D] },
+  },
+  [S]: {
+    counts: { ajaib: 0, stockbit: 1, differences: 0 },
+    site: Option.some("Stockbit"),
+    next: { Ajaib: [B, D], Stockbit: [S, S] },
+  },
+  [B]: {
+    counts: { ajaib: 1, stockbit: 0, differences: 0 },
+    site: Option.some("both"),
+    next: { Ajaib: [B, D], Stockbit: [B, D] },
+  },
+  [D]: {
+    counts: { ajaib: 1, stockbit: 0, differences: 1 },
+    site: Option.some("Ajaib"),
+    next: { Ajaib: [D, D], Stockbit: [B, D] },
+  },
 }
 
-// What one order record's source byte adds to the counts: Stockbit's to
-// Stockbit's, every other to Ajaib's, and a difference to the differences.
-const countsOf = (source: number): OrderNumberCounts => ({
-  ajaib:
-    source === OrderSource.ajaib ||
-    source === OrderSource.both ||
-    source === OrderSource.differed
-      ? 1
-      : 0,
-  stockbit: source === OrderSource.stockbit ? 1 : 0,
-  differences: source === OrderSource.differed ? 1 : 0,
-})
+// The rule of an order record's source byte, which the store wrote.
+const orderSourceOf = (source: number) =>
+  Effect.sync(() => ORDER_SOURCES[source]!)
 
 // What a day recorded before apinrdw/kumora#561 holds and the store drops
 // at its start: the broker trades index, one row per side of each trade, and
@@ -317,11 +344,12 @@ const encodeCrossCheck = Schema.encodeSync(CrossCheckFact)
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
-// Where a trade's record sits: its chunk and the record's offset in it.
-const placeOf = (number: number) =>
+// Where a trade's record of `record` bytes sits, a codes record by default:
+// its chunk and the record's offset in it.
+const placeOf = (number: number, record = RECORD) =>
   Effect.sync(() => ({
     chunk: Math.floor((number - 1) / CHUNK),
-    at: ((number - 1) % CHUNK) * RECORD,
+    at: ((number - 1) % CHUNK) * record,
   }))
 
 // One trade's codes as its record's first six bytes.
@@ -396,58 +424,47 @@ const mergeStockbit = Effect.fnUntraced(function* (
 })
 
 // One trade's order numbers as their record's first eight bytes.
-const orderBytesOf = ([buy, sell]: OrderNumbers) => {
-  const bytes = new Uint8Array(ORDER_SOURCE)
-  const view = new DataView(bytes.buffer)
-  view.setUint32(0, buy)
-  view.setUint32(4, sell)
-  return bytes
-}
+const orderBytesOf = ([buy, sell]: OrderNumbers) =>
+  Effect.sync(() => {
+    const bytes = new Uint8Array(ORDER_SOURCE)
+    const view = new DataView(bytes.buffer)
+    view.setUint32(0, buy)
+    view.setUint32(4, sell)
+    return bytes
+  })
 
 // The order numbers a record's first eight bytes hold, which the store
 // wrote.
-const ordersOf = (record: Uint8Array): OrderNumbers => {
-  const view = new DataView(record.buffer, record.byteOffset, ORDER_SOURCE)
-  return [view.getUint32(0), view.getUint32(4)]
-}
+const ordersOf = (record: Uint8Array) =>
+  Effect.sync((): OrderNumbers => {
+    const view = new DataView(record.buffer, record.byteOffset, ORDER_SOURCE)
+    return [view.getUint32(0), view.getUint32(4)]
+  })
 
-const sameOrders = (held: Uint8Array, at: number, orders: Uint8Array) => {
-  for (let index = 0; index < ORDER_SOURCE; index++)
-    if (held[at + index] !== orders[index]) return false
-  return true
-}
+const sameOrders = (held: Uint8Array, at: number, orders: Uint8Array) =>
+  Effect.sync(() => {
+    for (let index = 0; index < ORDER_SOURCE; index++)
+      if (held[at + index] !== orders[index]) return false
+    return true
+  })
 
-// The source byte a feed's row leaves on a record, by the record's source
-// byte (0 when absent): the first when the row's order numbers agree with
-// the held ones, the second when they differ. Ajaib's against Stockbit's
-// agree (`B`) or differ (`D`), against a `B` record's they differ from the
-// Stockbit copy that agreed, and a `D` record stays one. Stockbit's fill an
-// absent record or Stockbit's own; against Ajaib's they only compare.
-const { ajaib: A, stockbit: S, both: B, differed: D } = OrderSource
-const NEXT_ORDER_SOURCE: Record<
-  Feed,
-  Record<number, readonly [agree: number, differ: number]>
-> = {
-  Ajaib: { 0: [A, A], [A]: [A, A], [S]: [B, D], [B]: [B, D], [D]: [D, D] },
-  Stockbit: { 0: [S, S], [S]: [S, S], [A]: [B, D], [B]: [B, D], [D]: [B, D] },
-}
-
-// A row's order numbers into the held record at `at`, by `feed`'s rule:
-// Ajaib's replace what is held, Stockbit's land only on a record they leave
-// Stockbit's. Answers the record's source byte before it.
-const mergeOrders = (
+// A row's order numbers into the held record at `at`, by `feed`'s rule
+// (ORDER_SOURCES' `next`): Ajaib's replace what is held, Stockbit's land
+// only on a record they leave Stockbit's. Answers the rule of the record's
+// source byte before it.
+const mergeOrders = Effect.fnUntraced(function* (
   feed: Feed,
   held: Uint8Array,
   at: number,
   orders: Uint8Array
-) => {
-  const source = held[at + ORDER_SOURCE]!
-  const [agree, differ] = NEXT_ORDER_SOURCE[feed][source]!
-  const next = sameOrders(held, at, orders) ? agree : differ
+) {
+  const rule = yield* orderSourceOf(held[at + ORDER_SOURCE]!)
+  const [agree, differ] = rule.next[feed]
+  const next = (yield* sameOrders(held, at, orders)) ? agree : differ
   if (feed === "Ajaib" || next === S) held.set(orders, at)
   held[at + ORDER_SOURCE] = next
-  return source
-}
+  return rule
+})
 
 // A row's fields as walk_trades stores them, in its column order: none for
 // a row without fields, or when walk_trades `keeps` none.
@@ -778,20 +795,24 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       Option.orElse(merged.orderCounts, () => day.countsBefore),
       () => NO_ORDER_NUMBERS
     )
-    const chunk = Math.floor((number - 1) / CHUNK)
+    const { chunk, at } = yield* placeOf(number, ORDER_RECORD)
     const held =
       merged.orders.get(chunk) ?? (yield* orderChunkOf(chunk, day.tabled))
     merged.orders.set(chunk, held)
-    const at = ((number - 1) % CHUNK) * ORDER_RECORD
     const before = held.slice(at, at + ORDER_SOURCE)
-    const was = countsOf(mergeOrders(feed, held, at, orderBytesOf(orders)))
-    const now = countsOf(held[at + ORDER_SOURCE]!)
+    const { counts: was } = yield* mergeOrders(
+      feed,
+      held,
+      at,
+      yield* orderBytesOf(orders)
+    )
+    const { counts: now } = yield* orderSourceOf(held[at + ORDER_SOURCE]!)
     merged.orderCounts = Option.some({
       ajaib: counts.ajaib - was.ajaib + now.ajaib,
       stockbit: counts.stockbit - was.stockbit + now.stockbit,
       differences: counts.differences - was.differences + now.differences,
     })
-    return !sameOrders(held, at, before)
+    return !(yield* sameOrders(held, at, before))
   })
 
   const merge = Effect.fnUntraced(function* (batch: BrokerCodesBatch) {
@@ -1071,23 +1092,17 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // `both` when Stockbit's agreed with Ajaib's; none when the day holds no
   // order numbers for it.
   const heldOrders = Effect.fnUntraced(function* (tradeNumber: TradeNumber) {
-    const number = Number(tradeNumber)
+    const { chunk, at } = yield* placeOf(Number(tradeNumber), ORDER_RECORD)
     const orders = yield* orderChunkOf(
-      Math.floor((number - 1) / CHUNK),
+      chunk,
       Option.isSome(yield* orderCountsFact)
     )
-    const at = ((number - 1) % CHUNK) * ORDER_RECORD
-    const source = orders[at + ORDER_SOURCE]
-    if (source === 0 || source === undefined)
+    const { site } = yield* orderSourceOf(orders[at + ORDER_SOURCE]!)
+    if (Option.isNone(site))
       return Option.none<{ orders: OrderNumbers; source: Feed | "both" }>()
     return Option.some({
-      orders: ordersOf(orders.subarray(at, at + ORDER_RECORD)),
-      source:
-        source === OrderSource.stockbit
-          ? ("Stockbit" as const)
-          : source === OrderSource.both
-            ? ("both" as const)
-            : ("Ajaib" as const),
+      orders: yield* ordersOf(orders.subarray(at, at + ORDER_RECORD)),
+      source: site.value,
     })
   })
 
@@ -1118,15 +1133,13 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     const tabled = Option.isSome(yield* orderCountsFact)
     if (!tabled && chunks.size === 0) return found
     for (const tradeNumber of tradeNumbers) {
-      const number = Number(tradeNumber)
-      const chunk = Math.floor((number - 1) / CHUNK)
+      const { chunk, at } = yield* placeOf(Number(tradeNumber), ORDER_RECORD)
       const orders = chunks.get(chunk) ?? (yield* orderChunkOf(chunk, tabled))
       chunks.set(chunk, orders)
-      const at = ((number - 1) % CHUNK) * ORDER_RECORD
       if (orders[at + ORDER_SOURCE])
         found.push([
           tradeNumber,
-          ordersOf(orders.subarray(at, at + ORDER_RECORD)),
+          yield* ordersOf(orders.subarray(at, at + ORDER_RECORD)),
         ])
     }
     return found
