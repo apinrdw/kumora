@@ -180,6 +180,10 @@ describe("a sealed day's move to R2", () => {
         assert.isFalse(yield* day.emptied)
         yield* day.brokerCodes("Stockbit", [[3, codes, null, [901, 1009]]])
         assert.deepStrictEqual((yield* statusOf(day)).orderNumbers, counts)
+        assert.strictEqual(
+          (yield* day.recordedSweepBrokers("UNTR")).answer.takesCodes,
+          false
+        )
 
         yield* dueAlarms(day)
         assert.isTrue(yield* day.emptied)
@@ -213,9 +217,38 @@ describe("a sealed day's move to R2", () => {
           day.alarms.at(-1),
           instant("2026-11-10T00:03:00")
         )
+        // Complete and past midnight, it still takes codes, and says so.
+        const before = (yield* day.recordedSweepBrokers("UNTR")).answer
+        assert.isTrue(before.complete)
+        assert.strictEqual(before.takesCodes, true)
         yield* at("2026-11-10T00:03:00")
         yield* dueAlarms(day)
         assert.isTrue(yield* day.emptied)
+        const after = (yield* day.recordedSweepBrokers("UNTR")).answer
+        assert.strictEqual(after.takesCodes, false)
+      })
+  )
+
+  it.effect(
+    "with no cold storage, says in its sweep brokers answer that it takes codes until ten trading days came after it",
+    () =>
+      Effect.gen(function* () {
+        yield* at("2026-11-09T09:01:10")
+        const day = yield* tradingDay(
+          memorySql(),
+          [],
+          memoryBrokerTotalsDb().layer
+        )
+        yield* at("2026-11-09T17:00:00")
+        yield* day.alarm
+        const takesCodes = Effect.map(
+          day.recordedSweepBrokers("UNTR"),
+          ({ answer }) => answer.takesCodes
+        )
+        yield* at("2026-11-23T16:59:59")
+        assert.strictEqual(yield* takesCodes, true)
+        yield* at("2026-11-23T17:00:00")
+        assert.strictEqual(yield* takesCodes, false)
       })
   )
 

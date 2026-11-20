@@ -422,12 +422,17 @@ export type SweepBrokers = typeof SweepBrokers.Type
 
 // The sweep brokers answer: every whole sweep and auction match of one code
 // (one whose every trade has stored codes) with its pieces, in trade order,
-// and whether the day's broker codes status is complete. Never inside the
+// whether the day's broker codes status is complete, and whether the day
+// still takes broker codes, so a later answer may differ. Never inside the
 // sweeps answer, which a sealed day caches for a year.
 const RecordedSweepBrokers = Schema.Struct({
   code: StockCode,
   sweeps: Schema.Array(SweepBrokers),
   complete: Schema.Boolean,
+  // Decision: optional, read as false when absent: only a move stored an
+  // answer without it, of a day that took no more codes, and a cold day's
+  // answer is kept for good. See PR #632.
+  takesCodes: Schema.optionalKey(Schema.Boolean),
 })
 export type RecordedSweepBrokers = typeof RecordedSweepBrokers.Type
 

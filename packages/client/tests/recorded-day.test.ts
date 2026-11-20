@@ -384,12 +384,16 @@ describe("following a recorded day's broker codes", () => {
 // A Worker answering each sweep brokers GET of BBCA with one more whole sweep
 // than the last, the day complete from the `completeFrom`th GET on, and its
 // first `failing` GETs answered 503; it records whether each GET went past
-// the browser's copy. Its day strip says the day is cold once `coldAfter`
+// the browser's copy. The `n`th answer says whether the day takes codes as
+// `takes(n)` does, until it completes by default, and says nothing when
+// that is undefined. Its day strip says the day is cold once `coldAfter`
 // GETs were answered (0: from the start), or once `turnCold` ran.
 const sweepBrokersWorker = (
   completeFrom: number,
   failing = 0,
-  coldAfter = Number.POSITIVE_INFINITY
+  coldAfter = Number.POSITIVE_INFINITY,
+  takes: (answered: number) => boolean | undefined = (answered) =>
+    answered < completeFrom
 ) => {
   const asked: Array<boolean> = []
   let coldNow = false
@@ -410,6 +414,7 @@ const sweepBrokersWorker = (
           new Response("Worker failing", { status: 503 })
         )
       const sweeps = asked.map((_, index) => [String(index + 1), []])
+      const takesCodes = takes(asked.length)
       return HttpClientResponse.fromWeb(
         request,
         new Response(
@@ -417,6 +422,7 @@ const sweepBrokersWorker = (
             code: "BBCA",
             sweeps,
             complete: asked.length >= completeFrom,
+            ...(takesCodes === undefined ? {} : { takesCodes }),
           })
         )
       )
@@ -586,12 +592,19 @@ describe("following a recorded day's sweep brokers", () => {
     }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
   })
 
+  // Spec apinrdw/kumora#627: a rebuild can hold its move past midnight,
+  // while the walks still send order numbers.
   it.effect(
-    "keeps asking a complete day every 30 s until 00:00 WIB after it, as its order numbers may still land",
+    "keeps asking a complete day every 30 s, past 00:00 WIB after it too, while its answer says it takes codes",
     () => {
-      const brokersFrom = sweepBrokersWorker(1)
+      const brokersFrom = sweepBrokersWorker(
+        1,
+        0,
+        Number.POSITIVE_INFINITY,
+        (answered) => answered < 3
+      )
       return Effect.gen(function* () {
-        yield* TestClock.setTime(DAY_END - 60_000)
+        yield* TestClock.setTime(DAY_END + 60_000)
         const shown: Array<
           [sweeps: number, complete: boolean, asksAgain: boolean]
         > = []
@@ -609,6 +622,23 @@ describe("following a recorded day's sweep brokers", () => {
           [2, true, true],
           [3, true, false],
         ])
+      }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
+    }
+  )
+
+  it.effect(
+    "asks once when its answer doesn't say the day takes codes, as one a move stored before it could",
+    () => {
+      const brokersFrom = sweepBrokersWorker(
+        Number.POSITIVE_INFINITY,
+        0,
+        Number.POSITIVE_INFINITY,
+        () => undefined
+      )
+      return Effect.gen(function* () {
+        yield* Effect.forkChild(followSweepBrokers(DAY, BBCA, () => {}))
+        yield* TestClock.adjust("5 minutes")
+        assert.deepStrictEqual(brokersFrom.asked, [false])
       }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
     }
   )
