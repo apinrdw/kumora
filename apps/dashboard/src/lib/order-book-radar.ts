@@ -35,12 +35,14 @@ const bookAge = ({ readings, now }: RankedRow) =>
 
 // The side the imbalance leans to, bids at a balanced book, then the other.
 const sidesOf = (readings: BookReadings) =>
-  (readings.imbalance ?? 0) >= 0
-    ? ([readings.bid, readings.offer] as const)
-    : ([readings.offer, readings.bid] as const)
+  Effect.succeed(
+    (readings.imbalance ?? 0) >= 0
+      ? ([readings.bid, readings.offer] as const)
+      : ([readings.offer, readings.bid] as const)
+  )
 
 const heavySide = (readings: BookReadings) =>
-  Effect.succeed(sidesOf(readings)[0])
+  Effect.map(sidesOf(readings), ([heavy]) => heavy)
 
 // A row's heavy side: rows in the halves are at no limit (`scan`).
 const heavySideAt = ({ readings }: RankedRow) =>
@@ -70,7 +72,7 @@ const RANKINGS = {
           : Math.abs(readings.imbalance)
       ),
     figure: Effect.fnUntraced(function* ({ readings }) {
-      const [heavy, other] = sidesOf(readings)
+      const [heavy, other] = yield* sidesOf(readings)
       return `${yield* perOrder(heavy.lotsPerOrder)} vs ${yield* perOrder(other.lotsPerOrder)}`
     }),
   },

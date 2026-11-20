@@ -7,9 +7,9 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from "react"
 import { createPortal } from "react-dom"
 import { cn } from "@workspace/ui/lib/utils"
 
+import { eventKey } from "@/lib/book-events"
 import { wibClock } from "@/lib/format"
 import {
-  marketEventKey,
   orderFlowEventFigures,
   orderFlowEventTitle,
 } from "@/lib/order-flow-events"
@@ -52,7 +52,7 @@ export function OrderFlowTip({
   const event =
     at === undefined
       ? undefined
-      : events.find((each) => Effect.runSync(marketEventKey(each)) === at.key)
+      : events.find((each) => Effect.runSync(eventKey(each)) === at.key)
   if (at === undefined || event === undefined) return null
   const right = at.x > window.innerWidth / 2
   const below = at.y < window.innerHeight / 2

@@ -135,7 +135,7 @@ const tellAlert = Effect.fnUntraced(function* (
       { body: alert.detail, tag: alert.key },
       () => open(alert)
     )
-  const rises = alertRises(alert)
+  const rises = yield* alertRises(alert)
   const tone = rises ? kToast.success : kToast.error
   yield* tone(alert.title, {
     description: alert.detail,

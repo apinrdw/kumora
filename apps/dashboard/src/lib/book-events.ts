@@ -1,7 +1,12 @@
 // How the page names book events (spec apinrdw/kumora#517, "Book events"):
 // each kind's name, its ladder mark and its detail line. The Book readout,
 // the ladder and the heatmap use them; so do the scanner's feed and alerts.
-import { WibDate, type BookEvent, type BookEventKind } from "@workspace/relay"
+import {
+  WibDate,
+  type BookEvent,
+  type BookEventKind,
+  type OrderFlowEvent,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import { compact, plain } from "./format"
@@ -60,13 +65,13 @@ export const bookEventDetail = Effect.fnUntraced(function* (event: BookEvent) {
   }
 })
 
-// An event's key for the day: its code, kind, side, price and time. Order
-// flow events key the same way (lib/order-flow-events.ts, marketEventKey).
-export const bookEventKey = (
-  event: Pick<BookEvent, "code" | "price" | "at"> & {
-    readonly kind: string
-    readonly side: string
-  }
+// A book or order flow event's key for the day: its code, kind, side,
+// price and time. The two never share a kind's name.
+export const eventKey = (
+  event: Pick<
+    BookEvent | OrderFlowEvent,
+    "code" | "kind" | "side" | "price" | "at"
+  >
 ) =>
   Effect.sync(
     () =>

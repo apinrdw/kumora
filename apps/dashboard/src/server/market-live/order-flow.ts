@@ -7,7 +7,7 @@ import {
   FLUSH_PAST_MINUTE,
   INDEX_CODES,
   MINUTE_MS,
-  OrderFlowEventOrder,
+  EventOrder,
   SHARES_PER_LOT,
   kindOf,
   marketPhases,
@@ -465,7 +465,7 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
         )
       foldedThrough = through
     }
-    return Arr.sort(found, OrderFlowEventOrder)
+    return Arr.sort(found, EventOrder)
   })
 
   // Rebuilds the state after a restart from each code's stored minutes, one
@@ -505,7 +505,7 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
         )
     }
     foldedThrough = Math.max(foldedThrough, through)
-    return Arr.sort(found, OrderFlowEventOrder)
+    return Arr.sort(found, EventOrder)
   })
 
   return { settled, due, judge, restore }

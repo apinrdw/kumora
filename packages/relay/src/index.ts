@@ -167,17 +167,15 @@ export type { ScannerFigures } from "./scanner-figures.ts"
 export {
   BOOK_EVENT_WINDOW_MS,
   BookEvent,
-  BookEventOrder,
-  BookEventSide,
+  EventOrder,
   MAX_CODE_BOOK_EVENTS,
   MIN_SIDE_FRAMES,
   SNAPSHOT_BOOK_EVENTS,
 } from "./book-events.ts"
-export type { BookEventKind } from "./book-events.ts"
+export type { BookEventKind, BookEventSide } from "./book-events.ts"
 export {
   MAX_CODE_ORDER_FLOW_EVENTS,
   OrderFlowEvent,
-  OrderFlowEventOrder,
   SNAPSHOT_ORDER_FLOW_EVENTS,
 } from "./order-flow-events.ts"
 export type { OrderFlowEventKind, OrderFlowSide } from "./order-flow-events.ts"

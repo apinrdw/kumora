@@ -6,15 +6,12 @@
 import { MINUTE_MS, type Candle, type OrderFlowEvent } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import {
-  ORDER_FLOW_LETTERS,
-  marketEventKey,
-  marketEventKnownAt,
-} from "./order-flow-events"
+import { eventKey } from "./book-events"
+import { ORDER_FLOW_LETTERS, marketEventKnownAt } from "./order-flow-events"
 
 export interface OrderFlowMark {
   readonly event: OrderFlowEvent
-  // The event's key (marketEventKey), as the picked event is held.
+  // The event's key (eventKey), as the picked event is held.
   readonly key: string
   // The start of the minute it fired on.
   readonly minute: number
@@ -46,7 +43,7 @@ export const orderFlowMarks = Effect.fnUntraced(function* (
     const candle = byMinute.get(minute)
     marks.push({
       event,
-      key: yield* marketEventKey(event),
+      key: yield* eventKey(event),
       minute,
       above,
       letter: ORDER_FLOW_LETTERS[event.kind],

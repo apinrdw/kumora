@@ -2,7 +2,7 @@
 // level ledger found, held for the next delta, the next flush and the
 // snapshots (event-log.ts).
 import {
-  BookEventOrder,
+  EventOrder,
   MAX_CODE_BOOK_EVENTS,
   SNAPSHOT_BOOK_EVENTS,
 } from "@workspace/relay"
@@ -21,7 +21,7 @@ export const makeBookEventLog = (
   store: Pick<DayStore, "bookEventsOf" | "newestBookEvents">
 ) =>
   makeEventLog({
-    order: BookEventOrder,
+    order: EventOrder,
     snapshot: SNAPSHOT_BOOK_EVENTS,
     perCode: MAX_CODE_BOOK_EVENTS,
     maxUnflushed: MAX_UNFLUSHED_EVENTS,

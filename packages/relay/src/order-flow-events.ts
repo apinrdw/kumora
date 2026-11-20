@@ -3,7 +3,7 @@
 // high or low, judged at each minute's close. The trading-day Durable Object
 // finds them (dashboard order-flow.ts) and sends them to viewers; the page
 // names them in its lib/order-flow-events.ts.
-import { DateTime, Order, Schema } from "effect"
+import { Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
 
@@ -63,13 +63,6 @@ export const OrderFlowEvent = Schema.Union([
 ])
 export type OrderFlowEvent = typeof OrderFlowEvent.Type
 export type OrderFlowEventKind = OrderFlowEvent["kind"]
-
-// Order flow events oldest first, by their minute. A list that holds them
-// sorts, never appends.
-export const OrderFlowEventOrder: Order.Order<OrderFlowEvent> = Order.mapInput(
-  Order.Number,
-  (event: OrderFlowEvent) => DateTime.toEpochMillis(event.at)
-)
 
 // Decision: a snapshot carries the day's newest 100 order flow events
 // across every code and the selected code's up to 2,500, as for book events.

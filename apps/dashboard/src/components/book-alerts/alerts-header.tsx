@@ -168,7 +168,7 @@ function NewRule() {
         value={minValue}
         onPick={setMinValue}
       />
-      {!kinds.every(isBookEventKind) && (
+      {!kinds.every((kind) => Effect.runSync(isBookEventKind(kind))) && (
         <p className="text-muted-foreground">
           Minimum value applies only to book event kinds.
         </p>
@@ -292,7 +292,9 @@ export function AlertsBell() {
                       <span
                         className={cn(
                           "block font-medium",
-                          alertRises(alert) ? "text-up" : "text-down"
+                          Effect.runSync(alertRises(alert))
+                            ? "text-up"
+                            : "text-down"
                         )}
                       >
                         {alert.title}

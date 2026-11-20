@@ -18,7 +18,8 @@ import { Toolbar } from "@/components/order-book-radar/toolbar"
 import { useRadarFeed } from "@/components/order-book-radar/use-radar-feed"
 import { useRadarSettings } from "@/components/order-book-radar/use-radar-settings"
 import { useRanking } from "@/components/order-book-radar/use-ranking"
-import { marketEventKey, type MarketEvent } from "@/lib/order-flow-events"
+import { eventKey } from "@/lib/book-events"
+import type { MarketEvent } from "@/lib/order-flow-events"
 import { DISCLAIMER } from "@/lib/book-readings"
 import { coverageNote, type Scan } from "@/lib/order-book-radar"
 
@@ -48,7 +49,7 @@ function useScannerEvents(
         to: "/market-live",
         search: {
           code: event.code,
-          event: Effect.runSync(marketEventKey(event)),
+          event: Effect.runSync(eventKey(event)),
         },
       }),
     [navigate]

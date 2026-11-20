@@ -228,6 +228,10 @@ _Avoid_: Weakening, bearish/bullish divergence
 Trades went past the day's established high or low with real aggressor value, and within a few minutes a minute closed back inside it. It says the level didn't hold, never whose orders were triggered or what price will do next.
 _Avoid_: Stop run, stop hunt, false break, fakeout
 
+**Market event**:
+A book event or an order flow event. The scanner's Events feed, its Last event chips and the Book readout's Events list show both as one kind of row, by time.
+_Avoid_: Signal, event family
+
 **Alert rule**:
 Which book events a browser wants to be told of: one or more event kinds, over the watchlist, named stock codes or every code on the scanner, optionally only above a rupiah value. Each browser keeps its own.
 _Avoid_: Alert (that is one delivery), trigger, watch

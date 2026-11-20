@@ -1,10 +1,9 @@
 import {
   BOOK_EVENT_WINDOW_MS,
-  BookEventOrder,
+  EventOrder,
   MAX_CODE_BOOK_EVENTS,
   MAX_CODE_ORDER_FLOW_EVENTS,
   MIN_SIDE_FRAMES,
-  OrderFlowEventOrder,
   type BookEvent,
   type OrderBook,
   type OrderFlowEvent,
@@ -29,7 +28,7 @@ export interface BookEventStore {
   // False for a recorded day kept before order flow events were.
   readonly orderFlowRecorded: () => boolean
   // The event picked in the list, book or order flow, by its key
-  // (lib/order-flow-events.ts, marketEventKey), whose heatmap mark is
+  // (lib/book-events.ts, eventKey), whose heatmap mark is
   // ringed.
   readonly picked: () => string | undefined
   readonly pick: (key: string | undefined) => void
@@ -122,7 +121,7 @@ export const makeBookEventStore = (code: StockCode) =>
           (event) => event.code === code
         )
         if (arriving.length > 0)
-          events = Arr.sort([...events, ...arriving], BookEventOrder).slice(
+          events = Arr.sort([...events, ...arriving], EventOrder).slice(
             -MAX_CODE_BOOK_EVENTS
           )
         const flowing = (message.orderFlowEvents ?? []).filter(
@@ -131,7 +130,7 @@ export const makeBookEventStore = (code: StockCode) =>
         if (flowing.length > 0)
           orderFlowEvents = Arr.sort(
             [...orderFlowEvents, ...flowing],
-            OrderFlowEventOrder
+            EventOrder
           ).slice(-MAX_CODE_ORDER_FLOW_EVENTS)
         if (book !== undefined || arriving.length > 0 || flowing.length > 0)
           tell()

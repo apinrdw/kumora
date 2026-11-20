@@ -14,7 +14,7 @@ export type Panel = typeof Panel.Type
 // Big only, on; off is absent from the URL.
 const BigOnly = Schema.Literal(true)
 
-// A book event's key (lib/book-events.ts bookEventKey).
+// A book or order flow event's key (lib/book-events.ts eventKey).
 const EventKey = Schema.NonEmptyString
 
 export interface MarketLiveSearch {

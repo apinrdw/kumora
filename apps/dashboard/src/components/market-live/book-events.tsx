@@ -8,6 +8,7 @@ import {
   fetchRecordedOrderFlowEvents,
 } from "@workspace/client"
 import {
+  EventOrder,
   INDEX_CODES,
   READING_PHASES,
   type BookEvent,
@@ -31,14 +32,12 @@ import {
   BOOK_EVENT_MARKS,
   BOOK_EVENT_NAMES,
   bookEventDetail,
-  bookEventKey,
+  eventKey,
 } from "@/lib/book-events"
 import { dayLabel, tapeTime } from "@/lib/format"
 import {
-  MarketEventOrder,
   ORDER_FLOW_EVENTS_FROM,
   marketEventDetail,
-  marketEventKey,
   marketEventKnownAt,
   type MarketEvent,
 } from "@/lib/order-flow-events"
@@ -126,7 +125,7 @@ const useMarketEvents = (store: BookEventStore) => {
     store.orderFlowEvents
   )
   return useMemo(
-    () => [...events, ...flowing].sort((a, b) => MarketEventOrder(a, b)),
+    () => [...events, ...flowing].sort((a, b) => EventOrder(a, b)),
     [events, flowing]
   )
 }
@@ -162,7 +161,7 @@ export function LadderMarks({
   )
   return here.map((event) => (
     <abbr
-      key={Effect.runSync(bookEventKey(event))}
+      key={Effect.runSync(eventKey(event))}
       title={`${BOOK_EVENT_NAMES[event.kind]}: ${Effect.runSync(bookEventDetail(event))}`}
       className={cn(
         "mx-0.5 rounded-xs px-0.5 text-[9px] font-bold no-underline",
@@ -190,19 +189,19 @@ function Note({ children }: { children: string }) {
 
 function EventRow({
   event,
-  eventKey,
+  keyed,
   after,
   picked,
   onPick,
 }: {
   event: MarketEvent
-  eventKey: string
+  keyed: string
   after: boolean
   picked: boolean
   onPick: () => void
 }) {
   return (
-    <li data-event-key={eventKey}>
+    <li data-event-key={keyed}>
       <button
         type="button"
         aria-pressed={picked}
@@ -262,7 +261,7 @@ function useLandOn(
     }
     if (landed.current?.store === store && landed.current.key === landOn) return
     const found = events.some(
-      (event) => Effect.runSync(marketEventKey(event)) === landOn
+      (event) => Effect.runSync(eventKey(event)) === landOn
     )
     if (!found) return
     landed.current = { store, key: landOn }
@@ -339,11 +338,11 @@ export function BookEventList({
       {recorded && events.length > 0 && (
         <ol ref={list} className="max-h-[230px] overflow-auto">
           {[...events].reverse().map((event) => {
-            const key = Effect.runSync(marketEventKey(event))
+            const key = Effect.runSync(eventKey(event))
             return (
               <EventRow
                 key={key}
-                eventKey={key}
+                keyed={key}
                 event={event}
                 after={
                   cursor !== undefined &&

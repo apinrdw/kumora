@@ -3,7 +3,7 @@
 // flush and the snapshots (event-log.ts).
 import {
   MAX_CODE_ORDER_FLOW_EVENTS,
-  OrderFlowEventOrder,
+  EventOrder,
   SNAPSHOT_ORDER_FLOW_EVENTS,
 } from "@workspace/relay"
 
@@ -21,7 +21,7 @@ export const makeOrderFlowEventLog = (
   store: Pick<DayStore, "orderFlowEventsOf" | "storedOrderFlowEvents">
 ) =>
   makeEventLog({
-    order: OrderFlowEventOrder,
+    order: EventOrder,
     snapshot: SNAPSHOT_ORDER_FLOW_EVENTS,
     perCode: MAX_CODE_ORDER_FLOW_EVENTS,
     maxUnflushed: MAX_UNFLUSHED_ORDER_FLOW_EVENTS,

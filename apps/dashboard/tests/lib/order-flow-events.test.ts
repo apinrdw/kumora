@@ -4,9 +4,9 @@ import { assert, describe, it } from "@effect/vitest"
 import { StockCode, type OrderFlowEvent } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
+import { eventKey } from "@/lib/book-events"
 import {
   ORDER_FLOW_LETTERS,
-  marketEventKey,
   orderFlowEventFigures,
   orderFlowEventTitle,
 } from "@/lib/order-flow-events"
@@ -123,7 +123,7 @@ describe("order flow event copy", () => {
         failedBreak: "F",
       })
       assert.strictEqual(
-        yield* marketEventKey(exhaustion),
+        yield* eventKey(exhaustion),
         `BBCA|exhaustion|buy|1250|${DateTime.toEpochMillis(at)}`
       )
     })

@@ -7,12 +7,9 @@ import { DateTime, Effect } from "effect"
 import { useMemo, useSyncExternalStore } from "react"
 
 import { EventName } from "@/components/market-live/event-mark"
+import { eventKey } from "@/lib/book-events"
 import { tapeTime } from "@/lib/format"
-import {
-  marketEventDetail,
-  marketEventKey,
-  type MarketEvent,
-} from "@/lib/order-flow-events"
+import { marketEventDetail, type MarketEvent } from "@/lib/order-flow-events"
 
 import type { RadarEventsStore } from "./radar-events-store"
 
@@ -88,7 +85,7 @@ export function EventFeed({
         <ol aria-label="Events, newest first">
           {shown.map((event) => (
             <FeedItem
-              key={Effect.runSync(marketEventKey(event))}
+              key={Effect.runSync(eventKey(event))}
               event={event}
               onOpen={onOpen}
             />

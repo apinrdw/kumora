@@ -16,14 +16,14 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import { BOOK_EVENT_NAMES, bookEventDetail } from "./book-events"
+import { BOOK_EVENT_NAMES, bookEventDetail, eventKey } from "./book-events"
 import type { CodePrices } from "./book-readings"
 import { plain, signed } from "./format"
 import {
-  ORDER_FLOW_LETTERS,
-  marketEventKey,
+  ORDER_FLOW_KIND_NAMES,
   orderFlowEventFigures,
   orderFlowEventTitle,
+  splitEvent,
 } from "./order-flow-events"
 
 // A code's heavy side tag becoming big or small orders (`heavySideChanges`).
@@ -44,14 +44,16 @@ export interface HeavySideChange {
 export type AlertEvent = BookEvent | OrderFlowEvent | HeavySideChange
 export type AlertKind = AlertEvent["kind"]
 
-const isHeavySideChange = (event: AlertEvent): event is HeavySideChange =>
-  event.kind === "bigOrders" || event.kind === "smallOrders"
-
-const isOrderFlowEvent = (event: AlertEvent): event is OrderFlowEvent =>
-  Object.hasOwn(ORDER_FLOW_LETTERS, event.kind)
-
-const isBookEvent = (event: AlertEvent): event is BookEvent =>
-  Object.hasOwn(BOOK_EVENT_NAMES, event.kind)
+// Which of the three the event is, told apart by its kind.
+const splitAlertEvent = (event: AlertEvent) => {
+  switch (event.kind) {
+    case "bigOrders":
+    case "smallOrders":
+      return Effect.succeed({ _tag: "heavySide", event } as const)
+    default:
+      return splitEvent(event)
+  }
+}
 
 // Decision: a rule's optional minimum level or wall value: any, Rp1 B, Rp5 B
 // or Rp20 B. See spec apinrdw/kumora#517, "Alerts".
@@ -111,10 +113,15 @@ const levelValueOf = (event: BookEvent) =>
 
 // A rule's minimum value holds only a book event, the one kind with a level
 // or wall to value.
-const valueHolds = (rule: AlertRule, event: AlertEvent) =>
-  isBookEvent(event)
-    ? Effect.map(levelValueOf(event), (value) => value >= rule.minValue)
-    : Effect.succeed(true)
+const valueHolds = Effect.fnUntraced(function* (
+  rule: AlertRule,
+  event: AlertEvent
+) {
+  const split = yield* splitAlertEvent(event)
+  return (
+    split._tag !== "book" || (yield* levelValueOf(split.event)) >= rule.minValue
+  )
+})
 
 export const ruleMatches = Effect.fnUntraced(function* (
   rule: AlertRule,
@@ -133,12 +140,6 @@ export const ruleMatches = Effect.fnUntraced(function* (
 // sits beside its wall, a toast stands alone.
 const BOOK_EVENT_ALERT_NAMES = { ...BOOK_EVENT_NAMES, pulled: "Wall pulled" }
 
-const ORDER_FLOW_ALERT_NAMES = {
-  exhaustion: "Exhaustion",
-  divergence: "Delta divergence",
-  failedBreak: "Failed break",
-}
-
 const HEAVY_SIDE_ALERT_NAMES = {
   bigOrders: "Big orders",
   smallOrders: "Small orders",
@@ -148,13 +149,14 @@ const HEAVY_SIDE_ALERT_NAMES = {
 // then heavy side.
 export const ALERT_KIND_NAMES: Readonly<Record<AlertKind, string>> = {
   ...BOOK_EVENT_ALERT_NAMES,
-  ...ORDER_FLOW_ALERT_NAMES,
+  ...ORDER_FLOW_KIND_NAMES,
   ...HEAVY_SIDE_ALERT_NAMES,
 }
 
 // Whether a rule kind is a book event's: the only kinds a minimum value
 // holds.
-export const isBookEventKind = (kind: AlertKind) => kind in BOOK_EVENT_NAMES
+export const isBookEventKind = (kind: AlertKind) =>
+  Effect.succeed(Object.hasOwn(BOOK_EVENT_NAMES, kind))
 
 const LEANS = { bid: "Bid-heavy", offer: "Offer-heavy" } as const
 const ORDERS = { bigOrders: "big orders", smallOrders: "small orders" } as const
@@ -162,11 +164,15 @@ const ORDERS = { bigOrders: "big orders", smallOrders: "small orders" } as const
 // "BBCA · Wall pulled on the bid", "BBCA · Offer-heavy with big orders",
 // "BBCA · Buying exhaustion at the day's high".
 export const alertTitle = Effect.fnUntraced(function* (event: AlertEvent) {
-  if (isHeavySideChange(event))
-    return `${event.code} · ${LEANS[event.side]} with ${ORDERS[event.kind]}`
-  if (isOrderFlowEvent(event))
-    return `${event.code} · ${yield* orderFlowEventTitle(event)}`
-  return `${event.code} · ${ALERT_KIND_NAMES[event.kind]} on the ${event.side}`
+  const split = yield* splitAlertEvent(event)
+  switch (split._tag) {
+    case "heavySide":
+      return `${event.code} · ${LEANS[split.event.side]} with ${ORDERS[split.event.kind]}`
+    case "orderFlow":
+      return `${event.code} · ${yield* orderFlowEventTitle(split.event)}`
+    case "book":
+      return `${event.code} · ${ALERT_KIND_NAMES[split.event.kind]} on the ${split.event.side}`
+  }
 })
 
 // A heavy side alert's detail: "−72% · 118 vs 22 lots per order".
@@ -185,18 +191,26 @@ const heavySideKey = (change: HeavySideChange) =>
       `${change.code}|${change.kind}|${change.side}|${DateTime.toEpochMillis(change.at)}`
   )
 
-const alertDetail = (event: AlertEvent) =>
-  isHeavySideChange(event)
-    ? heavySideDetail(event)
-    : isOrderFlowEvent(event)
-      ? orderFlowEventFigures(event)
-      : bookEventDetail(event)
+const alertDetail = Effect.fnUntraced(function* (event: AlertEvent) {
+  const split = yield* splitAlertEvent(event)
+  switch (split._tag) {
+    case "heavySide":
+      return yield* heavySideDetail(split.event)
+    case "orderFlow":
+      return yield* orderFlowEventFigures(split.event)
+    case "book":
+      return yield* bookEventDetail(split.event)
+  }
+})
 
 // The alert told for an event: its key, the event Market Live picks, its
 // title and detail.
 export const alertOf = Effect.fnUntraced(function* (event: AlertEvent) {
-  const heavy = isHeavySideChange(event)
-  const key = heavy ? yield* heavySideKey(event) : yield* marketEventKey(event)
+  const split = yield* splitAlertEvent(event)
+  const heavy = split._tag === "heavySide"
+  const key = heavy
+    ? yield* heavySideKey(split.event)
+    : yield* eventKey(split.event)
   return {
     key,
     event: heavy ? undefined : key,
@@ -215,30 +229,28 @@ export const alertLink = (alert: Alert) =>
 
 // Whether an alert reads as the bid's or the buyers': green and up.
 export const alertRises = (alert: Alert) =>
-  alert.side === "bid" || alert.side === "buy"
+  Effect.succeed(alert.side === "bid" || alert.side === "buy")
 
 // Each code's heavy side tag as of the readings heard so far; a code
 // missing has none.
 export type HeavySideTags = ReadonlyMap<StockCode, HeavySide>
 
-const changeOf = (
-  readings: BookReadings,
-  heavy: HeavySide
-): HeavySideChange => {
-  const [mine, other] =
-    heavy.side === "bid"
-      ? [readings.bid, readings.offer]
-      : [readings.offer, readings.bid]
-  return {
-    kind: heavy.orders === "big" ? "bigOrders" : "smallOrders",
-    code: readings.code,
-    at: readings.at,
-    side: heavy.side,
-    imbalance: readings.imbalance ?? 0,
-    heavyPerOrder: mine.lotsPerOrder ?? 0,
-    otherPerOrder: other.lotsPerOrder ?? 0,
-  }
-}
+const changeOf = (readings: BookReadings, heavy: HeavySide) =>
+  Effect.sync((): HeavySideChange => {
+    const [mine, other] =
+      heavy.side === "bid"
+        ? [readings.bid, readings.offer]
+        : [readings.offer, readings.bid]
+    return {
+      kind: heavy.orders === "big" ? "bigOrders" : "smallOrders",
+      code: readings.code,
+      at: readings.at,
+      side: heavy.side,
+      imbalance: readings.imbalance ?? 0,
+      heavyPerOrder: mine.lotsPerOrder ?? 0,
+      otherPerOrder: other.lotsPerOrder ?? 0,
+    }
+  })
 
 // The tags after `readings`, and each code whose tag became big or small
 // orders: from none, the other tag, or the other side's. A tag that stays,
@@ -264,7 +276,7 @@ export const heavySideChanges = Effect.fnUntraced(function* (
     }
     next.set(each.code, heavy)
     if (before?.side !== heavy.side || before.orders !== heavy.orders)
-      changes.push(changeOf(each, heavy))
+      changes.push(yield* changeOf(each, heavy))
   }
   return { tags: next as HeavySideTags, changes }
 })
@@ -332,7 +344,7 @@ export const admitAlert = (
 
 // One alert as the bell lists it.
 export interface Alert {
-  // The event's key (lib/order-flow-events.ts `marketEventKey`, or
+  // The event's key (lib/book-events.ts `eventKey`, or
   // `heavySideKey`).
   readonly key: string
   // The key Open picks on Market Live: a book or order flow event's; none

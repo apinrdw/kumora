@@ -10,7 +10,7 @@ import { Effect } from "effect"
 import { BOOK_EVENT_MARKS, BOOK_EVENT_NAMES } from "@/lib/book-events"
 import {
   ORDER_FLOW_LETTERS,
-  asOrderFlowEvent,
+  splitEvent,
   marketEventDetail,
   marketEventName,
   orderFlowEventTitle,
@@ -35,17 +35,17 @@ function OrderFlowMark({ event }: { event: OrderFlowEvent }) {
 
 /** A row's name: an order flow event's mark and title, a book event's chip. */
 export function EventName({ event }: { event: MarketEvent }) {
-  const flow = Effect.runSync(asOrderFlowEvent(event))
-  if (flow !== undefined)
+  const split = Effect.runSync(splitEvent(event))
+  if (split._tag === "orderFlow")
     return (
       <span className="inline-flex items-baseline gap-1.5">
-        <OrderFlowMark event={flow} />
+        <OrderFlowMark event={split.event} />
         <span className="font-semibold">
-          {Effect.runSync(orderFlowEventTitle(flow))}
+          {Effect.runSync(orderFlowEventTitle(split.event))}
         </span>
       </span>
     )
-  const book = event as Exclude<MarketEvent, OrderFlowEvent>
+  const book = split.event
   return (
     <span
       className={cn(
@@ -61,14 +61,14 @@ export function EventName({ event }: { event: MarketEvent }) {
 /** A scanner row's last-event chip: the mark alone, its name and detail on hover. */
 export function EventChip({ event }: { event: MarketEvent }) {
   const title = `${Effect.runSync(marketEventName(event))}: ${Effect.runSync(marketEventDetail(event))}`
-  const flow = Effect.runSync(asOrderFlowEvent(event))
-  if (flow !== undefined)
+  const split = Effect.runSync(splitEvent(event))
+  if (split._tag === "orderFlow")
     return (
       <abbr title={title} className="text-[9px] no-underline sm:text-[10px]">
-        <OrderFlowMark event={flow} />
+        <OrderFlowMark event={split.event} />
       </abbr>
     )
-  const book = event as Exclude<MarketEvent, OrderFlowEvent>
+  const book = split.event
   return (
     <abbr
       title={title}

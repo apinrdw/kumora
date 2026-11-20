@@ -17,7 +17,7 @@ import type {
   Time,
 } from "lightweight-charts"
 
-import { WALL_KINDS, bookEventKey } from "@/lib/book-events"
+import { WALL_KINDS, eventKey } from "@/lib/book-events"
 import { cursorLogical } from "@/lib/replay"
 
 import type { BookEventStore } from "./book-event-store"
@@ -138,7 +138,7 @@ class BookEventMarks implements ISeriesPrimitive<Time> {
       const x = xOf(at, Math.floor(at / MINUTE_MS) * MINUTE_MS)
       const y = attached.series.priceToCoordinate(event.price)
       if (x === null || y === null) return []
-      const key = Effect.runSync(bookEventKey(event))
+      const key = Effect.runSync(eventKey(event))
       return [{ event, key, x, y }]
     })
   }

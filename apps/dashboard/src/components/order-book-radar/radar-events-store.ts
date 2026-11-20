@@ -1,4 +1,5 @@
 import {
+  EventOrder,
   wibDateAt,
   type StockCode,
   type ViewerDown,
@@ -6,11 +7,8 @@ import {
 } from "@workspace/relay"
 import { Array as Arr, DateTime, Effect, Order } from "effect"
 
-import {
-  MarketEventOrder,
-  marketEventKey,
-  type MarketEvent,
-} from "@/lib/order-flow-events"
+import { eventKey } from "@/lib/book-events"
+import type { MarketEvent } from "@/lib/order-flow-events"
 import { RECENT_EVENTS_MS, type CodeEvents } from "@/lib/order-book-radar"
 
 // Decision: the scanner keeps every book and order flow event of the last
@@ -20,7 +18,7 @@ import { RECENT_EVENTS_MS, type CodeEvents } from "@/lib/order-book-radar"
 // apinrdw/kumora#605.
 const KEPT_EVENTS = 200
 
-const NewestFirst = Order.flip(MarketEventOrder)
+const NewestFirst = Order.flip(EventOrder)
 
 export interface RadarEventsStore {
   // The kept events, newest first.
@@ -46,12 +44,12 @@ export const makeRadarEventsStore = Effect.sync((): RadarEventsStore => {
   const listeners = new Set<() => void>()
   const add = (arriving: ReadonlyArray<MarketEvent>, now: number) => {
     const fresh = arriving.filter(
-      (event) => !keys.has(Effect.runSync(marketEventKey(event)))
+      (event) => !keys.has(Effect.runSync(eventKey(event)))
     )
     if (fresh.length === 0) return false
     for (const event of fresh) {
       const held = latest.get(event.code)
-      if (held === undefined || MarketEventOrder(held, event) <= 0)
+      if (held === undefined || EventOrder(held, event) <= 0)
         latest.set(event.code, event)
     }
     events = Arr.sort([...fresh, ...events], NewestFirst).filter(
@@ -59,7 +57,7 @@ export const makeRadarEventsStore = Effect.sync((): RadarEventsStore => {
         index < KEPT_EVENTS ||
         now - DateTime.toEpochMillis(event.at) < RECENT_EVENTS_MS
     )
-    keys = new Set(events.map((event) => Effect.runSync(marketEventKey(event))))
+    keys = new Set(events.map((event) => Effect.runSync(eventKey(event))))
     return true
   }
   return {
