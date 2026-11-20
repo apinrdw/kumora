@@ -362,6 +362,32 @@ export const stockbitRowOrderNumbers = (row: unknown) =>
     )
   )
 
+// Ajaib's Done Details row (`v1/stock/data/broker-transaction`): each side's
+// `order_id` is the day's `YYYYMMDD` and 10 digits, the same number
+// Stockbit sends (#622). Its `is_highlighted` is not the side, so it is not
+// read.
+const AjaibOrderId = Schema.String.check(Schema.isPattern(/^\d{18}$/))
+const AjaibDetailOrders = Schema.Struct({
+  buyer: Schema.Struct({ order_id: AjaibOrderId }),
+  seller: Schema.Struct({ order_id: AjaibOrderId }),
+})
+const decodeAjaibDetailOrders = Schema.decodeUnknownOption(AjaibDetailOrders)
+
+// An Ajaib Done Details row's order numbers on `day`; none unless both
+// order ids are of `day` and their numbers valid.
+export const ajaibDetailOrderNumbers = (day: WibDate, row: unknown) =>
+  Effect.sync(() => {
+    const prefix = day.replaceAll("-", "")
+    return Option.flatMap(decodeAjaibDetailOrders(row), ({ buyer, seller }) =>
+      buyer.order_id.startsWith(prefix) && seller.order_id.startsWith(prefix)
+        ? decodeOrderNumbers([
+            Number(buyer.order_id.slice(8)),
+            Number(seller.order_id.slice(8)),
+          ])
+        : Option.none()
+    )
+  })
+
 // Ajaib's and Stockbit's REST running-trade rows (`v1/stock/detail/
 // running_trades/`, `order-trade/running-trade`), read alike by the walks and
 // Market Live's backfill (spec apinrdw/kumora#437, "@workspace/relay"). Ajaib

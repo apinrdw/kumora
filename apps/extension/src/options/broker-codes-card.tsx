@@ -84,7 +84,7 @@ const progressKey = (progress: Option.Option<BrokerCodesProgress>) =>
       onNone: () => "",
       onSome: (each) =>
         each.state === "walking"
-          ? `${each.walk} ${each.day} ${each.feed}`
+          ? `${each.walk} ${each.day} ${each.feed} ${each.route ?? ""}`
           : each.state,
     })
   )
@@ -118,6 +118,7 @@ const walkDetails = (walk: Effect.Success<ReturnType<typeof walkView>>) =>
       ["Broker codes phase", walk.phase],
       ["Broker codes trades", walk.trades],
       ["Broker codes repair", walk.repair],
+      ["Broker codes stock codes", walk.codes],
       ["Broker codes pace", walk.pace],
       ["Broker codes time left", walk.left],
     ] as const

@@ -581,7 +581,9 @@ test("Run now with a Stockbit tab open starts a broker codes walk, at any hour, 
     // Its batches to Production carry each trade's codes and order numbers.
     const posted = async () => {
       const batches = await Effect.runPromise(
-        Effect.forEach(brokers.production.batches, decodeBrokerCodesBatch)
+        Effect.forEach(brokers.production.batches, (batch) =>
+          decodeBrokerCodesBatch(JSON.stringify(batch))
+        )
       )
       return batches.flatMap((batch) => batch.rows)
     }
@@ -592,6 +594,183 @@ test("Run now with a Stockbit tab open starts a broker codes walk, at any hour, 
       null,
       [2 * Number(number), 2 * Number(number) + 1],
     ])
+  } finally {
+    await context.close()
+    await brokers.close()
+  }
+})
+
+// The evening of CLOSED_DAY, inside Ajaib's window for it.
+const EVENING = "2026-11-10T20:00:00"
+const atWib = (time: string) => Date.parse(`${CLOSED_DAY}T${time}+07:00`)
+
+// CLOSED_DAY's tape on Ajaib: HOPE's closing-auction match, two tied HOPE
+// trades in one second, and a BBCA trade that Done Details doesn't list.
+const AJAIB_TAPE = [
+  { number: 1, at: "08:58:00", code: "HOPE", price: 170, lot: 20 },
+  { number: 2, at: "10:00:05", code: "HOPE", price: 172, lot: 5 },
+  { number: 3, at: "10:00:05", code: "HOPE", price: 172, lot: 5 },
+  { number: 4, at: "14:00:00", code: "BBCA", price: 9_000, lot: 1 },
+].map((trade) => ({
+  stock_code: trade.code,
+  trade_num: `20261110${String(trade.number).padStart(10, "0")}`,
+  lot: trade.lot,
+  price: trade.price,
+  side: trade.number === 1 ? "SELL" : "BUY",
+  date: CLOSED_DAY,
+  timestamp: atWib(trade.at) + trade.number,
+  buyer: trade.number === 1 ? "XL" : "CC",
+  buyer_type: "D",
+  seller: trade.number === 1 ? "MG" : "YP",
+  seller_type: "D",
+  market_type: "RG",
+}))
+
+// Ajaib's tape as probed (ajaib-walk.ts): rows strictly before
+// `last_timestamp` floored to 3 minutes, newest first, page p starting at
+// (p - 1) × (size + 1).
+const ajaibTape = (query: URLSearchParams) => {
+  const block = 3 * 60_000
+  const floor = Math.floor(Number(query.get("last_timestamp")) / block) * block
+  const page = Number(query.get("page"))
+  const size = Number(query.get("page_size"))
+  const start = (page - 1) * (size + 1)
+  return {
+    results: AJAIB_TAPE.filter((row) => row.timestamp < floor)
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(start, start + size),
+  }
+}
+
+// HOPE's Done Details rows: each side's order id is the day and its order
+// number. The closing auction's time is `HH:mm`.
+const detail = (time: string, buy: number, sell: number) => ({
+  time,
+  code: "HOPE",
+  board: "RG",
+  price: time === "08:58" ? 170 : 172,
+  qty: time === "08:58" ? 20 : 5,
+  buyer: {
+    type: "D",
+    broker_code: time === "08:58" ? "XL" : "CC",
+    order_id: `20261110${String(buy).padStart(10, "0")}`,
+    is_highlighted: false,
+  },
+  seller: {
+    type: "D",
+    broker_code: time === "08:58" ? "MG" : "YP",
+    order_id: `20261110${String(sell).padStart(10, "0")}`,
+    is_highlighted: true,
+  },
+})
+const HOPE_DETAILS = [
+  detail("08:58", 1_000, 1_500),
+  detail("10:00:05", 2_002, 1_800),
+  detail("10:00:05", 2_003, 1_800),
+]
+
+test("after Ajaib's tape walk, its Done Details walk posts the kept trades' order numbers", async () => {
+  test.setTimeout(240_000)
+  const brokers = await startFakeBrokers()
+  brokers.production.statuses = (day) =>
+    day === CLOSED_DAY
+      ? {
+          ...completeDay(day),
+          n: null,
+          complete: false,
+          sources: { ajaib: 0, stockbit: 0 },
+          crossCheck: { state: "none" },
+        }
+      : completeDay(day)
+  brokers.tapes.ajaibStatus = () => ({ result: { status: "CLOSED" } })
+  brokers.tapes.ajaib = ajaibTape
+  brokers.tapes.doneDetails = (query) => ({
+    err_code: "EC0000000",
+    result: {
+      has_next: false,
+      transactions: query.get("code") === "HOPE" ? HOPE_DETAILS : [],
+    },
+  })
+  const { context, worker, optionsUrl } = await launchWithExtension(
+    brokers.port
+  )
+  try {
+    // A run waits on Production's token, then Session 1 stops whatever run
+    // the worker's first tick started.
+    const options = await context.newPage()
+    await options.goto(optionsUrl)
+    await options.getByLabel("Production ingest token").fill("any")
+    await options.getByRole("button", { name: "Save" }).click()
+    await expect(options.getByLabel("Production state")).toHaveText("Connected")
+    await setRelayClock(worker, SESSION_1)
+    await expect
+      .poll(
+        () => stored(worker, "session", "brokerCodesProgress"),
+        AJAIB_TAB_POLL
+      )
+      .toEqual({ state: "paused", cause: "streaming-hours" })
+    const ajaibTab = await context.newPage()
+    await ajaibTab.goto(AJAIB_TAB)
+    await ajaibAttached(worker, brokers)
+
+    // The evening: CLOSED_DAY is the newest closed day, and its run starts.
+    await setRelayClock(worker, EVENING)
+    type Row = [string, unknown, unknown?, [number, number]?]
+    const rows = () =>
+      brokers.production.batches.flatMap(
+        (batch) => (batch as { rows: Array<Row> }).rows
+      )
+    const orders = () =>
+      rows().flatMap(([number, , , pair]) =>
+        pair === undefined ? [] : [[number, pair] as const]
+      )
+    await expect
+      .poll(() => orders().length, { timeout: 180_000, intervals: [1_000] })
+      .toBe(3)
+
+    // The tape walk posted every trade first, then the Done Details walk
+    // posted HOPE's three with their order numbers and no fields; BBCA's
+    // has none. The tied trades take their key's orders in any order.
+    expect(
+      rows()
+        .filter(([, , , pair]) => pair === undefined)
+        .map(([number]) => number)
+        .sort()
+    ).toEqual(["1", "2", "3", "4"])
+    const posted = new Map(orders())
+    expect(posted.get("1")).toEqual([1_000, 1_500])
+    expect([posted.get("2"), posted.get("3")].map(String).sort()).toEqual([
+      "2002,1800",
+      "2003,1800",
+    ])
+    for (const [, codes, fields, pair] of rows())
+      if (pair !== undefined) {
+        expect(fields).toBeNull()
+        expect(codes).toMatchObject({ buyerType: "D", sellerType: "D" })
+      }
+    expect(
+      brokers.requests
+        .filter((request) =>
+          request.path.startsWith("/api/v1/stock/data/broker-transaction")
+        )
+        .map((request) => new URL(request.path, AJAIB_TAB).searchParams)
+        .map((query) => [query.get("code"), query.get("page")])
+    ).toEqual([
+      ["BBCA", "1"],
+      ["HOPE", "1"],
+    ])
+
+    // The options page's line for a Done Details walk, as the worker
+    // writes it.
+    await worker.evaluate(`chrome.storage.session.set({ brokerCodesProgress: {
+      state: "walking", walk: "newest", day: "${CLOSED_DAY}", feed: "Ajaib",
+      route: "done-details", stockCodes: { done: 12, of: 900 } } })`)
+    await expect(options.getByLabel("Broker codes walk")).toHaveText(
+      `Ajaib Done Details, ${CLOSED_DAY} (newest closed day)`
+    )
+    await expect(options.getByLabel("Broker codes stock codes")).toHaveText(
+      "12 of 900 codes"
+    )
   } finally {
     await context.close()
     await brokers.close()

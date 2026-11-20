@@ -9,6 +9,7 @@ import {
   TradeNumber,
   WibDate,
   StockCode,
+  ajaibDetailOrderNumbers,
   ajaibRowCodes,
   ajaibRowFields,
   brokerCodesAfter,
@@ -669,6 +670,35 @@ describe("a Stockbit row", () => {
         ])
           assert.isTrue(
             Option.isNone(yield* stockbitRowOrderNumbers(bad)),
+            JSON.stringify(bad)
+          )
+      })
+  )
+
+  it.effect(
+    "reads an Ajaib Done Details row's order numbers from its order ids' last 10 digits",
+    () =>
+      Effect.gen(function* () {
+        // HOPE's 16:00 closing auction trade on 2026-11-20, XL from MG.
+        const detail = {
+          buyer: { order_id: "202611200003114944", is_highlighted: true },
+          seller: { order_id: "202611200003090230", is_highlighted: false },
+        }
+        const day = WibDate.make("2026-11-20")
+        assert.deepStrictEqual(
+          yield* ajaibDetailOrderNumbers(day, detail),
+          Option.some([3_114_944, 3_090_230] as const)
+        )
+        for (const bad of [
+          { ...detail, buyer: { order_id: "202611190003114944" } },
+          { ...detail, seller: { order_id: "202611200000000000" } },
+          { ...detail, seller: { order_id: "20261120003090230" } },
+          { ...detail, seller: { order_id: 3_090_230 } },
+          { ...detail, seller: { order_id: "202611204294967296" } },
+          { buyer: detail.buyer },
+        ])
+          assert.isTrue(
+            Option.isNone(yield* ajaibDetailOrderNumbers(day, bad)),
             JSON.stringify(bad)
           )
       })

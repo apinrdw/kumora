@@ -1,6 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import {
+  BrokerCode,
   StockCode,
+  TradeNumber,
   WibDate,
   type BrokerCodesBatch,
   type TradeFields,
@@ -13,6 +15,7 @@ import {
   type AjaibWalkPosition,
   type AjaibWalkStore,
 } from "../../src/worker/broker-codes/ajaib-walk.ts"
+import type { KeptTrade } from "../../src/worker/broker-codes/done-details-walk.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
 import type { WalkPhase } from "../../src/worker/broker-codes/run-queue.ts"
 import type { Answer, TabRequest } from "../../src/worker/broker.ts"
@@ -347,6 +350,53 @@ describe("Ajaib's walk of the day", { timeout: WALK_TIMEOUT }, () => {
         assert.strictEqual(fields.size, N - 2)
         assert.isFalse(fields.has(7))
         assert.isFalse(fields.has(12_345))
+      })
+  )
+
+  it.effect(
+    "keeps each page's trades with fields for the Done Details walk as it posts them",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const production = fakeProduction()
+        const kept = new Map<string, KeptTrade>()
+        // Each keep comes with the page's batch, after the batches before it.
+        const keptAtPost: Array<number> = []
+        const walk = yield* makeAjaibWalk({
+          tab: fakeAjaib({ badLots: new Set([7]) }),
+          post: (batch) =>
+            Effect.andThen(
+              Effect.sync(() => keptAtPost.push(kept.size)),
+              production.post(batch)
+            ),
+          store: memoryStore().store,
+          keep: (day, trades) =>
+            Effect.sync(() => {
+              assert.strictEqual(day, DAY)
+              for (const trade of trades) kept.set(trade.number, trade)
+            }),
+        })
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        assert.strictEqual(kept.size, N - 1)
+        assert.isFalse(kept.has("7"))
+        assert.isAbove(keptAtPost[1] ?? 0, 0)
+        // Trade 1: the 08:58 opening match.
+        assert.deepStrictEqual(kept.get("1"), {
+          number: TradeNumber.make("1"),
+          code: StockCode.make("TLKM"),
+          second: "08:58:00",
+          board: "RG",
+          price: 8_025,
+          lots: 2,
+          codes: {
+            buyer: BrokerCode.make("YP"),
+            buyerType: "D",
+            seller: BrokerCode.make("PD"),
+            sellerType: "F",
+          },
+        })
+        // Trade 300: 16:00:00.990, in its second.
+        assert.strictEqual(kept.get("300")?.second, "16:00:00")
       })
   )
 
