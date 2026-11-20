@@ -296,7 +296,7 @@ const oneRun = (
 // each row's pair, then of their passive orders.
 const byAggressor = (rows: ReadonlyArray<DetailRow>) =>
   Effect.sync(() =>
-    rows.toSorted(
+    [...rows].sort(
       (a, b) =>
         Math.max(a.buy, a.sell) - Math.max(b.buy, b.sell) ||
         Math.min(a.buy, a.sell) - Math.min(b.buy, b.sell)
@@ -324,7 +324,7 @@ const matched = Effect.fnUntraced(function* (
     if (groupRows.length !== tied.length || !(yield* oneRun(trades, tied)))
       continue
     const inOrder = yield* byAggressor(groupRows)
-    const tradesInOrder = tied.toSorted(
+    const tradesInOrder = [...tied].sort(
       (a, b) => Number(a.number) - Number(b.number)
     )
     for (const [index, { number, codes }] of tradesInOrder.entries()) {
