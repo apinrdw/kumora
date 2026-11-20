@@ -2,10 +2,13 @@ import { assert, describe, it } from "@effect/vitest"
 import { StockCode } from "@workspace/relay"
 import { Effect, Option } from "effect"
 
+import type { Answer, LocalRequest } from "../src/worker/broker.ts"
 import {
   stockbitCredential,
   subscribeFrame,
+  tabCredential,
   websocketKey,
+  withChromeCookies,
 } from "../src/worker/stockbit.ts"
 
 const hex = (bytes: Uint8Array) =>
@@ -19,6 +22,31 @@ const base64Url = (value: unknown) =>
 
 // A Stockbit access token: a JWT whose payload names the user in `data.uid`.
 const jwt = `${base64Url({ alg: "HS256" })}.${base64Url({ data: { uid: 4242 }, exp: 1 })}.c2ln`
+// The token a Google sign-in keeps in `sb_social_access_token`.
+const socialJwt = `${base64Url({ alg: "RS256" })}.${base64Url({ data: { uid: 4242, use: "someone" }, exp: 2 })}.c2ln`
+
+// What `credentialStorage` holds after a Google sign-in: the user, no token.
+const profileOnly = encodeURIComponent(
+  JSON.stringify({
+    state: { user: { id: 4242, username: "someone" } },
+    version: 0,
+  })
+)
+
+// A Stockbit tab with these cookies, which answers "" for any other.
+const tabWith = (cookies: Readonly<Record<string, string>>) => ({
+  request: (request: LocalRequest) =>
+    Effect.succeed(
+      request._tag === "cookie"
+        ? Option.some<Answer>({
+            _tag: "answer",
+            id: 0,
+            status: 200,
+            body: cookies[request.name] ?? "",
+          })
+        : Option.none<Answer>()
+    ),
+})
 
 describe("Stockbit's subscribe frame", () => {
   it.effect(
@@ -100,6 +128,111 @@ describe("the tab's Stockbit credential", () => {
     Effect.gen(function* () {
       assert.isTrue(Option.isNone(yield* stockbitCredential("")))
       assert.isTrue(Option.isNone(yield* stockbitCredential("%7B%7D")))
+    })
+  )
+})
+
+describe("the Stockbit tab's credential", () => {
+  it.effect(
+    "after a Google sign-in is the token in the sb_social_access_token cookie",
+    () =>
+      Effect.gen(function* () {
+        const credential = yield* tabCredential(
+          tabWith({
+            credentialStorage: profileOnly,
+            sb_social_access_token: socialJwt,
+          })
+        )
+        assert.deepStrictEqual(
+          credential,
+          Option.some({ accessToken: socialJwt, userId: "4242" })
+        )
+      })
+  )
+
+  it.effect("is credentialStorage's token when both cookies hold one", () =>
+    Effect.gen(function* () {
+      const credential = yield* tabCredential(
+        tabWith({
+          sb_social_access_token: socialJwt,
+          credentialStorage: encodeURIComponent(
+            JSON.stringify({ accessToken: jwt })
+          ),
+        })
+      )
+      assert.deepStrictEqual(
+        credential,
+        Option.some({ accessToken: jwt, userId: "4242" })
+      )
+    })
+  )
+
+  it.effect("is missing when neither cookie holds a token", () =>
+    Effect.gen(function* () {
+      const credential = yield* tabCredential(
+        tabWith({ credentialStorage: profileOnly })
+      )
+      assert.isTrue(Option.isNone(credential))
+    })
+  )
+})
+
+describe("the Stockbit tab's cookies, read from Chrome's cookie store", () => {
+  // Chrome's cookie store, which holds the HttpOnly cookies too.
+  const store = (cookies: Readonly<Record<string, string>>) => (name: string) =>
+    Effect.succeed(cookies[name] ?? "")
+
+  it.effect(
+    "finds the token in an HttpOnly cookie, which the tab's page cannot read",
+    () =>
+      Effect.gen(function* () {
+        // The page's `document.cookie` shows neither cookie.
+        const page = { ...tabWith({}), attached: Effect.succeed(true) }
+        const tab = withChromeCookies(
+          page,
+          store({
+            credentialStorage: profileOnly,
+            sb_social_access_token: socialJwt,
+          })
+        )
+        assert.deepStrictEqual(
+          yield* tabCredential(tab),
+          Option.some({ accessToken: socialJwt, userId: "4242" })
+        )
+      })
+  )
+
+  it.effect("has no credential while no Stockbit tab is attached", () =>
+    Effect.gen(function* () {
+      const tab = withChromeCookies(
+        { ...tabWith({}), attached: Effect.succeed(false) },
+        store({ sb_social_access_token: socialJwt })
+      )
+      assert.deepStrictEqual(
+        yield* tab.request({ _tag: "cookie", name: "sb_social_access_token" }),
+        Option.none()
+      )
+      assert.isTrue(Option.isNone(yield* tabCredential(tab)))
+    })
+  )
+
+  it.effect("leaves every other request to the tab", () =>
+    Effect.gen(function* () {
+      const asked: Array<LocalRequest> = []
+      const tab = withChromeCookies(
+        {
+          attached: Effect.succeed(true),
+          request: (request: LocalRequest) =>
+            Effect.sync(() => {
+              asked.push(request)
+              return Option.none<Answer>()
+            }),
+        },
+        store({})
+      )
+      yield* tab.request({ _tag: "page-token" })
+      yield* tab.request({ _tag: "cookie", name: "credentialStorage" })
+      assert.deepStrictEqual(asked, [{ _tag: "page-token" }])
     })
   )
 })

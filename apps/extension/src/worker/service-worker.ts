@@ -96,6 +96,7 @@ import {
   type OnDemandSubscriptions,
   type Subscriptions,
 } from "./subscriptions.ts"
+import { withChromeCookies } from "./stockbit.ts"
 import { makeBrokerTab, type BrokerTab } from "./tab.ts"
 import { relayScheduler } from "./scheduler.ts"
 import { runTarget } from "./target.ts"
@@ -360,7 +361,7 @@ const main = Effect.gen(function* () {
   const throttled = yield* loadThrottled
   const stockbitPacer = yield* makePacer({
     feed: "Stockbit",
-    tab: stockbitTab,
+    tab: withChromeCookies(stockbitTab),
     throttled: (until) => saveThrottled("Stockbit", until),
     stoppedUntil: throttled.Stockbit,
   })

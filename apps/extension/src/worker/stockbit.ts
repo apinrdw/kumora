@@ -9,13 +9,25 @@ import type { Answer, LocalRequest } from "./broker.ts"
 import { jwtPayloadText } from "./jwt.ts"
 
 // Decision: the key comes from Stockbit's REST host, called from the tab with
-// the token in its `credentialStorage` cookie. The relay never refreshes the
-// token: it reads the cookie again before every key fetch, so it uses
-// whatever the page last refreshed. See apinrdw/kumora#43.
+// the token in its credential cookies. The relay never refreshes the token:
+// it reads the cookies again before every key fetch, so it uses whatever the
+// page last refreshed. See apinrdw/kumora#43.
 export const WEBSOCKET_KEY_URL =
   "https://exodus.stockbit.com/auth/websocket/key"
-export const CREDENTIAL_COOKIE = "credentialStorage"
 
+// Decision: the access token is in one of two cookies, likely by how the
+// owner signed in. `credentialStorage` held it before; after a Google
+// sign-in (seen 2026-11-20) it holds the user's profile and no token, and
+// the token is in `sb_social_access_token`, with the same `data.uid`.
+// `credentialStorage` is read first. See apinrdw/kumora#591.
+const CREDENTIAL_COOKIES = ["credentialStorage", "sb_social_access_token"]
+
+// Decision: both REST calls stay on `exodus.stockbit.com` with the token as a
+// Bearer header. The page itself now calls `exodus.api.stockbit.com` with its
+// cookies and no `Authorization` header (seen 2026-11-20). Whether that host
+// takes the Bearer header is untested, so moving there is a separate question
+// from which cookie holds the token. See apinrdw/kumora#591.
+//
 // Stockbit's REST running-trade tape, which backfill pages by trade number.
 export const RUNNING_TRADE_URL =
   "https://exodus.stockbit.com/order-trade/running-trade"
@@ -52,17 +64,100 @@ export const stockbitCredential = Effect.fnUntraced(function* (cookie: string) {
   )
 })
 
-// The tab's current credential, read from its cookie at call time.
-export const tabCredential = Effect.fnUntraced(function* (tab: {
+// The Stockbit tab's sign-in, as its credential cookies hold it.
+interface TabSignIn {
+  // Every credential cookie's raw value. A change in any is a new sign-in or
+  // a refreshed token.
+  readonly cookies: string
+  // The first credential cookie's token; none when no cookie holds one.
+  readonly credential: Option.Option<StockbitCredential>
+}
+
+interface CookieTab {
   readonly request: (
     request: LocalRequest
   ) => Effect.Effect<Option.Option<Answer>>
-}) {
-  const cookie = yield* tab.request({ _tag: "cookie", name: CREDENTIAL_COOKIE })
-  return Option.isSome(cookie)
-    ? yield* stockbitCredential(cookie.value.body)
-    : Option.none<StockbitCredential>()
+}
+
+// Decision: the service worker reads the Stockbit tab's cookies with
+// `chrome.cookies` (the `cookies` permission), which sees the HttpOnly
+// cookies the page's `document.cookie` hides: `sb_social_access_token` may be
+// one. They stay the tab's: with no Stockbit tab attached there is no
+// answer, as when the tab read them. See apinrdw/kumora#591.
+//
+// Decision: a cookie is looked up for the site, then for its API host: a
+// Google sign-in's `sb_social_access_token` is sent to
+// `exodus.api.stockbit.com` and isn't visible by the site's URL (seen
+// 2026-11-20: `getAll` under `https://stockbit.com/*` found none). The
+// manifest's `https://*.stockbit.com/*` host permission covers both.
+const STOCKBIT_COOKIE_URLS = [
+  "https://stockbit.com/",
+  "https://exodus.api.stockbit.com/",
+] as const
+
+// A Stockbit cookie's value in Chrome's cookie store, "" when it is missing.
+const chromeCookie = (name: string) =>
+  Effect.gen(function* () {
+    for (const url of STOCKBIT_COOKIE_URLS) {
+      const cookie = yield* Effect.tryPromise(() =>
+        chrome.cookies.get({ url, name })
+      )
+      if (cookie?.value !== undefined) return cookie.value
+    }
+    return ""
+  }).pipe(
+    Effect.tapError((error) =>
+      Effect.logWarning("Stockbit cookie read failed", error)
+    ),
+    Effect.orElseSucceed(() => "")
+  )
+
+// The Stockbit tab, its cookie requests answered from Chrome's cookie store.
+export const withChromeCookies = <
+  Tab extends CookieTab & { readonly attached: Effect.Effect<boolean> },
+>(
+  tab: Tab,
+  read: (name: string) => Effect.Effect<string> = chromeCookie
+) => ({
+  ...tab,
+  request: (request: LocalRequest) =>
+    request._tag === "cookie"
+      ? Effect.flatMap(tab.attached, (attached) =>
+          attached
+            ? Effect.map(read(request.name), (body) =>
+                Option.some<Answer>({
+                  _tag: "answer",
+                  id: 0,
+                  status: 200,
+                  body,
+                })
+              )
+            : Effect.succeedNone
+        )
+      : tab.request(request),
 })
+
+// The tab's sign-in, read from its cookies at call time; none when the tab
+// doesn't answer.
+export const tabSignIn = Effect.fnUntraced(function* (tab: CookieTab) {
+  const values: Array<string> = []
+  let credential = Option.none<StockbitCredential>()
+  for (const name of CREDENTIAL_COOKIES) {
+    const cookie = yield* tab.request({ _tag: "cookie", name })
+    if (Option.isNone(cookie)) return Option.none<TabSignIn>()
+    values.push(cookie.value.body)
+    if (Option.isNone(credential))
+      credential = yield* stockbitCredential(cookie.value.body)
+  }
+  return Option.some<TabSignIn>({ cookies: values.join("\n"), credential })
+})
+
+// The tab's current credential; none when it is signed out or doesn't answer.
+export const tabCredential = (tab: CookieTab) =>
+  Effect.map(
+    tabSignIn(tab),
+    Option.flatMap((signIn) => signIn.credential)
+  )
 
 const KeyAnswer = Schema.fromJsonString(
   Schema.Struct({ data: Schema.Struct({ key: Schema.String }) })

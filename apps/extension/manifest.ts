@@ -17,6 +17,8 @@ export const optionsPage = "options.html"
 // The broker tabs the relay reads. Exact hosts only.
 const AJAIB_TAB = "https://trade.ajaib.co.id/*"
 const STOCKBIT_TAB = "https://stockbit.com/*"
+// The API host a Google sign-in's token cookie is sent to.
+const STOCKBIT_COOKIES = "https://*.stockbit.com/*"
 
 export const manifest = (
   productionDashboard: string
@@ -30,12 +32,19 @@ export const manifest = (
   // Port messages keep the service worker alive from 110, websocket traffic
   // from 116. Manifest-declared MAIN-world scripts need 111.
   minimum_chrome_version: "116",
-  permissions: ["storage", "alarms"],
+  // `cookies` reads the Stockbit tab's credential cookies, HttpOnly or not,
+  // under STOCKBIT_COOKIES' host permission (src/worker/stockbit.ts).
+  permissions: ["storage", "alarms", "cookies"],
   // Decision: exact hosts only, never a `*.workers.dev` wildcard: workers.dev
   // is on the Public Suffix List, so one would admit any Workers site. The
   // extra target's ingest socket needs no host permission. See
   // apinrdw/kumora#135.
-  host_permissions: [`${productionDashboard}/*`, STOCKBIT_TAB, AJAIB_TAB],
+  host_permissions: [
+    `${productionDashboard}/*`,
+    STOCKBIT_TAB,
+    STOCKBIT_COOKIES,
+    AJAIB_TAB,
+  ],
   background: {
     service_worker: `${"service-worker" satisfies keyof typeof scriptEntries}.js`,
     type: "module",
