@@ -20,6 +20,8 @@ import { KInput } from "@/components/k/input"
 import { Pressed } from "@/components/market-bubbles/pressed"
 import {
   ALERT_KIND_NAMES,
+  alertLink,
+  alertRises,
   isBookEventKind,
   MIN_VALUES,
   type AlertKind,
@@ -290,7 +292,7 @@ export function AlertsBell() {
                       <span
                         className={cn(
                           "block font-medium",
-                          alert.side === "bid" ? "text-up" : "text-down"
+                          alertRises(alert) ? "text-up" : "text-down"
                         )}
                       >
                         {alert.title}
@@ -306,7 +308,7 @@ export function AlertsBell() {
                         alertBell.set(false)
                         void navigate({
                           to: "/market-live",
-                          search: { code: alert.code, event: alert.key },
+                          search: Effect.runSync(alertLink(alert)),
                         })
                       }}
                     >
