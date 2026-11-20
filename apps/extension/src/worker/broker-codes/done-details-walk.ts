@@ -1,13 +1,14 @@
 // Ajaib's Done Details walk of the newest closed day (spec
 // apinrdw/kumora#627, "Slice 4"): after the tape walk, each code's
 // `broker-transaction` rows give each trade's buy and sell order numbers,
-// matched to the trades the tape walk kept by (code, second, board, price,
-// lots, buyer, seller). Stockbit's walk fills what it leaves.
+// matched to the trades the tape walk kept by every field both report
+// (`MatchFields`). Stockbit's walk fills what it leaves.
 import {
   BATCH_ROWS,
   Board,
   BrokerCode,
   BrokerCodesProtocolVersion,
+  InvestorType,
   OrderNumber,
   Side,
   StockCode,
@@ -55,10 +56,27 @@ export const KeptTrade = Schema.Struct({
 })
 export type KeptTrade = typeof KeptTrade.Type
 
-// One Done Details row as the walk keeps it between pages: its key and the
-// trade's buy and sell order numbers.
+// Every field a Done Details row and a kept trade both report for a trade,
+// which a pair agrees on. A row's side is its order pair's later order's,
+// the larger number's.
+const MatchFields = Schema.Struct({
+  code: StockCode,
+  second: Schema.String,
+  board: Board,
+  price: Schema.Finite,
+  lots: Schema.Finite,
+  buyer: BrokerCode,
+  buyerType: InvestorType,
+  seller: BrokerCode,
+  sellerType: InvestorType,
+  side: Side,
+})
+type MatchFields = typeof MatchFields.Type
+
+// One Done Details row as the walk keeps it between pages: its fields and
+// the trade's buy and sell order numbers.
 export const DetailRow = Schema.Struct({
-  key: Schema.String,
+  fields: MatchFields,
   buy: OrderNumber,
   sell: OrderNumber,
 })
@@ -147,40 +165,28 @@ const DetailsPage = Schema.fromJsonString(
     }),
   })
 )
-// What the key reads of a row. `time` is `HH:mm:ss`, or `HH:mm` for the
-// 08:58 and 16:00 auctions.
+// The fields a row reports for its trade. `time` is `HH:mm:ss`, or `HH:mm`
+// for the 08:58 and 16:00 auctions; each side's `type` is its investor
+// type.
 const DetailKeyRow = Schema.Struct({
   time: Schema.String.check(Schema.isPattern(/^\d\d:\d\d(:\d\d)?$/)),
   code: StockCode,
   board: Board,
   price: Schema.Finite,
   qty: Schema.Finite,
-  buyer: Schema.Struct({ broker_code: BrokerCode }),
-  seller: Schema.Struct({ broker_code: BrokerCode }),
+  buyer: Schema.Struct({ broker_code: BrokerCode, type: InvestorType }),
+  seller: Schema.Struct({ broker_code: BrokerCode, type: InvestorType }),
 })
 const decodePage = Schema.decodeUnknownOption(DetailsPage)
 const decodeKeyRow = Schema.decodeUnknownOption(DetailKeyRow)
 
-const keyOf = (fields: {
-  readonly code: StockCode
-  readonly second: string
-  readonly board: typeof Board.Type
-  readonly price: number
-  readonly lots: number
-  readonly buyer: BrokerCode
-  readonly seller: BrokerCode
-}) =>
-  Effect.succeed(
-    [
-      fields.code,
-      fields.second,
-      fields.board,
-      fields.price,
-      fields.lots,
-      fields.buyer,
-      fields.seller,
-    ].join(" ")
-  )
+// The key a trade and a row pair under: every one of `MatchFields`, read
+// from the struct's own list, so none can be left out.
+const MATCH_FIELDS = Object.keys(MatchFields.fields) as ReadonlyArray<
+  keyof MatchFields
+>
+const keyOf = (fields: MatchFields) =>
+  Effect.sync(() => JSON.stringify(MATCH_FIELDS.map((name) => fields[name])))
 
 // The tape walk's trade as this walk keeps it.
 export const keptTrade = (
@@ -201,8 +207,8 @@ export const keptTrade = (
     codes,
   }))
 
-// A page's rows of `day` with a key and both order numbers; a row without
-// either matches no trade.
+// A page's rows of `day` with their fields and both order numbers; a row
+// without either matches no trade.
 const detailRows = Effect.fnUntraced(function* (
   day: WibDate,
   transactions: ReadonlyArray<unknown>
@@ -213,66 +219,70 @@ const detailRows = Effect.fnUntraced(function* (
     const orders = yield* ajaibDetailOrderNumbers(day, raw)
     if (Option.isNone(row) || Option.isNone(orders)) continue
     const { time, code, board, price, qty, buyer, seller } = row.value
+    const [buy, sell] = orders.value
     rows.push({
-      key: yield* keyOf({
+      fields: {
         code,
         second: time.length === 5 ? `${time}:00` : time,
         board,
         price,
         lots: qty,
         buyer: buyer.broker_code,
+        buyerType: buyer.type,
         seller: seller.broker_code,
-      }),
-      buy: orders.value[0],
-      sell: orders.value[1],
+        sellerType: seller.type,
+        side: buy > sell ? "buy" : "sell",
+      },
+      buy,
+      sell,
     })
   }
   return rows
 })
 
-// The side group a trade or row pairs in: its key and its aggressor side.
-// A row's side is its order pair's later order's, the larger number's;
-// every row also lies in its key's sideless group, where an auction match's
-// trades, which have no side, find it.
-const sideGroup = (key: string, side: KeptTrade["side"]) =>
-  Effect.succeed(`${key} ${side}`)
+// A kept trade's fields, as its Done Details row reports them.
+const tradeFields = (trade: KeptTrade) =>
+  Effect.succeed<MatchFields>({
+    code: trade.code,
+    second: trade.second,
+    board: trade.board,
+    price: trade.price,
+    lots: trade.lots,
+    buyer: trade.codes.buyer,
+    buyerType: trade.codes.buyerType,
+    seller: trade.codes.seller,
+    sellerType: trade.codes.sellerType,
+    side: trade.side,
+  })
+
+// The rows by key. Every row also lies under its sideless key, where an
+// auction match's trades, which have no side, find it.
 const rowGroups = Effect.fnUntraced(function* (rows: ReadonlyArray<DetailRow>) {
   const groups = new Map<string, Array<DetailRow>>()
   for (const row of rows)
-    for (const side of ["none", row.buy > row.sell ? "buy" : "sell"] as const) {
-      const at = yield* sideGroup(row.key, side)
+    for (const side of [row.fields.side, "none"] as const) {
+      const at = yield* keyOf({ ...row.fields, side })
       groups.set(at, [...(groups.get(at) ?? []), row])
     }
   return groups
 })
 
-// The kept trades by side group, leaving out a key's sideless trades when
-// it has trades with a side too: its rows can't be told apart between them.
+// The kept trades by key, leaving out a sideless key's trades when trades
+// with a side share its other fields: its rows can't be told apart between
+// them.
 const tradeGroups = Effect.fnUntraced(function* (
   trades: ReadonlyArray<KeptTrade>
 ) {
   const groups = new Map<string, Array<KeptTrade>>()
   const sided = new Set<string>()
-  const sideless: Array<readonly [string, KeptTrade]> = []
   for (const trade of trades) {
-    const key = yield* keyOf({
-      ...trade,
-      buyer: trade.codes.buyer,
-      seller: trade.codes.seller,
-    })
-    if (trade.side === "none") {
-      sideless.push([key, trade])
-      continue
-    }
-    sided.add(key)
-    const at = yield* sideGroup(key, trade.side)
+    const fields = yield* tradeFields(trade)
+    const at = yield* keyOf(fields)
     groups.set(at, [...(groups.get(at) ?? []), trade])
+    if (fields.side !== "none")
+      sided.add(yield* keyOf({ ...fields, side: "none" }))
   }
-  for (const [key, trade] of sideless) {
-    if (sided.has(key)) continue
-    const at = yield* sideGroup(key, "none")
-    groups.set(at, [...(groups.get(at) ?? []), trade])
-  }
+  for (const at of sided) groups.delete(at)
   return groups
 })
 
@@ -300,7 +310,7 @@ const oneRun = (
     return Math.max(...at) - Math.min(...at) + 1 === tied.length
   })
 
-// A side group's rows in order of their aggressor orders, the larger of
+// A key's rows in order of their aggressor orders, the larger of
 // each row's pair, then of their passive orders.
 const byAggressor = (rows: ReadonlyArray<DetailRow>) =>
   Effect.sync(() =>
@@ -311,11 +321,11 @@ const byAggressor = (rows: ReadonlyArray<DetailRow>) =>
     )
   )
 
-// Decision: a side group (one key's one side) gives its rows to its kept
-// trades only when as many and one run, no other kept trade of the code
-// between them: one whole sweep, where which takes which row (in aggressor
-// order) changes no order run. Other groups get nothing, for Stockbit's walk
-// to give by trade number. See apinrdw/kumora#622 and PR #632.
+// Decision: a key (every field both sources report) gives its rows to its
+// kept trades only when as many and one run, no other kept trade of the
+// code between them: trades alike in all they report, so which takes which
+// row (in aggressor order) changes no order run. Other keys get nothing,
+// for Stockbit's walk. See apinrdw/kumora#622 and PR #632.
 const matched = Effect.fnUntraced(function* (
   trades: ReadonlyArray<KeptTrade>,
   rows: ReadonlyArray<DetailRow>

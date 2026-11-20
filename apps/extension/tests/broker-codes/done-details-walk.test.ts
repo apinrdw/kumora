@@ -383,16 +383,15 @@ describe("the Done Details walk", () => {
         for (const [number, posted] of orders)
           assert.deepStrictEqual(posted, STOCKBIT.get(number)?.orders)
         // The one RG trade Ajaib's route doesn't list, and 81 trades tied on
-        // their second, board, price, lots, brokers and side with another
-        // that a trade of HOPE falls between.
+        // their second, board, price, lots, codes and side with another that
+        // a trade of HOPE falls between.
         const tieOf = (trade: KeptTrade) =>
           JSON.stringify([
             trade.second,
             trade.board,
             trade.price,
             trade.lots,
-            trade.codes.buyer,
-            trade.codes.seller,
+            trade.codes,
             trade.side,
           ])
         const ties = new Map<string, number>()

@@ -30,13 +30,13 @@ const decodeRow = Schema.decodeUnknownOption(DetailRow)
 const decodeMatched = Schema.decodeUnknownOption(MatchedTrade)
 const decodeCode = Schema.decodeUnknownOption(StockCode)
 
-// Decision: version 2 holds the matched trades, keyed by trade number as a
-// number so they read back in trade order, and each row's code. A version
-// 1 database's walk is dropped whole: its kept trades have no side and its
-// position no step, so the newest closed day's order numbers then come
-// from Stockbit alone.
+// Decision: version 3 holds the matched trades, keyed by trade number as a
+// number so they read back in trade order, and each row's code and fields.
+// An older database's walk is dropped whole: its rows have no investor
+// types and its matches may pair across them, so the newest closed day's
+// order numbers then come from Stockbit alone.
 const openDatabase = Effect.callback<IDBDatabase>((resume) => {
-  const request = indexedDB.open(DATABASE, 2)
+  const request = indexedDB.open(DATABASE, 3)
   request.onupgradeneeded = () => {
     const db = request.result
     for (const name of Array.from(db.objectStoreNames))
