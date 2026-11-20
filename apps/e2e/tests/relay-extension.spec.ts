@@ -3,6 +3,7 @@ import {
   StockCode,
   TradeNumber,
   WibDate,
+  decodeBrokerCodesBatch,
   isTradingDay,
   type BrokerCodesStatus,
 } from "@workspace/relay"
@@ -498,7 +499,7 @@ const CLOSED_DAY = WibDate.make("2026-11-10")
 // a minute (guard in apps/extension/src/worker/broker-codes/ajaib-walk.ts).
 const AJAIB_TAB_POLL = { timeout: 70_000 }
 
-test("Run now with a Stockbit tab open starts a broker codes walk, at any hour", async () => {
+test("Run now with a Stockbit tab open starts a broker codes walk, at any hour, posting its trades' order numbers", async () => {
   test.setTimeout(120_000)
   const brokers = await startFakeBrokers()
   // Production holds nothing of the closed day yet.
@@ -512,7 +513,8 @@ test("Run now with a Stockbit tab open starts a broker codes walk, at any hour",
           crossCheck: { state: "none" },
         }
       : completeDay(day)
-  // Stockbit has closed the day, and its tape pages on well past the test.
+  // Stockbit has closed the day, and its tape pages on well past the test,
+  // each trade with its codes and its buy and sell order numbers.
   brokers.tapes.stockbit = (query) => {
     const after = Number(query.get("trade_number") ?? 0)
     return {
@@ -523,6 +525,10 @@ test("Run now with a Stockbit tab open starts a broker codes walk, at any hour",
             ? [{ trade_number: "1000000" }]
             : Array.from({ length: 100 }, (_, at) => ({
                 trade_number: String(after + at + 1),
+                buyer: "AK [F]",
+                seller: "CC [D]",
+                buy_order_number: String(2 * (after + at + 1)),
+                sell_order_number: String(2 * (after + at + 1) + 1),
               })),
       },
     }
@@ -572,6 +578,20 @@ test("Run now with a Stockbit tab open starts a broker codes walk, at any hour",
     await expect(options.getByLabel("Broker codes walk")).toHaveText(
       `Stockbit, ${CLOSED_DAY} (newest closed day)`
     )
+    // Its batches to Production carry each trade's codes and order numbers.
+    const posted = async () => {
+      const batches = await Effect.runPromise(
+        Effect.forEach(brokers.production.batches, decodeBrokerCodesBatch)
+      )
+      return batches.flatMap((batch) => batch.rows)
+    }
+    await expect.poll(async () => (await posted()).length).toBeGreaterThan(0)
+    const [number, codes, fields, orders] = (await posted())[0]!
+    expect([codes, fields, orders]).toEqual([
+      { buyer: "AK", buyerType: "F", seller: "CC", sellerType: "D" },
+      null,
+      [2 * Number(number), 2 * Number(number) + 1],
+    ])
   } finally {
     await context.close()
     await brokers.close()

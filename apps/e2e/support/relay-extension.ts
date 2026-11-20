@@ -222,8 +222,12 @@ export async function startFakeBrokers() {
     answer: PIN_ANSWERS.approved,
     bodies: [],
   }
-  // Production's broker codes statuses; a test sets them.
-  const production: { statuses: DayStatuses } = { statuses: () => undefined }
+  // Production's broker codes statuses; a test sets them. Every batch body
+  // posted to it.
+  const production: { statuses: DayStatuses; batches: Array<string> } = {
+    statuses: () => undefined,
+    batches: [],
+  }
   const sockets: Array<BrokerSocket> = []
   const requests: Array<{ path: string; headers: Record<string, unknown> }> = []
   const server: Server = createServer(
@@ -232,6 +236,14 @@ export async function startFakeBrokers() {
       const host = request.headers.host?.split(":")[0]
       const path = request.url ?? "/"
       requests.push({ path, headers: request.headers })
+      if (host === PRODUCTION_HOST && request.method === "POST") {
+        let body = ""
+        request.on("data", (chunk) => (body += String(chunk)))
+        return request.on("end", () => {
+          production.batches.push(body)
+          answerStatus(production.statuses, path, response)
+        })
+      }
       if (host === PRODUCTION_HOST)
         return answerStatus(production.statuses, path, response)
       if (host === "exodus.stockbit.com") {
