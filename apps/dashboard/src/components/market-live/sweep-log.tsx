@@ -6,6 +6,7 @@ import {
   type Sweep,
   type SweepBroker,
   type SweepBrokers,
+  type SweepOrders,
   type SweepPiece,
   type TradeNumber,
   type WibDate,
@@ -238,18 +239,18 @@ const SIDE = {
 } as const
 
 // The log's columns: live, and on a recorded day, whose sweeps can have
-// brokers, with Value wide enough for `Rp325.91 M` and the Aggressor and
-// Other side columns.
+// brokers, with Value wide enough for `Rp325.91 M` and the Buyer and Seller
+// columns for `XL [D] ×22`.
 const COLUMNS = {
   live: "grid-cols-[58px_44px_minmax(0,1fr)_64px_10px]",
-  brokers: "grid-cols-[58px_44px_minmax(0,1fr)_76px_80px_80px_10px]",
+  brokers: "grid-cols-[58px_44px_minmax(0,1fr)_76px_88px_88px_10px]",
 } as const
 
 // Decision: a recorded day's columns scroll sideways inside a log narrower
 // than they need, as the tape does (tape-list.tsx): a phone's Sweeps tab
 // (about 360 px), and from lg a log given way below 530 px (layout-b.tsx).
-// Time to Other side need about 520 px with the lots and price path whole.
-const BROKER_COLUMNS_MIN = "min-w-[528px]"
+// Time to Seller need about 536 px with the lots and price path whole.
+const BROKER_COLUMNS_MIN = "min-w-[544px]"
 
 // Shows the sweep tooltip at a broker cell, pinned for a click or a tap, or
 // hides it.
@@ -260,20 +261,27 @@ type OnTip = (
 ) => void
 
 // One side's Lead broker as `AK [F]` in its investor type's colour, and a
-// muted `+N` for the others on that side; blank for a sweep not yet whole.
+// muted `+N` for the others on that side, and after an order run's aggressor
+// of 2 or more orders a muted `×N`; blank for a sweep not yet whole.
 // Hovering it, or tapping it, shows the sweep's tooltip.
 function LeadBrokerCell({
   id,
+  column,
   side,
+  orders,
   onTip,
 }: {
   id: TradeNumber
+  column: "buyer" | "seller"
   side: ReadonlyArray<SweepBroker> | undefined
+  // The piece's order run, on its aggressor side's cell only.
+  orders?: SweepOrders | undefined
   onTip: OnTip
 }) {
   const lead = side && Effect.runSync(leadBroker(side))
   return (
     <span
+      data-column={column}
       className="truncate"
       onPointerEnter={(event) => {
         if (event.pointerType === "mouse") onTip(id, event.currentTarget)
@@ -293,9 +301,55 @@ function LeadBrokerCell({
           {lead.more > 0 && (
             <span className="text-muted-foreground"> +{lead.more}</span>
           )}
+          {orders !== undefined && orders.count >= 2 && (
+            <span className="text-muted-foreground"> ×{orders.count}</span>
+          )}
         </>
       )}
     </span>
+  )
+}
+
+// A row's Buyer and Seller cells. A sell sweep's aggressor sold, so it takes
+// Seller; a buy sweep's bought, as did an auction match's buyers, which its
+// piece holds as `aggressor`, so they take Buyer.
+function BuyerSellerCells({
+  row,
+  piece,
+  onTip,
+}: {
+  row: LogRow
+  piece: SweepPiece | undefined
+  onTip: OnTip
+}) {
+  const sold = row.side === "sell"
+  const aggressor = (
+    <LeadBrokerCell
+      id={row.firstTrade}
+      column={sold ? "seller" : "buyer"}
+      side={piece?.aggressor}
+      orders={piece?.orders}
+      onTip={onTip}
+    />
+  )
+  const other = (
+    <LeadBrokerCell
+      id={row.firstTrade}
+      column={sold ? "buyer" : "seller"}
+      side={piece?.other}
+      onTip={onTip}
+    />
+  )
+  return sold ? (
+    <>
+      {other}
+      {aggressor}
+    </>
+  ) : (
+    <>
+      {aggressor}
+      {other}
+    </>
   )
 }
 
@@ -320,9 +374,6 @@ const LogRowView = memo(function LogRowView({
   onTip: OnTip
 }) {
   const path = Effect.runSync(pricePath(row))
-  const brokerCell = (side: ReadonlyArray<SweepBroker> | undefined) => (
-    <LeadBrokerCell id={row.firstTrade} side={side} onTip={onTip} />
-  )
   return (
     <li style={{ height: ROW_HEIGHT }}>
       <button
@@ -353,8 +404,9 @@ const LogRowView = memo(function LogRowView({
         <span className="text-right">
           Rp{Effect.runSync(compact(row.value))}
         </span>
-        {withBrokers && brokerCell(piece?.aggressor)}
-        {withBrokers && brokerCell(piece?.other)}
+        {withBrokers && (
+          <BuyerSellerCells row={row} piece={piece} onTip={onTip} />
+        )}
         <span className="text-warning">
           {row.big && (
             <>
@@ -633,8 +685,8 @@ function LogColumns({
           <span>Side</span>
           <span>Lots @ price</span>
           <span className="text-right">Value</span>
-          {withBrokers && <span>Aggressor</span>}
-          {withBrokers && <span>Other side</span>}
+          {withBrokers && <span>Buyer</span>}
+          {withBrokers && <span>Seller</span>}
           <span />
         </div>
         <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
