@@ -220,6 +220,10 @@ _Avoid_: Signal, book event (that is the level ledger's)
 A push of one aggressor side that set the day's high (buy aggressors) or low (sell aggressors), followed by a minute in which that side's lots fell to a fraction of the push's busiest minute and price neither set a new extreme nor moved as far. It says what the aggressors did, never what price will do next.
 _Avoid_: Fade, top, bottom, reversal
 
+**Delta divergence**:
+A new day's high whose cumulative delta is lower than at the day's previous high, or a new day's low whose cumulative delta is higher than at the previous low, with price having pulled back between the two. It says price and delta disagreed, never what price will do next.
+_Avoid_: Weakening, bearish/bullish divergence
+
 **Alert rule**:
 Which book events a browser wants to be told of: one or more event kinds, over the watchlist, named stock codes or every code on the scanner, optionally only above a rupiah value. Each browser keeps its own.
 _Avoid_: Alert (that is one delivery), trigger, watch

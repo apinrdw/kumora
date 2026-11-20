@@ -6,14 +6,14 @@
 // research/order-flow-event-thresholds, replay.mjs.txt).
 //
 // A rule judges every folded minute of every share, once per side, and keeps
-// whatever it needs between minutes in its own per-code memory. Delta
-// divergence and Failed break join `judging` in makeOrderFlow beside
-// Exhaustion.
+// whatever it needs between minutes in its own per-code memory. Failed break
+// joins `judging` in makeOrderFlow beside Exhaustion and Delta divergence.
 import {
   FLUSH_PAST_MINUTE,
   INDEX_CODES,
   MINUTE_MS,
   OrderFlowEventOrder,
+  SHARES_PER_LOT,
   kindOf,
   marketPhases,
   ticksBetween,
@@ -67,6 +67,21 @@ const PUSH_FLOOR = 100_000_000
 // Session 2 has no such skip. See apinrdw/kumora#602.
 const OPEN_SKIP_MINUTES = 5
 
+// Decision: Delta divergence's earlier high is at least 10 minutes before
+// the new one, so a push that sets several highs in a row doesn't fire. See
+// apinrdw/kumora#596 and apinrdw/kumora#599.
+const EARLIER_MINUTES = 10
+
+// Decision: price traded at least 3 ticks back from the earlier high
+// between the two, so they are separate highs and not one push. See
+// apinrdw/kumora#596 and apinrdw/kumora#599.
+const PULLBACK_TICKS = 3
+
+// Decision: cumulative delta trails the earlier high's by at least Rp100 M
+// of lots at the new high's price: strictly lower or a % margin fires on
+// noise and breaks near zero. See apinrdw/kumora#596 and apinrdw/kumora#599.
+const DIVERGENCE_FLOOR = 100_000_000
+
 // What the rules read of one minute of one code: its range and close, and
 // each aggressor side's lots and value (lots × 100 × price, as the
 // footprint's cells sum it). A minute with no trades has 0 lots, and the
@@ -84,10 +99,15 @@ interface MinuteFigures {
   traded: boolean
 }
 
-// The price a side's day extreme stands at, and the minute that set it.
+// The price a side's day extreme stands at, the minute that set it and
+// the cumulative delta at that minute's close (an auction minute's lots have
+// no side, so they add 0). `pullback` is the furthest price back from it,
+// on the other side, of the minutes since: undefined until one follows.
 interface Extreme {
   readonly price: number
   readonly at: number
+  readonly delta: number
+  pullback: number | undefined
 }
 
 // One folded minute as a rule reads it.
@@ -133,6 +153,9 @@ const beyond = (side: OrderFlowSide, a: number, b: number) =>
   Effect.succeed(side === "buy" ? a > b : a < b)
 const extremeOf = (side: OrderFlowSide, figures: MinuteFigures) =>
   Effect.succeed(side === "buy" ? figures.high : figures.low)
+// The price furthest back from the side's extreme: the low for the high.
+const backOf = (side: OrderFlowSide, figures: MinuteFigures) =>
+  Effect.succeed(side === "buy" ? figures.low : figures.high)
 const lotsOf = (side: OrderFlowSide, figures: MinuteFigures) =>
   Effect.succeed(side === "buy" ? figures.buyLots : figures.sellLots)
 const valueOf = (side: OrderFlowSide, figures: MinuteFigures) =>
@@ -235,12 +258,50 @@ const makeExhaustion = Effect.sync((): OrderFlowRule => {
   }
 })
 
+// Delta divergence (spec apinrdw/kumora#605, "Order flow events: the
+// rules"): a minute that set a new day's extreme while cumulative delta
+// trailed the earlier extreme's by Rp100 M, with price pulled back between
+// the two. Each new extreme is judged once, as the minute that set it.
+const makeDivergence = Effect.sync((): OrderFlowRule => ({
+  judge: Effect.fnUntraced(function* (minute, side) {
+    const { before, extreme, set } = minute.sides[side]
+    if (!set || before === undefined || extreme === undefined) return undefined
+    const { figures } = minute
+    if (figures.minute - before.at < EARLIER_MINUTES * MINUTE_MS)
+      return undefined
+    if (
+      before.pullback === undefined ||
+      (yield* ticksShort(side, before.pullback, before.price)) < PULLBACK_TICKS
+    )
+      return undefined
+    const trails = side === "buy" ? 1 : -1
+    const floorLots = DIVERGENCE_FLOOR / (SHARES_PER_LOT * extreme.price)
+    if ((before.delta - extreme.delta) * trails < floorLots) return undefined
+    if (yield* minute.blocked(before.at, figures.minute)) return undefined
+    return {
+      kind: "divergence",
+      code: minute.code,
+      at: DateTime.makeUnsafe(figures.minute),
+      side,
+      price: extreme.price,
+      delta: extreme.delta,
+      earlierAt: DateTime.makeUnsafe(before.at),
+      earlierPrice: before.price,
+      earlierDelta: before.delta,
+    } satisfies OrderFlowEvent
+  }),
+}))
+
 interface CodeFlow {
   // Minutes with trades not folded yet, by minute.
   readonly pending: Map<number, MinuteFigures>
   window: Array<MinuteFigures>
   windowSession: number | undefined
   readonly extremes: Record<OrderFlowSide, Extreme | undefined>
+  // The day's cumulative delta in lots, through the newest folded minute and
+  // any late trade since: the footprint chart's CVD (lib/footprint.ts,
+  // minuteTotals).
+  cum: number
   // The last traded price, as of the newest folded minute.
   last: number | undefined
   // Whether the rules judge the code: shares only, decided on its first fold.
@@ -293,8 +354,11 @@ const addPrint = (figures: MinuteFigures, print: Print) => {
 // Every code's order flow state for the trading day `date`. It resets only
 // with the day: one trading-day object holds one day.
 export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
-  // Delta divergence and Failed break join here.
-  const judging: ReadonlyArray<OrderFlowRule> = [yield* makeExhaustion]
+  // Failed break joins here.
+  const judging: ReadonlyArray<OrderFlowRule> = [
+    yield* makeExhaustion,
+    yield* makeDivergence,
+  ]
   // Each session's continuous minutes, as the starts of its first minute
   // and of the minute after its last. Session 1's last second (12:00:00,
   // 11:30:00 on Friday) is no minute of its own.
@@ -326,7 +390,9 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
   // each regular-board trade it settles, inside its own plain arithmetic.
   //
   // A trade in a minute already folded moves that minute's figures, if the
-  // window still holds it, and the day's extremes.
+  // window still holds it, the cumulative delta and the day's extremes. An
+  // extreme it sets takes the cumulative delta as it stands, since the
+  // minute after it is rarely folded yet.
   const settled = (code: StockCode, minute: number, print: Print) => {
     let flow = codes.get(code)
     if (flow === undefined) {
@@ -335,6 +401,7 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
         window: [],
         windowSession: undefined,
         extremes: { buy: undefined, sell: undefined },
+        cum: 0,
         last: undefined,
         share: undefined,
       }
@@ -351,11 +418,18 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
     }
     const held = flow.window.find((each) => each.minute === minute)
     if (held !== undefined) addPrint(held, print)
+    if (print.buyValue > 0) flow.cum += print.volume
+    if (print.sellValue > 0) flow.cum -= print.volume
     const { buy, sell } = flow.extremes
+    const set = { price: print.close, at: minute, delta: flow.cum }
     if (buy === undefined || print.close > buy.price)
-      flow.extremes.buy = { price: print.close, at: minute }
+      flow.extremes.buy = { ...set, pullback: undefined }
+    else if (minute > buy.at)
+      buy.pullback = Math.min(buy.pullback ?? print.close, print.close)
     if (sell === undefined || print.close < sell.price)
-      flow.extremes.sell = { price: print.close, at: minute }
+      flow.extremes.sell = { ...set, pullback: undefined }
+    else if (minute > sell.at)
+      sell.pullback = Math.max(sell.pullback ?? print.close, print.close)
   }
 
   // The latest minute judged at `now`: the newest whose close was
@@ -389,8 +463,9 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
     return !INDEX_CODES.includes(code) && (yield* kindOf(code)) === "share"
   })
 
-  // Moves each side's day extreme by one minute's figures, and says what
-  // it stood at before.
+  // Moves each side's day extreme by one minute's figures, or how far price
+  // came back from it, and says what it stood at before. The cumulative
+  // delta already counts the minute.
   const moveExtremes = Effect.fnUntraced(function* (
     flow: CodeFlow,
     figures: MinuteFigures
@@ -402,7 +477,21 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
       const set =
         figures.traded &&
         (before === undefined || (yield* beyond(side, price, before.price)))
-      if (set) flow.extremes[side] = { price, at: figures.minute }
+      if (set)
+        flow.extremes[side] = {
+          price,
+          at: figures.minute,
+          delta: flow.cum,
+          pullback: undefined,
+        }
+      else if (before !== undefined) {
+        const back = yield* backOf(side, figures)
+        if (
+          before.pullback === undefined ||
+          (yield* beyond(side, before.pullback, back))
+        )
+          before.pullback = back
+      }
       sides[side] = { before, extreme: flow.extremes[side], set }
     }
     if (figures.traded) flow.last = figures.close
@@ -450,6 +539,7 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
     flow.pending.delete(minute)
     if (traded === undefined && flow.last === undefined) return []
     const figures = traded ?? emptyAt(minute, flow.last!)
+    flow.cum += figures.buyLots - figures.sellLots
     const session = yield* sessionOf(minute)
     const sides = yield* moveExtremes(flow, figures)
     yield* slide(flow, figures, session)
