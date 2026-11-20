@@ -2,6 +2,7 @@
 // which codes it covers, how it splits them into the Bid-heavy and
 // Offer-heavy halves, and how Rank by orders each half.
 import {
+  heavySideOf,
   limitOf,
   type BookEvent,
   type BookReadings,
@@ -41,6 +42,10 @@ const sidesOf = (readings: BookReadings) =>
 const heavySide = (readings: BookReadings) =>
   Effect.succeed(sidesOf(readings)[0])
 
+// A row's heavy side: rows in the halves are at no limit (`scan`).
+const heavySideAt = ({ readings }: RankedRow) =>
+  heavySideOf(readings, undefined)
+
 const perOrder = (value: number | undefined) =>
   value === undefined ? Effect.succeed("—") : plain(value, 0)
 
@@ -52,8 +57,9 @@ const ageText = (ms: number) =>
 
 // Rank by's choices, in the menu's order. Imbalance and Lots per order read
 // the heavy side; Imbalance's row shows the heavy side's lots per order
-// against the other's, Lots per order's the heavy side's alone. Last event ranks by
-// its time, so High → low puts the newest first.
+// against the other's, Lots per order's the heavy side's alone. Heavy side
+// ranks by the heavy side's lots per order over the other's, an untagged row
+// last. Last event ranks by its time, so High → low puts the newest first.
 const RANKINGS = {
   imbalance: {
     label: "Imbalance",
@@ -75,6 +81,16 @@ const RANKINGS = {
     figure: Effect.fnUntraced(function* ({ readings }) {
       const side = yield* heavySide(readings)
       return `${yield* perOrder(side.lotsPerOrder)} lots/ord`
+    }),
+  },
+  heavySide: {
+    label: "Heavy side",
+    value: (row) => Effect.map(heavySideAt(row), (heavy) => heavy?.ratio),
+    figure: Effect.fnUntraced(function* (row) {
+      const heavy = yield* heavySideAt(row)
+      return heavy === undefined
+        ? "—"
+        : `${yield* plain(heavy.ratio, heavy.ratio < 10 ? 1 : 0)}×`
     }),
   },
   lastEvent: {
@@ -112,6 +128,11 @@ export const RANK_CHOICES: ReadonlyArray<{
   label,
 }))
 
+// The Heavy side filter's choices: any row, or only big-order or small-order
+// books.
+export const HEAVY_SIDE_FILTERS = ["any", "big", "small"] as const
+export type HeavySideFilter = (typeof HEAVY_SIDE_FILTERS)[number]
+
 // The value floor's choices, in rupiah.
 export const FLOORS = [100e6, 1e9, 10e9, 50e9] as const
 export type Floor = (typeof FLOORS)[number]
@@ -122,20 +143,22 @@ export interface RadarSettings {
   readonly search: string
   readonly priceMin?: number | undefined
   readonly priceMax?: number | undefined
+  readonly heavySide: HeavySideFilter
   readonly rankBy: RankKey
   // High → low, or Low → high.
   readonly direction: "high" | "low"
 }
 
 // Decision: the floor is Rp1 B by default, ranked by Imbalance, most
-// lopsided first, with no price band. See spec apinrdw/kumora#517, "The
-// scanner".
+// lopsided first, with no price band and any heavy side. See spec
+// apinrdw/kumora#517, "The scanner", and apinrdw/kumora#601.
 export const DEFAULT_SETTINGS: RadarSettings = {
   floor: 1e9,
   codes: "all",
   search: "",
   priceMin: undefined,
   priceMax: undefined,
+  heavySide: "any",
   rankBy: "imbalance",
   direction: "high",
 }
@@ -258,6 +281,38 @@ const passesFilters = (
     return last >= (priceMin ?? 0) && last <= (priceMax ?? Infinity)
   })
 
+// Whether a row passes the Heavy side filter: under Any every row does, and
+// an untagged row under no other choice.
+const passesHeavySide = (
+  readings: BookReadings,
+  limit: Limit | undefined,
+  settings: RadarSettings
+) =>
+  settings.heavySide === "any"
+    ? Effect.succeed(true)
+    : Effect.map(
+        heavySideOf(readings, limit),
+        (heavy) => heavy?.orders === settings.heavySide
+      )
+
+// Puts a row that passed the floor and filters where it shows: listed at its
+// limit, or in the half its imbalance leans to; an empty book nowhere.
+const place = (
+  readings: BookReadings,
+  limit: Limit | undefined,
+  into: {
+    readonly bid: Array<BookReadings>
+    readonly offer: Array<BookReadings>
+    readonly limits: Array<Scan["limits"][number]>
+  }
+) =>
+  Effect.sync(() => {
+    if (limit !== undefined) into.limits.push({ code: readings.code, limit })
+    else if (readings.imbalance === undefined) return
+    else if (readings.imbalance >= 0) into.bid.push(readings)
+    else into.offer.push(readings)
+  })
+
 // Decision: a code joins the scanner when its value today or on the
 // previous trading day, whichever is larger, reaches the floor; with no
 // previous day's value (after a gap), today's alone. Special Monitoring
@@ -290,10 +345,8 @@ export const scan = Effect.fnUntraced(function* (
       last: figures?.last,
       previousClose: figures?.previousClose,
     })
-    if (limit !== undefined) limits.push({ code: readings.code, limit })
-    else if (readings.imbalance === undefined) continue
-    else if (readings.imbalance >= 0) bid.push(readings)
-    else offer.push(readings)
+    if (!(yield* passesHeavySide(readings, limit, settings))) continue
+    yield* place(readings, limit, { bid, offer, limits })
   }
   const result: Scan = {
     bid: yield* ranked(bid, settings, input),

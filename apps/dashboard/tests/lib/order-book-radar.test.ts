@@ -416,6 +416,91 @@ describe("the halves", () => {
       })
   )
 
+  it.effect(
+    "Heavy side keeps only big-order or small-order books, Any keeps every row",
+    () =>
+      Effect.gen(function* () {
+        const readings = [
+          // Bid-heavy with big orders: 30 lots per order against 10.
+          reading("AAAA", 0.6, {
+            bid: side(3000, { lotsPerOrder: 30 }),
+            offer: side(500, { lotsPerOrder: 10 }),
+          }),
+          // Offer-heavy with small orders.
+          reading("BBBB", -0.7, {
+            bid: side(500, { lotsPerOrder: 20 }),
+            offer: side(3000, { lotsPerOrder: 5 }),
+          }),
+          // Lopsided, between small and big orders: untagged.
+          reading("CCCC", 0.6, {
+            bid: side(3000, { lotsPerOrder: 12 }),
+            offer: side(500, { lotsPerOrder: 10 }),
+          }),
+          // Under 50% lopsided: untagged.
+          reading("DDDD", -0.2),
+          // At its upper limit: untagged.
+          reading("ARCI", 1, { offer: side(0) }),
+        ]
+        const figures = { ARCI: { last: 1_250 } }
+        const any = yield* run(readings, {}, { figures })
+        assert.deepStrictEqual(
+          [any.bid, any.offer, any.limits.map(({ code }) => code)],
+          [["AAAA", "CCCC"], ["BBBB", "DDDD"], ["ARCI"]]
+        )
+        const big = yield* run(readings, { heavySide: "big" }, { figures })
+        assert.deepStrictEqual(
+          [big.bid, big.offer, big.limits],
+          [["AAAA"], [], []]
+        )
+        const small = yield* run(readings, { heavySide: "small" }, { figures })
+        assert.deepStrictEqual(
+          [small.bid, small.offer, small.limits],
+          [[], ["BBBB"], []]
+        )
+        // The floor's count ignores the filter.
+        assert.strictEqual(big.above, 5)
+      })
+  )
+
+  it.effect(
+    "Rank by Heavy side orders by lots per order over the other side's, untagged rows last",
+    () =>
+      Effect.gen(function* () {
+        const readings = [
+          reading("AAAA", 0.6, {
+            bid: side(3000, { lotsPerOrder: 30 }),
+            offer: side(500, { lotsPerOrder: 10 }),
+          }),
+          reading("BBBB", 0.9, {
+            bid: side(3000, { lotsPerOrder: 118 }),
+            offer: side(500, { lotsPerOrder: 22 }),
+          }),
+          // Small orders: half the other side's.
+          reading("CCCC", 0.7, {
+            bid: side(3000, { lotsPerOrder: 5 }),
+            offer: side(500, { lotsPerOrder: 10 }),
+          }),
+          // Untagged.
+          reading("DDDD", 0.2),
+        ]
+        const high = yield* run(readings, { rankBy: "heavySide" })
+        assert.deepStrictEqual(high.bid, ["BBBB", "AAAA", "CCCC", "DDDD"])
+        const low = yield* run(readings, {
+          rankBy: "heavySide",
+          direction: "low",
+        })
+        assert.deepStrictEqual(low.bid, ["CCCC", "AAAA", "BBBB", "DDDD"])
+        assert.strictEqual(
+          yield* rankedFigure(readings[1]!, "heavySide", NOW),
+          "5.4×"
+        )
+        assert.strictEqual(
+          yield* rankedFigure(readings[3]!, "heavySide", NOW),
+          "—"
+        )
+      })
+  )
+
   it.effect("a book unchanged for 60 s sinks to the end of its half", () =>
     Effect.gen(function* () {
       const result = yield* run([
