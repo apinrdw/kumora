@@ -150,11 +150,13 @@ export {
   READING_PHASES,
   bookReadingsOf,
   fillEstimateOf,
+  heavySideOf,
   limitOf,
 } from "./book-readings.ts"
 export type {
   BookReadings,
   FillEstimate,
+  HeavySide,
   Limit,
   OrderSize,
 } from "./book-readings.ts"
