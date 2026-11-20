@@ -30,7 +30,7 @@ const wib = (time: string) => Date.parse(`2026-11-20T${time}+07:00`)
 
 // HOPE's 1,312 trades on 2026-11-20 as Stockbit's tape gave them, with the
 // order numbers and side Stockbit read, and Ajaib's 1,311 Done Details rows
-// of the same day, both captured after the close (research branch
+// of the same day with each side's investor type, both captured after the close (research branch
 // `research/order-number-routes`, docs/research/order-number-captures).
 type HopeTrade = (typeof hope.trades)[number]
 const tradeOf = (trade: HopeTrade): KeptTrade => ({
@@ -60,8 +60,9 @@ const STOCKBIT = new Map(
   ])
 )
 
-// An Ajaib Done Details row as the route answers it; `is_highlighted`
-// marks the buyer on every row, which is not its side.
+// An Ajaib Done Details row as the route answers it, each side's `type`
+// its investor type; `is_highlighted` marks the buyer on every row, which
+// is not its side.
 type Detail = (typeof hope.details)[number]
 const detailRow = (row: Detail) => ({
   time: row[0],
@@ -71,15 +72,15 @@ const detailRow = (row: Detail) => ({
   qty: row[4],
   amount: Number(row[3]) * Number(row[4]) * 100,
   buyer: {
-    type: "D",
-    order_id: row[6],
+    type: row[6],
+    order_id: row[7],
     broker_code: row[5],
     is_highlighted: true,
   },
   seller: {
-    type: "D",
-    order_id: row[8],
-    broker_code: row[7],
+    type: row[9],
+    order_id: row[10],
+    broker_code: row[8],
     is_highlighted: false,
   },
 })
@@ -298,11 +299,13 @@ const marketDetails = () => {
         qty: trade.lots,
         buyer: {
           ...HOPE_DETAILS[0]!.buyer,
+          type: trade.codes.buyerType,
           order_id: id(buy),
           broker_code: trade.codes.buyer,
         },
         seller: {
           ...HOPE_DETAILS[0]!.seller,
+          type: trade.codes.sellerType,
           order_id: id(sell),
           broker_code: trade.codes.seller,
         },
@@ -322,17 +325,23 @@ const tied = (number: string, side: KeptTrade["side"]): KeptTrade => ({
   second: "10:23:18",
   side,
 })
-const tiedDetail = (buy: number, sell: number) => ({
+const tiedDetail = (
+  buy: number,
+  sell: number,
+  buyerType = HOPE_TRADES[1]!.codes.buyerType
+) => ({
   ...HOPE_DETAILS[0]!,
   time: "10:23:18",
   code: "BBCA",
   buyer: {
     ...HOPE_DETAILS[0]!.buyer,
+    type: buyerType,
     order_id: `20261120${String(buy).padStart(10, "0")}`,
     broker_code: HOPE_TRADES[1]!.codes.buyer,
   },
   seller: {
     ...HOPE_DETAILS[0]!.seller,
+    type: HOPE_TRADES[1]!.codes.sellerType,
     order_id: `20261120${String(sell).padStart(10, "0")}`,
     broker_code: HOPE_TRADES[1]!.codes.seller,
   },
@@ -484,6 +493,26 @@ describe("the Done Details walk", () => {
         )
         assert.deepStrictEqual(orders.get("1"), orderPair(100, 50))
         assert.deepStrictEqual(orders.get("2"), orderPair(102, 50))
+      })
+  )
+
+  // A foreign buyer's order 200 trades first, then a domestic buyer's order
+  // 100, from the same broker and seller and the same passive order.
+  it.effect(
+    "pairs a trade only with a row whose investor types are its own",
+    () =>
+      Effect.gen(function* () {
+        const foreign = tied("1", "buy")
+        const domestic = tied("2", "buy")
+        const orders = yield* tiedOrders(
+          [
+            { ...foreign, codes: { ...foreign.codes, buyerType: "F" } },
+            { ...domestic, codes: { ...domestic.codes, buyerType: "D" } },
+          ],
+          [tiedDetail(200, 50, "F"), tiedDetail(100, 50, "D")]
+        )
+        assert.deepStrictEqual(orders.get("1"), orderPair(200, 50))
+        assert.deepStrictEqual(orders.get("2"), orderPair(100, 50))
       })
   )
 
