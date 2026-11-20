@@ -430,6 +430,7 @@ const main = Effect.gen(function* () {
     store: yield* ajaibWalkStore,
     trades: progress.trades,
     repaired: progress.repair,
+    phase: progress.phase,
   })
   // The Stockbit walks' paced calls, and whether their tab is still there.
   const stockbitWalkTab = {

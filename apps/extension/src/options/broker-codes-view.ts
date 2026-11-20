@@ -11,6 +11,7 @@ import type { BrokerCodesTarget } from "../worker/broker-codes/poster.ts"
 import type {
   BrokerCodesProgress,
   PauseCause,
+  WalkPhase,
 } from "../worker/broker-codes/run-queue.ts"
 import { fetchGet, statusOnce } from "../worker/broker-codes/status.ts"
 
@@ -162,14 +163,31 @@ const leftLabel = Effect.fnUntraced(function* (
   return `${yield* count(Math.max(1, Math.ceil(remaining / perSecond / 60)))} min left`
 })
 
-// The walk in progress: its site and day, trades fetched of N, pace and
-// time left, each blank until known. In Ajaib's repair pass the trades are
+// What the walk is doing and since when, in WIB; blank until it says.
+const phaseLabel = Effect.fnUntraced(function* (phase: WalkPhase | undefined) {
+  if (phase === undefined) return ""
+  const since = yield* wibClock(phase.since)
+  switch (phase.step) {
+    case "awaiting-close":
+      return `waiting for Ajaib's close since ${since}`
+    case "fetching":
+      return `fetching since ${since}`
+    case "awaiting-token":
+      return phase.reloads === 0
+        ? `waiting for a fresh Ajaib token since ${since}`
+        : `waiting for a fresh Ajaib token since ${since}, tab reloaded ${yield* count(phase.reloads)}×`
+  }
+})
+
+// The walk in progress: its site and day, what it is doing since when,
+// trades fetched of N, pace and time left, each blank until known. In Ajaib's repair pass the trades are
 // the first pass's last, so its blocks show in place of the trades' pace,
 // and the time left is the blocks'.
 export const walkView = Effect.fnUntraced(function* (
   progress: Extract<BrokerCodesProgress, { state: "walking" }>
 ) {
   const walk = `${progress.feed}, ${progress.day} (${walkNames[progress.walk]})`
+  const phase = yield* phaseLabel(progress.phase)
   const { trades, repair } = progress
   const fetched =
     trades === undefined
@@ -180,16 +198,18 @@ export const walkView = Effect.fnUntraced(function* (
   if (repair !== undefined)
     return {
       walk,
+      phase,
       trades: fetched,
       repair: `repairing page seams: ${yield* count(repair.done)} of ${yield* count(repair.of)} blocks`,
       pace: "",
       left: yield* leftLabel(repair.of - repair.done, repair.perSecond),
     }
   if (trades === undefined)
-    return { walk, trades: "", repair: "", pace: "", left: "" }
+    return { walk, phase, trades: "", repair: "", pace: "", left: "" }
   const { of, perSecond } = trades
   return {
     walk,
+    phase,
     trades: fetched,
     repair: "",
     pace: perSecond === null ? "" : `${yield* count(perSecond)} trades/s`,

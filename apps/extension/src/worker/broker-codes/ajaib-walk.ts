@@ -21,10 +21,17 @@ import {
 import { Clock, DateTime, Effect, Option, Schema } from "effect"
 
 import type { Answer } from "../broker.ts"
+import { jwtPayloadText } from "../jwt.ts"
 import type { RequestingTab } from "../pacer.ts"
 import { ajaibWindowEnd, inStreamingHours, scheduleNow } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
-import { halt, haltOnRefusal, settle, type WalkResult } from "./run-queue.ts"
+import {
+  halt,
+  haltOnRefusal,
+  settle,
+  type WalkPhase,
+  type WalkResult,
+} from "./run-queue.ts"
 
 const STATUS_PATH = "v1/stock/data/trading-day/time/"
 const TAPE_PATH = "v1/stock/detail/running_trades/"
@@ -93,6 +100,8 @@ const TapeRow = Schema.Struct({
   date: WibDate,
   timestamp: Schema.Finite,
 })
+const Expiry = Schema.fromJsonString(Schema.Struct({ exp: Schema.Finite }))
+const decodeExpiry = Schema.decodeUnknownOption(Expiry)
 const decodeStatus = Schema.decodeUnknownOption(MarketStatus)
 const decodePage = Schema.decodeUnknownOption(TapePage)
 const decodeRow = Schema.decodeUnknownOption(TapeRow)
@@ -174,10 +183,22 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   // For the options page too: the blocks the repair pass has walked again
   // since the walk started, of those it then had left.
   readonly repaired?: (done: number, of: number) => Effect.Effect<void>
+  // For the options page too: what the walk is doing, and since when.
+  readonly phase?: (phase: WalkPhase) => Effect.Effect<void>
 }) {
   const { tab, store } = options
   const trades = options.trades ?? (() => Effect.void)
   const repaired = options.repaired ?? (() => Effect.void)
+  const report = options.phase ?? (() => Effect.void)
+  // The phase a token wait returns to: waiting for the close, or fetching.
+  let phase = Option.none<WalkPhase>()
+  const enter = Effect.fnUntraced(function* (
+    step: "awaiting-close" | "fetching"
+  ) {
+    const next: WalkPhase = { step, since: yield* Clock.currentTimeMillis }
+    phase = Option.some(next)
+    yield* report(next)
+  })
   let fetched = 0
   let dayN = Option.none<number>()
 
@@ -232,48 +253,74 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   // Every token Ajaib refused this walk, so none is sent twice.
   const refused = new Set<string>()
 
+  // Decision: a token past its JWT `exp` counts as refused and is never
+  // sent. Ajaib's 401 carries no CORS headers, so the tab reads it as a
+  // failed request, not a 401. 2026-11-20: an expired page token stalled the
+  // walk, retried every 10 s, with 122,400 trades missing.
+  const usable = Effect.fnUntraced(function* (token: string) {
+    if (refused.has(token)) return false
+    const expiry = Option.flatMap(yield* jwtPayloadText(token), decodeExpiry)
+    const now = yield* Clock.currentTimeMillis
+    return !Option.exists(expiry, ({ exp }) => exp * 1000 <= now)
+  })
+
   // The token the next call sends: the cookie's once taken, else the page's.
   const sending = Effect.suspend(() =>
     Option.isSome(cookie) ? Effect.succeed(cookie) : pageToken
   )
 
-  // Decision: on a 401 the walk sends the first token Ajaib hasn't refused,
-  // the page's headers' then the `trade_access_token` cookie's; with neither
+  // Decision: on a 401 the walk sends the first usable token, the page's
+  // headers' then the `trade_access_token` cookie's; with neither
   // it reloads the idle Ajaib tab every RELOAD_MS, which re-issues the cookie.
   // Its position is in the store, so a reload loses nothing. It never calls
   // refresh itself. 2026-11-17: a 22-hour-old token stalled the walk.
+  const findToken = Effect.fnUntraced(function* () {
+    const page = yield* pageToken
+    if (Option.isSome(page) && (yield* usable(page.value))) {
+      cookie = Option.none()
+      return true
+    }
+    const stored = yield* cookieToken
+    if (Option.isSome(stored) && (yield* usable(stored.value))) {
+      cookie = stored
+      return true
+    }
+    return false
+  })
   const awaitNewToken = Effect.fnUntraced(function* (windowEnd: DateTime.Utc) {
+    if (yield* findToken()) return
+    const since = yield* Clock.currentTimeMillis
+    yield* report({ step: "awaiting-token", since, reloads: 0 })
     let waited = 0
+    let reloads = 0
     while (true) {
-      const page = yield* pageToken
-      if (Option.isSome(page) && !refused.has(page.value)) {
-        cookie = Option.none()
-        return
-      }
-      const stored = yield* cookieToken
-      if (Option.isSome(stored) && !refused.has(stored.value)) {
-        cookie = stored
-        return
-      }
       yield* Effect.sleep(RETRY)
       waited += RETRY_MS
       if (waited >= RELOAD_MS) {
         yield* tab.reload
         waited = 0
+        reloads++
+        yield* report({ step: "awaiting-token", since, reloads })
       }
       yield* guard(windowEnd)
+      if (yield* findToken()) break
     }
+    if (Option.isSome(phase)) yield* report(phase.value)
   })
 
-  // One call on Ajaib's API with the token `sending` gives; a 401 waits for
-  // a token Ajaib hasn't refused and sends it again. None when the tab
-  // didn't answer.
+  // One call on Ajaib's API with the token `sending` gives; an expired token,
+  // or a 401, waits for a usable token and sends the call with it. None when
+  // the tab didn't answer.
   const call = Effect.fnUntraced(function* (
     windowEnd: DateTime.Utc,
     path: string
   ) {
     while (true) {
       const sent = yield* sending
+      if (Option.isSome(sent) && !(yield* usable(sent.value))) {
+        yield* awaitNewToken(windowEnd)
+        continue
+      }
       const answer = yield* tab.request({
         _tag: "page-fetch",
         path,
@@ -361,6 +408,7 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     day: WibDate,
     windowEnd: DateTime.Utc
   ) {
+    yield* enter("awaiting-close")
     while (true) {
       yield* guard(windowEnd)
       if (yield* isClosed(windowEnd)) {
@@ -451,6 +499,7 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     if (Option.isSome(held) && held.value.pass === "done")
       return { _tag: "walked" } satisfies WalkResult
     const n = yield* awaitClose(day, windowEnd)
+    yield* enter("fetching")
     fetched = 0
     dayN = Option.some(Number(n))
     let position: AjaibWalkPosition = Option.isSome(held)
