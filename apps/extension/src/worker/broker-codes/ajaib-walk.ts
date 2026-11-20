@@ -3,11 +3,12 @@
 // time, then a repair pass over every block that took 2+ pages. Each page's
 // rows with valid codes are posted to Production as one batch, each with its
 // fields when they are valid; `end` follows the repair. Production's walk
-// keeps each trade with fields for the Done Details walk
+// keeps each trade it reads with a stock code for the Done Details walk
 // (done-details-walk.ts).
 import {
   AjaibTradeNum,
   BrokerCodesProtocolVersion,
+  StockCode,
   WibDate,
   ajaibRowCodes,
   ajaibRowFields,
@@ -29,7 +30,7 @@ import {
   makeAjaibCalls,
   type AjaibWalkTab,
 } from "./ajaib-calls.ts"
-import { keptTrade, type KeptTrade } from "./done-details-walk.ts"
+import { keptTrade, type TapeTrade } from "./done-details-walk.ts"
 import { ajaibWindowEnd } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
 import {
@@ -91,9 +92,13 @@ const TapeRow = Schema.Struct({
   date: WibDate,
   timestamp: Schema.Finite,
 })
+// A row's stock code, read apart from its other fields so a trade whose
+// fields aren't valid is still kept as its code's (done-details-walk.ts).
+const RowCode = Schema.Struct({ stock_code: StockCode })
 const decodeStatus = Schema.decodeUnknownOption(MarketStatus)
 const decodePage = Schema.decodeUnknownOption(TapePage)
 const decodeRow = Schema.decodeUnknownOption(TapeRow)
+const decodeRowCode = Schema.decodeUnknownOption(RowCode)
 
 const tapePath = (lastTimestamp: number, page: number, size: number) =>
   Effect.succeed(
@@ -104,6 +109,7 @@ interface PageRow {
   readonly date: WibDate
   readonly timestamp: number
   readonly number: TradeNumber
+  readonly code: Option.Option<StockCode>
   readonly codes: Option.Option<TradeCodes>
   readonly fields: Option.Option<TradeFields>
 }
@@ -127,6 +133,7 @@ const pageRows = Effect.fnUntraced(function* (answer: Answer) {
       date: row.value.date,
       timestamp: row.value.timestamp,
       number: yield* ajaibSequence(row.value.trade_num),
+      code: Option.map(decodeRowCode(raw), (valid) => valid.stock_code),
       codes: yield* ajaibRowCodes(raw),
       fields: yield* ajaibRowFields(raw),
     })
@@ -135,7 +142,8 @@ const pageRows = Effect.fnUntraced(function* (answer: Answer) {
 })
 
 // The batch rows of `rows` on `day` inside [from, boundary) with valid
-// codes, and those with valid fields as the Done Details walk keeps them.
+// codes, and each of them with a stock code as the Done Details walk keeps
+// it: with its key when its codes and fields are valid, else unkeyed.
 const blockRows = Effect.fnUntraced(function* (
   day: WibDate,
   from: number,
@@ -143,17 +151,20 @@ const blockRows = Effect.fnUntraced(function* (
   rows: ReadonlyArray<PageRow>
 ) {
   const batch: Array<BatchRow> = []
-  const kept: Array<KeptTrade> = []
+  const kept: Array<TapeTrade> = []
   for (const row of rows) {
     const inBlock =
       row.date === day &&
       row.timestamp >= from &&
       row.timestamp < boundary &&
       row.number !== "0"
-    if (!inBlock || Option.isNone(row.codes)) continue
-    batch.push(yield* batchRow(row.number, row.codes.value, row.fields))
-    if (Option.isSome(row.fields))
+    if (!inBlock) continue
+    if (Option.isSome(row.codes))
+      batch.push(yield* batchRow(row.number, row.codes.value, row.fields))
+    if (Option.isSome(row.codes) && Option.isSome(row.fields))
       kept.push(yield* keptTrade(row.number, row.codes.value, row.fields.value))
+    else if (Option.isSome(row.code))
+      kept.push({ _tag: "Unkeyed", number: row.number, code: row.code.value })
   }
   return { batch, kept }
 })
@@ -177,7 +188,7 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   // batch goes up (done-details-walk.ts).
   readonly keep?: (
     day: WibDate,
-    trades: ReadonlyArray<KeptTrade>
+    trades: ReadonlyArray<TapeTrade>
   ) => Effect.Effect<void>
 }) {
   const { tab, store } = options

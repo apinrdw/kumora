@@ -44,7 +44,7 @@ const PAGE_SIZE = 1_000
 // A trade the tape walk kept for this walk to match: its number and codes,
 // and the fields its key reads, its time as the WIB second `HH:mm:ss`, and
 // its aggressor side.
-export const KeptTrade = Schema.Struct({
+const KeptTrade = Schema.TaggedStruct("Kept", {
   number: TradeNumber,
   code: StockCode,
   second: Schema.String,
@@ -55,6 +55,15 @@ export const KeptTrade = Schema.Struct({
   codes: TradeCodes,
 })
 export type KeptTrade = typeof KeptTrade.Type
+// A trade the tape walk read with its stock code but not its broker codes
+// or fields, so it has no key.
+const UnkeyedTrade = Schema.TaggedStruct("Unkeyed", {
+  number: TradeNumber,
+  code: StockCode,
+})
+// Each trade the tape walk read with its stock code, as it keeps them.
+export const TapeTrade = Schema.Union([KeptTrade, UnkeyedTrade])
+export type TapeTrade = typeof TapeTrade.Type
 
 // Every field a Done Details row and a kept trade both report for a trade,
 // which a pair agrees on. A row's side is its order pair's later order's,
@@ -113,17 +122,25 @@ const POSTED: DoneDetailsPosition = { _tag: "Posted" }
 // What the walk keeps across a worker restart, for one day at a time
 // (done-details-store.ts keeps it in IndexedDB).
 export interface DoneDetailsStore {
-  // Keeps the tape walk's trades of `day`, forgetting any other day's.
+  // Keeps the tape walk's trades of `day`, forgetting any other day's. An
+  // unkeyed trade never replaces one kept with its key.
   readonly keep: (
     day: WibDate,
-    trades: ReadonlyArray<KeptTrade>
+    trades: ReadonlyArray<TapeTrade>
   ) => Effect.Effect<void>
   // The codes `day`'s kept trades hold, in order; none for another day.
   readonly codes: (day: WibDate) => Effect.Effect<ReadonlyArray<StockCode>>
   readonly trades: (
     day: WibDate,
     code: StockCode
-  ) => Effect.Effect<ReadonlyArray<KeptTrade>>
+  ) => Effect.Effect<ReadonlyArray<TapeTrade>>
+  // How many of `day`'s trades numbered `from` to `to` the tape walk read
+  // with their stock code, of any code.
+  readonly read: (
+    day: WibDate,
+    from: TradeNumber,
+    to: TradeNumber
+  ) => Effect.Effect<number>
   // Where the walk of `day` stands; none before its first page.
   readonly position: (
     day: WibDate
@@ -201,6 +218,7 @@ export const keptTrade = (
   fields: TradeFields
 ) =>
   Effect.sync((): KeptTrade => ({
+    _tag: "Kept",
     number,
     code: fields.code,
     second: DateTime.formatIso(
@@ -337,9 +355,12 @@ const byAggressor = (rows: ReadonlyArray<ReadRow>) =>
 // row (in aggressor order) changes no order run. Other keys get nothing,
 // for Stockbit's walk. See apinrdw/kumora#622 and PR #632.
 const matched = Effect.fnUntraced(function* (
-  trades: ReadonlyArray<KeptTrade>,
+  record: ReadonlyArray<TapeTrade>,
   rows: ReadonlyArray<DetailRow>
 ) {
+  const trades = record.flatMap((trade) =>
+    trade._tag === "Kept" ? [trade] : []
+  )
   // A row the walk can't read could be any trade's, so its code gets none.
   const read = rows.flatMap((row) => (row._tag === "Read" ? [row] : []))
   if (read.length < rows.length) return []

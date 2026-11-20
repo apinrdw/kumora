@@ -18,6 +18,7 @@ import {
   type DoneDetailsStore,
   type KeptTrade,
   type MatchedTrade,
+  type TapeTrade,
 } from "../../src/worker/broker-codes/done-details-walk.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
 import type { Answer, TabRequest } from "../../src/worker/broker.ts"
@@ -34,6 +35,7 @@ const wib = (time: string) => Date.parse(`2026-11-20T${time}+07:00`)
 // `research/order-number-routes`, docs/research/order-number-captures).
 type HopeTrade = (typeof hope.trades)[number]
 const tradeOf = (trade: HopeTrade): KeptTrade => ({
+  _tag: "Kept",
   number: TradeNumber.make(String(trade[0])),
   code: StockCode.make("HOPE"),
   second: String(trade[1]),
@@ -140,10 +142,11 @@ const fakeAjaib = (
 }
 
 // The browser's kept trades and the walk's place, as the worker keeps them
-// across restarts.
-const memoryStore = () => {
+// across restarts. The tape walk read every other trade of the day with a
+// stock code, kept or another code's, but those numbered in `unread`.
+const memoryStore = (unread: ReadonlyArray<number> = []) => {
   let day = Option.none<WibDate>()
-  let trades: Array<KeptTrade> = []
+  let trades: Array<TapeTrade> = []
   let position = Option.none<DoneDetailsPosition>()
   let rows: Array<DetailRow> = []
   let matched = new Map<number, MatchedTrade>()
@@ -158,11 +161,13 @@ const memoryStore = () => {
       Effect.sync(() => {
         if (!Option.contains(day, of)) forget()
         day = Option.some(of)
-        const numbers = new Set(kept.map((trade) => trade.number))
-        trades = [
-          ...trades.filter((trade) => !numbers.has(trade.number)),
-          ...kept,
-        ]
+        const held = new Map(trades.map((trade) => [trade.number, trade]))
+        for (const trade of kept)
+          if (trade._tag === "Kept" || !held.has(trade.number))
+            held.set(trade.number, trade)
+        trades = [...held.values()].sort(
+          (a, b) => Number(a.number) - Number(b.number)
+        )
       }),
     codes: (of) =>
       Effect.sync(() =>
@@ -175,6 +180,15 @@ const memoryStore = () => {
         Option.contains(day, of)
           ? trades.filter((trade) => trade.code === code)
           : []
+      ),
+    read: (of, from, to) =>
+      Effect.sync(() =>
+        Option.contains(day, of)
+          ? Number(to) -
+            Number(from) +
+            1 -
+            unread.filter((n) => n >= Number(from) && n <= Number(to)).length
+          : 0
       ),
     position: (of) =>
       Effect.sync(() => (Option.contains(day, of) ? position : Option.none())),
@@ -224,9 +238,12 @@ const memoryStore = () => {
   return { store, position: () => position }
 }
 
-const keptStore = (trades: ReadonlyArray<KeptTrade> = HOPE_TRADES) =>
+const keptStore = (
+  trades: ReadonlyArray<TapeTrade> = HOPE_TRADES,
+  unread: ReadonlyArray<number> = []
+) =>
   Effect.gen(function* () {
-    const memory = memoryStore()
+    const memory = memoryStore(unread)
     yield* memory.store.keep(DAY, trades)
     return memory
   })

@@ -1,5 +1,5 @@
 // The Done Details walk's store (done-details-walk.ts) in IndexedDB, so a
-// restarted worker carries on: the tape walk's kept trades of one day, the
+// restarted worker carries on: the tape walk's trades of one day, the
 // walk's position, the rows of the code it is on, and the trades it has
 // matched. A day's 1.5 M trades are too many for chrome.storage.
 import { StockCode, WibDate } from "@workspace/relay"
@@ -8,8 +8,8 @@ import { Effect, Option, Schema } from "effect"
 import {
   DetailRow,
   DoneDetailsPosition,
-  KeptTrade,
   MatchedTrade,
+  TapeTrade,
   type DoneDetailsStore,
 } from "./done-details-walk.ts"
 
@@ -25,26 +25,23 @@ const POSITION_KEY = "position"
 
 const decodeDay = Schema.decodeUnknownOption(WibDate)
 const decodePosition = Schema.decodeUnknownOption(DoneDetailsPosition)
-const decodeTrade = Schema.decodeUnknownOption(KeptTrade)
+const decodeTrade = Schema.decodeUnknownOption(TapeTrade)
 const decodeRow = Schema.decodeUnknownOption(DetailRow)
 const decodeMatched = Schema.decodeUnknownOption(MatchedTrade)
 const decodeCode = Schema.decodeUnknownOption(StockCode)
 
-// Decision: version 3 holds the matched trades, keyed by trade number as a
-// number so they read back in trade order, and each row's code and fields.
-// An older database's walk is dropped whole: its rows have no investor
-// types and its matches may pair across them, so the newest closed day's
-// order numbers then come from Stockbit alone.
+// Decision: version 4 keys the tape walk's trades, unkeyed ones too, and
+// the matched trades by trade number as a number, so they read back in
+// trade order and a span of numbers counts in one request. An older
+// database's walk is dropped whole: its trades say nothing of those the
+// tape walk read unkeyed, so that day's order numbers come from Stockbit.
 const openDatabase = Effect.callback<IDBDatabase>((resume) => {
-  const request = indexedDB.open(DATABASE, 3)
+  const request = indexedDB.open(DATABASE, 4)
   request.onupgradeneeded = () => {
     const db = request.result
     for (const name of Array.from(db.objectStoreNames))
       db.deleteObjectStore(name)
-    db.createObjectStore(TRADES, { keyPath: "number" }).createIndex(
-      BY_CODE,
-      "code"
-    )
+    db.createObjectStore(TRADES).createIndex(BY_CODE, "code")
     db.createObjectStore(ROWS, { autoIncrement: true }).createIndex(
       BY_CODE,
       "code"
@@ -107,7 +104,17 @@ export const doneDetailsStore = Effect.gen(function* () {
           for (const each of Object.values(stores)) each.clear()
           stores.meta.put(day, DAY_KEY)
         }
-        for (const trade of trades) stores.trades.put(trade)
+        for (const trade of trades) {
+          const key = Number(trade.number)
+          if (trade._tag === "Kept") {
+            stores.trades.put(trade, key)
+            continue
+          }
+          const held = stores.trades.count(key)
+          held.onsuccess = () => {
+            if (held.result === 0) stores.trades.put(trade, key)
+          }
+        }
       }),
     codes: (day) =>
       inTransaction<ReadonlyArray<StockCode>>(
@@ -129,7 +136,7 @@ export const doneDetailsStore = Effect.gen(function* () {
         }
       ),
     trades: (day, code) =>
-      inTransaction<ReadonlyArray<KeptTrade>>(
+      inTransaction<ReadonlyArray<TapeTrade>>(
         "readonly",
         (stores, stored, answer) => {
           answer([])
@@ -143,6 +150,15 @@ export const doneDetailsStore = Effect.gen(function* () {
             )
         }
       ),
+    read: (day, from, to) =>
+      inTransaction<number>("readonly", (stores, stored, answer) => {
+        answer(0)
+        if (!Option.contains(stored, day)) return
+        const request = stores.trades.count(
+          IDBKeyRange.bound(Number(from), Number(to))
+        )
+        request.onsuccess = () => answer(request.result)
+      }),
     position: (day) =>
       inTransaction<Option.Option<DoneDetailsPosition>>(
         "readonly",

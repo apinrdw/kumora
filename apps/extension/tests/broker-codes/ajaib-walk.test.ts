@@ -15,7 +15,7 @@ import {
   type AjaibWalkPosition,
   type AjaibWalkStore,
 } from "../../src/worker/broker-codes/ajaib-walk.ts"
-import type { KeptTrade } from "../../src/worker/broker-codes/done-details-walk.ts"
+import type { TapeTrade } from "../../src/worker/broker-codes/done-details-walk.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
 import type { WalkPhase } from "../../src/worker/broker-codes/run-queue.ts"
 import type { Answer, TabRequest } from "../../src/worker/broker.ts"
@@ -108,6 +108,8 @@ const fakeAjaib = (
     readonly malformed?: (path: string) => boolean
     // Trades the tape sends with codes but zero lots.
     readonly badLots?: ReadonlySet<number>
+    // Trades the tape sends with codes but no stock code.
+    readonly noStockCode?: ReadonlySet<number>
     // Overrides the tape's answer to a call, by its 1-based index.
     readonly answer?: (
       request: TabRequest,
@@ -138,7 +140,9 @@ const fakeAjaib = (
       page_size: size,
       total_pages: 2,
       results: before.slice(offset, offset + size).map((row, index) => ({
-        stock_code: fieldsOf(row.number).code,
+        stock_code: options.noStockCode?.has(row.number)
+          ? null
+          : fieldsOf(row.number).code,
         price: fieldsOf(row.number).price,
         lot: options.badLots?.has(row.number)
           ? null
@@ -354,16 +358,19 @@ describe("Ajaib's walk of the day", { timeout: WALK_TIMEOUT }, () => {
   )
 
   it.effect(
-    "keeps each page's trades with fields for the Done Details walk as it posts them",
+    "keeps each page's trades with a stock code for the Done Details walk as it posts them, unkeyed without valid fields",
     () =>
       Effect.gen(function* () {
         yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
         const production = fakeProduction()
-        const kept = new Map<string, KeptTrade>()
+        const kept = new Map<string, TapeTrade>()
         // Each keep comes with the page's batch, after the batches before it.
         const keptAtPost: Array<number> = []
         const walk = yield* makeAjaibWalk({
-          tab: fakeAjaib({ badLots: new Set([7]) }),
+          tab: fakeAjaib({
+            badLots: new Set([7]),
+            noStockCode: new Set([9]),
+          }),
           post: (batch) =>
             Effect.andThen(
               Effect.sync(() => keptAtPost.push(kept.size)),
@@ -378,10 +385,16 @@ describe("Ajaib's walk of the day", { timeout: WALK_TIMEOUT }, () => {
         })
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
         assert.strictEqual(kept.size, N - 1)
-        assert.isFalse(kept.has("7"))
+        assert.deepStrictEqual(kept.get("7"), {
+          _tag: "Unkeyed",
+          number: TradeNumber.make("7"),
+          code: fieldsOf(7).code,
+        })
+        assert.isFalse(kept.has("9"))
         assert.isAbove(keptAtPost[1] ?? 0, 0)
         // Trade 1: the 08:58 opening match.
         assert.deepStrictEqual(kept.get("1"), {
+          _tag: "Kept",
           number: TradeNumber.make("1"),
           code: StockCode.make("TLKM"),
           second: "08:58:00",
@@ -397,7 +410,7 @@ describe("Ajaib's walk of the day", { timeout: WALK_TIMEOUT }, () => {
           },
         })
         // Trade 300: 16:00:00.990, in its second.
-        assert.strictEqual(kept.get("300")?.second, "16:00:00")
+        assert.include(kept.get("300"), { second: "16:00:00" })
       })
   )
 
