@@ -1929,13 +1929,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // Sets the day's move for when it may start, once it is due; whether the
   // day moves.
-  // Decision: a move starts at midnight after its day at the earliest:
-  // until then the object serves the live day's viewers, which an emptied
-  // one could not. The day takes broker codes until its move's first step
-  // runs and none after (`brokerCodes.post`), so its stored answers match
-  // what it held, and the order-number walks that follow a completed tape
-  // walk land while the move waits. See spec apinrdw/kumora#556, "Hot and
-  // cold days", and apinrdw/kumora#632.
+  // Decision: a move starts at midnight after its day at the earliest, as
+  // the object serves the live day's viewers until then. The day takes broker
+  // codes, the order-number walks' too, until its first step runs and none
+  // after (`brokerCodes.post`), so its stored answers match what it held. See
+  // spec apinrdw/kumora#556, "Hot and cold days", and PR #632.
   const startMove = Effect.gen(function* () {
     if (options.cold === undefined) return false
     if ((yield* store.fact(Fact.move)) !== undefined) return true

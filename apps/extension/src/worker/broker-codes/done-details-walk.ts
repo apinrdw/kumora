@@ -276,20 +276,28 @@ const tradeGroups = Effect.fnUntraced(function* (
   return groups
 })
 
-// Whether `tied` are one run of the code's kept trades: none of `trades`
-// lies between them in trade order.
+// Each of the code's kept trades' place among them in trade order, by
+// trade number.
+const placesOf = (trades: ReadonlyArray<KeptTrade>) =>
+  Effect.sync(
+    () =>
+      new Map(
+        trades
+          .map(({ number }) => Number(number))
+          .sort((a, b) => a - b)
+          .map((number, place) => [number, place])
+      )
+  )
+
+// Whether `tied` are one run of the code's kept trades: none lies between
+// them in trade order. A trade the tape walk kept no fields for is unseen.
 const oneRun = (
-  trades: ReadonlyArray<KeptTrade>,
+  places: ReadonlyMap<number, number>,
   tied: ReadonlyArray<KeptTrade>
 ) =>
   Effect.sync(() => {
-    const numbers = tied.map(({ number }) => Number(number))
-    const first = Math.min(...numbers)
-    const last = Math.max(...numbers)
-    return trades.every(({ number }) => {
-      const n = Number(number)
-      return n < first || n > last || numbers.includes(n)
-    })
+    const at = tied.map(({ number }) => places.get(Number(number))!)
+    return Math.max(...at) - Math.min(...at) + 1 === tied.length
   })
 
 // A side group's rows in order of their aggressor orders, the larger of
@@ -303,25 +311,21 @@ const byAggressor = (rows: ReadonlyArray<DetailRow>) =>
     )
   )
 
-// Decision: a side group (one key's one side) gives its rows' order numbers
-// to its kept trades only when they are as many and the trades are one run,
-// no other kept trade of the code between them in trade order. A run is one
-// aggressor broker's part of one whole sweep, so which tied trade takes
-// which row changes no order run; they take the rows in trade order and
-// aggressor order alike. Tied trades another trade splits may be two whole
-// sweeps the key can't tell apart: they get nothing, nor does a group whose
-// counts differ, and Stockbit's walk, which reads trade numbers, gives
-// theirs. A trade the tape walk kept no fields for is unseen between them.
-// See apinrdw/kumora#622 and #632.
+// Decision: a side group (one key's one side) gives its rows to its kept
+// trades only when as many and one run, no other kept trade of the code
+// between them: one whole sweep, where which takes which row (in aggressor
+// order) changes no order run. Other groups get nothing, for Stockbit's walk
+// to give by trade number. See apinrdw/kumora#622 and PR #632.
 const matched = Effect.fnUntraced(function* (
   trades: ReadonlyArray<KeptTrade>,
   rows: ReadonlyArray<DetailRow>
 ) {
   const byGroup = yield* rowGroups(rows)
+  const places = yield* placesOf(trades)
   const found: Array<MatchedTrade> = []
   for (const [at, tied] of yield* tradeGroups(trades)) {
     const groupRows = byGroup.get(at) ?? []
-    if (groupRows.length !== tied.length || !(yield* oneRun(trades, tied)))
+    if (groupRows.length !== tied.length || !(yield* oneRun(places, tied)))
       continue
     const inOrder = yield* byAggressor(groupRows)
     const tradesInOrder = [...tied].sort(
