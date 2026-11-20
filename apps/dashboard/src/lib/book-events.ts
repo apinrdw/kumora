@@ -60,8 +60,14 @@ export const bookEventDetail = Effect.fnUntraced(function* (event: BookEvent) {
   }
 })
 
-// An event's key for the day: its code, kind, side, price and time.
-export const bookEventKey = (event: BookEvent) =>
+// An event's key for the day: its code, kind, side, price and time. Order
+// flow events key the same way (lib/order-flow-events.ts, marketEventKey).
+export const bookEventKey = (
+  event: Pick<BookEvent, "code" | "price" | "at"> & {
+    readonly kind: string
+    readonly side: string
+  }
+) =>
   Effect.sync(
     () =>
       `${event.code}|${event.kind}|${event.side}|${event.price}|${DateTime.toEpochMillis(event.at)}`

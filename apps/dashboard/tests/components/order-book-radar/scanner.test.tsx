@@ -117,3 +117,62 @@ test("a code's new readings re-render its row alone, and the same view none", ()
     "a page re-render with the same view re-renders no row"
   ).toEqual({})
 })
+
+test("a row's last-event chip shows an order flow event's mark and its minute", () => {
+  const store = Effect.runSync(makeBookReadingsStore)
+  store.apply(delta([readings(FIRST, 300)]))
+  const events = new Map([
+    [
+      FIRST,
+      {
+        last: {
+          kind: "exhaustion" as const,
+          code: FIRST,
+          at: DateTime.makeUnsafe(NOW - 60_000),
+          side: "sell" as const,
+          price: 500,
+          lots: 900,
+          peakLots: 2400,
+          ticks: 1,
+          widestTicks: 5,
+        },
+        inFiveMinutes: 1,
+      },
+    ],
+  ])
+  const host = document.createElement("div")
+  root = createRoot(host)
+  act(() =>
+    root!.render(
+      <Halves
+        scan={{
+          bid: [FIRST],
+          offer: [],
+          limits: [],
+          above: 1,
+          board: 0,
+          cheap: 0,
+        }}
+        view={{
+          readings: store,
+          rankBy: "imbalance",
+          marketNow: NOW,
+          watchlist: new Set(),
+          events,
+          unfolded: undefined,
+          onUnfold: () => undefined,
+          book: undefined,
+          onOpen: () => undefined,
+        }}
+        onHover={() => {}}
+      />
+    )
+  )
+  const chip = host.querySelector(
+    `[data-code="${FIRST}"] [aria-label="Last event"]`
+  )
+  expect(chip?.textContent).toBe("▼E09:29")
+  expect(chip?.querySelector("abbr")?.getAttribute("title")).toBe(
+    "Selling exhaustion at the day's low: sell-aggressor lots 2,400 → 900 a minute · range 5 → 1 ticks"
+  )
+})

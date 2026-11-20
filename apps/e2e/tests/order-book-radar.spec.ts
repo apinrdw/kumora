@@ -1,7 +1,7 @@
 // The order book radar's scanner of spec apinrdw/kumora#517: every code
 // above the value floor, today or on the previous trading day, split into
 // the Bid-heavy and Offer-heavy halves and ranked within each; a row
-// unfolds its best 5 levels and opens Market Live. The Book events feed
+// unfolds its best 5 levels and opens Market Live. The Events feed
 // lists the scanner's codes' events and opens Market Live at one.
 //
 // Books go through the relay to the Test stage's trading-day object. Its
@@ -418,7 +418,7 @@ test("the feed lists the scanner's codes' book events live and opens Market Live
     ])
     await page.waitForTimeout(600)
   }
-  const feed = page.getByRole("region", { name: "Book events" })
+  const feed = page.getByRole("region", { name: "Events" })
   const item = feed.getByRole("button", { name: new RegExp(code) })
   await expect(item).toContainText("Wall appeared")
   await expect(item).toContainText("6 K lots at 990 · 2 orders · 2 ticks away")
@@ -426,6 +426,7 @@ test("the feed lists the scanner's codes' book events live and opens Market Live
     half(page, "Bid-heavy")
       .locator(`[data-code="${code}"]`)
       .getByLabel("Last event")
+      .locator("abbr")
   ).toHaveText("W+")
   // Only the scanner's codes.
   await search(page, "RZ")
@@ -437,7 +438,7 @@ test("the feed lists the scanner's codes' book events live and opens Market Live
   await expect(page).toHaveURL(new RegExp(`/market-live\\?code=${code}&event=`))
   const picked = page
     .getByRole("region", { name: "Book readout" })
-    .getByRole("region", { name: "Book events" })
+    .getByRole("region", { name: "Events" })
     .getByRole("button", { name: /Wall appeared/ })
   await expect(picked).toHaveAttribute("aria-pressed", "true")
   await expect(picked).toBeInViewport()
@@ -494,7 +495,7 @@ test.describe("on a phone", () => {
     expect(below!.y).toBeGreaterThanOrEqual(top!.y + top!.height)
     expect(below!.x).toBeCloseTo(top!.x, 0)
     const feed = await page
-      .getByRole("region", { name: "Book events" })
+      .getByRole("region", { name: "Events" })
       .boundingBox()
     expect(feed!.y).toBeGreaterThanOrEqual(below!.y + below!.height)
     // No horizontal scroll.

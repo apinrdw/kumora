@@ -194,7 +194,7 @@ _Avoid_: Signal, alert (an alert is how a book event reaches the user)
 
 **Absorbed**:
 A price in a side's best three levels took several times the lots it showed in trades within the window, and still stands with no trade beyond it.
-_Avoid_: Defended, iceberg
+_Avoid_: Defended, iceberg, absorption
 
 **Eaten**:
 A best-three level or a wall left the book within the window, and trades explain most of what it lost.
@@ -207,6 +207,14 @@ _Avoid_: Iceberg, hidden order (IDX offers no such order type that the terminal 
 **Wall**:
 A level, among the ones the book carries, holding several times the median lots of its side's levels, and at least a rupiah floor. Concentrated when one to three orders hold it, a crowd otherwise. A wall can appear, be pulled (lose at least half its lots in view, with neither trades nor price crossing it explaining the loss), or move (lots and orders leave one price and about as many lots, with the same change in orders, arrive at another price on the same side, one that was in view the frame before, within about two frames).
 _Avoid_: Spoof, fake order (the book cannot show intent)
+
+**Order flow event**:
+Something running trades and candles show a stock code doing at a one-minute close: Exhaustion, Delta divergence or a Failed break. It describes what aggressors and price did, never what comes next.
+_Avoid_: Signal, book event (that is the level ledger's)
+
+**Exhaustion**:
+A push of one aggressor side that set the day's high (buy aggressors) or low (sell aggressors), followed by a minute in which that side's lots fell to a fraction of the push's busiest minute and price neither set a new extreme nor moved as far. It says what the aggressors did, never what price will do next.
+_Avoid_: Fade, top, bottom, reversal
 
 **Alert rule**:
 Which book events a browser wants to be told of: one or more event kinds, over the watchlist, named stock codes or every code on the scanner, optionally only above a rupiah value. Each browser keeps its own.

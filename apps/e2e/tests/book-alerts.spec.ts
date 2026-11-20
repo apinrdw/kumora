@@ -131,7 +131,7 @@ test("a rule's event toasts with its side and detail, and Open goes to it on Mar
   await expect(page).toHaveURL(new RegExp(`/market-live\\?code=${code}&event=`))
   const events = page
     .getByRole("region", { name: "Book readout" })
-    .getByRole("region", { name: "Book events" })
+    .getByRole("region", { name: "Events" })
   await expect(events.getByRole("button", { name: /Pulled/ })).toHaveAttribute(
     "aria-pressed",
     "true"

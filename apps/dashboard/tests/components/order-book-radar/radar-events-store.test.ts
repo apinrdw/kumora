@@ -1,5 +1,10 @@
 import { assert, describe, it } from "@effect/vitest"
-import { StockCode, type BookEvent, type ViewerDown } from "@workspace/relay"
+import {
+  StockCode,
+  type BookEvent,
+  type OrderFlowEvent,
+  type ViewerDown,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import { makeRadarEventsStore } from "@/components/order-book-radar/radar-events-store"
@@ -49,7 +54,19 @@ const delta = (
   bookEvents,
 })
 
-const times = (events: ReadonlyArray<BookEvent>) =>
+const exhaustion = (code: StockCode, at: number): OrderFlowEvent => ({
+  kind: "exhaustion",
+  code,
+  at: DateTime.makeUnsafe(at),
+  side: "buy",
+  price: 1_250,
+  lots: 900,
+  peakLots: 2_400,
+  ticks: 1,
+  widestTicks: 5,
+})
+
+const times = (events: ReadonlyArray<BookEvent | OrderFlowEvent>) =>
   events.map((event) => [event.code, DateTime.toEpochMillis(event.at)])
 
 describe("the scanner's book events", () => {
@@ -178,6 +195,35 @@ describe("the scanner's book events", () => {
         )
         store.apply(delta(recent, NOW))
         assert.strictEqual(store.byCode(NOW).get(BBCA)?.inFiveMinutes, 251)
+      })
+  )
+})
+
+describe("the scanner's order flow events", () => {
+  it.effect(
+    "join book events in the feed, the last event and the 5-minute count",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeRadarEventsStore
+        store.apply({
+          ...snapshot([eaten(BBCA, NOW - 9_000)]),
+          orderFlowEvents: [exhaustion(TLKM, NOW - 60_000)],
+        })
+        store.apply({
+          ...delta([eaten(TLKM, NOW - 120_000)], NOW),
+          orderFlowEvents: [exhaustion(BBCA, NOW - 1_000)],
+        })
+        assert.deepStrictEqual(times(store.events()), [
+          [BBCA, NOW - 1_000],
+          [BBCA, NOW - 9_000],
+          [TLKM, NOW - 60_000],
+          [TLKM, NOW - 120_000],
+        ])
+        const byCode = store.byCode(NOW)
+        assert.strictEqual(byCode.get(BBCA)?.last.kind, "exhaustion")
+        assert.strictEqual(byCode.get(BBCA)?.inFiveMinutes, 2)
+        assert.strictEqual(byCode.get(TLKM)?.last.kind, "exhaustion")
+        assert.strictEqual(byCode.get(TLKM)?.inFiveMinutes, 2)
       })
   )
 })

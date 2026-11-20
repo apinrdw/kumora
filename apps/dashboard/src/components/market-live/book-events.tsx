@@ -30,8 +30,15 @@ import {
   bookEventKey,
 } from "@/lib/book-events"
 import { dayLabel, tapeTime } from "@/lib/format"
+import {
+  MarketEventOrder,
+  marketEventDetail,
+  marketEventKey,
+  type MarketEvent,
+} from "@/lib/order-flow-events"
 
 import { makeBookEventStore, type BookEventStore } from "./book-event-store"
+import { EventName } from "./event-mark"
 import { useMarketPhase } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
 import { loadedOrSignIn } from "./sign-in-again"
@@ -88,6 +95,20 @@ function useNow(store: BookEventStore, cursor: ReplayCursor | undefined) {
 
 const useEvents = (store: BookEventStore) =>
   useSyncExternalStore(store.subscribe, store.events, store.events)
+
+// The code's book and order flow events together, oldest first.
+const useMarketEvents = (store: BookEventStore) => {
+  const events = useEvents(store)
+  const flowing = useSyncExternalStore(
+    store.subscribe,
+    store.orderFlowEvents,
+    store.orderFlowEvents
+  )
+  return useMemo(
+    () => [...events, ...flowing].sort((a, b) => MarketEventOrder(a, b)),
+    [events, flowing]
+  )
+}
 
 /**
  * The events of the last 2 minutes up to now, or up to the cursor on a
@@ -153,7 +174,7 @@ function EventRow({
   picked,
   onPick,
 }: {
-  event: BookEvent
+  event: MarketEvent
   eventKey: string
   after: boolean
   picked: boolean
@@ -174,16 +195,9 @@ function EventRow({
         <span className="text-muted-foreground tabular-nums">
           {Effect.runSync(tapeTime(DateTime.toEpochMillis(event.at)))}
         </span>
-        <span
-          className={cn(
-            "rounded-xs px-1.5 text-[10px] font-bold whitespace-nowrap",
-            event.side === "bid" ? "bg-up/15 text-up" : "bg-down/15 text-down"
-          )}
-        >
-          {BOOK_EVENT_NAMES[event.kind]}
-        </span>
+        <EventName event={event} />
         <span className="text-muted-foreground">
-          {Effect.runSync(bookEventDetail(event))}
+          {Effect.runSync(marketEventDetail(event))}
         </span>
       </button>
     </li>
@@ -213,7 +227,7 @@ const listNote = (state: {
 // store and key, so Back to the link, which brings a fresh store, lands again.
 function useLandOn(
   store: BookEventStore,
-  events: ReadonlyArray<BookEvent>,
+  events: ReadonlyArray<MarketEvent>,
   landOn: string | undefined,
   list: RefObject<HTMLOListElement | null>
 ) {
@@ -227,7 +241,7 @@ function useLandOn(
     }
     if (landed.current?.store === store && landed.current.key === landOn) return
     const found = events.some(
-      (event) => Effect.runSync(bookEventKey(event)) === landOn
+      (event) => Effect.runSync(marketEventKey(event)) === landOn
     )
     if (!found) return
     landed.current = { store, key: landOn }
@@ -239,7 +253,8 @@ function useLandOn(
 }
 
 /**
- * The readout's Book events part: the code's events, newest first. Picking
+ * The readout's Events part: the code's book and order flow events,
+ * mixed newest first. Picking
  * one rings its heatmap mark; on a recorded day those after the cursor are
  * dimmed. A link can land on one, `landOn` by its key.
  */
@@ -252,7 +267,7 @@ export function BookEventList({
   cursor: ReplayCursor | undefined
   landOn?: string | undefined
 }) {
-  const events = useEvents(store)
+  const events = useMarketEvents(store)
   const list = useRef<HTMLOListElement>(null)
   useLandOn(store, events, landOn, list)
   const picked = useSyncExternalStore(
@@ -283,17 +298,17 @@ export function BookEventList({
   )
   return (
     <section
-      aria-label="Book events"
+      aria-label="Events"
       className="flex min-w-0 flex-col gap-1 lg:col-span-2 2xl:col-span-1"
     >
       <h3 className="text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
-        Book events
+        Events
       </h3>
       {note !== undefined && <Note>{note}</Note>}
       {recorded && events.length > 0 && (
         <ol ref={list} className="max-h-[230px] overflow-auto">
           {[...events].reverse().map((event) => {
-            const key = Effect.runSync(bookEventKey(event))
+            const key = Effect.runSync(marketEventKey(event))
             return (
               <EventRow
                 key={key}

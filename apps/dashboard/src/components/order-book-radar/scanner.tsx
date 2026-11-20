@@ -1,7 +1,7 @@
 // The order book radar's scanner (spec apinrdw/kumora#517, "The scanner"),
 // layout D: the Bid-heavy and Offer-heavy halves, each row unfolding its
 // best 5 levels, the codes at a limit under them, each row with its last
-// book event's chip.
+// book or order flow event's chip.
 import type { BookEventSide, BookLevel, StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { IconStarFilled } from "@tabler/icons-react"
@@ -11,12 +11,8 @@ import { memo, useSyncExternalStore } from "react"
 import { KButton } from "@/components/k/button"
 import type { BookReadingsStore } from "@/components/market-live/book-readings-store"
 import type { OrderBookStore } from "@/components/market-live/order-book-store"
-import {
-  BOOK_EVENT_MARKS,
-  BOOK_EVENT_NAMES,
-  bookEventDetail,
-} from "@/lib/book-events"
-import { lots, price, signed } from "@/lib/format"
+import { EventChip } from "@/components/market-live/event-mark"
+import { lots, price, signed, wibClock } from "@/lib/format"
 import {
   isStale,
   rankedFigure,
@@ -69,8 +65,8 @@ function TugBar({ imbalance, half }: { imbalance: number; half: Half }) {
   )
 }
 
-// The row's last book event of the last 5 minutes: its mark coloured by
-// side, its name and detail on hover.
+// The row's last event of the last 5 minutes, book or order flow: its
+// mark, and from 640 px its minute; its name and detail on hover.
 function LastEvent({
   events,
   now,
@@ -83,17 +79,14 @@ function LastEvent({
     event !== undefined &&
     now - DateTime.toEpochMillis(event.at) < RECENT_EVENTS_MS
   return (
-    <span aria-label="Last event" className="text-right">
+    <span aria-label="Last event" className="text-right whitespace-nowrap">
       {recent && (
-        <abbr
-          title={`${BOOK_EVENT_NAMES[event.kind]}: ${Effect.runSync(bookEventDetail(event))}`}
-          className={cn(
-            "rounded-xs px-0.5 text-[9px] font-bold no-underline sm:px-1 sm:text-[10px]",
-            event.side === "bid" ? "bg-up/15 text-up" : "bg-down/15 text-down"
-          )}
-        >
-          {BOOK_EVENT_MARKS[event.kind]}
-        </abbr>
+        <>
+          <EventChip event={event} />
+          <span className="ml-1 hidden text-[10px] text-muted-foreground sm:inline">
+            {Effect.runSync(wibClock(DateTime.toEpochMillis(event.at)))}
+          </span>
+        </>
       )}
     </span>
   )

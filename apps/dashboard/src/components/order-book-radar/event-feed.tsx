@@ -1,17 +1,18 @@
-// The scanner's Book events feed (spec apinrdw/kumora#517, "Book events"):
-// the scanner's codes' events, newest first, live. Each opens Market Live
-// at the event.
-import type { BookEvent, StockCode } from "@workspace/relay"
-import { cn } from "@workspace/ui/lib/utils"
+// The scanner's Events feed (spec apinrdw/kumora#517, "Book events", and
+// apinrdw/kumora#605, "Order flow events: on the page"): the scanner's
+// codes' book and order flow events, mixed newest first, live. Each opens
+// Market Live at the event.
+import type { StockCode } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { useMemo, useSyncExternalStore } from "react"
 
-import {
-  BOOK_EVENT_NAMES,
-  bookEventDetail,
-  bookEventKey,
-} from "@/lib/book-events"
+import { EventName } from "@/components/market-live/event-mark"
 import { tapeTime } from "@/lib/format"
+import {
+  marketEventDetail,
+  marketEventKey,
+  type MarketEvent,
+} from "@/lib/order-flow-events"
 
 import type { RadarEventsStore } from "./radar-events-store"
 
@@ -23,8 +24,8 @@ function FeedItem({
   event,
   onOpen,
 }: {
-  event: BookEvent
-  onOpen: (event: BookEvent) => void
+  event: MarketEvent
+  onOpen: (event: MarketEvent) => void
 }) {
   return (
     <li>
@@ -38,17 +39,10 @@ function FeedItem({
         </span>
         <span className="font-bold tracking-[0.02em]">{event.code}</span>
         <span>
-          <span
-            className={cn(
-              "rounded-xs px-1.5 text-[10px] font-bold whitespace-nowrap",
-              event.side === "bid" ? "bg-up/15 text-up" : "bg-down/15 text-down"
-            )}
-          >
-            {BOOK_EVENT_NAMES[event.kind]}
-          </span>
+          <EventName event={event} />
         </span>
         <span className="col-start-3 text-muted-foreground">
-          {Effect.runSync(bookEventDetail(event))}
+          {Effect.runSync(marketEventDetail(event))}
         </span>
       </button>
     </li>
@@ -59,14 +53,14 @@ function FeedItem({
  * The feed beside the halves from 1,100 px, under them below: `codes`'
  * events from the store, newest first.
  */
-export function BookEventFeed({
+export function EventFeed({
   store,
   codes,
   onOpen,
 }: {
   store: RadarEventsStore
   codes: ReadonlySet<StockCode>
-  onOpen: (event: BookEvent) => void
+  onOpen: (event: MarketEvent) => void
 }) {
   const events = useSyncExternalStore(
     store.subscribe,
@@ -79,22 +73,22 @@ export function BookEventFeed({
   )
   return (
     <section
-      aria-label="Book events"
+      aria-label="Events"
       className="bg-surface max-h-[50vh] min-w-0 overflow-auto rounded-md border border-border min-[1100px]:sticky min-[1100px]:top-2 min-[1100px]:max-h-[74vh]"
     >
       <h2 className="bg-surface sticky top-0 flex justify-between border-b border-border px-2.5 py-2 text-[13px] font-semibold">
-        <span>Book events</span>
+        <span>Events</span>
         <span className="font-normal text-muted-foreground">scanner codes</span>
       </h2>
       {shown.length === 0 ? (
         <p className="px-2.5 py-2 text-[12px] text-muted-foreground">
-          Waiting for book events…
+          Waiting for events…
         </p>
       ) : (
-        <ol aria-label="Book events, newest first">
+        <ol aria-label="Events, newest first">
           {shown.map((event) => (
             <FeedItem
-              key={Effect.runSync(bookEventKey(event))}
+              key={Effect.runSync(marketEventKey(event))}
               event={event}
               onOpen={onOpen}
             />

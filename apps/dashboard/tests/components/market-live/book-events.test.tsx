@@ -4,6 +4,7 @@ import {
   type BookEvent,
   type MarketPhase,
   type OrderBook,
+  type OrderFlowEvent,
   type ViewerDown,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
@@ -248,4 +249,69 @@ test("the ladder marks a level's events of the last 2 minutes under a legend", (
   ])
   expect(marks[0]!.closest("tr")?.textContent).toContain("100")
   expect(host.textContent).toContain("Marks on a level: AB absorbed")
+})
+
+const exhaustion = (seconds: number): OrderFlowEvent => ({
+  kind: "exhaustion",
+  code: FOLK,
+  at: DateTime.makeUnsafe(T0 + seconds * 1000),
+  side: "sell",
+  price: 98,
+  lots: 900,
+  peakLots: 24_000,
+  ticks: 1,
+  widestTicks: 4,
+})
+
+test("live, the code's order flow events list among its book events and a link lands on one", () => {
+  vi.useFakeTimers({ now: T0 + 120_000 })
+  const store = Effect.runSync(makeBookEventStore(FOLK))
+  const snapshot: ViewerDown = {
+    _tag: "Snapshot",
+    at: DateTime.makeUnsafe(T0 + 100_000),
+    selected: FOLK,
+    tape: [],
+    candles: [],
+    footprints: [],
+    conditions: {
+      phase: "session-1",
+      relayOnline: true,
+      feeds: { Stockbit: "live", Ajaib: "live" },
+      gaps: [],
+    },
+    selectedBookEvents: [appeared(34, 100)],
+    selectedOrderFlowEvents: [exhaustion(0)],
+  }
+  store.apply(snapshot)
+  store.apply({
+    _tag: "Delta",
+    at: DateTime.makeUnsafe(T0 + 120_000),
+    tape: [],
+    candles: [],
+    orderFlowEvents: [
+      exhaustion(60),
+      { ...exhaustion(60), code: StockCode.make("BBCA") },
+    ],
+  })
+  const key = `FOLK|exhaustion|sell|98|${T0}`
+  const host = render(
+    <BookEventList store={store} cursor={undefined} landOn={key} />
+  )
+  expect(rows(host)).toEqual([
+    {
+      text: "09:18:00▼ESelling exhaustion at the day's lowsell-aggressor lots 24,000 → 900 a minute · range 4 → 1 ticks",
+      dimmed: false,
+      picked: false,
+    },
+    {
+      text: "09:17:34Wall appeared50 K lots at 100 · 1 order · 6 ticks away",
+      dimmed: false,
+      picked: false,
+    },
+    {
+      text: "09:17:00▼ESelling exhaustion at the day's lowsell-aggressor lots 24,000 → 900 a minute · range 4 → 1 ticks",
+      dimmed: false,
+      picked: true,
+    },
+  ])
 })

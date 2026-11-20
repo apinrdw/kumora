@@ -3,7 +3,6 @@
 // Offer-heavy halves, and how Rank by orders each half.
 import {
   limitOf,
-  type BookEvent,
   type BookReadings,
   type Limit,
   type StockCode,
@@ -12,6 +11,7 @@ import { DateTime, Effect } from "effect"
 
 import { LOWEST_READ_CLOSE, isCheap } from "./book-readings"
 import { plain } from "./format"
+import type { MarketEvent } from "./order-flow-events"
 
 // A row as Rank by reads it: its readings, its book events and the market
 // clock's now, in epoch ms.
@@ -158,10 +158,10 @@ export interface CodeFigures {
 // an event that recent. See spec apinrdw/kumora#517, "Book events".
 export const RECENT_EVENTS_MS = 300_000
 
-// A code's book events as the scanner ranks them: its newest of the day,
-// and how many of the last RECENT_EVENTS_MS.
+// A code's book and order flow events as the scanner ranks them: its
+// newest of the day, and how many of the last RECENT_EVENTS_MS.
 export interface CodeEvents {
-  readonly last: BookEvent
+  readonly last: MarketEvent
   readonly inFiveMinutes: number
 }
 

@@ -247,7 +247,7 @@ test("a wall that appears is listed, marked on the ladder and on the heatmap", a
   const code = freshCode("BE")
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
   const readout = page.getByRole("region", { name: "Book readout" })
-  const events = readout.getByRole("region", { name: "Book events" })
+  const events = readout.getByRole("region", { name: "Events" })
   // Just picked: this browser has heard no 30 s of its book yet.
   await expect(events).toContainText("No book events yet today.")
   await expect(events).not.toContainText("Too quiet to read")
@@ -359,7 +359,7 @@ test("on a recorded day the events after the cursor are dimmed", async ({
       })
   )
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}`)
-  const events = page.getByRole("region", { name: "Book events" })
+  const events = page.getByRole("region", { name: "Events" })
   const pulled = events.getByRole("button", { name: /Pulled/ })
   await expect(pulled).toContainText(
     "50 K lots at 100 · 1 order · 1 ticks, as price approached"
@@ -383,7 +383,7 @@ test("a day recorded before book events says so", async ({ page }) => {
     (route) => route.fulfill({ json: { code, recorded: false, events: [] } })
   )
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}`)
-  await expect(page.getByRole("region", { name: "Book events" })).toContainText(
+  await expect(page.getByRole("region", { name: "Events" })).toContainText(
     "Book events not recorded before"
   )
 })
