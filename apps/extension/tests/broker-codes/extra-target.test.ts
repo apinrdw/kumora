@@ -460,6 +460,34 @@ describe("the extra target", () => {
   )
 
   it.effect(
+    "though complete, is sent the held order numbers again while it holds fewer of Ajaib's than Production",
+    () =>
+      Effect.gen(function* () {
+        const withOrders = (ajaib: number): BrokerCodesStatus => ({
+          ...COMPLETE,
+          orderNumbers: { ajaib, stockbit: 0, differences: 0 },
+        })
+        for (const [held, resent] of [
+          [0, ["1", "2", "3", "4", "5"]],
+          [5, []],
+        ] as const) {
+          const production = fakeDashboard({ status: withOrders(5) })
+          const extra = fakeDashboard({ status: withOrders(held) })
+          const target = yield* harness({ production, extra })
+          const catchUp = target.extra.ordersCatchUp((day, post) =>
+            Effect.as(post({ ...batch([1, 2, 3, 4, 5]), day }), {
+              _tag: "walked",
+            } satisfies WalkResult)
+          )
+          assert.strictEqual(catchUp.feed, "Ajaib")
+          assert.deepStrictEqual(yield* catchUp.walk(DAY), { _tag: "walked" })
+          assert.deepStrictEqual(extra.written, resent)
+          assert.deepStrictEqual(production.written, [])
+        }
+      })
+  )
+
+  it.effect(
     "catching up while its n is unknown, counts a trade it holds codes alone of once",
     () =>
       Effect.gen(function* () {

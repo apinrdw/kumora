@@ -503,6 +503,36 @@ describe("the Done Details walk", () => {
       })
   )
 
+  it.effect(
+    "once its matched trades are posted, sends them again on request, in trade order, and walks the day no more",
+    () =>
+      Effect.gen(function* () {
+        yield* evening
+        const { store } = yield* keptStore(MARKET_TRADES)
+        const production = fakeProduction()
+        const tab = fakeAjaib({ details: marketDetails() })
+        const walk = yield* walkWith(tab, store, production)
+        // Nothing to send before the walk has posted the day.
+        const early = fakeProduction()
+        assert.deepStrictEqual(yield* walk.resend(DAY, early.post), {
+          _tag: "walked",
+        })
+        assert.deepStrictEqual(early.batches, [])
+        yield* walk.walk(DAY)
+        const asked = tab.paths.length
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        assert.strictEqual(tab.paths.length, asked)
+        const extra = fakeProduction()
+        assert.deepStrictEqual(yield* walk.resend(DAY, extra.post), {
+          _tag: "walked",
+        })
+        assert.deepStrictEqual(extra.batches, production.batches)
+        const other = fakeProduction()
+        yield* walk.resend(WibDate.make("2026-11-19"), other.post)
+        assert.deepStrictEqual(other.batches, [])
+      })
+  )
+
   it.effect("assigns nothing to a key whose row and trade counts differ", () =>
     Effect.gen(function* () {
       yield* evening
