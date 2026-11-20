@@ -367,13 +367,15 @@ const tiedDetail = (
   qty: HOPE_TRADES[1]!.lots,
 })
 // The order numbers the walk posts for kept `trades` from BBCA's `rows`, by
-// trade number.
+// trade number. The tape walk read every other trade of the day but those
+// numbered in `unread`.
 const tiedOrders = Effect.fnUntraced(function* (
-  trades: ReadonlyArray<KeptTrade>,
-  rows: ReadonlyArray<unknown>
+  trades: ReadonlyArray<TapeTrade>,
+  rows: ReadonlyArray<unknown>,
+  unread: ReadonlyArray<number> = []
 ) {
   yield* evening
-  const { store } = yield* keptStore(trades)
+  const { store } = yield* keptStore(trades, unread)
   const production = fakeProduction()
   const walk = yield* walkWith(
     fakeAjaib({ details: { BBCA: rows } }),
@@ -576,6 +578,56 @@ describe("the Done Details walk", () => {
         )
         assert.deepStrictEqual([...orders.keys()], ["3"])
         assert.deepStrictEqual(orders.get("3"), orderPair(101, 905))
+      })
+  )
+
+  // Trade 2, a sell between buys 1 and 3, came without valid fields, so
+  // the tape walk kept it unkeyed: 1 and 3 may be two whole sweeps.
+  it.effect(
+    "leaves tied trades unmatched when a trade of the code the tape walk read without its fields falls between them",
+    () =>
+      Effect.gen(function* () {
+        const orders = yield* tiedOrders(
+          [
+            tied("1", "buy"),
+            {
+              _tag: "Unkeyed",
+              number: TradeNumber.make("2"),
+              code: StockCode.make("BBCA"),
+            },
+            tied("3", "buy"),
+          ],
+          [tiedDetail(900, 50), tiedDetail(101, 905), tiedDetail(100, 50)]
+        )
+        assert.strictEqual(orders.size, 0)
+      })
+  )
+
+  // Trade 2's row on the tape had no stock code: it may be BBCA's.
+  it.effect(
+    "leaves tied trades unmatched when a trade the tape walk couldn't read falls between them",
+    () =>
+      Effect.gen(function* () {
+        const orders = yield* tiedOrders(
+          [tied("1", "buy"), tied("3", "buy")],
+          [tiedDetail(900, 50), tiedDetail(101, 905), tiedDetail(100, 50)],
+          [2]
+        )
+        assert.strictEqual(orders.size, 0)
+      })
+  )
+
+  it.effect(
+    "still gives tied trades their rows when the trade the tape walk couldn't read lies after them",
+    () =>
+      Effect.gen(function* () {
+        const orders = yield* tiedOrders(
+          [tied("1", "buy"), tied("2", "buy")],
+          [tiedDetail(101, 905), tiedDetail(102, 50), tiedDetail(100, 50)],
+          [3]
+        )
+        assert.deepStrictEqual(orders.get("1"), orderPair(100, 50))
+        assert.deepStrictEqual(orders.get("2"), orderPair(102, 50))
       })
   )
 
