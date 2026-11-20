@@ -74,13 +74,19 @@ const MatchFields = Schema.Struct({
 type MatchFields = typeof MatchFields.Type
 
 // One Done Details row as the walk keeps it between pages: its fields and
-// the trade's buy and sell order numbers.
-export const DetailRow = Schema.Struct({
+// the trade's buy and sell order numbers, or that it couldn't be read.
+const ReadRow = Schema.TaggedStruct("Read", {
   fields: MatchFields,
   buy: OrderNumber,
   sell: OrderNumber,
 })
+type ReadRow = typeof ReadRow.Type
+export const DetailRow = Schema.Union([
+  ReadRow,
+  Schema.TaggedStruct("Unread", {}),
+])
 export type DetailRow = typeof DetailRow.Type
+const UNREAD: DetailRow = { _tag: "Unread" }
 
 // A kept trade given its Done Details row's order numbers, held until the
 // walk posts it.
@@ -207,8 +213,8 @@ export const keptTrade = (
     codes,
   }))
 
-// A page's rows of `day` with their fields and both order numbers; a row
-// without either matches no trade.
+// A page's rows of `day` with their fields and both order numbers, or
+// unread without either.
 const detailRows = Effect.fnUntraced(function* (
   day: WibDate,
   transactions: ReadonlyArray<unknown>
@@ -217,10 +223,14 @@ const detailRows = Effect.fnUntraced(function* (
   for (const raw of transactions) {
     const row = decodeKeyRow(raw)
     const orders = yield* ajaibDetailOrderNumbers(day, raw)
-    if (Option.isNone(row) || Option.isNone(orders)) continue
+    if (Option.isNone(row) || Option.isNone(orders)) {
+      rows.push(UNREAD)
+      continue
+    }
     const { time, code, board, price, qty, buyer, seller } = row.value
     const [buy, sell] = orders.value
     rows.push({
+      _tag: "Read",
       fields: {
         code,
         second: time.length === 5 ? `${time}:00` : time,
@@ -257,8 +267,8 @@ const tradeFields = (trade: KeptTrade) =>
 
 // The rows by key. Every row also lies under its sideless key, where an
 // auction match's trades, which have no side, find it.
-const rowGroups = Effect.fnUntraced(function* (rows: ReadonlyArray<DetailRow>) {
-  const groups = new Map<string, Array<DetailRow>>()
+const rowGroups = Effect.fnUntraced(function* (rows: ReadonlyArray<ReadRow>) {
+  const groups = new Map<string, Array<ReadRow>>()
   for (const row of rows)
     for (const side of [row.fields.side, "none"] as const) {
       const at = yield* keyOf({ ...row.fields, side })
@@ -312,7 +322,7 @@ const oneRun = (
 
 // A key's rows in order of their aggressor orders, the larger of
 // each row's pair, then of their passive orders.
-const byAggressor = (rows: ReadonlyArray<DetailRow>) =>
+const byAggressor = (rows: ReadonlyArray<ReadRow>) =>
   Effect.sync(() =>
     [...rows].sort(
       (a, b) =>
@@ -330,7 +340,10 @@ const matched = Effect.fnUntraced(function* (
   trades: ReadonlyArray<KeptTrade>,
   rows: ReadonlyArray<DetailRow>
 ) {
-  const byGroup = yield* rowGroups(rows)
+  // A row the walk can't read could be any trade's, so its code gets none.
+  const read = rows.flatMap((row) => (row._tag === "Read" ? [row] : []))
+  if (read.length < rows.length) return []
+  const byGroup = yield* rowGroups(read)
   const places = yield* placesOf(trades)
   const found: Array<MatchedTrade> = []
   for (const [at, tied] of yield* tradeGroups(trades)) {
