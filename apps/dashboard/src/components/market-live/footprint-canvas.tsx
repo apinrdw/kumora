@@ -48,6 +48,7 @@ import {
 } from "@/lib/footprint"
 import { footprintLadder } from "@/lib/footprint-ladder"
 
+import type { BookEventStore } from "./book-event-store"
 import type { CandleStore } from "./candle-store"
 import type { ChartPair } from "./chart-pair"
 import { CHART_SCALE_WIDTH, crosshairTime, tickMark } from "./chart-time"
@@ -55,6 +56,8 @@ import { watchZoom } from "./chart-zoom"
 import type { HeaderStore } from "./footprint-header"
 import { FootprintLadder, type Hovered } from "./footprint-ladder"
 import { makeListenerStore } from "./listener-store"
+import { attachOrderFlowMarks, type OrderFlowTipAt } from "./order-flow-marks"
+import { OrderFlowTip } from "./order-flow-tip"
 import { idxPriceAxis, rowCapped } from "./price-axis"
 import type { ReplayCursor } from "./replay-cursor"
 import { savedZoom, saveZoom } from "./use-chart-settings"
@@ -784,9 +787,11 @@ class FooterLabels implements ISeriesPrimitive<Time> {
 // series at most once an animation frame; a snapshot (or a cursor on another
 // minute) also reopens its window. With `cursor`, a recorded day:
 // the minutes after the cursor's are grey. Hovering a minute shows its
-// ladder.
+// ladder, and hovering an order flow mark in the row along the top its
+// tooltip.
 export default function FootprintCanvas({
   store,
+  bookEvents,
   pair,
   gaps,
   settings,
@@ -794,6 +799,7 @@ export default function FootprintCanvas({
   cursor,
 }: {
   store: CandleStore
+  bookEvents?: BookEventStore | undefined
   pair: ChartPair
   gaps: ReadonlyArray<RelayGap>
   settings: ChartSettings
@@ -806,6 +812,9 @@ export default function FootprintCanvas({
   const redrawNow = useRef<() => void>(undefined)
   const [ladder] = useState(() =>
     Effect.runSync(makeListenerStore<Hovered>(undefined))
+  )
+  const [orderFlowTip] = useState(() =>
+    Effect.runSync(makeListenerStore<OrderFlowTipAt | undefined>(undefined))
   )
 
   useEffect(() => {
@@ -906,9 +915,13 @@ export default function FootprintCanvas({
         grid: token("--chart-grid"),
       })
     )
+    // Decision: the top margin is wider than the bottom's to leave the order
+    // flow marks' row (order-flow-marks.ts, 20 px) clear of the cells at the
+    // default zoom. See spec apinrdw/kumora#605, "Order flow events: on the
+    // page".
     footprint
       .priceScale()
-      .applyOptions({ scaleMargins: { top: 0.06, bottom: 0.06 } })
+      .applyOptions({ scaleMargins: { top: 0.1, bottom: 0.06 } })
     const footer = chart.addCustomSeries(
       new FooterView(palette, (mode) => mark("footer", mode)),
       {
@@ -1028,12 +1041,38 @@ export default function FootprintCanvas({
       windowMinutes: () => windowMinutes,
     })
 
-    // The hovered minute's ladder, at the pointer.
+    // The order flow marks, in a row along the top: their hover is heard
+    // before the ladder's.
+    const orderFlow =
+      bookEvents &&
+      attachOrderFlowMarks({
+        chart,
+        series: footprint,
+        store: bookEvents,
+        candles: store,
+        cursor,
+        colors: {
+          buy: palette.up,
+          sell: palette.down,
+          edge: token("--bg-canvas"),
+          picked: token("--accent-primary"),
+        },
+        marks: element,
+        tip: orderFlowTip,
+        row: true,
+      })
+    const click = (parameter: MouseEventParams<Time>) =>
+      void orderFlow?.click(parameter)
+    chart.subscribeClick(click)
+
+    // The hovered minute's ladder, at the pointer; none on a mark, whose
+    // tooltip shows instead.
     const hover = (parameter: MouseEventParams<Time>) => {
       const item = parameter.seriesData.get(footprint) as ColumnItem | undefined
       const point = parameter.point
       header.hover(point === undefined ? undefined : item?.column)
       if (
+        orderFlowTip.get()?.pinned === false ||
         item?.column === undefined ||
         point === undefined ||
         item.column.later ||
@@ -1077,6 +1116,8 @@ export default function FootprintCanvas({
     })
     return () => {
       chart.unsubscribeCrosshairMove(hover)
+      chart.unsubscribeClick(click)
+      orderFlow?.detach()
       ladder.set(undefined)
       header.hover(undefined)
       unpair()
@@ -1087,7 +1128,7 @@ export default function FootprintCanvas({
       cancelAnimationFrame(frame)
       chart.remove()
     }
-  }, [store, cursor, pair, ladder, header])
+  }, [store, bookEvents, orderFlowTip, cursor, pair, ladder, header])
 
   useEffect(() => {
     shownGaps.current = gaps
@@ -1107,6 +1148,9 @@ export default function FootprintCanvas({
         data-chart="footprint"
       />
       <FootprintLadder store={ladder} />
+      {bookEvents !== undefined && (
+        <OrderFlowTip tip={orderFlowTip} store={bookEvents} />
+      )}
     </div>
   )
 }

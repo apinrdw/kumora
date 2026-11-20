@@ -35,7 +35,10 @@ import { CHART_SCALE_WIDTH, crosshairTime, tickMark } from "./chart-time"
 import { watchZoom } from "./chart-zoom"
 import { CursorLine } from "./cursor-line"
 import type { HeatmapStore } from "./heatmap-store"
+import { makeListenerStore } from "./listener-store"
 import { useAuctionIndicative } from "./market-conditions"
+import { attachOrderFlowMarks, type OrderFlowTipAt } from "./order-flow-marks"
+import { OrderFlowTip } from "./order-flow-tip"
 import { idxPriceAxis } from "./price-axis"
 import type { ReplayCursor } from "./replay-cursor"
 import { attachSweepBubbles } from "./sweep-bubbles"
@@ -189,7 +192,8 @@ export default function ChartCanvas({
   heatmap?: HeatmapStore | undefined
   // The selected code's sweeps, drawn as bubbles; none for an index.
   sweeps?: SweepStore | undefined
-  // The selected code's book events, marked on the heatmap.
+  // The selected code's book events, marked on the heatmap, and its order
+  // flow events, marked above or below their candles.
   bookEvents?: BookEventStore | undefined
   cursor?: ReplayCursor | undefined
   gaps: ReadonlyArray<RelayGap>
@@ -203,6 +207,9 @@ export default function ChartCanvas({
     ReturnType<typeof createChart>["addSeries"]
   > | null>(null)
   const indicative = useAuctionIndicative(store.code)?.price
+  const [orderFlowTip] = useState(() =>
+    Effect.runSync(makeListenerStore<OrderFlowTipAt | undefined>(undefined))
+  )
 
   useEffect(() => {
     const element = host.current
@@ -361,6 +368,23 @@ export default function ChartCanvas({
             },
             marks: element,
           })
+    const orderFlow =
+      bookEvents &&
+      attachOrderFlowMarks({
+        chart,
+        series: candles,
+        store: bookEvents,
+        candles: store,
+        cursor,
+        colors: {
+          buy: up,
+          sell: down,
+          edge: token("--bg-canvas"),
+          picked: token("--accent-primary"),
+        },
+        marks: element,
+        tip: orderFlowTip,
+      })
     const marker = new CursorLine(token("--text-primary"), element)
     if (cursor !== undefined) candles.attachPrimitive(marker)
 
@@ -427,9 +451,11 @@ export default function ChartCanvas({
       shownMinute = minute
       redraw()
     })
-    // A click or a tap on a bubble picks its sweep, found by the bubbles'
-    // own hit test; anywhere else, a recorded day's minute.
+    // A click or a tap on an order flow mark pins its tooltip, and one on a
+    // bubble picks its sweep, each found by its own hit test; anywhere else,
+    // a recorded day's minute.
     const click = (parameter: MouseEventParams<Time>) => {
+      if (orderFlow?.click(parameter) === true) return
       if (bubbles?.click(parameter) === true) return
       if (cursor !== undefined && parameter.time !== undefined)
         cursor.pickMinute((parameter.time as UTCTimestamp) * 1000)
@@ -502,13 +528,14 @@ export default function ChartCanvas({
       redrawGaps.current = undefined
       stopHeatmap?.()
       bubbles?.detach()
+      orderFlow?.detach()
       unsubscribe()
       stopCursor?.()
       cancelAnimationFrame(frame)
       setSeries(null)
       chart.remove()
     }
-  }, [store, heatmap, sweeps, cursor, pair])
+  }, [store, heatmap, sweeps, bookEvents, orderFlowTip, cursor, pair])
 
   useEffect(() => {
     shownGaps.current = gaps
@@ -552,10 +579,15 @@ export default function ChartCanvas({
   }, [indicative, series])
 
   return (
-    <div
-      ref={host}
-      className="h-[420px] w-full lg:h-auto lg:min-h-[420px] lg:flex-1"
-      data-chart="candles"
-    />
+    <>
+      <div
+        ref={host}
+        className="h-[420px] w-full lg:h-auto lg:min-h-[420px] lg:flex-1"
+        data-chart="candles"
+      />
+      {bookEvents !== undefined && (
+        <OrderFlowTip tip={orderFlowTip} store={bookEvents} />
+      )}
+    </>
   )
 }
