@@ -515,6 +515,28 @@ describe("the Done Details walk", () => {
       })
   )
 
+  // Ajaib lists three trades alike, the tape walk kept two, and one row's
+  // buy order is another day's: the two rows left needn't be the kept two.
+  it.effect(
+    "gives a code nothing when a row of it can't be read, since it could be any trade's",
+    () =>
+      Effect.gen(function* () {
+        const unread = tiedDetail(100, 50)
+        const orders = yield* tiedOrders(
+          [tied("1", "buy"), tied("2", "buy")],
+          [
+            {
+              ...unread,
+              buyer: { ...unread.buyer, order_id: "202611190000000100" },
+            },
+            tiedDetail(101, 50),
+            tiedDetail(102, 50),
+          ]
+        )
+        assert.strictEqual(orders.size, 0)
+      })
+  )
+
   // Trades 1 and 2 are one whole sweep, 4 another: their rows can't be told
   // apart by key, so none of them is given one.
   it.effect(
