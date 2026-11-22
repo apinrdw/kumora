@@ -321,7 +321,15 @@ const makeRowTape = (sql: Sql): Tape => {
 // by days recorded before trade chunks, keeps its rows until the day turns
 // cold, and every other day is chunked. Old days are never rewritten. See
 // spec apinrdw/kumora#555, "Trade chunks".
-export const makeTape = (sql: Sql): Tape =>
-  sql.exec("PRAGMA table_info(trades)").length > 0
-    ? makeRowTape(sql)
-    : makeChunkTape(sql)
+// Decision: an empty `trades` is dropped and the day chunked. Any object
+// opened before trade chunks made the table, so a day it never held a trade
+// for, walked later, wrote a row per trade: the 2026-11-21 History backfill
+// of eleven such days wrote 18.9 M rows. It costs one row read on start.
+export const HOLDS_A_TRADE = "SELECT 1 FROM trades LIMIT 1"
+export const makeTape = (sql: Sql): Tape => {
+  if (sql.exec("PRAGMA table_info(trades)").length === 0)
+    return makeChunkTape(sql)
+  if (sql.exec(HOLDS_A_TRADE).length > 0) return makeRowTape(sql)
+  sql.exec("DROP TABLE trades")
+  return makeChunkTape(sql)
+}
