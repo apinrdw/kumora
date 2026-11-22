@@ -294,4 +294,58 @@ describe("order flow events", () => {
         )
       })
   )
+
+  it.effect(
+    "a stored event a late trade undid before a restart is not sent again when another late trade redoes it",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:38:59.000")
+        const sql = memorySql()
+        const day = yield* tradingDay(sql)
+        yield* pushJudged(day)
+        // BBCA every 10 s from `from` through `to` (HH:MM:SS, on the 10 s),
+        // with `late` among the first.
+        const tick = (
+          on: Day,
+          from: string,
+          to: string,
+          late: ReadonlyArray<ReturnType<typeof trade>> = []
+        ) =>
+          Effect.gen(function* () {
+            for (
+              let time = Date.parse(`2026-11-09T${from}+07:00`), first = true;
+              time <= Date.parse(`2026-11-09T${to}+07:00`);
+              time += 10_000, first = false
+            ) {
+              const clock = new Date(time + 7 * 3600_000)
+                .toISOString()
+                .slice(11, 19)
+              yield* at(`${clock}.000`)
+              yield* on.trades([
+                ...(first ? late : []),
+                trade(clock, "BBCA", 1000, 1),
+              ])
+              yield* TestClock.adjust("300 millis")
+            }
+          })
+        // 09:45's buy-aggressor lots rise to 1,300, over half the push's
+        // 2,400: the Exhaustion no longer holds. Flushed by 09:48:06.
+        yield* tick(day, "09:47:10", "09:48:00", [
+          trade("09:45:40", "UNTR", 1240, 400),
+        ])
+        yield* at("09:48:06.000")
+        yield* TestClock.adjust("1 second")
+        yield* day.evicted
+        const restarted = yield* tradingDay(sql)
+        const page = yield* restarted.viewer("BBCA")
+        // 09:42 rises to 2,800 lots: 09:45's 1,300 is under half again.
+        yield* tick(restarted, "09:48:10", "09:49:00", [
+          trade("09:42:40", "UNTR", 1240, 400),
+        ])
+        yield* at("09:49:06.000")
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(yield* deltaEvents(page), [])
+        yield* restarted.left(page)
+      })
+  )
 })
