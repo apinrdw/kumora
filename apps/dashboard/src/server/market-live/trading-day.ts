@@ -724,7 +724,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
             Effect.map(orderFlowEventKey(event), (key) => !stored.has(key))
           )
         )
-      })
+      }),
+      store.orderFlowEventsFrom
     )
   })
   // The live day read back from the store: the tape, the bubble book, the

@@ -524,8 +524,10 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
   // Rebuilds the state after a restart from each code's stored minutes, one
   // code at a time, judging every minute due at `now` as `judge` did, under
   // the day's relay gaps with any still open ended at `now`. Hands `found`
-  // each code's events the rules found again, oldest first. Run before any
-  // trade.
+  // each code's events the rules found again, oldest first. Each minute
+  // still held for late trades counts the code's events `storedFrom` gives
+  // from it as sent, found again or not, so no late trade sends one twice.
+  // Run before any trade.
   // Decision: the restart replays the day through the rules rather than
   // storing their state: the day's high and low, cumulative delta, windows
   // and each rule's memory come back as the minutes made them, whatever a
@@ -538,7 +540,11 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
     ) => Effect.Effect<ReadonlyArray<StoredMinute>, E>,
     now: number,
     gaps: ReadonlyArray<RelayGap>,
-    found: (events: ReadonlyArray<OrderFlowEvent>) => Effect.Effect<void, E>
+    found: (events: ReadonlyArray<OrderFlowEvent>) => Effect.Effect<void, E>,
+    storedFrom: (
+      code: StockCode,
+      from: number
+    ) => Effect.Effect<ReadonlyArray<OrderFlowEvent>, E>
   ) {
     const through = yield* dueAt(now)
     const continuous = yield* continuousBetween(
@@ -555,6 +561,14 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
       const flow = codes.get(code)
       if (flow === undefined) continue
       const events = yield* foldCode(code, flow, continuous, through, blocked)
+      const oldest = flow.held[0]
+      if (oldest !== undefined)
+        for (const event of yield* storedFrom(code, oldest.figures.minute))
+          flow.held
+            .find(
+              (each) => each.figures.minute === DateTime.toEpochMillis(event.at)
+            )
+            ?.sent.add(`${event.kind}|${event.side}`)
       if (events.length > 0) yield* found(Arr.sort(events, EventOrder))
     }
     foldedThrough = Math.max(foldedThrough, through)

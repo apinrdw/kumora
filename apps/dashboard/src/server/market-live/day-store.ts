@@ -1021,6 +1021,18 @@ export const makeDayStore = (
         (events) => events.reverse()
       )
 
+    // A code's stored order flow events from `from` (epoch ms), oldest
+    // first: a range of the key, so it reads only those rows.
+    const orderFlowEventsFrom = (code: StockCode, from: number) =>
+      Effect.forEach(
+        sql.exec(
+          "SELECT * FROM order_flow_events WHERE code = ? AND time >= ? ORDER BY time",
+          code,
+          from
+        ),
+        orderFlowEventOf
+      )
+
     // The day's newest `limit` stored order flow events of every code,
     // oldest first. Like `newestBookEvents`, it visits every row and keeps
     // `limit` of them.
@@ -1238,6 +1250,7 @@ export const makeDayStore = (
       bookEventsOf,
       newestBookEvents,
       orderFlowEventsOf,
+      orderFlowEventsFrom,
       storedOrderFlowEvents,
       latestChunks,
       sessionBooks,
