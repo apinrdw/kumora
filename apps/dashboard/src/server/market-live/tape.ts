@@ -317,14 +317,11 @@ const makeRowTape = (sql: Sql): Tape => {
   }
 }
 
-// Decision: a day's tape shape is which table it holds: `trades`, made only
-// by days recorded before trade chunks, keeps its rows until the day turns
-// cold, and every other day is chunked. Old days are never rewritten. See
-// spec apinrdw/kumora#555, "Trade chunks".
-// Decision: an empty `trades` is dropped and the day chunked. Any object
-// opened before trade chunks made the table, so a day it never held a trade
-// for, walked later, wrote a row per trade: the 2026-11-21 History backfill
-// of eleven such days wrote 18.9 M rows. It costs one row read on start.
+// Decision: a day's tape shape is whether it holds a `trades` row: a day
+// recorded before trade chunks keeps its rows until it turns cold, and every
+// other day is chunked, an empty `trades` dropped on start for one row read.
+// Old days are never rewritten. See spec apinrdw/kumora#555, "Trade chunks",
+// and PR apinrdw/kumora#634 (an empty table's History walk, 18.9 M rows).
 export const HOLDS_A_TRADE = "SELECT 1 FROM trades LIMIT 1"
 export const makeTape = (sql: Sql): Tape => {
   if (sql.exec("PRAGMA table_info(trades)").length === 0)
