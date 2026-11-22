@@ -4,8 +4,10 @@
 // selling-side one, in the aggressor side's colour with the kind's letter
 // beside it. The candle chart puts ▲ above the minute's high and ▼ below its
 // low, beside the book events' ◆ and ■; the footprint chart puts them in a
-// row along its top. A recorded day's events its cursor hasn't reached are
-// left off (lib/order-flow-marks.ts). Hovering a mark shows its tooltip
+// row along its top. A minute's marks that would meet stack outward from
+// the candle, or down the row, each with its own hit target. A recorded
+// day's events its cursor hasn't reached are left off
+// (lib/order-flow-marks.ts). Hovering a mark shows its tooltip
 // (order-flow-tip.tsx), and a click or a tap pins it. Loaded only with the
 // charts' canvases, in the browser.
 import { Effect } from "effect"
@@ -36,6 +38,8 @@ const HALF = 6
 const OFF = 13
 // The footprint chart's row: its marks' centre, below the pane's top.
 const ROW_Y = 10
+// How far apart a minute's stacked marks' centres sit.
+const STACK = 2 * HALF + 3
 // How near the pointer must be to a mark's centre to be on it.
 const HIT = 11
 
@@ -167,13 +171,21 @@ class OrderFlowMarks implements ISeriesPrimitive<Time> {
         Effect.runSync(cursorLogical(bars, minute)) as Logical
       )
     }
+    // How many marks already sit at each minute's place: a side of its
+    // candle, or the row.
+    const stacked = new Map<string, number>()
     return this.shown.flatMap((mark) => {
       const x = xOf(mark.minute)
       const price = this.row
         ? ROW_Y
         : attached.series.priceToCoordinate(mark.price)
       if (x === null || price === null) return []
-      const y = this.row ? ROW_Y : price + (mark.above ? -OFF : OFF)
+      const place = this.row ? `${mark.minute}` : `${mark.minute}|${mark.above}`
+      const below = stacked.get(place) ?? 0
+      stacked.set(place, below + 1)
+      const y = this.row
+        ? ROW_Y + below * STACK
+        : price + (mark.above ? -1 : 1) * (OFF + below * STACK)
       return [{ mark, x, y }]
     })
   }
