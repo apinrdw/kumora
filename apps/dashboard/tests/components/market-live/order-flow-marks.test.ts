@@ -52,8 +52,20 @@ const event = (time: string, side: "buy" | "sell"): OrderFlowEvent => ({
   widestTicks: 5,
 })
 
+const divergence = (time: string, side: "buy" | "sell"): OrderFlowEvent => ({
+  kind: "divergence",
+  code,
+  at: DateTime.makeUnsafe(seconds(time) * 1000),
+  side,
+  price: 1000,
+  delta: 100,
+  earlierAt: DateTime.makeUnsafe(seconds("08:59:00") * 1000),
+  earlierPrice: 995,
+  earlierDelta: 2000,
+})
+
 const keyOf = (each: OrderFlowEvent) =>
-  `FOLK|exhaustion|${each.side}|1000|${DateTime.toEpochMillis(each.at)}`
+  `FOLK|${each.kind}|${each.side}|1000|${DateTime.toEpochMillis(each.at)}`
 
 // Draws `events` once over `candles` on the candle chart, or the footprint
 // chart's row, and hands back the marks' dataset, the tooltip store and the
@@ -160,6 +172,38 @@ describe("the charts' order flow marks", () => {
     expect(x).toBe(60)
     expect(second).toBe(first)
     expect(first).toBeLessThan(20)
+  })
+
+  // Where each of `events` is drawn, and whose tooltip a hover there shows.
+  const placesOf = (events: ReadonlyArray<OrderFlowEvent>, row: boolean) => {
+    const centres = events.map((each) =>
+      pickedAt(drawn(candles, events, keyOf(each), row).dataset).join(",")
+    )
+    const tips = centres.map((centre) => {
+      const chart = drawn(candles, events, undefined, row)
+      const [x, y] = centre.split(",").map(Number)
+      chart.hover(chart.pointAt(x!, y!))
+      return chart.tip.get()?.key
+    })
+    return { places: new Set(centres).size, tips }
+  }
+
+  it("stacks a minute's events on one side of the candle", () => {
+    const events = [event("09:00:00", "buy"), divergence("09:00:00", "buy")]
+    const { places, tips } = placesOf(events, false)
+    expect(places, "each at its own place").toBe(2)
+    expect(tips, "each place hovers its own").toEqual(events.map(keyOf))
+  })
+
+  it("stacks a minute's events, either side, in the footprint chart's row", () => {
+    const events = [
+      event("09:00:00", "buy"),
+      event("09:00:00", "sell"),
+      divergence("09:00:00", "buy"),
+    ]
+    const { places, tips } = placesOf(events, true)
+    expect(places, "each at its own place").toBe(3)
+    expect(tips, "each place hovers its own").toEqual(events.map(keyOf))
   })
 
   it("shows a mark's tooltip on hover, and pins it on a tap", () => {
