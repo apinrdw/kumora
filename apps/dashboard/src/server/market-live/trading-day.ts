@@ -425,7 +425,9 @@ const storedMinutesOf = (
 // An order flow event's key in the day store: at most one a code, minute,
 // kind and side.
 const orderFlowEventKey = (event: OrderFlowEvent) =>
-  `${event.code}|${DateTime.toEpochMillis(event.at)}|${event.kind}|${event.side}`
+  Effect.succeed(
+    `${event.code}|${DateTime.toEpochMillis(event.at)}|${event.kind}|${event.side}`
+  )
 
 // Decision: a batch that corrects a built day marks it stale and moves its
 // rebuild to this long after the batch, so a burst of corrections costs one
@@ -700,21 +702,29 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     )
   )
   // Each code's order flow state rebuilt from its stored minutes, and the
-  // events found again that no flush stored (order-flow.ts, `restore`).
+  // events found again that no flush stored (order-flow.ts, `restore`),
+  // checked against that code's stored events alone.
   const restoreOrderFlow = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis
     if (yield* orderFlow.due(now)) orderFlowJudged = true
-    const found = yield* orderFlow.restore(
+    yield* orderFlow.restore(
       yield* store.dayCodes,
       storedMinutesOf(store),
       now,
-      (yield* market.conditions).gaps
-    )
-    const stored = new Set(
-      (yield* store.storedOrderFlowEvents()).map(orderFlowEventKey)
-    )
-    yield* orderFlowEvents.restore(
-      found.filter((event) => !stored.has(orderFlowEventKey(event)))
+      (yield* market.conditions).gaps,
+      Effect.fnUntraced(function* (found) {
+        const stored = new Set(
+          yield* Effect.forEach(
+            yield* store.orderFlowEventsOf(found[0]!.code),
+            orderFlowEventKey
+          )
+        )
+        yield* orderFlowEvents.restore(
+          yield* Effect.filter(found, (event) =>
+            Effect.map(orderFlowEventKey(event), (key) => !stored.has(key))
+          )
+        )
+      })
     )
   })
   // The live day read back from the store: the tape, the bubble book, the

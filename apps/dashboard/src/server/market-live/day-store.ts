@@ -1014,10 +1014,9 @@ export const makeDayStore = (
       )
 
     // The day's newest `limit` stored order flow events of every code,
-    // oldest first; every one of them without `limit`. Like
-    // `newestBookEvents`, it visits every row: a busy day stores a few
-    // thousand (order-flow-event-log.ts).
-    const storedOrderFlowEvents = (limit = -1) =>
+    // oldest first. Like `newestBookEvents`, it visits every row and keeps
+    // `limit` of them.
+    const storedOrderFlowEvents = (limit: number) =>
       Effect.map(
         Effect.forEach(
           sql.exec(
