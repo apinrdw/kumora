@@ -194,6 +194,37 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
   }
 )
 
+// Its second operation drops the day's order flow events, so it runs on a
+// busy day of its own.
+layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
+  "row budgets of a restore",
+  (it) => {
+    // Coding standards, "Bounded memory on a Worker": the restart's replay
+    // reads back the stored order flow events of the codes it found events
+    // for, a code at a time, never the whole day's.
+    it.effect(
+      "a restore reads no stored order flow event of a code whose replay found none",
+      () =>
+        Effect.gen(function* () {
+          const busy = yield* BusyDay
+          const stored = yield* busy.billed(
+            "restore on its own evening, freshly started"
+          )
+          const none = yield* busy.billed(
+            "restore on its own evening, without order flow events"
+          )
+          assert.strictEqual(stored.status, 200)
+          assert.strictEqual(none.status, 200)
+          // Reading the day's 20,000 to drop those stored, it read 40,000
+          // rows more: 392,582 against 352,584.
+          assert.isAtMost(stored.rows.rowsRead, none.rows.rowsRead + 10)
+        }),
+      // The two restores take about 25 s here.
+      60_000
+    )
+  }
+)
+
 // A batch writes its chunks, so its budget runs on a busy day of its own.
 layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
   "row budgets of a batch",

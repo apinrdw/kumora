@@ -181,7 +181,7 @@ export const buildBusyDay = Effect.fnUntraced(function* (
   )
   if (exec("SELECT 1 FROM facts WHERE key = ?", Fact.sealed).length > 0)
     return 0
-  const { trades, codes, holes, bookEvents } = BUSY_DAY
+  const { trades, codes, holes, bookEvents, orderFlowEvents } = BUSY_DAY
   const brokers = BROKERS.join("")
   yield* Effect.sync(() =>
     storage.transactionSync(() => {
@@ -206,6 +206,15 @@ export const buildBusyDay = Effect.fnUntraced(function* (
         SELECT 'C' || (x % ${codes}), ${BUSY_OPEN} + x * ${BUSY_SPAN_MS} / ${bookEvents},
           'pulled', 'bid', 1000 + x % 500, 6000, 2,
           '{"ticks":3,"approached":false}'
+        FROM n`
+      )
+      // A buying Exhaustion every 1.3 s, each code's turn coming round 25
+      // times.
+      exec(
+        `${numbers(orderFlowEvents)} INSERT INTO order_flow_events
+        SELECT 'C' || (x % ${codes}), ${BUSY_OPEN} + x * ${BUSY_SPAN_MS} / ${orderFlowEvents},
+          'exhaustion', 'buy', 1000 + x % 500,
+          '{"lots":900,"peakLots":2400,"ticks":2,"widestTicks":6}'
         FROM n`
       )
       exec(BROKER_TRADES_INDEX)
@@ -254,6 +263,7 @@ export const buildBusyDay = Effect.fnUntraced(function* (
     [Fact.sweepBrokersBuilt, SWEEP_BROKERS_BUILT],
     [Fact.gaps, '{"gaps":[]}'],
     [Fact.bookEvents, "recorded"],
+    [Fact.orderFlowEvents, "recorded"],
     [Fact.sealed, "2026-11-09T10:00:00.000Z"],
   ]
   for (const [key, value] of facts)
