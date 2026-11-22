@@ -35,10 +35,7 @@ const FIRST = StockCode.make("RHAA")
 const SECOND = StockCode.make("RHBB")
 
 const side = (lots: number): BookReadings["bid"] => ({
-  nearDepth: lots * 100_000,
   lots,
-  emptyTicks: 0,
-  widestGap: 0,
   lotsPerOrder: lots / 2,
 })
 
@@ -46,7 +43,6 @@ const readings = (code: Code, bid: number): BookReadings => ({
   code,
   at: DateTime.makeUnsafe(NOW),
   imbalance: (bid - 100) / (bid + 100),
-  spread: { ticks: 1, percent: 0.5 },
   bid: side(bid),
   offer: side(100),
 })
@@ -120,4 +116,112 @@ test("a code's new readings re-render its row alone, and the same view none", ()
     renders(),
     "a page re-render with the same view re-renders no row"
   ).toEqual({})
+})
+
+test("a row's last-event chip shows an order flow event's mark and its minute", () => {
+  const store = Effect.runSync(makeBookReadingsStore)
+  store.apply(delta([readings(FIRST, 300)]))
+  const events = new Map([
+    [
+      FIRST,
+      {
+        last: {
+          kind: "exhaustion" as const,
+          code: FIRST,
+          at: DateTime.makeUnsafe(NOW - 60_000),
+          side: "sell" as const,
+          price: 500,
+          lots: 900,
+          peakLots: 2400,
+          ticks: 1,
+          widestTicks: 5,
+        },
+        inFiveMinutes: 1,
+      },
+    ],
+  ])
+  const host = document.createElement("div")
+  root = createRoot(host)
+  act(() =>
+    root!.render(
+      <Halves
+        scan={{
+          bid: [FIRST],
+          offer: [],
+          limits: [],
+          above: 1,
+          board: 0,
+          cheap: 0,
+        }}
+        view={{
+          readings: store,
+          rankBy: "imbalance",
+          marketNow: NOW,
+          watchlist: new Set(),
+          events,
+          unfolded: undefined,
+          onUnfold: () => undefined,
+          book: undefined,
+          onOpen: () => undefined,
+        }}
+        onHover={() => {}}
+      />
+    )
+  )
+  const chip = host.querySelector(
+    `[data-code="${FIRST}"] [aria-label="Last event"]`
+  )
+  expect(chip?.textContent).toBe("▼E09:29")
+  expect(chip?.querySelector("abbr")?.getAttribute("title")).toBe(
+    "Selling exhaustion at the day's low: sell-aggressor lots 2,400 → 900 a minute · range 5 → 1 ticks"
+  )
+})
+
+test("a lopsided row shows its heavy side's chip after the imbalance", () => {
+  const store = Effect.runSync(makeBookReadingsStore)
+  const SMALL = StockCode.make("RHCC")
+  const UNTAGGED = StockCode.make("RHDD")
+  store.apply(
+    delta([
+      // 150 lots per order against 50: big orders.
+      readings(FIRST, 300),
+      // 300 lots on 100 orders against 100 on 10: small orders.
+      {
+        ...readings(SMALL, 300),
+        bid: { lots: 300, lotsPerOrder: 3 },
+        offer: { lots: 100, lotsPerOrder: 10 },
+      },
+      // Under 50% lopsided.
+      readings(UNTAGGED, 120),
+    ])
+  )
+  const view: RowView = {
+    readings: store,
+    rankBy: "imbalance",
+    marketNow: NOW,
+    watchlist: new Set(),
+    events: new Map(),
+    unfolded: undefined,
+    onUnfold: () => undefined,
+    book: undefined,
+    onOpen: () => undefined,
+  }
+  const scan: Scan = {
+    bid: [FIRST, SMALL, UNTAGGED],
+    offer: [],
+    limits: [],
+    above: 3,
+    board: 0,
+    cheap: 0,
+  }
+  const host = document.createElement("div")
+  root = createRoot(host)
+  act(() => root!.render(<Halves scan={scan} view={view} onHover={() => {}} />))
+  const chipOf = (code: Code) =>
+    host.querySelector(`[data-code="${code}"] [aria-label="Heavy side"]`)
+  expect(chipOf(FIRST)?.textContent).toBe("big orders")
+  expect(chipOf(FIRST)?.className).toContain("text-warning")
+  expect(chipOf(SMALL)?.textContent).toBe("small orders")
+  expect(chipOf(SMALL)?.className).toContain("text-muted-foreground")
+  expect(chipOf(UNTAGGED)).toBeNull()
 })

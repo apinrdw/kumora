@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
 import {
   wibDateAt,
-  type BookEvent,
+  type BookReadings,
   type StockCode,
   type ViewerDown,
   type WibDate,
@@ -18,14 +18,18 @@ import { makeFiguresStore } from "@/components/order-book-radar/figures-store"
 import { useRadarSettings } from "@/components/order-book-radar/use-radar-settings"
 import {
   admitAlert,
-  alertTitle,
+  alertLink,
+  alertOf,
+  alertRises,
+  heavySideChanges,
   ruleMatches,
   withAlert,
   type Alert,
+  type AlertEvent,
   type AlertVerdict,
+  type HeavySideTags,
   type MatchContext,
 } from "@/lib/book-alerts"
-import { bookEventDetail, bookEventKey } from "@/lib/book-events"
 import { isCheap } from "@/lib/book-readings"
 import { floorValue } from "@/lib/order-book-radar"
 
@@ -70,6 +74,8 @@ const withLimitsLock = Effect.fnUntraced(function* (
 
 const ALERT_MS = 8_000
 
+const NO_READINGS: ReadonlyArray<BookReadings> = []
+
 // A short tone, once per alert. A page the user hasn't touched yet may
 // refuse to play it; with no audio, the toast still shows.
 const chime = Effect.try(() => {
@@ -104,18 +110,6 @@ const notify = (
 
 const visible = Effect.sync(() => document.visibilityState === "visible")
 
-// The alert told for an event: its title, detail and key.
-const alertOf = Effect.fnUntraced(function* (event: BookEvent) {
-  return {
-    key: yield* bookEventKey(event),
-    code: event.code,
-    side: event.side,
-    title: yield* alertTitle(event),
-    detail: yield* bookEventDetail(event),
-    at: DateTime.toEpochMillis(event.at),
-  } satisfies Alert
-})
-
 // Tells one alert, or the fold of the minute's alerts past the limit:
 // toasts on the visible page, notifies from a background tab.
 const tellAlert = Effect.fnUntraced(function* (
@@ -141,10 +135,11 @@ const tellAlert = Effect.fnUntraced(function* (
       { body: alert.detail, tag: alert.key },
       () => open(alert)
     )
-  const tone = alert.side === "bid" ? kToast.success : kToast.error
+  const rises = yield* alertRises(alert)
+  const tone = rises ? kToast.success : kToast.error
   yield* tone(alert.title, {
     description: alert.detail,
-    icon: alert.side === "bid" ? IconArrowUp : IconArrowDown,
+    icon: rises ? IconArrowUp : IconArrowDown,
     duration: ALERT_MS,
     action: { label: "Open", onClick: () => open(alert) },
   })
@@ -153,7 +148,7 @@ const tellAlert = Effect.fnUntraced(function* (
 // Admits each matched event against the browser's limits, records each
 // alert they let through and tells it.
 const admitAll = Effect.fnUntraced(function* (
-  matched: ReadonlyArray<BookEvent>,
+  matched: ReadonlyArray<AlertEvent>,
   now: number,
   today: WibDate,
   open: (alert: Alert) => void,
@@ -171,10 +166,14 @@ const admitAll = Effect.fnUntraced(function* (
 
 /**
  * Tells this browser's alert rules' matches among a live page's book events
- * (spec apinrdw/kumora#517, "Alerts"), once per browser from the page that
+ * (spec apinrdw/kumora#517, "Alerts"), order flow events and heavy side
+ * changes (spec apinrdw/kumora#605, "Order flow alerts" and "Heavy side
+ * alerts"), once per browser from the page that
  * holds the alert lock (use-alert-owner.ts): a toast on the visible page, a
  * notification from a background tab. The page feeds it every message of
- * its viewer socket; only a delta's new events alert. A recorded day's page
+ * its viewer socket; only a delta's new events alert, and a tag a delta's
+ * readings change. Every page keeps each code's tag, so one that takes the
+ * lock knows what changed. A recorded day's page
  * passes `live` false and never holds the lock.
  */
 export function useBookAlerts(live = true) {
@@ -193,6 +192,7 @@ export function useBookAlerts(live = true) {
     }
   }, [watchlist, board, floor, figures])
   const held = useRef(context)
+  const tags = useRef<HeavySideTags>(new Map())
   const owns = useAlertOwner(live)
   useEffect(() => {
     held.current = context
@@ -203,7 +203,7 @@ export function useBookAlerts(live = true) {
     (alert: Alert) =>
       void navigate({
         to: "/market-live",
-        search: { code: alert.code, event: alert.key },
+        search: Effect.runSync(alertLink(alert)),
       }),
     [navigate]
   )
@@ -217,11 +217,24 @@ export function useBookAlerts(live = true) {
       figures.apply(message)
       const today = Effect.runSync(wibDateAt(message.at))
       alertDay.set(today)
-      if (message._tag !== "Delta" || message.bookEvents === undefined) return
+      const changes = Effect.runSync(
+        heavySideChanges(
+          message._tag === "Snapshot" ? new Map() : tags.current,
+          message.bookReadings ?? NO_READINGS,
+          (code) => figures.all().get(code)
+        )
+      )
+      tags.current = changes.tags
+      if (message._tag !== "Delta") return
+      const events: ReadonlyArray<AlertEvent> = [
+        ...(message.bookEvents ?? []),
+        ...(message.orderFlowEvents ?? []),
+        ...changes.changes,
+      ]
       const rules = alertRules.get()
-      if (rules.length === 0 || !owns.current) return
+      if (events.length === 0 || rules.length === 0 || !owns.current) return
       const now = DateTime.toEpochMillis(message.at)
-      const matched = message.bookEvents.filter((event) =>
+      const matched = events.filter((event) =>
         rules.some((rule) =>
           Effect.runSync(ruleMatches(rule, event, held.current))
         )

@@ -157,6 +157,15 @@ const sessionEndWrite = (sql: Sql, time: string) =>
     return new Response("written")
   })
 
+// Market Bubbles' answer, which today's sealed object builds after it
+// restores the live day.
+const bubblesGet = (day: TradingDay) => day.recorded({ _tag: "Bubbles" })
+
+// The day's order flow events, dropped before the object restores the live
+// day.
+const dropOrderFlowEvents = (_day: TradingDay, sql: Sql) =>
+  Effect.sync(() => sql.exec("DELETE FROM order_flow_events"))
+
 // One code's book events, as the page's recorded day asks them.
 const bookEventsGet = (day: TradingDay) =>
   day.recorded({ _tag: "BookEvents", code: StockCode.make("C7") })
@@ -285,6 +294,17 @@ export const operations = {
   "recorded codes GET": { before: statusPass, measure: codesGet },
   "recorded codes GET, freshly started": { measure: codesGet },
   "book events GET, freshly started": { measure: bookEventsGet },
+  // Today's sealed object in the evening, restoring the live day for a
+  // bubbles GET, with the day's order flow events and without them.
+  "restore on its own evening, freshly started": {
+    at: "2026-11-09T19:00:00+07:00",
+    measure: bubblesGet,
+  },
+  "restore on its own evening, without order flow events": {
+    at: "2026-11-09T19:00:00+07:00",
+    before: dropOrderFlowEvents,
+    measure: bubblesGet,
+  },
   // Writes book events of a code of its own, which no other budget reads.
   "book events flush": { measure: eventsFlush },
   // Its GET writes the codes-complete fact: it gets a busy day of its own.

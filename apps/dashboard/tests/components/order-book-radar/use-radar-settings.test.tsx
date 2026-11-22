@@ -35,12 +35,28 @@ const read = async (stored: object) => {
 }
 
 test.each([
-  ["bidDepth", "bidNearDepth"],
-  ["offerDepth", "offerNearDepth"],
-  ["bidNearDepth", "bidNearDepth"],
+  ["bidDepth", "imbalance"],
+  ["offerDepth", "imbalance"],
+  ["bidNearDepth", "imbalance"],
+  ["offerNearDepth", "imbalance"],
+  ["emptyTicks", "imbalance"],
+  ["spread", "imbalance"],
+  ["lotsPerOrder", "lotsPerOrder"],
 ])("a Rank by stored as %s reads as %s", async (stored, shown) => {
   expect(
     await read({ ...DEFAULT_SETTINGS, rankBy: stored, direction: "low" }),
     "the browser's other settings are kept"
   ).toEqual({ ...DEFAULT_SETTINGS, rankBy: shown, direction: "low" })
+})
+
+test("a browser's Heavy side filter is kept, and settings stored before it read as Any", async () => {
+  expect(await read({ ...DEFAULT_SETTINGS, heavySide: "big" })).toEqual({
+    ...DEFAULT_SETTINGS,
+    heavySide: "big",
+  })
+  const { heavySide: _, ...before } = DEFAULT_SETTINGS
+  expect(
+    await read({ ...before, floor: 10e9, rankBy: "heavySide" }),
+    "the browser's other settings are kept"
+  ).toEqual({ ...DEFAULT_SETTINGS, floor: 10e9, rankBy: "heavySide" })
 })

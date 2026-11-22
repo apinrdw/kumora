@@ -46,14 +46,20 @@ test("the readout shows the selected code's live readings and the disclaimer", a
     stockbitOrderBookFrame(code, "OFFER", [[1010, 1, 100]]),
   ])
   // 300 bid lots against 100 offered.
-  await expect(readout.getByLabel("Imbalance value")).toHaveText("+50%")
+  await expect(
+    readout.getByLabel("Imbalance reading").getByLabel("Imbalance value")
+  ).toHaveText("+50%")
   await expect(
     readout.getByRole("meter", { name: "Imbalance" })
   ).toHaveAttribute("aria-valuenow", "50")
-  // 1,000 to 1,010 is two Rp5 ticks.
-  await expect(readout.getByLabel("Spread")).toHaveText("2 ticks · 1.00%")
-  // 1,000 × 300 lots × 100 shares, its lots on hover.
-  await expect(readout.getByTitle("300 lots")).toHaveText("Rp30 M")
+  // 100 lots per order a side: the heavy bids hold small orders.
+  await expect(readout.getByLabel("Imbalance reading")).toHaveText(
+    "+50% · Bid-heavy · small orders"
+  )
+  // 300 bid lots in 3 orders, 100 offered in 1; nothing but lots per order.
+  await expect(
+    readout.getByRole("table", { name: "Bid and offer readings" })
+  ).toHaveText("Bid · best 5Offer · best 5Lots per order100100")
   await expect(readout).toContainText(
     "They don't predict price and aren't advice to buy or sell."
   )
@@ -184,7 +190,7 @@ test("on a recorded day the readings follow the replay cursor", async ({
             : book(
                 turn,
                 [{ price: 1000, lots: 100, orders: 1 }],
-                [{ price: 1005, lots: 300, orders: 3 }]
+                [{ price: 1005, lots: 300, orders: 1 }]
               ),
         deltas: [],
       })
@@ -222,14 +228,24 @@ test("on a recorded day the readings follow the replay cursor", async ({
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}`)
   const readout = page.getByRole("region", { name: "Book readout" })
   // At the close: the 11:00 frame, the offers leading.
-  await expect(readout.getByLabel("Imbalance value")).toHaveText("−50%")
-  await expect(readout.getByLabel("Spread")).toHaveText("1 tick · 0.50%")
+  await expect(
+    readout.getByLabel("Imbalance reading").getByLabel("Imbalance value")
+  ).toHaveText("−50%")
   await expect(readout).toContainText("recorded frame 11:00:00")
+  // 300 offered lots in 1 order against 100 bid in 1.
+  await expect(readout.getByLabel("Imbalance reading")).toHaveText(
+    "−50% · Offer-heavy · big orders"
+  )
   await page
     .getByRole("slider", { name: "Replay cursor" })
     .fill(String(morning + 30_000))
-  await expect(readout.getByLabel("Imbalance value")).toHaveText("+50%")
+  await expect(
+    readout.getByLabel("Imbalance reading").getByLabel("Imbalance value")
+  ).toHaveText("+50%")
   await expect(readout).toContainText("recorded frame 10:00:00")
+  await expect(readout.getByLabel("Imbalance reading")).toHaveText(
+    "+50% · Bid-heavy · small orders"
+  )
 })
 
 // Ten 1,000-lot bids from 1,000 down; at 990, a wall of 6,000 lots in 2
@@ -248,7 +264,7 @@ test("a wall that appears is listed, marked on the ladder and on the heatmap", a
   const code = freshCode("BE")
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
   const readout = page.getByRole("region", { name: "Book readout" })
-  const events = readout.getByRole("region", { name: "Book events" })
+  const events = readout.getByRole("region", { name: "Events" })
   // Just picked: this browser has heard no 30 s of its book yet.
   await expect(events).toContainText("No book events yet today.")
   await expect(events).not.toContainText("Too quiet to read")
@@ -360,7 +376,7 @@ test("on a recorded day the events after the cursor are dimmed", async ({
       })
   )
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}`)
-  const events = page.getByRole("region", { name: "Book events" })
+  const events = page.getByRole("region", { name: "Events" })
   const pulled = events.getByRole("button", { name: /Pulled/ })
   await expect(pulled).toContainText(
     "50 K lots at 100 · 1 order · 1 ticks, as price approached"
@@ -384,7 +400,7 @@ test("a day recorded before book events says so", async ({ page }) => {
     (route) => route.fulfill({ json: { code, recorded: false, events: [] } })
   )
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}`)
-  await expect(page.getByRole("region", { name: "Book events" })).toContainText(
+  await expect(page.getByRole("region", { name: "Events" })).toContainText(
     "Book events not recorded before"
   )
 })

@@ -13,7 +13,7 @@ export const BOOK_EVENT_WINDOW_MS = 30_000
 export const MIN_SIDE_FRAMES = 2
 
 // The book side an event happened on.
-export const BookEventSide = Schema.Literals(["bid", "offer"])
+const BookEventSide = Schema.Literals(["bid", "offer"])
 export type BookEventSide = typeof BookEventSide.Type
 
 // What every event carries: its code, the side frame's time it was read on,
@@ -91,13 +91,15 @@ export const BookEvent = Schema.Union([
 export type BookEvent = typeof BookEvent.Type
 export type BookEventKind = BookEvent["kind"]
 
-// Book events oldest first, by the side frame's time. The level ledger
-// reads a pull two side frames behind the newest, so an event can arrive
-// after newer ones: a list that holds them sorts, never appends.
-export const BookEventOrder: Order.Order<BookEvent> = Order.mapInput(
-  Order.Number,
-  (event: BookEvent) => DateTime.toEpochMillis(event.at)
-)
+// Events oldest first, by their time: a book event's side frame, an order
+// flow event's minute. The level ledger reads a pull two side frames behind
+// the newest, and order flow events arrive at their minute's close, so an
+// event can arrive after newer ones: a list that holds them sorts, never
+// appends.
+export const EventOrder: Order.Order<{ readonly at: DateTime.Utc }> =
+  Order.mapInput(Order.Number, (event: { readonly at: DateTime.Utc }) =>
+    DateTime.toEpochMillis(event.at)
+  )
 
 // Decision: a snapshot carries the day's newest 100 book events across every
 // code, plus the selected code's day up to MAX_CODE_BOOK_EVENTS: the

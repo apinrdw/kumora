@@ -1,11 +1,14 @@
 import {
   BOOK_EVENT_WINDOW_MS,
-  BookEventOrder,
+  EventOrder,
   MAX_CODE_BOOK_EVENTS,
+  MAX_CODE_ORDER_FLOW_EVENTS,
   MIN_SIDE_FRAMES,
   type BookEvent,
   type OrderBook,
+  type OrderFlowEvent,
   type RecordedBookEvents,
+  type RecordedOrderFlowEvents,
   type StockCode,
   type ViewerDown,
 } from "@workspace/relay"
@@ -16,10 +19,17 @@ export interface BookEventStore {
   // The code's events for the day, oldest first: its newest
   // MAX_CODE_BOOK_EVENTS, as its snapshot and its recorded day's answer hold.
   readonly events: () => ReadonlyArray<BookEvent>
+  // The code's order flow events for the day, oldest first: its newest
+  // MAX_CODE_ORDER_FLOW_EVENTS, as its snapshot and its recorded day's
+  // answer hold.
+  readonly orderFlowEvents: () => ReadonlyArray<OrderFlowEvent>
   // False for a recorded day kept before book events were.
   readonly recorded: () => boolean
-  // The event picked in the list, by its key (lib/book-events.ts), whose
-  // heatmap mark is ringed.
+  // False for a recorded day kept before order flow events were.
+  readonly orderFlowRecorded: () => boolean
+  // The event picked in the list, book or order flow, by its key
+  // (lib/book-events.ts, eventKey), whose heatmap mark is
+  // ringed.
   readonly picked: () => string | undefined
   readonly pick: (key: string | undefined) => void
   // Whether each side had fewer than MIN_SIDE_FRAMES frames in the window
@@ -31,19 +41,23 @@ export interface BookEventStore {
   // on.
   readonly now: (local: number) => number
   readonly apply: (message: ViewerDown) => void
-  // A recorded day's GET answer.
+  // A recorded day's GET answers.
   readonly load: (answer: RecordedBookEvents) => void
+  readonly loadOrderFlow: (answer: RecordedOrderFlowEvents) => void
   readonly subscribe: (listener: () => void) => () => void
 }
 
-// The selected code's book events, outside React: live from the viewer
-// socket, or a recorded day's from its GET. A snapshot of this code replaces
-// them and a delta's of this code add to them. Its books' side times, kept
+// The selected code's book and order flow events, outside React: live from
+// the viewer socket, or a recorded day's from its GETs. A
+// snapshot of this code replaces them and a delta's of this code add to
+// them. Its books' side times, kept
 // for the window, say whether it is too quiet to read.
 export const makeBookEventStore = (code: StockCode) =>
   Effect.sync((): BookEventStore => {
     let events: ReadonlyArray<BookEvent> = []
+    let orderFlowEvents: ReadonlyArray<OrderFlowEvent> = []
     let recorded = true
+    let orderFlowRecorded = true
     let picked: string | undefined
     // The object's clock less this one's, at its last message.
     let skew = 0
@@ -73,7 +87,9 @@ export const makeBookEventStore = (code: StockCode) =>
     return {
       code,
       events: () => events,
+      orderFlowEvents: () => orderFlowEvents,
       recorded: () => recorded,
+      orderFlowRecorded: () => orderFlowRecorded,
       picked: () => picked,
       pick: (key) => {
         picked = key
@@ -96,6 +112,7 @@ export const makeBookEventStore = (code: StockCode) =>
           if (message.orderBook?._tag === "OrderBook")
             noteBook(message.orderBook)
           events = message.selectedBookEvents ?? []
+          orderFlowEvents = message.selectedOrderFlowEvents ?? []
           return tell()
         }
         const book = message.orderBooks?.find((each) => each.code === code)
@@ -104,14 +121,28 @@ export const makeBookEventStore = (code: StockCode) =>
           (event) => event.code === code
         )
         if (arriving.length > 0)
-          events = Arr.sort([...events, ...arriving], BookEventOrder).slice(
+          events = Arr.sort([...events, ...arriving], EventOrder).slice(
             -MAX_CODE_BOOK_EVENTS
           )
-        if (book !== undefined || arriving.length > 0) tell()
+        const flowing = (message.orderFlowEvents ?? []).filter(
+          (event) => event.code === code
+        )
+        if (flowing.length > 0)
+          orderFlowEvents = Arr.sort(
+            [...orderFlowEvents, ...flowing],
+            EventOrder
+          ).slice(-MAX_CODE_ORDER_FLOW_EVENTS)
+        if (book !== undefined || arriving.length > 0 || flowing.length > 0)
+          tell()
       },
       load: (answer) => {
         events = answer.events
         recorded = answer.recorded
+        tell()
+      },
+      loadOrderFlow: (answer) => {
+        orderFlowEvents = answer.events
+        orderFlowRecorded = answer.recorded
         tell()
       },
       subscribe: (listener) => {

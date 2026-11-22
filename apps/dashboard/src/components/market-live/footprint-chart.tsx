@@ -20,6 +20,7 @@ import { cn } from "@workspace/ui/lib/utils"
 
 import type { RelayGap } from "@workspace/relay"
 
+import type { BookEventStore } from "./book-event-store"
 import type { CandleStore } from "./candle-store"
 import type { ChartPair } from "./chart-pair"
 import { FootprintHeader, makeHeaderStore } from "./footprint-header"
@@ -155,16 +156,20 @@ function FootprintControls({
 
 // The footprint chart: the selected code's footprint, each minute's lots at
 // each price in the view mode picked, with imbalances, POC and the day's VWAP
-// bands, its Vol / Δ / CVD footer, and a header reading the hovered minute,
-// above the candle chart. It draws the candle chart's minutes, relay `gaps`
+// bands, its Vol / Δ / CVD footer, a header reading the hovered minute, and
+// a row of the code's order flow marks along its top, above the candle
+// chart. It draws the candle chart's minutes, relay `gaps`
 // included, and moves with it through `pair`.
 export function FootprintChart({
   store,
+  bookEvents,
   pair,
   gaps,
   cursor,
 }: {
   store: CandleStore
+  // The selected code's order flow events, marked in the row.
+  bookEvents?: BookEventStore | undefined
   pair: ChartPair
   gaps: ReadonlyArray<RelayGap>
   cursor?: ReplayCursor | undefined
@@ -196,6 +201,7 @@ export function FootprintChart({
           <Suspense fallback={<div className={CHART_HEIGHT} />}>
             <FootprintCanvas
               store={store}
+              bookEvents={bookEvents}
               pair={pair}
               gaps={gaps}
               settings={settings}

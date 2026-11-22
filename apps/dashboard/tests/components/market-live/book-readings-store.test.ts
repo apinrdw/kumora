@@ -5,10 +5,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { makeBookReadingsStore } from "@/components/market-live/book-readings-store"
 
 const side = {
-  nearDepth: 1_000_000,
   lots: 100,
-  emptyTicks: 0,
-  widestGap: 0,
   lotsPerOrder: 10,
 }
 
@@ -16,7 +13,6 @@ const readings = (code: string, imbalance: number): BookReadings => ({
   code: StockCode.make(code),
   at: DateTime.makeUnsafe("2026-11-18T03:00:00Z"),
   imbalance,
-  spread: { ticks: 1, percent: 0.5 },
   bid: side,
   offer: side,
 })

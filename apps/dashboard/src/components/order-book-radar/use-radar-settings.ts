@@ -5,6 +5,7 @@ import { useCallback, useSyncExternalStore } from "react"
 import {
   DEFAULT_SETTINGS,
   FLOORS,
+  HEAVY_SIDE_FILTERS,
   RANK_CHOICES,
   type RadarSettings,
   type RankKey,
@@ -20,21 +21,35 @@ const Price = Schema.UndefinedOr(Schema.Finite.check(Schema.isGreaterThan(0)))
 
 const RANK_KEYS = RANK_CHOICES.map((choice) => choice.value)
 
-// Decision: Rank by's near depth choices were stored as bidDepth and
-// offerDepth before they took the glossary's name, Near depth; a browser
-// that kept one reads it as the new key, and the next change stores that.
-const RENAMED_RANK_KEYS = {
-  bidDepth: "bidNearDepth",
-  offerDepth: "offerNearDepth",
-} as const satisfies Record<string, RankKey>
+// Decision: a Rank by this browser stored that the scanner no longer offers
+// (Near depth bid or offer, under either stored name, Empty ticks, Spread %)
+// reads as Imbalance, keeping the browser's other settings; the next change
+// stores that. See apinrdw/kumora#601.
+const REMOVED_RANK_KEYS = [
+  "bidDepth",
+  "offerDepth",
+  "bidNearDepth",
+  "offerNearDepth",
+  "emptyTicks",
+  "spread",
+] as const
 
-const RankBy = Schema.Literals([...RANK_KEYS, "bidDepth", "offerDepth"]).pipe(
-  Schema.decodeTo(Schema.Literals(RANK_KEYS), {
-    decode: SchemaGetter.transform((key) =>
-      key === "bidDepth" || key === "offerDepth" ? RENAMED_RANK_KEYS[key] : key
+const RankKeys = Schema.Literals(RANK_KEYS)
+const isRankKey = Schema.is(RankKeys)
+
+const RankBy = Schema.Literals([...RANK_KEYS, ...REMOVED_RANK_KEYS]).pipe(
+  Schema.decodeTo(RankKeys, {
+    decode: SchemaGetter.transform((key): RankKey =>
+      isRankKey(key) ? key : "imbalance"
     ),
     encode: SchemaGetter.transform((key) => key),
   })
+)
+
+// Decision: settings this browser stored before the Heavy side filter read
+// as Any, keeping the rest. See apinrdw/kumora#601.
+const HeavySide = Schema.Literals(HEAVY_SIDE_FILTERS).pipe(
+  Schema.withDecodingDefaultKey(Effect.succeed("any" as const))
 )
 
 const Stored = Schema.Struct({
@@ -43,6 +58,7 @@ const Stored = Schema.Struct({
   search: Schema.String,
   priceMin: Schema.optionalKey(Price),
   priceMax: Schema.optionalKey(Price),
+  heavySide: HeavySide,
   rankBy: RankBy,
   direction: Schema.Literals(["high", "low"]),
 })

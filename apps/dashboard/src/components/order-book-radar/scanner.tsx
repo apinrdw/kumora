@@ -1,8 +1,14 @@
 // The order book radar's scanner (spec apinrdw/kumora#517, "The scanner"),
 // layout D: the Bid-heavy and Offer-heavy halves, each row unfolding its
 // best 5 levels, the codes at a limit under them, each row with its last
-// book event's chip.
-import type { BookEventSide, BookLevel, StockCode } from "@workspace/relay"
+// book or order flow event's chip.
+import {
+  heavySideOf,
+  type BookEventSide,
+  type BookLevel,
+  type BookReadings,
+  type StockCode,
+} from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { IconStarFilled } from "@tabler/icons-react"
 import { DateTime, Effect } from "effect"
@@ -10,13 +16,10 @@ import { memo, useSyncExternalStore } from "react"
 
 import { KButton } from "@/components/k/button"
 import type { BookReadingsStore } from "@/components/market-live/book-readings-store"
+import { HeavySideChip } from "@/components/market-live/heavy-side-chip"
 import type { OrderBookStore } from "@/components/market-live/order-book-store"
-import {
-  BOOK_EVENT_MARKS,
-  BOOK_EVENT_NAMES,
-  bookEventDetail,
-} from "@/lib/book-events"
-import { lots, price, signed } from "@/lib/format"
+import { EventChip } from "@/components/market-live/event-mark"
+import { lots, price, signed, wibClock } from "@/lib/format"
 import {
   isStale,
   rankedFigure,
@@ -69,8 +72,8 @@ function TugBar({ imbalance, half }: { imbalance: number; half: Half }) {
   )
 }
 
-// The row's last book event of the last 5 minutes: its mark coloured by
-// side, its name and detail on hover.
+// The row's last event of the last 5 minutes, book or order flow: its
+// mark, and from 640 px its minute; its name and detail on hover.
 function LastEvent({
   events,
   now,
@@ -83,18 +86,26 @@ function LastEvent({
     event !== undefined &&
     now - DateTime.toEpochMillis(event.at) < RECENT_EVENTS_MS
   return (
-    <span aria-label="Last event" className="text-right">
+    <span aria-label="Last event" className="text-right whitespace-nowrap">
       {recent && (
-        <abbr
-          title={`${BOOK_EVENT_NAMES[event.kind]}: ${Effect.runSync(bookEventDetail(event))}`}
-          className={cn(
-            "rounded-xs px-0.5 text-[9px] font-bold no-underline sm:px-1 sm:text-[10px]",
-            event.side === "bid" ? "bg-up/15 text-up" : "bg-down/15 text-down"
-          )}
-        >
-          {BOOK_EVENT_MARKS[event.kind]}
-        </abbr>
+        <>
+          <EventChip event={event} />
+          <span className="ml-1 hidden text-[10px] text-muted-foreground sm:inline">
+            {Effect.runSync(wibClock(DateTime.toEpochMillis(event.at)))}
+          </span>
+        </>
       )}
+    </span>
+  )
+}
+
+// The row's heavy side chip, if any. The halves hold no code at a limit
+// (`scan`).
+function HeavySideCell({ readings }: { readings: BookReadings }) {
+  const heavy = Effect.runSync(heavySideOf(readings, undefined))
+  return (
+    <span className="flex justify-start">
+      {heavy !== undefined && <HeavySideChip heavy={heavy} />}
     </span>
   )
 }
@@ -248,7 +259,7 @@ const Row = memo(function Row({
         type="button"
         aria-expanded={unfolded}
         onClick={() => onUnfold(unfolded ? undefined : code)}
-        className="hover:bg-elevated grid w-full grid-cols-[88px_1fr_48px_16px] items-center gap-2 px-2.5 py-1.5 text-left text-[12px] sm:grid-cols-[96px_1fr_52px_100px_64px]"
+        className="hover:bg-elevated grid w-full grid-cols-[72px_1fr_44px_78px_16px] items-center gap-2 px-2.5 py-1.5 text-left text-[12px] sm:grid-cols-[96px_1fr_52px_78px_100px_64px]"
       >
         <span className="flex items-center gap-1 font-bold tracking-[0.02em]">
           {code}
@@ -269,6 +280,7 @@ const Row = memo(function Row({
         >
           {Effect.runSync(signed(imbalance * 100, 0))}%
         </span>
+        <HeavySideCell readings={readings} />
         <span
           aria-label="Ranked by"
           className="hidden text-right text-muted-foreground tabular-nums sm:block"

@@ -2,8 +2,13 @@
 // "The Book readout" and "Book events"): the readout's list, and the recent
 // events the ladder marks. Live from the viewer socket, or a recorded day's
 // from its GET, dimmed past the cursor.
-import { clientRuntime, fetchRecordedBookEvents } from "@workspace/client"
 import {
+  clientRuntime,
+  fetchRecordedBookEvents,
+  fetchRecordedOrderFlowEvents,
+} from "@workspace/client"
+import {
+  EventOrder,
   INDEX_CODES,
   READING_PHASES,
   type BookEvent,
@@ -27,11 +32,18 @@ import {
   BOOK_EVENT_MARKS,
   BOOK_EVENT_NAMES,
   bookEventDetail,
-  bookEventKey,
+  eventKey,
 } from "@/lib/book-events"
 import { dayLabel, tapeTime } from "@/lib/format"
+import {
+  ORDER_FLOW_EVENTS_FROM,
+  marketEventDetail,
+  marketEventKnownAt,
+  type MarketEvent,
+} from "@/lib/order-flow-events"
 
 import { makeBookEventStore, type BookEventStore } from "./book-event-store"
+import { EventName } from "./event-mark"
 import { useMarketPhase } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
 import { loadedOrSignIn } from "./sign-in-again"
@@ -44,22 +56,37 @@ const MARK_MS = 120_000
 const TICK_MS = 1_000
 
 // The selected code's book event store for the recorded `day`, or live.
-// A recorded day's is loaded once by its GET; live, the page feeds it the
+// A recorded day's is loaded once by its two GETs; live, the page feeds it the
 // socket's messages. An index has no book, so nothing is asked.
 export function useBookEvents(code: StockCode, day: WibDate | undefined) {
   const store = useMemo(() => Effect.runSync(makeBookEventStore(code)), [code])
   useEffect(() => {
     if (day === undefined || INDEX_CODES.includes(code)) return
     const fiber = clientRuntime.runFork(
-      loadedOrSignIn(
-        fetchRecordedBookEvents(day, code).pipe(
-          Effect.tap((answer) =>
-            Effect.sync(() => {
-              if (Option.isSome(answer)) store.load(answer.value)
-            })
-          )
-        ),
-        "Book events"
+      Effect.all(
+        [
+          loadedOrSignIn(
+            fetchRecordedBookEvents(day, code).pipe(
+              Effect.tap((answer) =>
+                Effect.sync(() => {
+                  if (Option.isSome(answer)) store.load(answer.value)
+                })
+              )
+            ),
+            "Book events"
+          ),
+          loadedOrSignIn(
+            fetchRecordedOrderFlowEvents(day, code).pipe(
+              Effect.tap((answer) =>
+                Effect.sync(() => {
+                  if (Option.isSome(answer)) store.loadOrderFlow(answer.value)
+                })
+              )
+            ),
+            "Order flow events"
+          ),
+        ],
+        { concurrency: 2 }
       )
     )
     return () => void clientRuntime.runFork(Fiber.interrupt(fiber))
@@ -88,6 +115,20 @@ function useNow(store: BookEventStore, cursor: ReplayCursor | undefined) {
 
 const useEvents = (store: BookEventStore) =>
   useSyncExternalStore(store.subscribe, store.events, store.events)
+
+// The code's book and order flow events together, oldest first.
+const useMarketEvents = (store: BookEventStore) => {
+  const events = useEvents(store)
+  const flowing = useSyncExternalStore(
+    store.subscribe,
+    store.orderFlowEvents,
+    store.orderFlowEvents
+  )
+  return useMemo(
+    () => [...events, ...flowing].sort((a, b) => EventOrder(a, b)),
+    [events, flowing]
+  )
+}
 
 /**
  * The events of the last 2 minutes up to now, or up to the cursor on a
@@ -120,7 +161,7 @@ export function LadderMarks({
   )
   return here.map((event) => (
     <abbr
-      key={Effect.runSync(bookEventKey(event))}
+      key={Effect.runSync(eventKey(event))}
       title={`${BOOK_EVENT_NAMES[event.kind]}: ${Effect.runSync(bookEventDetail(event))}`}
       className={cn(
         "mx-0.5 rounded-xs px-0.5 text-[9px] font-bold no-underline",
@@ -148,19 +189,19 @@ function Note({ children }: { children: string }) {
 
 function EventRow({
   event,
-  eventKey,
+  keyed,
   after,
   picked,
   onPick,
 }: {
-  event: BookEvent
-  eventKey: string
+  event: MarketEvent
+  keyed: string
   after: boolean
   picked: boolean
   onPick: () => void
 }) {
   return (
-    <li data-event-key={eventKey}>
+    <li data-event-key={keyed}>
       <button
         type="button"
         aria-pressed={picked}
@@ -174,16 +215,9 @@ function EventRow({
         <span className="text-muted-foreground tabular-nums">
           {Effect.runSync(tapeTime(DateTime.toEpochMillis(event.at)))}
         </span>
-        <span
-          className={cn(
-            "rounded-xs px-1.5 text-[10px] font-bold whitespace-nowrap",
-            event.side === "bid" ? "bg-up/15 text-up" : "bg-down/15 text-down"
-          )}
-        >
-          {BOOK_EVENT_NAMES[event.kind]}
-        </span>
+        <EventName event={event} />
         <span className="text-muted-foreground">
-          {Effect.runSync(bookEventDetail(event))}
+          {Effect.runSync(marketEventDetail(event))}
         </span>
       </button>
     </li>
@@ -213,7 +247,7 @@ const listNote = (state: {
 // store and key, so Back to the link, which brings a fresh store, lands again.
 function useLandOn(
   store: BookEventStore,
-  events: ReadonlyArray<BookEvent>,
+  events: ReadonlyArray<MarketEvent>,
   landOn: string | undefined,
   list: RefObject<HTMLOListElement | null>
 ) {
@@ -227,7 +261,7 @@ function useLandOn(
     }
     if (landed.current?.store === store && landed.current.key === landOn) return
     const found = events.some(
-      (event) => Effect.runSync(bookEventKey(event)) === landOn
+      (event) => Effect.runSync(eventKey(event)) === landOn
     )
     if (!found) return
     landed.current = { store, key: landOn }
@@ -239,7 +273,8 @@ function useLandOn(
 }
 
 /**
- * The readout's Book events part: the code's events, newest first. Picking
+ * The readout's Events part: the code's book and order flow events,
+ * mixed newest first. Picking
  * one rings its heatmap mark; on a recorded day those after the cursor are
  * dimmed. A link can land on one, `landOn` by its key.
  */
@@ -252,7 +287,7 @@ export function BookEventList({
   cursor: ReplayCursor | undefined
   landOn?: string | undefined
 }) {
-  const events = useEvents(store)
+  const events = useMarketEvents(store)
   const list = useRef<HTMLOListElement>(null)
   useLandOn(store, events, landOn, list)
   const picked = useSyncExternalStore(
@@ -264,6 +299,11 @@ export function BookEventList({
     store.subscribe,
     store.recorded,
     store.recorded
+  )
+  const orderFlowRecorded = useSyncExternalStore(
+    store.subscribe,
+    store.orderFlowRecorded,
+    store.orderFlowRecorded
   )
   const now = useNow(store, cursor)
   const phase = useMarketPhase()
@@ -283,24 +323,30 @@ export function BookEventList({
   )
   return (
     <section
-      aria-label="Book events"
+      aria-label="Events"
       className="flex min-w-0 flex-col gap-1 lg:col-span-2 2xl:col-span-1"
     >
       <h3 className="text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
-        Book events
+        Events
       </h3>
       {note !== undefined && <Note>{note}</Note>}
-      {recorded && events.length > 0 && (
+      {!orderFlowRecorded && (
+        <Note>
+          {`Order flow events not recorded before ${Effect.runSync(dayLabel(ORDER_FLOW_EVENTS_FROM))}.`}
+        </Note>
+      )}
+      {events.length > 0 && (
         <ol ref={list} className="max-h-[230px] overflow-auto">
           {[...events].reverse().map((event) => {
-            const key = Effect.runSync(bookEventKey(event))
+            const key = Effect.runSync(eventKey(event))
             return (
               <EventRow
                 key={key}
-                eventKey={key}
+                keyed={key}
                 event={event}
                 after={
-                  cursor !== undefined && DateTime.toEpochMillis(event.at) > now
+                  cursor !== undefined &&
+                  Effect.runSync(marketEventKnownAt(event)) > now
                 }
                 picked={picked === key}
                 onPick={() => store.pick(picked === key ? undefined : key)}

@@ -28,6 +28,7 @@ import {
   type Feed,
   type IndicativePrice,
   type IngestUp,
+  type OrderFlowEvent,
   type OrderBook,
   type RecordedDay,
   type RecordedResource,
@@ -47,6 +48,7 @@ import {
   Effect,
   Option,
   Schema,
+  Scheduler,
   Scope,
   Semaphore,
 } from "effect"
@@ -63,6 +65,8 @@ import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
 import { makeBubbleBook } from "./bubble-book.ts"
 import { makeLevelLedger } from "./level-ledger.ts"
+import { makeOrderFlow, type StoredMinute } from "./order-flow.ts"
+import { makeOrderFlowEventLog } from "./order-flow-event-log.ts"
 import { makeReadingsBook } from "./readings-book.ts"
 import { dayValuesAnswer, makePreviousValues } from "./previous-values.ts"
 import {
@@ -399,6 +403,33 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
   return prices
 })
 
+// One code's stored minutes, as an order flow restart reads them: each
+// candle's range and close with its footprint's cells.
+const storedMinutesOf = (
+  store: Effect.Success<ReturnType<typeof makeDayStore>>
+) =>
+  Effect.fnUntraced(function* (code: StockCode) {
+    const cells = new Map(
+      (yield* store.storedFootprintsOf(code)).map(
+        (footprint) => [footprint.minute, footprint.cells] as const
+      )
+    )
+    return (yield* store.storedRangesOf(code)).map(
+      ({ minute, figures }): StoredMinute => ({
+        minute,
+        figures,
+        cells: cells.get(minute),
+      })
+    )
+  })
+
+// An order flow event's key in the day store: at most one a code, minute,
+// kind and side.
+const orderFlowEventKey = (event: OrderFlowEvent) =>
+  Effect.succeed(
+    `${event.code}|${DateTime.toEpochMillis(event.at)}|${event.kind}|${event.side}`
+  )
+
 // Decision: a batch that corrects a built day marks it stale and moves its
 // rebuild to this long after the batch, so a burst of corrections costs one
 // rebuild. See spec apinrdw/kumora#437, "When it runs".
@@ -601,7 +632,23 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
   const bubbles = yield* makeBubbleBook
-  const candles = yield* makeCandleBook(store, bubbles.settled)
+  const orderFlow = yield* makeOrderFlow(options.date)
+  const orderFlowEvents = yield* makeOrderFlowEventLog(store)
+  // Whether the store holds the marker that this day records order flow
+  // events, and whether this object judged a minute.
+  // Decision: only an object that judged minutes marks the day, as only a
+  // ledger read marks book events: a seal alone records none, so a day from
+  // before order flow events answers that none were recorded. See spec
+  // apinrdw/kumora#605, "Order flow events: data".
+  let orderFlowMarked = (yield* store.fact(Fact.orderFlowEvents)) !== undefined
+  let orderFlowJudged = false
+  const candles = yield* makeCandleBook(
+    store,
+    (code, minute, candle, print) => {
+      bubbles.settled(code, minute, candle, print)
+      orderFlow.settled(code, minute, print)
+    }
+  )
   const keptAlerts = yield* makeKeptAlerts
   const ingests = options.ingests ?? Effect.succeed([])
   const books = yield* makeOrderBooks(options.date)
@@ -655,6 +702,38 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         : market.restore(JSON.parse(storedDowns) as DownRecord)
     )
   )
+  // Each code's order flow state rebuilt from its stored minutes, and the
+  // events found again that no flush stored (order-flow.ts, `restore`),
+  // checked against that code's stored events alone.
+  // Decision: the replay never yields to Effect's scheduler. A fiber yields
+  // every 2,048 operations and waits on a timer, about 1 ms in workerd, and
+  // what needs the live day waits for it. Measured 2026-11-23 on the dev
+  // machine, the busy day in workerd (row-budgets.workerd.test.ts): 8,561
+  // yields waited 9.1 s of the replay's 12.2 s. See PR #633.
+  const restoreOrderFlow = Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis
+    if (yield* orderFlow.due(now)) orderFlowJudged = true
+    yield* orderFlow.restore(
+      yield* store.dayCodes,
+      storedMinutesOf(store),
+      now,
+      (yield* market.conditions).gaps,
+      Effect.fnUntraced(function* (found) {
+        const stored = new Set(
+          yield* Effect.forEach(
+            yield* store.orderFlowEventsOf(found[0]!.code),
+            orderFlowEventKey
+          )
+        )
+        yield* orderFlowEvents.restore(
+          yield* Effect.filter(found, (event) =>
+            Effect.map(orderFlowEventKey(event), (key) => !stored.has(key))
+          )
+        )
+      }),
+      store.orderFlowEventsFrom
+    )
+  }).pipe(Effect.provideService(Scheduler.PreventSchedulerYield, true))
   // The live day read back from the store: the tape, the bubble book, the
   // feeds' down stretches and the last frames.
   const restoreLive = Effect.gen(function* () {
@@ -673,6 +752,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }))
       lastLivePrices.set(price.code, price)
     yield* candles.rankStored
+    yield* restoreOrderFlow
   })
   // Decision: a day not sealed restores the live day at its start, a sealed
   // past day never. Today's sealed day restores it once, when a viewer's
@@ -929,6 +1009,15 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const bookReadings = yield* readings.read(changedBooks, conditions.phase)
     yield* sessionBooks.served(changedBooks, conditions.phase)
     yield* readLedger(changedBooks, conditions)
+    // Decision: order flow rules judge each minute in the delta tick once
+    // its candle settled, 5 s past its close as the flush waits, never inside
+    // the flush. See spec apinrdw/kumora#605, "Order flow events: the rules".
+    yield* candles.settledBefore
+    const judgedAt = yield* Clock.currentTimeMillis
+    if (yield* orderFlow.due(judgedAt)) orderFlowJudged = true
+    yield* orderFlowEvents.add(
+      yield* orderFlow.judge(judgedAt, conditions.gaps)
+    )
     // Decision: a delta carries whole books only for codes some viewer
     // selected, as footprints do: a page reads only its selected code's, and
     // whole books were 86% of a viewer's inflated bytes. Every other changed
@@ -945,6 +1034,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       bookReadings,
       scannerFigures: yield* changedFigures,
       bookEvents: yield* bookEvents.takeDelta,
+      orderFlowEvents: yield* orderFlowEvents.takeDelta,
       dayStates: states,
       indicative: yield* market.indicativeChanges,
     })
@@ -978,7 +1068,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       !(yield* books.hasChanges(yield* stockbitLive)) &&
       !(yield* dayStates.hasChanges) &&
       !(yield* conditionsPending) &&
-      !(yield* figuresPending)
+      !(yield* figuresPending) &&
+      !(yield* orderFlow.due(yield* Clock.currentTimeMillis))
     )
       return
     deltaScheduled = true
@@ -1037,6 +1128,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const ajaibBooks = yield* books.takeAjaibBooks
     const recordedCodes = yield* recordedBooks.unwritten
     const marking = bookEventsRead && !bookEventsMarked
+    const flowing = yield* orderFlowEvents.toFlush
+    const markingFlow = orderFlowJudged && !orderFlowMarked
     const retained = unwritten
     const payload: Flush = {
       trades: settled.trades,
@@ -1054,9 +1147,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         ...(yield* sweepBrokers.persisting(settled.trades)),
         ...recordedCodes,
         ...(marking ? { [Fact.bookEvents]: "recorded" } : {}),
+        ...(markingFlow ? { [Fact.orderFlowEvents]: "recorded" } : {}),
         ...facts,
       },
       bookEvents: events,
+      orderFlowEvents: flowing,
     }
     unwritten = payload
     yield* store.write(payload)
@@ -1066,7 +1161,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     )
     unwritten = undefined
     if (marking) bookEventsMarked = true
+    if (markingFlow) orderFlowMarked = true
     yield* bookEvents.written(events.length)
+    yield* orderFlowEvents.written(flowing.length)
     writtenDowns = payload.facts[Fact.feedDowns]
     yield* candles.written
   })
@@ -1098,6 +1195,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       unwritten !== undefined ||
       livePricesChanged.size > 0 ||
       (yield* bookEvents.toFlush).length > 0 ||
+      (yield* orderFlowEvents.toFlush).length > 0 ||
+      (orderFlowJudged && !orderFlowMarked) ||
       (yield* candles.hasUnflushed) ||
       (yield* bookChunks.hasOpen) ||
       (yield* books.hasUnflushedAjaib) ||
@@ -1717,6 +1816,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       const bookReadings = yield* readings.all
       const newestEvents = yield* bookEvents.newest
       const selectedEvents = yield* bookEvents.ofCode(selected)
+      const newestOrderFlow = yield* orderFlowEvents.newest
+      const selectedOrderFlow = yield* orderFlowEvents.ofCode(selected)
       const scannerFigures = yield* currentFigures
       for (const figures of scannerFigures)
         if (sentFigures.get(figures.code) !== (yield* figuresKey(figures)))
@@ -1736,6 +1837,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           sweepAlerts: yield* keptAlerts.on(snapshotTape),
           bookEvents: newestEvents,
           selectedBookEvents: selectedEvents,
+          orderFlowEvents: newestOrderFlow,
+          selectedOrderFlowEvents: selectedOrderFlow,
         })),
         ...(bookReadings.length === 0 ? {} : { bookReadings, scannerFigures }),
       })
@@ -1870,6 +1973,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
                 events: yield* bookEvents.ofCode(code),
               }
             }),
+            orderFlowEvents: Effect.fnUntraced(function* (code: StockCode) {
+              return {
+                recorded: today || orderFlowMarked,
+                events: yield* orderFlowEvents.ofCode(code),
+              }
+            }),
           })
         )
 
@@ -1893,6 +2002,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     bookEvents: {
       recorded: Effect.sync(() => today || bookEventsMarked),
       codes: store.bookEventCodes,
+    },
+    orderFlowEvents: {
+      recorded: Effect.sync(() => today || orderFlowMarked),
+      codes: store.orderFlowEventCodes,
     },
     codes: Effect.gen(function* () {
       const codes = new Set(yield* store.dayCodes)

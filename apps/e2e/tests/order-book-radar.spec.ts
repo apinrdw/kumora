@@ -1,7 +1,7 @@
 // The order book radar's scanner of spec apinrdw/kumora#517: every code
 // above the value floor, today or on the previous trading day, split into
 // the Bid-heavy and Offer-heavy halves and ranked within each; a row
-// unfolds its best 5 levels and opens Market Live. The Book events feed
+// unfolds its best 5 levels and opens Market Live. The Events feed
 // lists the scanner's codes' events and opens Market Live at one.
 //
 // Books go through the relay to the Test stage's trading-day object. Its
@@ -189,7 +189,8 @@ test("the watchlist, search and price band filter the halves", async ({
 test("Rank by orders each half in both directions, never mixing them", async ({
   page,
 }) => {
-  // Imbalance +50%, +80% and +20%; near depth bid 300, 900 and 150 lots.
+  // Imbalance +50%, +80% and +20%; lots per order on the bid 150, 450 and
+  // 75, each book's levels holding two orders.
   const a = freshCode("RR")
   const b = freshCode("RR")
   const c = freshCode("RR")
@@ -211,9 +212,25 @@ test("Rank by orders each half in both directions, never mixing them", async ({
   await search(page, "RR")
   await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([b, a, c])
   await expect.poll(() => codesOf(page, "Offer-heavy")).toEqual([offer])
+  // Imbalance's figure: the heavy side's lots per order against the other's.
+  await expect(
+    half(page, "Bid-heavy")
+      .locator(`[data-code="${b}"]`)
+      .getByLabel("Ranked by")
+  ).toHaveText("450 vs 50")
   await page.getByRole("button", { name: "High → low" }).click()
   await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([c, a, b])
-  await pickRank(page, "Near depth bid")
+  await page.getByRole("combobox", { name: "Rank by" }).click()
+  for (const removed of [
+    "Near depth bid",
+    "Near depth offer",
+    "Empty ticks",
+    "Spread %",
+  ])
+    await expect(page.getByRole("option", { name: removed })).toHaveCount(0)
+  await page
+    .getByRole("option", { name: "Lots per order", exact: true })
+    .click()
   // A new reading ranks High → low again.
   await expect(page.getByRole("button", { name: "High → low" })).toBeVisible()
   await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([b, a, c])
@@ -221,10 +238,61 @@ test("Rank by orders each half in both directions, never mixing them", async ({
     half(page, "Bid-heavy")
       .locator(`[data-code="${b}"]`)
       .getByLabel("Ranked by")
-  ).toHaveText("Rp90 M")
+  ).toHaveText("450 lots/ord")
   await page.getByRole("button", { name: "High → low" }).click()
   await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([c, a, b])
   await expect.poll(() => codesOf(page, "Offer-heavy")).toEqual([offer])
+  relay.close()
+})
+
+test("Heavy side tags lopsided rows, filters the halves and ranks them", async ({
+  page,
+}) => {
+  // Bid-heavy +80%: 450 lots per order against 50, big orders; 900 lots
+  // in 60 orders against 50, small orders; and +20%, untagged.
+  const big = freshCode("RH")
+  const small = freshCode("RH")
+  const untagged = freshCode("RH")
+  const relay = await openIngest()
+  await relay.sendStockbit([
+    ...book(big, 900, 100),
+    stockbitOrderBookFrame(small, "BID", [[1000, 60, 900]]),
+    stockbitOrderBookFrame(small, "OFFER", [[1005, 2, 100]]),
+    ...book(untagged, 150, 100),
+  ])
+  await withFigures(page, {
+    [big]: { previousValue: 2e9 },
+    [small]: { previousValue: 2e9 },
+    [untagged]: { previousValue: 2e9 },
+  })
+  await page.goto(`${DASHBOARD}${PAGE}`)
+  await search(page, "RH")
+  const row = (code: string) =>
+    half(page, "Bid-heavy").locator(`[data-code="${code}"]`)
+  await expect(row(big).getByLabel("Heavy side")).toHaveText("big orders")
+  await expect(row(small).getByLabel("Heavy side")).toHaveText("small orders")
+  await expect(row(untagged).getByLabel("Heavy side")).toHaveCount(0)
+  await pickRank(page, "Heavy side")
+  await expect
+    .poll(() => codesOf(page, "Bid-heavy"))
+    .toEqual([big, small, untagged])
+  await expect(row(big).getByLabel("Ranked by")).toHaveText("9.0×")
+  const pickHeavySide = async (label: string) => {
+    await page.getByRole("combobox", { name: "Heavy side" }).click()
+    await page.getByRole("option", { name: label, exact: true }).click()
+  }
+  await pickHeavySide("Big orders")
+  await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([big])
+  await pickHeavySide("Small orders")
+  await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([small])
+  // Kept in this browser.
+  await page.reload()
+  await search(page, "RH")
+  await expect.poll(() => codesOf(page, "Bid-heavy")).toEqual([small])
+  await pickHeavySide("Any")
+  await expect
+    .poll(() => codesOf(page, "Bid-heavy"))
+    .toEqual([big, small, untagged])
   relay.close()
 })
 
@@ -401,7 +469,7 @@ test("the feed lists the scanner's codes' book events live and opens Market Live
     ])
     await page.waitForTimeout(600)
   }
-  const feed = page.getByRole("region", { name: "Book events" })
+  const feed = page.getByRole("region", { name: "Events" })
   const item = feed.getByRole("button", { name: new RegExp(code) })
   await expect(item).toContainText("Wall appeared")
   await expect(item).toContainText("6 K lots at 990 · 2 orders · 2 ticks away")
@@ -409,6 +477,7 @@ test("the feed lists the scanner's codes' book events live and opens Market Live
     half(page, "Bid-heavy")
       .locator(`[data-code="${code}"]`)
       .getByLabel("Last event")
+      .locator("abbr")
   ).toHaveText("W+")
   // Only the scanner's codes.
   await search(page, "RZ")
@@ -420,7 +489,7 @@ test("the feed lists the scanner's codes' book events live and opens Market Live
   await expect(page).toHaveURL(new RegExp(`/market-live\\?code=${code}&event=`))
   const picked = page
     .getByRole("region", { name: "Book readout" })
-    .getByRole("region", { name: "Book events" })
+    .getByRole("region", { name: "Events" })
     .getByRole("button", { name: /Wall appeared/ })
   await expect(picked).toHaveAttribute("aria-pressed", "true")
   await expect(picked).toBeInViewport()
@@ -477,7 +546,7 @@ test.describe("on a phone", () => {
     expect(below!.y).toBeGreaterThanOrEqual(top!.y + top!.height)
     expect(below!.x).toBeCloseTo(top!.x, 0)
     const feed = await page
-      .getByRole("region", { name: "Book events" })
+      .getByRole("region", { name: "Events" })
       .boundingBox()
     expect(feed!.y).toBeGreaterThanOrEqual(below!.y + below!.height)
     // No horizontal scroll.

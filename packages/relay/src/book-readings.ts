@@ -7,12 +7,7 @@ import { Effect, Schema, SchemaGetter } from "effect"
 
 import { kindOf } from "./code-list.ts"
 import { StockCode } from "./codes.ts"
-import {
-  SHARES_PER_LOT,
-  levelValue,
-  type BookLevel,
-  type OrderBook,
-} from "./order-book.ts"
+import { SHARES_PER_LOT, type BookLevel, type OrderBook } from "./order-book.ts"
 import { wibDateAt, type MarketPhase } from "./schedule.ts"
 import { priceLimitsOf, ticksBetween } from "./ticks.ts"
 
@@ -27,14 +22,13 @@ export const READING_PHASES: ReadonlySet<MarketPhase> = new Set([
   "session-2",
 ])
 
-// One side's readings over its best five levels: near depth in rupiah
-// (`nearDepth`) and lots, the empty ticks between its best level and its fifth with the widest
-// single gap, and its lots per order (none without an order).
+// One side's readings over its best five levels: its lots, and its lots per
+// order (none without an order).
+// Decision: near depth, empty ticks and the spread are gone from readings;
+// lots stay because `limitOf` reads an empty side from them. See
+// apinrdw/kumora#601.
 const SideReadings = Schema.Struct({
-  nearDepth: Schema.Finite,
   lots: Schema.Finite,
-  emptyTicks: Schema.Int,
-  widestGap: Schema.Int,
   lotsPerOrder: Schema.UndefinedOr(Schema.Finite),
 })
 type SideReadings = typeof SideReadings.Type
@@ -43,94 +37,40 @@ type SideReadings = typeof SideReadings.Type
 export type Limit = "upper" | "lower"
 
 // One code's readings. Imbalance runs from -1 (offers only) to 1 (bids only),
-// none when both sides are empty; the spread is none when either is. `at` is
-// the book's as-of.
+// none when both sides are empty. `at` is the book's as-of.
 const BookReadingsFields = Schema.Struct({
   code: StockCode,
   at: Schema.DateTimeUtc,
   imbalance: Schema.UndefinedOr(Schema.Finite),
-  spread: Schema.UndefinedOr(
-    Schema.Struct({ ticks: Schema.Int, percent: Schema.Finite })
-  ),
   bid: SideReadings,
   offer: SideReadings,
 })
 
-// A reading's tuple: [code, as-of, imbalance, spread ticks, spread %, then
-// the bid's and the offer's near depth,
-// lots, empty ticks, widest gap and lots per order], none as null. Encoding
-// rounds imbalance and the spread to 4 places, lots per order to 2 and near depth
-// to the rupiah: finer digits are noise on the page.
+// A reading's tuple: [code, as-of, imbalance, bid lots, bid lots per order,
+// offer lots, offer lots per order], none as null. Encoding rounds imbalance
+// to 4 places and lots per order to 2: finer digits are noise on the page.
 // Decision: readings travel as a tuple: every changed code's go out in each
 // delta, and keys would double the ~100 bytes the spec budgets for one. See
 // spec apinrdw/kumora#517, "Data".
-const WireSide = [
-  Schema.Finite,
-  Schema.Finite,
-  Schema.Int,
-  Schema.Int,
-  Schema.NullOr(Schema.Finite),
-] as const
+const WireSide = [Schema.Finite, Schema.NullOr(Schema.Finite)] as const
 
 export const BookReadings = Schema.Tuple([
   StockCode,
   Schema.DateTimeUtcFromMillis,
-  Schema.NullOr(Schema.Finite),
-  Schema.NullOr(Schema.Int),
   Schema.NullOr(Schema.Finite),
   ...WireSide,
   ...WireSide,
 ]).pipe(
   Schema.decodeTo(Schema.toType(BookReadingsFields), {
     decode: SchemaGetter.transform(
-      ([
-        code,
-        at,
-        imbalance,
-        spreadTicks,
-        spreadPercent,
-        bidNearDepth,
-        bidLots,
-        bidEmpty,
-        bidWidest,
-        bidPerOrder,
-        offerNearDepth,
-        offerLots,
-        offerEmpty,
-        offerWidest,
-        offerPerOrder,
-      ]) => {
-        const side = (
-          nearDepth: number,
-          lots: number,
-          emptyTicks: number,
-          widestGap: number,
-          lotsPerOrder: number | null
-        ): SideReadings => ({
-          nearDepth,
-          lots,
-          emptyTicks,
-          widestGap,
-          lotsPerOrder: lotsPerOrder ?? undefined,
-        })
-        return {
+      ([code, at, imbalance, bidLots, bidPerOrder, offerLots, offerPerOrder]) =>
+        ({
           code,
           at,
           imbalance: imbalance ?? undefined,
-          spread:
-            spreadTicks === null || spreadPercent === null
-              ? undefined
-              : { ticks: spreadTicks, percent: spreadPercent },
-          bid: side(bidNearDepth, bidLots, bidEmpty, bidWidest, bidPerOrder),
-          offer: side(
-            offerNearDepth,
-            offerLots,
-            offerEmpty,
-            offerWidest,
-            offerPerOrder
-          ),
-        } as const
-      }
+          bid: { lots: bidLots, lotsPerOrder: bidPerOrder ?? undefined },
+          offer: { lots: offerLots, lotsPerOrder: offerPerOrder ?? undefined },
+        }) as const
     ),
     encode: SchemaGetter.transform((readings) => {
       const rounded = (value: number | undefined, places: number) => {
@@ -139,19 +79,11 @@ export const BookReadings = Schema.Tuple([
         return Math.round(value * scale) / scale
       }
       const side = (each: SideReadings) =>
-        [
-          Math.round(each.nearDepth),
-          each.lots,
-          each.emptyTicks,
-          each.widestGap,
-          rounded(each.lotsPerOrder, 2),
-        ] as const
+        [each.lots, rounded(each.lotsPerOrder, 2)] as const
       return [
         readings.code,
         readings.at,
         rounded(readings.imbalance, 4),
-        readings.spread?.ticks ?? null,
-        rounded(readings.spread?.percent, 4),
         ...side(readings.bid),
         ...side(readings.offer),
       ] as const
@@ -161,39 +93,16 @@ export const BookReadings = Schema.Tuple([
 export type BookReadings = typeof BookReadings.Type
 
 // One side's best five levels, best first.
-const readSide = Effect.fnUntraced(function* (
-  levels: ReadonlyArray<BookLevel>
-) {
-  const near = levels.slice(0, NEAR_LEVELS)
-  let nearDepth = 0
-  let lots = 0
-  let orders = 0
-  let emptyTicks = 0
-  let widestGap = 0
-  for (const [index, level] of near.entries()) {
-    nearDepth += levelValue(level.price, level.lots)
-    lots += level.lots
-    orders += level.orders
-    const before = near[index - 1]
-    if (before === undefined) continue
-    const gap =
-      (yield* ticksBetween(
-        Math.min(before.price, level.price),
-        Math.max(before.price, level.price)
-      )) - 1
-    if (gap <= 0) continue
-    emptyTicks += gap
-    widestGap = Math.max(widestGap, gap)
-  }
-  const side: SideReadings = {
-    nearDepth,
-    lots,
-    emptyTicks,
-    widestGap,
-    lotsPerOrder: orders > 0 ? lots / orders : undefined,
-  }
-  return side
-})
+const readSide = (levels: ReadonlyArray<BookLevel>) =>
+  Effect.sync((): SideReadings => {
+    let lots = 0
+    let orders = 0
+    for (const level of levels.slice(0, NEAR_LEVELS)) {
+      lots += level.lots
+      orders += level.orders
+    }
+    return { lots, lotsPerOrder: orders > 0 ? lots / orders : undefined }
+  })
 
 // Whether a code sits at an auto-reject limit: one side of its readings
 // empty and its last price at the limit its previous close sets, under its
@@ -224,25 +133,55 @@ export const limitOf = Effect.fnUntraced(function* (
   return undefined
 })
 
+// Decision: a book is read for a heavy side when its imbalance is at least
+// 50% either way: one side holds 3× the other's lots over the best five
+// levels. See apinrdw/kumora#601.
+const HEAVY_IMBALANCE = 0.5
+// Decision: big orders when the heavy side's lots per order is at least 1.5×
+// the other side's, small orders at 1× or less, and none between, so a
+// near-tie doesn't flip the tag and fire alerts. See apinrdw/kumora#601.
+const BIG_ORDERS_RATIO = 1.5
+const SMALL_ORDERS_RATIO = 1
+
+// A lopsided book's heavy side, and whether it holds big or small orders
+// against the other: `ratio` is its lots per order over the other's.
+export interface HeavySide {
+  readonly side: "bid" | "offer"
+  readonly orders: "big" | "small"
+  readonly ratio: number
+}
+
+// The heavy side of `readings` at `limit`, the code's limit mark: none for a
+// book under 50% lopsided, with an empty side, at a limit, or with a ratio
+// between small and big orders. Like the limit, it is derived on the page
+// (the Decision at `limitOf`), so the wire carries nothing new.
+export const heavySideOf = (readings: BookReadings, limit: Limit | undefined) =>
+  Effect.sync((): HeavySide | undefined => {
+    const { imbalance } = readings
+    if (limit !== undefined || imbalance === undefined) return undefined
+    if (Math.abs(imbalance) < HEAVY_IMBALANCE) return undefined
+    const side = imbalance > 0 ? "bid" : "offer"
+    const [heavy, other] =
+      side === "bid"
+        ? [readings.bid, readings.offer]
+        : [readings.offer, readings.bid]
+    if (heavy.lotsPerOrder === undefined || other.lotsPerOrder === undefined)
+      return undefined
+    const ratio = heavy.lotsPerOrder / other.lotsPerOrder
+    if (ratio >= BIG_ORDERS_RATIO) return { side, orders: "big", ratio }
+    if (ratio <= SMALL_ORDERS_RATIO) return { side, orders: "small", ratio }
+    return undefined
+  })
+
 // `book`'s readings.
 export const bookReadingsOf = Effect.fnUntraced(function* (book: OrderBook) {
   const bid = yield* readSide(book.bids)
   const offer = yield* readSide(book.offers)
   const total = bid.lots + offer.lots
-  const bestBid = book.bids[0]?.price
-  const bestOffer = book.offers[0]?.price
   const readings: BookReadings = {
     code: book.code,
     at: book.at,
     imbalance: total > 0 ? (bid.lots - offer.lots) / total : undefined,
-    spread:
-      bestBid === undefined || bestOffer === undefined
-        ? undefined
-        : {
-            ticks: yield* ticksBetween(bestBid, bestOffer),
-            percent:
-              ((bestOffer - bestBid) / ((bestOffer + bestBid) / 2)) * 100,
-          },
     bid,
     offer,
   }

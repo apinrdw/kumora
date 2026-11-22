@@ -106,6 +106,7 @@ export {
   decodeRecordedDay,
   decodeRecordedBrokerCodes,
   decodeRecordedGaps,
+  decodeRecordedOrderFlowEvents,
   decodeRecordedSweepBrokers,
   decodeSweepBrokersText,
   decodeRecordedTape,
@@ -116,6 +117,7 @@ export {
   encodeRecordedDay,
   encodeRecordedBrokerCodes,
   encodeRecordedGaps,
+  encodeRecordedOrderFlowEvents,
   encodeRecordedSweepBrokers,
   encodeSweepBrokersText,
   encodeRecordedTape,
@@ -131,6 +133,7 @@ export type {
   RecordedBubbles,
   RecordedCandles,
   RecordedDay,
+  RecordedOrderFlowEvents,
   RecordedSweepBrokers,
   SweepBroker,
   SweepBrokers,
@@ -151,11 +154,13 @@ export {
   READING_PHASES,
   bookReadingsOf,
   fillEstimateOf,
+  heavySideOf,
   limitOf,
 } from "./book-readings.ts"
 export type {
   BookReadings,
   FillEstimate,
+  HeavySide,
   Limit,
   OrderSize,
 } from "./book-readings.ts"
@@ -163,13 +168,18 @@ export type { ScannerFigures } from "./scanner-figures.ts"
 export {
   BOOK_EVENT_WINDOW_MS,
   BookEvent,
-  BookEventOrder,
-  BookEventSide,
+  EventOrder,
   MAX_CODE_BOOK_EVENTS,
   MIN_SIDE_FRAMES,
   SNAPSHOT_BOOK_EVENTS,
 } from "./book-events.ts"
-export type { BookEventKind } from "./book-events.ts"
+export type { BookEventKind, BookEventSide } from "./book-events.ts"
+export {
+  MAX_CODE_ORDER_FLOW_EVENTS,
+  OrderFlowEvent,
+  SNAPSHOT_ORDER_FLOW_EVENTS,
+} from "./order-flow-events.ts"
+export type { OrderFlowEventKind, OrderFlowSide } from "./order-flow-events.ts"
 export {
   HEAT_SLICE_MS,
   decodeRecordedHeatmap,

@@ -171,10 +171,10 @@ _Avoid_: Quote, summary
 
 **Order book**:
 The resting buy orders (bid) and sell orders (offer) for one stock code, as price levels with their lots and number of orders. Live viewers see every code's. A day records a code's order book only from the first time a viewer selects or watches it that day to the close, and only for a code the day's code list names (before the list arrives, up to a fixed cap of codes); a day recorded before that change recorded every code's.
-_Avoid_: Depth, market depth (depth names a reading of the book, never the book)
+_Avoid_: Depth, market depth
 
 **Book reading**:
-A figure the order book radar measures from one stock code's order book, over the best five levels of each side: imbalance, near depth, empty ticks, spread and lots per order. Readings are measured only in sessions 1 and 2; in any other market phase they keep their last values, marked as paused. They describe liquidity and pressure, never which way the price will go.
+A figure the order book radar measures from one stock code's order book, over the best five levels of each side: imbalance, lots per order and heavy side. Readings are measured only in sessions 1 and 2; in any other market phase they keep their last values, marked as paused. They describe liquidity and pressure, never which way the price will go.
 _Avoid_: Signal, indicator
 
 **Scanner**:
@@ -189,21 +189,13 @@ _Avoid_: Liquidity filter, minimum volume
 Bid lots minus offer lots, over their sum, across the best five levels of each side: from −100% (offers only) to +100% (bids only).
 _Avoid_: Bid share (that is the whole book's bids over its total), pressure
 
-**Near depth**:
-The rupiah resting in one side's best five levels.
-_Avoid_: Depth (alone), liquidity
-
-**Empty ticks**:
-The tick prices with no resting order between one side's best level and its fifth.
-_Avoid_: Gaps, holes
-
-**Spread**:
-The distance from the best bid to the best offer, in ticks, each side's price counted on its own tick, and as a percentage of the price midway between them. None when either side is empty.
-_Avoid_: Bid-ask gap
-
 **Lots per order**:
 A level's lots over its frequency; for a side, its best five levels' lots over their orders.
 _Avoid_: Order size (that is the user's fill estimate amount), average lot
+
+**Heavy side**:
+A book reading of a book at least 50% lopsided: big orders when its heavy side's lots per order is at least 1.5× the other side's, small orders when it is no more than the other's; none in between, when either side is empty, or at a limit. It says how the heavy side's lots are held, never who holds them.
+_Avoid_: Order size (that is the fill estimate's amount), whale, bandar, retail, block order
 
 **Fill estimate**:
 What filling the user's order size against the book would take right now: a buy walks the offers and a sell the bids, giving the levels consumed, the last price reached, the average fill price and the slippage from the best price. Only the levels the book carries count, so a size beyond them says so.
@@ -219,7 +211,7 @@ _Avoid_: Signal, alert (an alert is how a book event reaches the user)
 
 **Absorbed**:
 A price in a side's best three levels took several times the lots it showed in trades within the window, and still stands with no trade beyond it.
-_Avoid_: Defended, iceberg
+_Avoid_: Defended, iceberg, absorption
 
 **Eaten**:
 A best-three level or a wall left the book within the window, and trades explain most of what it lost.
@@ -233,12 +225,32 @@ _Avoid_: Iceberg, hidden order (IDX offers no such order type that the terminal 
 A level, among the ones the book carries, holding several times the median lots of its side's levels, and at least a rupiah floor. Concentrated when one to three orders hold it, a crowd otherwise. A wall can appear, be pulled (lose at least half its lots in view, with neither trades nor price crossing it explaining the loss), or move (lots and orders leave one price and about as many lots, with the same change in orders, arrive at another price on the same side, one that was in view the frame before, within about two frames).
 _Avoid_: Spoof, fake order (the book cannot show intent)
 
+**Order flow event**:
+Something running trades and candles show a stock code doing at a one-minute close: Exhaustion, Delta divergence or a Failed break. It describes what aggressors and price did, never what comes next.
+_Avoid_: Signal, book event (that is the level ledger's)
+
+**Exhaustion**:
+A push of one aggressor side that set the day's high (buy aggressors) or low (sell aggressors), followed by a minute in which that side's lots fell to a fraction of the push's busiest minute and price neither set a new extreme nor moved as far. It says what the aggressors did, never what price will do next.
+_Avoid_: Fade, top, bottom, reversal
+
+**Delta divergence**:
+A new day's high whose cumulative delta is lower than at the day's previous high, or a new day's low whose cumulative delta is higher than at the previous low, with price having pulled back between the two. It says price and delta disagreed, never what price will do next.
+_Avoid_: Weakening, bearish/bullish divergence
+
+**Failed break**:
+Trades went past the day's established high or low with real aggressor value, and within a few minutes a minute closed back inside it. It says the level didn't hold, never whose orders were triggered or what price will do next.
+_Avoid_: Stop run, stop hunt, false break, fakeout
+
+**Market event**:
+A book event or an order flow event. The scanner's Events feed, its Last event chips and the Book readout's Events list show both as one kind of row, by time.
+_Avoid_: Signal, event family
+
 **Alert rule**:
-Which book events a browser wants to be told of: one or more event kinds, over the watchlist, named stock codes or every code on the scanner, optionally only above a rupiah value. Each browser keeps its own.
+Which market events and heavy side changes a browser wants to be told of: one or more kinds (book event kinds, order flow event kinds, a heavy side becoming big or small orders), over the watchlist, named stock codes or every code on the scanner, optionally only above a rupiah value, which only book events have. Each browser keeps its own.
 _Avoid_: Alert (that is one delivery), trigger, watch
 
 **Alert**:
-One book event an alert rule matched, told to the user while the order book radar or Market Live is open live, once per browser from the page that holds its alert lock (`use-alert-owner.ts`): a toast on the visible page, a browser notification from a background tab. The same code and event kind alert at most once in two minutes, and the browser at most six a minute, across its tabs and reloads.
+One market event or heavy side change an alert rule matched, told to the user while the order book radar or Market Live is open live, once per browser from the page that holds its alert lock (`use-alert-owner.ts`): a toast on the visible page, a browser notification from a background tab. The same code and kind alert at most once in two minutes, and the browser at most six a minute, across its tabs and reloads.
 _Avoid_: Notification (that is one way an alert arrives), signal
 
 **Net flow**:

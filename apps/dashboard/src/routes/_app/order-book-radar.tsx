@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
-import type { BookEvent, StockCode } from "@workspace/relay"
+import type { StockCode } from "@workspace/relay"
 import { Effect } from "effect"
 import { useCallback, useMemo, useState } from "react"
 
@@ -11,14 +11,15 @@ import {
 } from "@/components/market-live/market-conditions"
 import { useSpecialBoard } from "@/components/market-live/use-special-board"
 import { useWatchlist } from "@/components/market-live/use-watchlist"
-import { BookEventFeed } from "@/components/order-book-radar/book-event-feed"
+import { EventFeed } from "@/components/order-book-radar/event-feed"
 import type { RadarEventsStore } from "@/components/order-book-radar/radar-events-store"
 import { Halves } from "@/components/order-book-radar/scanner"
 import { Toolbar } from "@/components/order-book-radar/toolbar"
 import { useRadarFeed } from "@/components/order-book-radar/use-radar-feed"
 import { useRadarSettings } from "@/components/order-book-radar/use-radar-settings"
 import { useRanking } from "@/components/order-book-radar/use-ranking"
-import { bookEventKey } from "@/lib/book-events"
+import { eventKey } from "@/lib/book-events"
+import type { MarketEvent } from "@/lib/order-flow-events"
 import { DISCLAIMER } from "@/lib/book-readings"
 import { coverageNote, type Scan } from "@/lib/order-book-radar"
 
@@ -33,7 +34,7 @@ export const Route = createFileRoute("/_app/order-book-radar")({
   component: OrderBookRadarPage,
 })
 
-// The rows' book events as of now, shown live between re-sorts; the feed's
+// The rows' book and order flow events as of now, shown live between re-sorts; the feed's
 // codes; and the way to Market Live at an event, which its readout's list
 // picks once it lands.
 function useScannerEvents(
@@ -43,12 +44,12 @@ function useScannerEvents(
 ) {
   const navigate = Route.useNavigate()
   const openAt = useCallback(
-    (event: BookEvent) =>
+    (event: MarketEvent) =>
       void navigate({
         to: "/market-live",
         search: {
           code: event.code,
-          event: Effect.runSync(bookEventKey(event)),
+          event: Effect.runSync(eventKey(event)),
         },
       }),
     [navigate]
@@ -136,7 +137,7 @@ function OrderBookRadarPage() {
       <p aria-label="Coverage" className="text-[12px] text-muted-foreground">
         {Effect.runSync(coverageNote(scan))}
       </p>
-      {/* The Book events feed sits beside the halves from 1,100 px, and under
+      {/* The Events feed sits beside the halves from 1,100 px, and under
           them below. */}
       <div className="grid items-start gap-2.5 min-[1100px]:grid-cols-[minmax(0,1fr)_340px]">
         <Halves
@@ -154,7 +155,7 @@ function OrderBookRadarPage() {
             onOpen: open,
           }}
         />
-        <BookEventFeed
+        <EventFeed
           store={feed.events}
           codes={scanner.codes}
           onOpen={scanner.openAt}

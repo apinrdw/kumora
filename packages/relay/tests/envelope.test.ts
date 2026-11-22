@@ -24,6 +24,7 @@ import {
 import type {
   BookEvent,
   BookReadings,
+  OrderFlowEvent,
   IngestDown,
   IngestUp,
   ViewerDown,
@@ -248,7 +249,7 @@ describe("viewer protocol", () => {
     Effect.gen(function* () {
       const wire = JSON.stringify({
         _tag: "Select",
-        protocolVersion: ViewerProtocolVersion - 1,
+        protocolVersion: 8,
         selected: "BBCA",
         watchlist: [],
       })
@@ -337,32 +338,18 @@ describe("viewer protocol, down", () => {
 
   it.effect("book readings round trip in a delta and a snapshot", () =>
     Effect.gen(function* () {
-      assert.strictEqual(ViewerProtocolVersion, 7)
+      assert.strictEqual(ViewerProtocolVersion, 9)
       const readings: BookReadings = {
         code: StockCode.make("ERAA"),
         at: DateTime.makeUnsafe("2026-11-18T03:00:00.125Z"),
         imbalance: -0.2345,
-        spread: { ticks: 2, percent: 0.995 },
-        bid: {
-          nearDepth: 14_815_000,
-          lots: 150,
-          emptyTicks: 2,
-          widestGap: 1,
-          lotsPerOrder: 6.25,
-        },
-        offer: {
-          nearDepth: 0,
-          lots: 0,
-          emptyTicks: 0,
-          widestGap: 0,
-          lotsPerOrder: undefined,
-        },
+        bid: { lots: 150, lotsPerOrder: 6.25 },
+        offer: { lots: 0, lotsPerOrder: undefined },
       }
       const thin: BookReadings = {
         ...readings,
         code: StockCode.make("KOTA"),
         imbalance: undefined,
-        spread: undefined,
       }
       const delta: ViewerDown = {
         _tag: "Delta",
@@ -373,6 +360,16 @@ describe("viewer protocol, down", () => {
       }
       const deltaWire = yield* encodeViewerDown(delta)
       assert.deepStrictEqual(yield* decodeViewerDown(deltaWire), delta)
+      // Only imbalance, then each side's lots and lots per order, travel.
+      assert.deepStrictEqual(JSON.parse(deltaWire).bookReadings[0], [
+        "ERAA",
+        Date.parse("2026-11-18T03:00:00.125Z"),
+        -0.2345,
+        150,
+        6.25,
+        0,
+        null,
+      ])
       // A reading travels as a short tuple, not keyed.
       assert.isBelow(
         JSON.stringify(JSON.parse(deltaWire).bookReadings[0]).length,
@@ -507,6 +504,84 @@ describe("viewer protocol, down", () => {
         answer
       )
     })
+  )
+
+  it.effect(
+    "order flow events of every kind round trip in a delta and a snapshot",
+    () =>
+      Effect.gen(function* () {
+        const code = StockCode.make("KOTA")
+        const at = DateTime.makeUnsafe("2026-11-16T08:02:00.000Z")
+        const events: ReadonlyArray<OrderFlowEvent> = [
+          {
+            kind: "exhaustion",
+            code,
+            at,
+            side: "buy",
+            price: 67,
+            lots: 102_319,
+            peakLots: 431_445,
+            ticks: 1,
+            widestTicks: 3,
+          },
+          {
+            kind: "divergence",
+            code,
+            at,
+            side: "buy",
+            price: 68,
+            delta: 2_143_341,
+            earlierAt: DateTime.makeUnsafe("2026-11-16T08:00:00.000Z"),
+            earlierPrice: 67,
+            earlierDelta: 2_249_235,
+          },
+          {
+            kind: "failedBreak",
+            code,
+            at,
+            side: "sell",
+            price: 185,
+            to: 184,
+            value: 125_000_000,
+            close: 186,
+            minutes: 0,
+          },
+        ]
+        const delta: ViewerDown = {
+          _tag: "Delta",
+          at,
+          tape: [],
+          candles: [],
+          orderFlowEvents: events,
+        }
+        const deltaWire = yield* encodeViewerDown(delta)
+        assert.deepStrictEqual(yield* decodeViewerDown(deltaWire), delta)
+        // Keyed, like book events.
+        assert.strictEqual(
+          JSON.parse(deltaWire).orderFlowEvents[0].kind,
+          "exhaustion"
+        )
+        const snapshot: ViewerDown = {
+          _tag: "Snapshot",
+          at,
+          selected: code,
+          tape: [],
+          candles: [],
+          footprints: [],
+          conditions: {
+            phase: "session-2",
+            relayOnline: true,
+            feeds: { Stockbit: "live", Ajaib: "live" },
+            gaps: [],
+          },
+          orderFlowEvents: events.slice(0, 1),
+          selectedOrderFlowEvents: events,
+        }
+        assert.deepStrictEqual(
+          yield* decodeViewerDown(yield* encodeViewerDown(snapshot)),
+          snapshot
+        )
+      })
   )
 
   it.effect(

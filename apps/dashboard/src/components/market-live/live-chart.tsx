@@ -148,14 +148,21 @@ function ChartHeadline({
   )
 }
 
-// The heatmap's book event marks, named under the chart when it has them.
+// The heatmap's book event marks and the order flow marks, named under the
+// chart when it has them.
 function MarksLegend({ shown }: { shown: boolean }) {
   if (!shown) return null
   return (
-    <p className="text-[11px] text-muted-foreground">
-      Book event marks: ◆ absorbed, eaten or reloaded · ■ wall appeared, pulled
-      or moved · green on the bid, red on the offer
-    </p>
+    <>
+      <p className="text-[11px] text-muted-foreground">
+        Book event marks: ◆ absorbed, eaten or reloaded · ■ wall appeared,
+        pulled or moved · green on the bid, red on the offer
+      </p>
+      <p className="text-[11px] text-muted-foreground">
+        Order flow marks: ▲ buying side at the high · ▼ selling side at the low
+        · E exhaustion, D delta divergence, F failed break
+      </p>
+    </>
   )
 }
 
@@ -242,7 +249,13 @@ export function LiveChart({
         {transport}
       </div>
       {sweeps !== undefined && (
-        <FootprintChart store={store} pair={pair} gaps={gaps} cursor={cursor} />
+        <FootprintChart
+          store={store}
+          bookEvents={bookEvents}
+          pair={pair}
+          gaps={gaps}
+          cursor={cursor}
+        />
       )}
       <section
         aria-label="Candles"

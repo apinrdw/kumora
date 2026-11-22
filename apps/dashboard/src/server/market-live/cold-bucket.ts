@@ -3,7 +3,6 @@
 // This module is the one home of its key layout, its writes, and the two
 // answers a cold read sends: a stored answer, sealed, or Not recorded.
 import {
-  ViewerProtocolVersion,
   type RecordedResource,
   type StockCode,
   type WibDate,
@@ -29,17 +28,23 @@ export interface DayBucket {
   ) => Promise<{ readonly body: ReadableStream } | null>
 }
 
+// Decision: the answers' folder names their format's version, not the live
+// socket's: protocol 8 changed only live book readings, so days moved under
+// v7 stay readable and new days still go there. Bump it only with a stored
+// answer's change, converting the days already moved. See apinrdw/kumora#606.
+const ANSWERS_VERSION = 7
+
 // Decision: a day's keys sit under `days/{date}/`. Its answers sit under
-// the viewer protocol's version, as each was built for that version's page;
+// their format's version (`ANSWERS_VERSION`), as each was built for a page;
 // `status.json` (the broker codes protocol's) and `manifest.json` sit beside
 // that folder. A later change to an answer's format converts on read or
 // rewrites the day R2 to R2. See spec apinrdw/kumora#556, "The layout".
 export const dayKeys = (date: WibDate) =>
   Effect.sync(() => {
     const day = `days/${date}`
-    const answers = `${day}/v${ViewerProtocolVersion}`
+    const answers = `${day}/v${ANSWERS_VERSION}`
     return {
-      // The folder of the answers built for this viewer protocol.
+      // The folder of the answers, by their format's version.
       answers,
       // The day's final broker codes status, as its status GET answered at
       // the move (`after` 0: every missing range).
@@ -52,6 +57,9 @@ export const dayKeys = (date: WibDate) =>
       // Whether the day recorded book events: what a code without a stored
       // BookEvents answer answers.
       bookEvents: `${answers}/book-events.json`,
+      // Whether the day recorded order flow events: what a code without a
+      // stored OrderFlowEvents answer answers.
+      orderFlowEvents: `${answers}/order-flow-events.json`,
       // One code's order books: its chunks behind a minute index
       // (cold-books.ts).
       book: (code: StockCode) => `${answers}/book/${code}.bin`,
@@ -65,8 +73,13 @@ export type DayKeys = Effect.Success<ReturnType<typeof dayKeys>>
 
 // The key of a resource answered by one stored object; none for one read
 // otherwise: Tape and BrokerCodes read tape blocks (cold-tape.ts), and Book
-// reads ranges of its code's object. A code with no stored BookEvents answer
-// answers none from the day's `bookEvents` (cold-days.ts).
+// reads ranges of its code's object. A code with no stored BookEvents or
+// OrderFlowEvents answer answers none from the day's `bookEvents` or
+// `orderFlowEvents` (cold-days.ts).
+// Decision: order flow events sit in the answers' folder, `v7`, not the
+// spec's `v9`: that folder names the stored answers' format, which protocol
+// 9 left alone, and the days already moved sit under it. See
+// apinrdw/kumora#606 and apinrdw/kumora#612.
 export const answerKey = (date: WibDate, resource: RecordedResource) =>
   Effect.map(dayKeys(date), ({ answers: folder }) => {
     switch (resource._tag) {
@@ -84,6 +97,8 @@ export const answerKey = (date: WibDate, resource: RecordedResource) =>
         return `${folder}/heatmap/${resource.code}.json.gz`
       case "BookEvents":
         return `${folder}/book-events/${resource.code}.json.gz`
+      case "OrderFlowEvents":
+        return `${folder}/order-flow-events/${resource.code}.json.gz`
       default:
         return undefined
     }

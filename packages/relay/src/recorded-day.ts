@@ -6,6 +6,7 @@
 import { DateTime, Effect, Option, Schema, SchemaGetter } from "effect"
 
 import { BookEvent } from "./book-events.ts"
+import { OrderFlowEvent } from "./order-flow-events.ts"
 import {
   BrokerCode,
   DayTradeNumber,
@@ -67,6 +68,8 @@ export type RecordedResource =
   | { readonly _tag: "Heatmap"; readonly code: StockCode }
   // One code's book events so far (book-events.ts).
   | { readonly _tag: "BookEvents"; readonly code: StockCode }
+  // One code's order flow events so far (order-flow-events.ts).
+  | { readonly _tag: "OrderFlowEvents"; readonly code: StockCode }
   // Every code's recent minutes and day totals, for Market Bubbles: the live
   // day only.
   | { readonly _tag: "Bubbles" }
@@ -108,6 +111,8 @@ export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
         return `${base}/heatmap/${resource.code}`
       case "BookEvents":
         return `${base}/book-events/${resource.code}`
+      case "OrderFlowEvents":
+        return `${base}/order-flow-events/${resource.code}`
       case "Bubbles":
         return `${base}/bubbles`
     }
@@ -169,13 +174,19 @@ const BARE: ReadonlyMap<string, RecordedResource> = new Map([
 // The resources whose path names one code and nothing else, by path part.
 const CODED: ReadonlyMap<
   string,
-  "Candles" | "Heatmap" | "Sweeps" | "SweepBrokers" | "BookEvents"
+  | "Candles"
+  | "Heatmap"
+  | "Sweeps"
+  | "SweepBrokers"
+  | "BookEvents"
+  | "OrderFlowEvents"
 > = new Map([
   ["candles", "Candles"],
   ["heatmap", "Heatmap"],
   ["sweeps", "Sweeps"],
   ["sweep-brokers", "SweepBrokers"],
   ["book-events", "BookEvents"],
+  ["order-flow-events", "OrderFlowEvents"],
 ] as const)
 
 const resourceOf = Effect.fnUntraced(function* (
@@ -247,6 +258,23 @@ export const encodeRecordedBookEvents = Schema.encodeEffect(
 )
 export const decodeRecordedBookEvents = Schema.decodeUnknownEffect(
   Schema.fromJsonString(RecordedBookEvents)
+)
+
+// The order flow events answer: one code's events for the day so far,
+// oldest first. `recorded` is false for a day the object kept no order flow
+// events of, one recorded before them.
+const RecordedOrderFlowEvents = Schema.Struct({
+  code: StockCode,
+  recorded: Schema.Boolean,
+  events: Schema.Array(OrderFlowEvent),
+})
+export type RecordedOrderFlowEvents = typeof RecordedOrderFlowEvents.Type
+
+export const encodeRecordedOrderFlowEvents = Schema.encodeEffect(
+  Schema.fromJsonString(RecordedOrderFlowEvents)
+)
+export const decodeRecordedOrderFlowEvents = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(RecordedOrderFlowEvents)
 )
 
 // The tape answer: ascending by trade number, like a snapshot's tape.

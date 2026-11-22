@@ -9,6 +9,7 @@ import {
   FLOORS,
   RANK_CHOICES,
   type Floor,
+  type HeavySideFilter,
   type RadarSettings,
 } from "@/lib/order-book-radar"
 
@@ -23,6 +24,15 @@ const CODES_OPTIONS: ReadonlyArray<{
 }> = [
   { value: "all", label: "All above floor" },
   { value: "watchlist", label: "Watchlist" },
+]
+
+const HEAVY_SIDE_OPTIONS: ReadonlyArray<{
+  value: HeavySideFilter
+  label: string
+}> = [
+  { value: "any", label: "Any" },
+  { value: "big", label: "Big orders" },
+  { value: "small", label: "Small orders" },
 ]
 
 // A price field's number, none when blank or not a positive number.
@@ -119,6 +129,14 @@ export function Toolbar({
           onChange={(priceMax) => onChange({ priceMax })}
         />
       </div>
+      <KSelect
+        label="Heavy side"
+        size="xs"
+        options={HEAVY_SIDE_OPTIONS}
+        value={settings.heavySide}
+        onValueChange={(heavySide) => onChange({ heavySide })}
+        className="w-32"
+      />
       <div className="ml-auto flex items-end gap-1.5">
         <KSelect
           label="Rank by"

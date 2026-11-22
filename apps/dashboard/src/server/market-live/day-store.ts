@@ -8,11 +8,13 @@ import { gunzipSync, gzipSync } from "node:zlib"
 import {
   StockCode,
   BookEvent,
+  OrderFlowEvent,
   TradeNumberValue,
   type Footprint,
   type RunningTrade,
   type Sweep,
   MAX_CODE_BOOK_EVENTS,
+  MAX_CODE_ORDER_FLOW_EVENTS,
   MINUTE_MS,
 } from "@workspace/relay"
 import { DateTime, Effect, Schema } from "effect"
@@ -93,6 +95,7 @@ interface Meter {
   sweepBrokers: number
   sweepBrokerMinutes: number
   bookEvents: number
+  orderFlowEvents: number
   billedRowsWritten?: number
   billedMinuteRereadRows?: number
   billedSweepBrokerReadRows?: number
@@ -111,6 +114,7 @@ const emptyMeter = Effect.sync((): Meter => ({
   sweepBrokers: 0,
   sweepBrokerMinutes: 0,
   bookEvents: 0,
+  orderFlowEvents: 0,
 }))
 
 // One code's order book chunk for one minute, encoded.
@@ -143,6 +147,8 @@ export interface Flush {
   readonly alsoWrites?: () => void
   // The book events found since the last flush that landed.
   readonly bookEvents?: ReadonlyArray<BookEvent>
+  // The order flow events found since the last flush that landed.
+  readonly orderFlowEvents?: ReadonlyArray<OrderFlowEvent>
 }
 
 // Decision: the trades are the tape's (tape.ts). The other tables are keyed
@@ -218,6 +224,17 @@ const SCHEMA = [
     detail TEXT NOT NULL,
     PRIMARY KEY (code, time, kind, side, price)
   ) WITHOUT ROWID`,
+  // One order flow event (order-flow.ts), its kind's own figures in
+  // `detail`. At most one a code, minute, kind and side.
+  `CREATE TABLE IF NOT EXISTS order_flow_events (
+    code TEXT NOT NULL,
+    time INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    side TEXT NOT NULL,
+    price REAL NOT NULL,
+    detail TEXT NOT NULL,
+    PRIMARY KEY (code, time, kind, side)
+  ) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS ajaib_books (
     code TEXT PRIMARY KEY,
     book TEXT NOT NULL
@@ -262,6 +279,9 @@ export const Fact = {
   // That the object recorded the day's book events (book-event-log.ts): a
   // day without it was recorded before them.
   bookEvents: "book-events",
+  // That the object judged the day's order flow events (order-flow.ts): a
+  // day without it was recorded before them.
+  orderFlowEvents: "order-flow-events",
   // Where the day's tape comes from (trading-day.ts): TapeSource's relay or
   // walk, none while unknown.
   tapeSource: "tape-source",
@@ -362,6 +382,28 @@ const bookEventOf = Effect.fnUntraced(function* (
     price: row.price,
     lots: row.lots,
     orders: row.orders,
+  })
+}, Effect.orDie)
+
+// A stored order flow event: its columns and its kind's own figures in
+// `detail`, decoded as the wire's OrderFlowEvent. A row this code can't read
+// is a defect.
+const decodeOrderFlowEvent = Schema.decodeUnknownEffect(OrderFlowEvent)
+// Its wire form, so each DateTime in `detail` is stored as epoch
+// milliseconds, the form `orderFlowEventOf` decodes.
+const encodeOrderFlowEvent = (event: OrderFlowEvent) =>
+  Schema.encodeEffect(OrderFlowEvent)(event).pipe(Effect.orDie)
+const orderFlowEventOf = Effect.fnUntraced(function* (
+  row: Record<string, SqlValue>
+) {
+  const detail = yield* decodeDetail(row.detail)
+  return yield* decodeOrderFlowEvent({
+    ...detail,
+    kind: row.kind,
+    code: row.code,
+    at: row.time,
+    side: row.side,
+    price: row.price,
   })
 }, Effect.orDie)
 
@@ -501,6 +543,10 @@ export const makeDayStore = (
 
     const write = Effect.fnUntraced(function* (flush: Flush) {
       const footprints = yield* footprintTexts(flush.footprints)
+      const orderFlowEvents = yield* Effect.forEach(
+        flush.orderFlowEvents ?? [],
+        encodeOrderFlowEvent
+      )
       yield* meteredTransaction(() => {
         tape.write(flush.trades)
         insertCandles(flush.candles)
@@ -554,9 +600,22 @@ export const makeDayStore = (
             JSON.stringify(detail)
           )
         }
+        for (const event of orderFlowEvents) {
+          const { code, at, kind, side, price, ...detail } = event
+          sql.exec(
+            "INSERT OR REPLACE INTO order_flow_events VALUES (?, ?, ?, ?, ?, ?)",
+            code,
+            at,
+            kind,
+            side,
+            price,
+            JSON.stringify(detail)
+          )
+        }
         flush.alsoWrites?.()
       })
       meter.bookEvents += flush.bookEvents?.length ?? 0
+      meter.orderFlowEvents += flush.orderFlowEvents?.length ?? 0
       meter.trades += flush.trades.length
       meter.candles += flush.candles.length
       meter.footprints += flush.footprints.length
@@ -658,6 +717,31 @@ export const makeDayStore = (
           ),
           storedCandleOf
         )
+      )
+
+    // One code's candles as an order flow restart replays them
+    // (order-flow.ts, `restore`), ascending by minute: each one's range,
+    // close and close order.
+    // Decision: a read of its own for 5 of a candle's 14 columns. Measured
+    // 2026-11-23 on the dev machine, the busy day's 348,000 candles in
+    // workerd: 1.3 s read whole (`storedCandlesOf`), 0.5 s as these. See
+    // PR #633.
+    const storedRangesOf = (code: StockCode) =>
+      Effect.sync(() =>
+        sql
+          .exec(
+            "SELECT minute, high, low, close, close_order FROM candles WHERE code = ? ORDER BY minute",
+            code
+          )
+          .map((row) => ({
+            minute: Number(row.minute),
+            figures: {
+              high: Number(row.high),
+              low: Number(row.low),
+              close: Number(row.close),
+              closeOrder: BigInt(Number(row.close_order)),
+            },
+          }))
       )
 
     // Every stock's day totals and newest `minutes` candles, for the bubble
@@ -951,6 +1035,48 @@ export const makeDayStore = (
         (events) => events.reverse()
       )
 
+    // One code's newest MAX_CODE_ORDER_FLOW_EVENTS stored order flow
+    // events, oldest first: read by the key's prefix, that code's rows alone.
+    const orderFlowEventsOf = (code: StockCode) =>
+      Effect.map(
+        Effect.forEach(
+          sql.exec(
+            "SELECT * FROM order_flow_events WHERE code = ? ORDER BY time DESC LIMIT ?",
+            code,
+            MAX_CODE_ORDER_FLOW_EVENTS
+          ),
+          orderFlowEventOf
+        ),
+        (events) => events.reverse()
+      )
+
+    // A code's stored order flow events from `from` (epoch ms), oldest
+    // first: a range of the key, so it reads only those rows.
+    const orderFlowEventsFrom = (code: StockCode, from: number) =>
+      Effect.forEach(
+        sql.exec(
+          "SELECT * FROM order_flow_events WHERE code = ? AND time >= ? ORDER BY time",
+          code,
+          from
+        ),
+        orderFlowEventOf
+      )
+
+    // The day's newest `limit` stored order flow events of every code,
+    // oldest first. Like `newestBookEvents`, it visits every row and keeps
+    // `limit` of them.
+    const storedOrderFlowEvents = (limit: number) =>
+      Effect.map(
+        Effect.forEach(
+          sql.exec(
+            "SELECT * FROM order_flow_events ORDER BY time DESC LIMIT ?",
+            limit
+          ),
+          orderFlowEventOf
+        ),
+        (events) => events.reverse()
+      )
+
     // The chunk of `code` for the minute holding `minute`, or the latest
     // before it: the book in force then.
     const chunkAt = Effect.fnUntraced(function* (
@@ -1010,7 +1136,12 @@ export const makeDayStore = (
     // 13 K book chunks, or every candle). See spec apinrdw/kumora#556,
     // "The move".
     const codesOf = (
-      table: "candles" | "book_chunks" | "heatmaps" | "book_events"
+      table:
+        | "candles"
+        | "book_chunks"
+        | "heatmaps"
+        | "book_events"
+        | "order_flow_events"
     ) =>
       Effect.sync(() =>
         sql
@@ -1033,6 +1164,9 @@ export const makeDayStore = (
 
     // The codes with a stored book event, ascending.
     const bookEventCodes = codesOf("book_events")
+
+    // The codes with a stored order flow event, ascending.
+    const orderFlowEventCodes = codesOf("order_flow_events")
 
     // Every code the day holds a candle, book, heatmap or book event of,
     // ascending.
@@ -1124,6 +1258,7 @@ export const makeDayStore = (
       tradesBetween,
       storedCandle,
       storedCandlesOf,
+      storedRangesOf,
       storedBubbles,
       candlesOf,
       storedFootprint,
@@ -1138,11 +1273,15 @@ export const makeDayStore = (
       chunkAt,
       bookCodes,
       bookEventCodes,
+      orderFlowEventCodes,
       dayCodes,
       storedChunksOf,
       heatmapOf,
       bookEventsOf,
       newestBookEvents,
+      orderFlowEventsOf,
+      orderFlowEventsFrom,
+      storedOrderFlowEvents,
       latestChunks,
       sessionBooks,
       ajaibBooks,

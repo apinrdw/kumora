@@ -1,6 +1,7 @@
 // What the Book readout and the order book radar's scanner share about book
-// readings (spec apinrdw/kumora#517): the disclaimer at their foot and the
-// lowest previous close readings are shown for.
+// readings (spec apinrdw/kumora#517): the disclaimer at their foot, the
+// lowest previous close readings are shown for, and a heavy side's words.
+import type { HeavySide } from "@workspace/relay"
 import { Effect } from "effect"
 
 export const DISCLAIMER =
@@ -10,6 +11,18 @@ export const DISCLAIMER =
 // one tick there moves the price 10–100%. See spec apinrdw/kumora#517,
 // "Ticks, limits and excluded codes".
 export const LOWEST_READ_CLOSE = 10
+
+// The side a lopsided book leans to, and how its heavy side's lots are held
+// (glossary **Heavy side**), as the Book readout, the heavy side chip and an
+// alert's title word them.
+export const LEANS: Readonly<Record<HeavySide["side"], string>> = {
+  bid: "Bid-heavy",
+  offer: "Offer-heavy",
+}
+export const ORDERS: Readonly<Record<HeavySide["orders"], string>> = {
+  big: "big orders",
+  small: "small orders",
+}
 
 // A code's last price and previous close, as a page holds them.
 export interface CodePrices {

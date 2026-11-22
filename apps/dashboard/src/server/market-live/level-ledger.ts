@@ -26,7 +26,7 @@ const ABSORBED_MULTIPLE = 1
 // Decision: absorbed and reloaded need Rp100 M traded, eaten a peak of Rp100
 // M shown: at Rp250 M mid codes at the open drop from 0.48 to 0.20 events a
 // minute. See apinrdw/kumora#508.
-const LEVEL_FLOOR = 100_000_000
+export const LEVEL_FLOOR = 100_000_000
 
 // Decision: a wall holds at least 5 × its side's median lots: at 3 almost
 // every side always has one. See apinrdw/kumora#508.

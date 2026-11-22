@@ -25,11 +25,12 @@ import { cookiesFrom, linkIn, seam, send, signUp } from "../auth/seam.ts"
 import { stockbitBook, stockbitTrade, tradingDay } from "./day-harness"
 import { memoryDayBucket } from "./memory-day-bucket"
 import { asMoved } from "./moved-answer"
+import { pushJudged } from "./order-flow-push"
 import { memorySql } from "./sql"
 
 const DAY = WibDate.make("2026-11-09")
-// The folder of the day's answers, built for the viewer protocol.
-const ANSWERS = `days/2026-11-09/v${ViewerProtocolVersion}`
+// The folder of the day's answers: protocol 7's, the format they still keep.
+const ANSWERS = "days/2026-11-09/v7"
 const SEALED = "private, max-age=31536000, immutable"
 const CODES: RecordedResource = { _tag: "Codes" }
 const GAPS: RecordedResource = { _tag: "Gaps" }
@@ -74,6 +75,11 @@ const bodyOf = Effect.fnUntraced(function* (response: Response) {
       ? gunzipSync(bytes)
       : bytes
   )
+})
+
+const orderFlowEvents = (code: string): RecordedResource => ({
+  _tag: "OrderFlowEvents",
+  code: StockCode.make(code),
 })
 
 const bookEvents = (code: string): RecordedResource => ({
@@ -394,6 +400,7 @@ describe("a cold day", () => {
             "days/2026-11-09/manifest.json",
             "days/2026-11-09/status.json",
             `${ANSWERS}/book-events.json`,
+            `${ANSWERS}/order-flow-events.json`,
             `${ANSWERS}/book/UNTR.bin`,
             ...["BBCA", "IHSG", "NG.IHSG", "TN.IHSG", "UNTR"].flatMap((code) =>
               PER_CODE.map(([folder]) => `${ANSWERS}/${folder}/${code}.json.gz`)
@@ -593,6 +600,92 @@ describe("a cold day", () => {
         // The emptied object answers the same.
         const stale = yield* sealed.day.recorded(resources[1]!)
         assert.strictEqual(yield* bodyOf(stale), hot[1])
+      })
+  )
+
+  it.effect(
+    "answers each code's OrderFlowEvents from R2 as its object did, under the answers' folder",
+    () =>
+      Effect.gen(function* () {
+        const sealed = yield* sealedDay((day) => pushJudged(day, "ASII"))
+        const resources = ["ASII", "UNTR"].map(orderFlowEvents)
+        const before = yield* worker(sealed)
+        const hot = []
+        for (const resource of resources)
+          hot.push(yield* textOf(yield* before.get(resource)))
+        assert.include(hot[0], '"kind":"exhaustion"')
+        assert.deepStrictEqual(JSON.parse(hot[1]!), {
+          code: "UNTR",
+          recorded: true,
+          events: [],
+        })
+
+        assert.isTrue(yield* moved(sealed))
+        assert.isTrue(
+          sealed.days.objects.has(`${ANSWERS}/order-flow-events/ASII.json.gz`)
+        )
+        assert.isFalse(
+          sealed.days.objects.has(`${ANSWERS}/order-flow-events/UNTR.json.gz`)
+        )
+        const after = yield* worker(sealed)
+        for (const [index, resource] of resources.entries()) {
+          const response = yield* after.get(resource)
+          assert.strictEqual(response.status, 200)
+          assert.strictEqual(response.headers.get("Cache-Control"), SEALED)
+          assert.strictEqual(yield* bodyOf(response), hot[index])
+        }
+        assert.deepStrictEqual(after.reached, ["index"])
+      })
+  )
+
+  it.effect(
+    "answers OrderFlowEvents not recorded from R2 for a day recorded before them",
+    () =>
+      Effect.gen(function* () {
+        const recorded = yield* sealedDay()
+        yield* recorded.day.evicted
+        recorded.sql.exec("DELETE FROM facts WHERE key = 'order-flow-events'")
+        yield* TestClock.setTime(Date.parse("2026-11-10T10:00:00+07:00"))
+        const sealed = {
+          ...recorded,
+          day: yield* tradingDay(recorded.sql, [], undefined, recorded.target),
+        }
+        const resource = orderFlowEvents("UNTR")
+        const answer = {
+          code: "UNTR",
+          recorded: false,
+          events: [],
+        }
+        const before = yield* worker(sealed)
+        assert.deepStrictEqual(
+          JSON.parse(yield* textOf(yield* before.get(resource))),
+          answer
+        )
+        assert.isTrue(yield* moved(sealed))
+        const response = yield* (yield* worker(sealed)).get(resource)
+        assert.strictEqual(response.status, 200)
+        assert.deepStrictEqual(JSON.parse(yield* bodyOf(response)), answer)
+      })
+  )
+
+  // A day moved before order flow events stored neither a code's answer
+  // nor the day's marker.
+  it.effect(
+    "answers OrderFlowEvents not recorded from R2 for a day moved before them",
+    () =>
+      Effect.gen(function* () {
+        const sealed = yield* sealedDay()
+        assert.isTrue(yield* moved(sealed))
+        sealed.days.objects.delete(`${ANSWERS}/order-flow-events.json`)
+        const response = yield* (yield* worker(sealed)).get(
+          orderFlowEvents("UNTR")
+        )
+        assert.strictEqual(response.status, 200)
+        assert.deepStrictEqual(JSON.parse(yield* bodyOf(response)), {
+          code: "UNTR",
+          recorded: false,
+          events: [],
+        })
       })
   )
 
