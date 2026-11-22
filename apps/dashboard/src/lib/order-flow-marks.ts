@@ -24,7 +24,7 @@ export interface OrderFlowMark {
 }
 
 // The marks of `events` known by `until`: an order flow event is known at
-// its minute's close (marketEventKnownAt), so a recorded day's cursor shows
+// its minute's end (marketEventKnownAt), so a recorded day's cursor shows
 // none it hasn't reached.
 export const orderFlowMarks = Effect.fnUntraced(function* (
   events: ReadonlyArray<OrderFlowEvent>,
