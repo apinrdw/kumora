@@ -719,6 +719,31 @@ export const makeDayStore = (
         )
       )
 
+    // One code's candles as an order flow restart replays them
+    // (order-flow.ts, `restore`), ascending by minute: each one's range,
+    // close and close order.
+    // Decision: a read of its own for 5 of a candle's 14 columns. Measured
+    // 2026-11-23 on the dev machine, the busy day's 348,000 candles in
+    // workerd: 1.3 s read whole (`storedCandlesOf`), 0.5 s as these. See
+    // PR #633.
+    const storedRangesOf = (code: StockCode) =>
+      Effect.sync(() =>
+        sql
+          .exec(
+            "SELECT minute, high, low, close, close_order FROM candles WHERE code = ? ORDER BY minute",
+            code
+          )
+          .map((row) => ({
+            minute: Number(row.minute),
+            figures: {
+              high: Number(row.high),
+              low: Number(row.low),
+              close: Number(row.close),
+              closeOrder: BigInt(Number(row.close_order)),
+            },
+          }))
+      )
+
     // Every stock's day totals and newest `minutes` candles, for the bubble
     // book a restart rebuilds (bubble-book.ts). An index's candles have no
     // footprint, so a stock is a code with one.
@@ -1233,6 +1258,7 @@ export const makeDayStore = (
       tradesBetween,
       storedCandle,
       storedCandlesOf,
+      storedRangesOf,
       storedBubbles,
       candlesOf,
       storedFootprint,

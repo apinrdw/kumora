@@ -403,7 +403,7 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
 })
 
 // One code's stored minutes, as an order flow restart reads them: each
-// candle with its footprint's cells.
+// candle's range and close with its footprint's cells.
 const storedMinutesOf = (
   store: Effect.Success<ReturnType<typeof makeDayStore>>
 ) =>
@@ -413,7 +413,7 @@ const storedMinutesOf = (
         (footprint) => [footprint.minute, footprint.cells] as const
       )
     )
-    return (yield* store.storedCandlesOf(code)).map(
+    return (yield* store.storedRangesOf(code)).map(
       ({ minute, figures }): StoredMinute => ({
         minute,
         figures,
