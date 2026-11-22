@@ -210,7 +210,7 @@ export const alertOf = Effect.fnUntraced(function* (event: AlertEvent) {
     : yield* eventKey(split.event)
   return {
     key,
-    event: heavy ? undefined : key,
+    event: heavy ? null : key,
     code: event.code,
     side: event.side,
     title: yield* alertTitle(event),
@@ -222,7 +222,10 @@ export const alertOf = Effect.fnUntraced(function* (event: AlertEvent) {
 // Where an alert's Open lands on Market Live: its code, and its event when
 // the readout lists one.
 export const alertLink = (alert: Alert) =>
-  Effect.succeed({ code: alert.code, event: alert.event })
+  Effect.succeed({
+    code: alert.code,
+    event: alert.event === undefined ? alert.key : (alert.event ?? undefined),
+  })
 
 // Whether an alert reads as the bid's or the buyers': green and up.
 export const alertRises = (alert: Alert) =>
@@ -344,9 +347,10 @@ export interface Alert {
   // The event's key (lib/book-events.ts `eventKey`, or
   // `heavySideKey`).
   readonly key: string
-  // The key Open picks on Market Live: a book or order flow event's; none
-  // for a heavy side change, which the readout doesn't list.
-  readonly event?: string | undefined
+  // The key Open picks on Market Live: a book or order flow event's; null
+  // for a heavy side change, which the readout doesn't list. An alert stored
+  // before alerts named it has none, and was a book event's: its `key`.
+  readonly event?: string | null | undefined
   readonly code: StockCode
   readonly side: AlertEvent["side"]
   readonly title: string

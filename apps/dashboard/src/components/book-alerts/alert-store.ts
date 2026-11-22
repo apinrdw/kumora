@@ -38,7 +38,7 @@ const History = Schema.Struct({
   alerts: Schema.Array(
     Schema.Struct({
       key: Schema.String,
-      event: Schema.optional(Schema.String),
+      event: Schema.optional(Schema.NullOr(Schema.String)),
       code: StockCode,
       // A book event's or heavy side's book side, an order flow event's
       // aggressor side.
