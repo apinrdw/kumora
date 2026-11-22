@@ -187,4 +187,32 @@ describe("A late trade that moves the day's extreme", () => {
       )
     })
   )
+
+  it.effect(
+    "is judged 9 minutes behind a day folded in one judge, as a restart folds it",
+    () =>
+      Effect.gen(function* () {
+        // The break above, folded through 09:54 with the minutes before it:
+        // too small until the late 1,260 adds its Rp50.4 M to 09:45.
+        const trades = [
+          t("09:30", 1250, 100, "buy"),
+          t("09:30", 1245, 100, "sell"),
+          t("09:45", 1255, 400, "buy"),
+          t("09:46", 1245, 10, "sell"),
+        ]
+        const late = [t("09:45", 1260, 400, "buy", 0n)]
+        const expected = without(
+          yield* inOrder([...trades, ...late], "09:54"),
+          "exhaustion"
+        )
+        assert.deepStrictEqual(
+          expected.map((event) => [event.kind, event.price]),
+          [["failedBreak", 1250]]
+        )
+        assert.deepStrictEqual(
+          without(yield* live(trades, "09:54", late), "exhaustion"),
+          expected
+        )
+      })
+  )
 })

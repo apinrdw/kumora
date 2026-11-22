@@ -387,26 +387,24 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
     for (const put of folding.memory) yield* put
   })
 
-  // Folds one minute of one code into its state, holds it for late trades
-  // and judges it. `sent` is what an earlier fold of the minute sent, which
-  // is not sent again.
+  // Folds one minute of one code into its state and judges it; `hold` keeps
+  // it for late trades. `earlier` is what an earlier fold of the minute
+  // sent, which is not sent again.
   const fold = Effect.fnUntraced(function* (
     code: StockCode,
     flow: CodeFlow,
     minute: number,
     blocked: FoldedMinute["blocked"],
-    sent: ReadonlySet<string> = new Set()
+    hold: boolean,
+    earlier: ReadonlySet<string> = new Set()
   ) {
     const traded = flow.pending.get(minute)
     flow.pending.delete(minute)
     if (traded === undefined && flow.last === undefined) return []
     const figures = traded ?? emptyAt(minute, flow.last!)
-    const held: Held = {
-      figures,
-      before: yield* saved(code, flow),
-      sent: new Set(sent),
-    }
-    flow.held.push(held)
+    const sent = new Set(earlier)
+    if (hold)
+      flow.held.push({ figures, before: yield* saved(code, flow), sent })
     flow.cum += figures.buyLots - figures.sellLots
     const session = yield* sessionOf(minute)
     const sides = yield* moveExtremes(flow, figures)
@@ -425,8 +423,8 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
     const found: Array<OrderFlowEvent> = []
     for (const event of yield* judgeFolded(folded)) {
       const key = `${event.kind}|${event.side}`
-      if (held.sent.has(key)) continue
-      held.sent.add(key)
+      if (sent.has(key)) continue
+      sent.add(key)
       found.push(event)
     }
     return found
@@ -434,6 +432,11 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
 
   // Folds one code's minutes up to `through` in time order: its traded ones
   // and every continuous one in `continuous`. Holds the last LATE_MINUTES.
+  // Decision: a minute older than that is never held, nor the state before
+  // it saved: a restart's replay folds a whole day at once, and saving each
+  // minute's state was over a third of its work. Measured 2026-11-23 on the
+  // dev machine, 800 codes of 435 minutes: 2,010 ms saving each, 1,290 ms
+  // saving the last ten. See PR #633.
   const foldCode = Effect.fnUntraced(function* (
     code: StockCode,
     flow: CodeFlow,
@@ -445,14 +448,20 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
     const minutes = new Set(continuous)
     for (const minute of flow.pending.keys())
       if (minute <= through) minutes.add(minute)
+    const heldAfter = through - LATE_MINUTES * MINUTE_MS
     const found: Array<OrderFlowEvent> = []
     for (const minute of [...minutes].sort((a, b) => a - b))
       found.push(
-        ...(yield* fold(code, flow, minute, blocked, sent.get(minute)))
+        ...(yield* fold(
+          code,
+          flow,
+          minute,
+          blocked,
+          minute > heldAfter,
+          sent.get(minute)
+        ))
       )
-    const kept = flow.held.findIndex(
-      (each) => each.figures.minute > through - LATE_MINUTES * MINUTE_MS
-    )
+    const kept = flow.held.findIndex((each) => each.figures.minute > heldAfter)
     flow.held = kept < 0 ? [] : flow.held.slice(kept)
     return found
   })
