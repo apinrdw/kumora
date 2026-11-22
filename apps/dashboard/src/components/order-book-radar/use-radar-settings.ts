@@ -34,12 +34,12 @@ const REMOVED_RANK_KEYS = [
   "spread",
 ] as const
 
-const isRankKey = (key: string): key is RankKey =>
-  RANK_KEYS.some((each) => each === key)
+const RankKeys = Schema.Literals(RANK_KEYS)
+const isRankKey = Schema.is(RankKeys)
 
 const RankBy = Schema.Literals([...RANK_KEYS, ...REMOVED_RANK_KEYS]).pipe(
-  Schema.decodeTo(Schema.Literals(RANK_KEYS), {
-    decode: SchemaGetter.transform((key) =>
+  Schema.decodeTo(RankKeys, {
+    decode: SchemaGetter.transform((key): RankKey =>
       isRankKey(key) ? key : "imbalance"
     ),
     encode: SchemaGetter.transform((key) => key),

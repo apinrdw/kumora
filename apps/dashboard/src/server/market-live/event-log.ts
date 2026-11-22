@@ -28,25 +28,25 @@ export const makeEventLog = <E extends Event>(options: {
     let pending: Array<E> = []
     let unflushed: Array<E> = []
 
-    const keep = (events: ReadonlyArray<E>) => {
-      unflushed.push(...events)
-      if (unflushed.length > maxUnflushed)
-        unflushed = unflushed.slice(-maxUnflushed)
-      if (newest !== undefined)
-        newest = Arr.sort([...newest, ...events], order).slice(-snapshot)
-    }
+    const keep = (events: ReadonlyArray<E>) =>
+      Effect.sync(() => {
+        unflushed.push(...events)
+        if (unflushed.length > maxUnflushed)
+          unflushed = unflushed.slice(-maxUnflushed)
+        if (newest !== undefined)
+          newest = Arr.sort([...newest, ...events], order).slice(-snapshot)
+      })
 
     const add = (events: ReadonlyArray<E>) =>
-      Effect.sync(() => {
-        if (events.length === 0) return
+      Effect.suspend(() => {
+        if (events.length === 0) return Effect.void
         pending.push(...events)
-        keep(events)
+        return keep(events)
       })
 
     // Events found again after a restart that the store lacks: kept for the
     // next flush and the snapshots, never sent in a delta.
-    const restore = (events: ReadonlyArray<E>) =>
-      Effect.sync(() => keep(events))
+    const restore = keep
 
     // Decision: the store's newest are read when a snapshot first asks, not
     // as the object starts: the read visits every event of the day

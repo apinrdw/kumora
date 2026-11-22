@@ -93,15 +93,16 @@ export const BookReadings = Schema.Tuple([
 export type BookReadings = typeof BookReadings.Type
 
 // One side's best five levels, best first.
-const readSide = (levels: ReadonlyArray<BookLevel>): SideReadings => {
-  let lots = 0
-  let orders = 0
-  for (const level of levels.slice(0, NEAR_LEVELS)) {
-    lots += level.lots
-    orders += level.orders
-  }
-  return { lots, lotsPerOrder: orders > 0 ? lots / orders : undefined }
-}
+const readSide = (levels: ReadonlyArray<BookLevel>) =>
+  Effect.sync((): SideReadings => {
+    let lots = 0
+    let orders = 0
+    for (const level of levels.slice(0, NEAR_LEVELS)) {
+      lots += level.lots
+      orders += level.orders
+    }
+    return { lots, lotsPerOrder: orders > 0 ? lots / orders : undefined }
+  })
 
 // Whether a code sits at an auto-reject limit: one side of its readings
 // empty and its last price at the limit its previous close sets, under its
@@ -173,20 +174,19 @@ export const heavySideOf = (readings: BookReadings, limit: Limit | undefined) =>
   })
 
 // `book`'s readings.
-export const bookReadingsOf = (book: OrderBook) =>
-  Effect.sync(() => {
-    const bid = readSide(book.bids)
-    const offer = readSide(book.offers)
-    const total = bid.lots + offer.lots
-    const readings: BookReadings = {
-      code: book.code,
-      at: book.at,
-      imbalance: total > 0 ? (bid.lots - offer.lots) / total : undefined,
-      bid,
-      offer,
-    }
-    return readings
-  })
+export const bookReadingsOf = Effect.fnUntraced(function* (book: OrderBook) {
+  const bid = yield* readSide(book.bids)
+  const offer = yield* readSide(book.offers)
+  const total = bid.lots + offer.lots
+  const readings: BookReadings = {
+    code: book.code,
+    at: book.at,
+    imbalance: total > 0 ? (bid.lots - offer.lots) / total : undefined,
+    bid,
+    offer,
+  }
+  return readings
+})
 
 // An order size for the fill estimate: a rupiah amount or a count of lots.
 export interface OrderSize {
