@@ -330,12 +330,12 @@ export function BookEventList({
         Events
       </h3>
       {note !== undefined && <Note>{note}</Note>}
-      {recorded && !orderFlowRecorded && (
+      {!orderFlowRecorded && (
         <Note>
           {`Order flow events not recorded before ${Effect.runSync(dayLabel(ORDER_FLOW_EVENTS_FROM))}.`}
         </Note>
       )}
-      {recorded && events.length > 0 && (
+      {events.length > 0 && (
         <ol ref={list} className="max-h-[230px] overflow-auto">
           {[...events].reverse().map((event) => {
             const key = Effect.runSync(eventKey(event))

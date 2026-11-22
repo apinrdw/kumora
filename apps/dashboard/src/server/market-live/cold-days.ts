@@ -209,7 +209,8 @@ const writeAnswers = Effect.fnUntraced(function* (
   // other code's answer is built from whether the day recorded them, stored
   // once (`noBookEvents`): book events are found only for codes a viewer
   // watched. A day moved before then answers BookEvents 404.
-  // OrderFlowEvents is stored the same way.
+  // OrderFlowEvents is stored the same way, and a day moved before them
+  // answers them not recorded (`noEvents`).
   const withEvents = new Set(yield* day.bookEvents.codes)
   const withFlow = new Set(yield* day.orderFlowEvents.codes)
   for (const code of run) {
@@ -349,8 +350,9 @@ export const coldAnswer = Effect.fnUntraced(function* (
 })
 
 // A code's BookEvents or OrderFlowEvents answer when it stored none: no
-// events, recorded as the day stored; not recorded when the day stored
-// neither.
+// events, recorded as the day stored. A day that stored no OrderFlowEvents
+// marker moved before order flow events, so it answers them not recorded;
+// one with no BookEvents marker answers 404.
 const noEvents = Effect.fnUntraced(function* (
   bucket: DayBucket,
   date: WibDate,
@@ -363,10 +365,13 @@ const noEvents = Effect.fnUntraced(function* (
   const key =
     resource._tag === "BookEvents" ? keys.bookEvents : keys.orderFlowEvents
   const stored = yield* Effect.promise(() => bucket.get(key))
-  if (stored === null) return yield* notStored
-  const { recorded } = yield* decodeEventsRecorded(
-    yield* Effect.promise(() => new Response(stored.body).text())
-  )
+  if (stored === null && resource._tag === "BookEvents") return yield* notStored
+  const { recorded } =
+    stored === null
+      ? { recorded: false }
+      : yield* decodeEventsRecorded(
+          yield* Effect.promise(() => new Response(stored.body).text())
+        )
   const answer = { code: resource.code, recorded, events: [] }
   return yield* sealedAnswer(
     resource._tag === "BookEvents"
