@@ -17,7 +17,7 @@ import {
 import { DateTime, Effect } from "effect"
 
 import { BOOK_EVENT_NAMES, bookEventDetail, eventKey } from "./book-events"
-import type { CodePrices } from "./book-readings"
+import { LEANS, ORDERS, type CodePrices } from "./book-readings"
 import { plain, signed } from "./format"
 import {
   ORDER_FLOW_KIND_NAMES,
@@ -158,16 +158,13 @@ export const ALERT_KIND_NAMES: Readonly<Record<AlertKind, string>> = {
 export const isBookEventKind = (kind: AlertKind) =>
   Effect.succeed(Object.hasOwn(BOOK_EVENT_NAMES, kind))
 
-const LEANS = { bid: "Bid-heavy", offer: "Offer-heavy" } as const
-const ORDERS = { bigOrders: "big orders", smallOrders: "small orders" } as const
-
 // "BBCA · Wall pulled on the bid", "BBCA · Offer-heavy with big orders",
 // "BBCA · Buying exhaustion at the day's high".
 export const alertTitle = Effect.fnUntraced(function* (event: AlertEvent) {
   const split = yield* splitAlertEvent(event)
   switch (split._tag) {
     case "heavySide":
-      return `${event.code} · ${LEANS[split.event.side]} with ${ORDERS[split.event.kind]}`
+      return `${event.code} · ${LEANS[split.event.side]} with ${ORDERS[split.event.kind === "bigOrders" ? "big" : "small"]}`
     case "orderFlow":
       return `${event.code} · ${yield* orderFlowEventTitle(split.event)}`
     case "book":

@@ -233,11 +233,11 @@ A book event or an order flow event. The scanner's Events feed, its Last event c
 _Avoid_: Signal, event family
 
 **Alert rule**:
-Which book events a browser wants to be told of: one or more event kinds, over the watchlist, named stock codes or every code on the scanner, optionally only above a rupiah value. Each browser keeps its own.
+Which market events and heavy side changes a browser wants to be told of: one or more kinds (book event kinds, order flow event kinds, a heavy side becoming big or small orders), over the watchlist, named stock codes or every code on the scanner, optionally only above a rupiah value, which only book events have. Each browser keeps its own.
 _Avoid_: Alert (that is one delivery), trigger, watch
 
 **Alert**:
-One book event an alert rule matched, told to the user while the order book radar or Market Live is open live, once per browser from the page that holds its alert lock (`use-alert-owner.ts`): a toast on the visible page, a browser notification from a background tab. The same code and event kind alert at most once in two minutes, and the browser at most six a minute, across its tabs and reloads.
+One market event or heavy side change an alert rule matched, told to the user while the order book radar or Market Live is open live, once per browser from the page that holds its alert lock (`use-alert-owner.ts`): a toast on the visible page, a browser notification from a background tab. The same code and kind alert at most once in two minutes, and the browser at most six a minute, across its tabs and reloads.
 _Avoid_: Notification (that is one way an alert arrives), signal
 
 **Net flow**:

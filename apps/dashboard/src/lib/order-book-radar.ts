@@ -178,9 +178,10 @@ export interface CodeFigures {
   readonly value: number
 }
 
-// Decision: Events in 5 minutes counts a code's book events of the last 5
-// minutes on the object's clock, and the row's last-event chip shows only
-// an event that recent. See spec apinrdw/kumora#517, "Book events".
+// Decision: Events in 5 minutes counts a code's market events, book and
+// order flow, of the last 5 minutes on the object's clock, and the row's
+// last-event chip shows only an event that recent. See spec
+// apinrdw/kumora#517, "Book events", and apinrdw/kumora#605.
 export const RECENT_EVENTS_MS = 300_000
 
 // A code's book and order flow events as the scanner ranks them: its
@@ -196,7 +197,7 @@ export interface ScanInput {
   // The Special Monitoring Board's codes.
   readonly board: ReadonlySet<StockCode>
   readonly watchlist: ReadonlySet<StockCode>
-  // Codes with a book event today.
+  // Codes with a market event today.
   readonly events: ReadonlyMap<StockCode, CodeEvents>
   // On the market clock, in epoch ms.
   readonly now: number

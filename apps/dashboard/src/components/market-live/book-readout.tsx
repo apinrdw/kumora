@@ -23,7 +23,12 @@ import { cn } from "@workspace/ui/lib/utils"
 import { DateTime, Effect } from "effect"
 import { useSyncExternalStore, type ReactNode } from "react"
 
-import { DISCLAIMER, isCheap, type CodePrices } from "@/lib/book-readings"
+import {
+  DISCLAIMER,
+  LEANS,
+  isCheap,
+  type CodePrices,
+} from "@/lib/book-readings"
 import { plain, signed, tapeTime } from "@/lib/format"
 import { gapAt } from "@/lib/replay"
 
@@ -90,8 +95,6 @@ const perOrder = (side: BookReadings["bid"]) =>
   side.lotsPerOrder === undefined
     ? Effect.succeed("—")
     : plain(side.lotsPerOrder, side.lotsPerOrder < 10 ? 1 : 0)
-
-const LEANS = { bid: "Bid-heavy", offer: "Offer-heavy" } as const
 
 // The imbalance row: the bar, then one line with the signed figure, the
 // side it leans to and the heavy side's chip when tagged, e.g. "−72% ·

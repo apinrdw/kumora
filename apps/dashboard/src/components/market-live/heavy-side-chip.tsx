@@ -4,6 +4,8 @@
 import type { HeavySide } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 
+import { ORDERS } from "@/lib/book-readings"
+
 export function HeavySideChip({ heavy }: { heavy: HeavySide }) {
   return (
     <span
@@ -15,7 +17,7 @@ export function HeavySideChip({ heavy }: { heavy: HeavySide }) {
           : "border-border text-muted-foreground"
       )}
     >
-      {heavy.orders === "big" ? "big orders" : "small orders"}
+      {ORDERS[heavy.orders]}
     </span>
   )
 }

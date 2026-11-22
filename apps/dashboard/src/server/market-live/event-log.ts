@@ -50,9 +50,10 @@ export const makeEventLog = <E extends Event>(options: {
 
     // Decision: the store's newest are read when a snapshot first asks, not
     // as the object starts: the read visits every event of the day
-    // (day-store.ts, `newestBookEvents`), and a sealed day's object starts at
-    // each of the page's 30 s rechecks and sends no snapshot. At 24,000
-    // events a start read 48,010 rows, now 10 (row-budgets.workerd.test.ts).
+    // (day-store.ts, `newestBookEvents` and `storedOrderFlowEvents`), and a
+    // sealed day's object starts at each of the page's 30 s rechecks and
+    // sends no snapshot. At 24,000 book events a start read 48,010 rows, now
+    // 10 (row-budgets.workerd.test.ts).
     const newestOnce = Effect.gen(function* () {
       if (newest !== undefined) return newest
       const stored = yield* options.storedNewest(snapshot)

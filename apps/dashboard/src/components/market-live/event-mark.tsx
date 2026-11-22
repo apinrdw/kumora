@@ -1,8 +1,8 @@
 // How a row shows a market event (spec apinrdw/kumora#605, "Order flow
 // events: on the page"): an order flow event as ▲ (buying) or ▼ (selling)
 // in the aggressor side's colour with its kind's letter, a book event as its
-// kind's chip. No row tags the event's family. The radar's feed and chips
-// and the Book readout list use them.
+// kind's chip. No row says whether it is a book or an order flow event. The
+// radar's feed and chips and the Book readout list use them.
 import type { OrderFlowEvent } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
