@@ -3,7 +3,6 @@
 // figures line. The scanner's feed and chips and the Book readout list show
 // them with book events, as one kind of row.
 import {
-  MINUTE_MS,
   WibDate,
   type BookEvent,
   type OrderFlowEvent,
@@ -13,6 +12,7 @@ import { DateTime, Effect } from "effect"
 
 import { BOOK_EVENT_NAMES, bookEventDetail } from "./book-events"
 import { plain, signed, wibClock } from "./format"
+import { minuteEnd } from "./replay"
 
 // The events the radar and the readout list: a book event or an order flow
 // event, told apart by `kind`.
@@ -97,15 +97,15 @@ export const marketEventName = Effect.fnUntraced(function* (
 })
 
 // When an event was known: a book event at its instant, an order flow event
-// at its minute's close, when the rules judged it.
+// at its minute's end, where picking its candle puts the cursor.
 // Decision: a recorded day's cursor shows an order flow event from its
-// minute's close on, not its start: before then the minute that makes it
-// hadn't traded. See apinrdw/kumora#612.
+// minute's end on (lib/replay.ts minuteEnd), not its start: before then the
+// minute that makes it hadn't traded. See apinrdw/kumora#612.
 export const marketEventKnownAt = Effect.fnUntraced(function* (
   event: MarketEvent
 ) {
   const at = DateTime.toEpochMillis(event.at)
-  return (yield* splitEvent(event))._tag === "book" ? at : at + MINUTE_MS
+  return (yield* splitEvent(event))._tag === "book" ? at : yield* minuteEnd(at)
 })
 
 // Either kind's detail line.
