@@ -347,3 +347,14 @@ test("a day recorded before order flow events lists its book events and says so"
   expect(rows(host)).toHaveLength(1)
   expect(host.textContent).toContain("Order flow events not recorded before")
 })
+
+test("a day recorded before book events lists its order flow events and says so", () => {
+  const store = Effect.runSync(makeBookEventStore(FOLK))
+  store.load({ code: FOLK, recorded: false, events: [] })
+  store.loadOrderFlow({ code: FOLK, recorded: true, events: [exhaustion(0)] })
+  const host = render(
+    <BookEventList store={store} cursor={cursorAt(T0 + 65_000)} />
+  )
+  expect(rows(host)).toHaveLength(1)
+  expect(host.textContent).toContain("Book events not recorded before")
+})

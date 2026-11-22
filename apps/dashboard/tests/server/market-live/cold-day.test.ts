@@ -667,6 +667,27 @@ describe("a cold day", () => {
       })
   )
 
+  // A day moved before order flow events stored neither a code's answer
+  // nor the day's marker.
+  it.effect(
+    "answers OrderFlowEvents not recorded from R2 for a day moved before them",
+    () =>
+      Effect.gen(function* () {
+        const sealed = yield* sealedDay()
+        assert.isTrue(yield* moved(sealed))
+        sealed.days.objects.delete(`${ANSWERS}/order-flow-events.json`)
+        const response = yield* (yield* worker(sealed)).get(
+          orderFlowEvents("UNTR")
+        )
+        assert.strictEqual(response.status, 200)
+        assert.deepStrictEqual(JSON.parse(yield* bodyOf(response)), {
+          code: "UNTR",
+          recorded: false,
+          events: [],
+        })
+      })
+  )
+
   it.effect(
     "answers BookEvents not recorded from R2 for a day recorded before book events",
     () =>
