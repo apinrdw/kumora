@@ -11,11 +11,9 @@ import { DateTime } from "effect"
 
 // Decision: Production's busiest measured day, 1,460,000 trades
 // (docs/runbooks/order-flow-cost.md, "The thresholds"), over 800 codes
-// from 09:00 to 16:15 WIB. The relay missed a few trades, which a walk
-// filled as walk_trades rows: the status reads around them, as on a real day.
-// Its live books found 24,000 book events, 30 a code, and its rules 20,000
-// order flow events, 25 a code: as many as memory holds unflushed
-// (order-flow-event-log.ts).
+// from 09:00 to 16:15 WIB, a few filled by a walk as walk_trades rows. Its
+// live books found 24,000 book events, 30 a code, and its rules 20,000
+// order flow events, as many as memory holds unflushed. See PR #633.
 export const BUSY_DAY = {
   date: WibDate.make("2026-11-09"),
   trades: 1_460_000,

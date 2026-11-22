@@ -40,12 +40,10 @@ import {
 const GAP_BLOCKS_MS = 10_000
 
 // Decision: a trade up to 10 minutes behind the newest folded minute folds
-// its code again from the trade's minute, as if it had arrived in time; an
-// older one is left out of the order flow state, though a restart's replay
-// counts it. A gap's backfill (gaps.ts) asks 5 s after a later number and
-// takes about 100 s for the widest gap it asks, and each code holds its
-// minutes and their states this far back. See spec apinrdw/kumora#605,
-// "Order flow events: the rules".
+// its code again from its minute, as if it had come in time; an older one
+// stays out of the state (a restart's replay counts it). A gap's backfill
+// (gaps.ts) takes about 100 s at its widest, and each code holds this many
+// minutes and their states. See PR #633.
 const LATE_MINUTES = 10
 
 // What a code's minutes fold into, as it stands before a minute.
@@ -222,12 +220,11 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
   // The newest minute folded, for every code.
   let foldedThrough = Number.NEGATIVE_INFINITY
 
-  // Decision: `settled` and its `addPrint` and `emptyAt` stay plain: the
-  // candle book calls it for each regular-board trade it settles, inside its
-  // own plain arithmetic, as it calls the bubble book's (bubble-book.ts, the
-  // Decision at sumsOf). Measured 2026-11-22 on the dev machine: 100,000
-  // settles over 900 codes took 13 ms plain, 62 ms with `settled`,
-  // `addPrint` and `emptyAt` as Effects.
+  // Decision: `settled`, `addPrint` and `emptyAt` stay plain: the candle
+  // book calls `settled` for each trade it settles, in its own plain
+  // arithmetic, as it does the bubble book's. Measured 2026-11-22 on the dev
+  // machine: 100,000 settles over 900 codes took 13 ms plain, 62 ms as
+  // Effects. See PR #633.
   //
   // A trade in a minute already folded moves that minute's figures and marks
   // the code to fold again from it at the next judge.

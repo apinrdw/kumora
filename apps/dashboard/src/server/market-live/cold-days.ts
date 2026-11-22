@@ -205,12 +205,10 @@ const writeAnswers = Effect.fnUntraced(function* (
       )
   }
   const { run, more } = yield* slice(yield* day.codes, after, CODES_PER_RUN)
-  // Decision: BookEvents is stored only for a code with an event; every
-  // other code's answer is built from whether the day recorded them, stored
-  // once (`noBookEvents`): book events are found only for codes a viewer
-  // watched. A day moved before then answers BookEvents 404.
-  // OrderFlowEvents is stored the same way, and a day moved before them
-  // answers them not recorded (`noEvents`).
+  // Decision: BookEvents and OrderFlowEvents are stored only for a code with
+  // an event; every other code's answer is built from whether the day
+  // recorded them, stored once (`noEvents`). A day moved before then answers
+  // BookEvents 404 and OrderFlowEvents not recorded. See PR #633.
   const withEvents = new Set(yield* day.bookEvents.codes)
   const withFlow = new Set(yield* day.orderFlowEvents.codes)
   for (const code of run) {
