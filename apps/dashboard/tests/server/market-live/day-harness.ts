@@ -10,6 +10,7 @@ import {
   BrokerCodesProtocolVersion,
   IngestProtocolVersion,
   StockCode,
+  OrderNumber,
   TradeNumber,
   ViewerProtocolVersion,
   WibDate,
@@ -348,11 +349,14 @@ export const tradingDay = Effect.fnUntraced(function* (
   })
   // A broker codes batch of the day from `feed`, as the Worker hands it over,
   // each row [trade number, "AK F CD D"]: buyer and type, seller and type,
-  // and its fields when given; a row without them posts its codes alone.
+  // and its fields when given; a row without them posts its codes alone. A
+  // row's order numbers [buy, sell] follow its fields, null for none.
   const brokerCodes = Effect.fnUntraced(function* (
     feed: Feed,
     rows: ReadonlyArray<
-      readonly [number, string] | readonly [number, string, TradeFields]
+      | readonly [number, string]
+      | readonly [number, string, TradeFields]
+      | readonly [number, string, TradeFields | null, readonly [number, number]]
     >,
     end?: number
   ) {
@@ -361,7 +365,7 @@ export const tradingDay = Effect.fnUntraced(function* (
         version: BrokerCodesProtocolVersion,
         feed,
         day: DAY,
-        rows: rows.map(([number, text, fields]) => {
+        rows: rows.map(([number, text, fields, orders]) => {
           const [buyer, buyerType, seller, sellerType] = text.split(" ")
           const codes = {
             buyer: BrokerCode.make(buyer!),
@@ -370,7 +374,14 @@ export const tradingDay = Effect.fnUntraced(function* (
             sellerType: sellerType === "F" ? ("F" as const) : ("D" as const),
           }
           const tradeNumber = TradeNumber.make(String(number))
-          return fields === undefined
+          if (orders !== undefined)
+            return [
+              tradeNumber,
+              codes,
+              fields ?? null,
+              [OrderNumber.make(orders[0]), OrderNumber.make(orders[1])],
+            ] as const
+          return fields === undefined || fields === null
             ? ([tradeNumber, codes] as const)
             : ([tradeNumber, codes, fields] as const)
         }),

@@ -112,6 +112,13 @@ export const makeProgress = Effect.fnUntraced(function* (
       yield* write(now)
     }),
 
+    // The Done Details walk has walked `done` of the day's `of` codes.
+    codes: Effect.fnUntraced(function* (done: number, of: number) {
+      if (reported.state !== "walking") return
+      reported = { ...reported, stockCodes: { done, of } }
+      yield* write(yield* Clock.currentTimeMillis)
+    }),
+
     // Stockbit's walk waits on a signed-out tab, or stopped waiting.
     signedOut: (out: boolean) =>
       Effect.suspend(() => {

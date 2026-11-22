@@ -209,21 +209,31 @@ const PONG = Uint8Array.from([0x12, 0x06, 0x0a, 0x04, ...Buffer.from("pong")])
  * ones do.
  */
 export async function startFakeBrokers() {
-  // The REST running-trade tapes' answers, by query; a test sets them.
+  // The REST running-trade tapes' answers, by query, Ajaib's market status
+  // and its Done Details pages; a test sets them. Ajaib's market isn't
+  // CLOSED until a test says so.
   const tapes: {
     stockbit: (query: URLSearchParams) => unknown
     ajaib: (query: URLSearchParams) => unknown
+    ajaibStatus: () => unknown
+    doneDetails: (query: URLSearchParams) => unknown
   } = {
     stockbit: () => ({ data: { running_trade: [] } }),
     ajaib: () => ({ results: [], has_next: false }),
+    ajaibStatus: () => ({}),
+    doneDetails: () => ({ result: { has_next: false, transactions: [] } }),
   }
   // The PIN check's answer; a test sets it. Every body it was sent.
   const pin: { answer: unknown; bodies: Array<string> } = {
     answer: PIN_ANSWERS.approved,
     bodies: [],
   }
-  // Production's broker codes statuses; a test sets them.
-  const production: { statuses: DayStatuses } = { statuses: () => undefined }
+  // Production's broker codes statuses; a test sets them. Every batch
+  // posted to it, as JSON, which it answers 200.
+  const production: { statuses: DayStatuses; batches: Array<unknown> } = {
+    statuses: () => undefined,
+    batches: [],
+  }
   const sockets: Array<BrokerSocket> = []
   const requests: Array<{ path: string; headers: Record<string, unknown> }> = []
   const server: Server = createServer(
@@ -232,6 +242,15 @@ export async function startFakeBrokers() {
       const host = request.headers.host?.split(":")[0]
       const path = request.url ?? "/"
       requests.push({ path, headers: request.headers })
+      if (host === PRODUCTION_HOST && request.method === "POST") {
+        let body = ""
+        request.on("data", (chunk) => (body += String(chunk)))
+        return request.on("end", () => {
+          production.batches.push(JSON.parse(body))
+          response.writeHead(200)
+          response.end()
+        })
+      }
       if (host === PRODUCTION_HOST)
         return answerStatus(production.statuses, path, response)
       if (host === "exodus.stockbit.com") {
@@ -294,13 +313,22 @@ export async function startFakeBrokers() {
           })
         )
       }
-      if (path.startsWith("/api/v1/stock/detail/running_trades/")) {
+      const ajaibRest: Record<
+        string,
+        ((query: URLSearchParams) => unknown) | undefined
+      > = {
+        "/api/v1/stock/detail/running_trades/": tapes.ajaib,
+        "/api/v1/stock/data/trading-day/time/": tapes.ajaibStatus,
+        "/api/v1/stock/data/broker-transaction": tapes.doneDetails,
+      }
+      const url = new URL(path, "https://trade.ajaib.co.id")
+      const rest = ajaibRest[url.pathname]
+      if (rest !== undefined) {
         const page = request.headers[AJAIB_HEADER] === "yes"
         response.writeHead(page ? 200 : 403, {
           "content-type": "application/json",
         })
-        const url = new URL(path, "https://trade.ajaib.co.id")
-        return response.end(JSON.stringify(tapes.ajaib(url.searchParams)))
+        return response.end(JSON.stringify(rest(url.searchParams)))
       }
       if (path.startsWith("/api/")) return response.end("{}")
       response.writeHead(200, { "content-type": "text/html" })

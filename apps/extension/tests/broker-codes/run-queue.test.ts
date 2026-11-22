@@ -160,6 +160,7 @@ const statusOf =
         : [],
       missingCount: incomplete.includes(day) ? 1000 : 0,
       sources: { ajaib: 0, stockbit: 1000 },
+      orderNumbers: { ajaib: 0, stockbit: 0, differences: 0 },
       crossCheck: { state: "none" },
     })
 
@@ -301,6 +302,44 @@ describe("the broker codes run queue", () => {
           "Stockbit 2026-11-12",
         ])
         assert.deepStrictEqual(queue.progress.at(-1), { state: "idle" })
+      })
+  )
+
+  it.effect(
+    "reports Ajaib's Done Details walk between its tape walk and Stockbit's",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+        const queue = yield* harness((walked) => [
+          fakeWalk("Ajaib", walked),
+          { ...fakeWalk("Ajaib", walked), route: "done-details" as const },
+          fakeWalk("Stockbit", walked),
+        ])
+        yield* queue.trigger
+        const walking = queue.progress.filter(
+          (each) => each.state === "walking" && each.walk === "newest"
+        )
+        assert.deepStrictEqual(walking, [
+          {
+            state: "walking",
+            walk: "newest",
+            day: WibDate.make("2026-11-12"),
+            feed: "Ajaib",
+          },
+          {
+            state: "walking",
+            walk: "newest",
+            day: WibDate.make("2026-11-12"),
+            feed: "Ajaib",
+            route: "done-details",
+          },
+          {
+            state: "walking",
+            walk: "newest",
+            day: WibDate.make("2026-11-12"),
+            feed: "Stockbit",
+          },
+        ])
       })
   )
 

@@ -2,6 +2,7 @@ import {
   BROKER_CODES_AUTH_SCHEME,
   BrokerCode,
   BrokerCodesProtocolVersion,
+  OrderNumber,
   TradeNumber,
   WibDate,
   decodeRecordedCandles,
@@ -75,7 +76,7 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
   await expect(log.getByRole("heading")).toHaveText(`Buy/Sell sweeps · ${code}`)
   // Live, no sweep can have brokers yet: the log has no broker columns.
   await expect(log).toContainText("Lots @ price")
-  await expect(log).not.toContainText("Aggressor")
+  await expect(log).not.toContainText("Seller")
   expect((await log.boundingBox())?.width).toBe(340)
   const filter = log.getByLabel("Broker filter")
   await expect(filter).toBeDisabled()
@@ -199,11 +200,14 @@ async function closedOnceStored(
     .toBe(lots)
 }
 
-// Stores today's trades' codes, by trade number, in one batch, as the
-// extension's walk does.
+// Stores today's trades' codes, by trade number, and their buy and sell order
+// numbers where given, in one batch, as the extension's walks do.
 async function storeCodes(
   page: Page,
-  rows: ReadonlyArray<readonly [number, string]>
+  rows: ReadonlyArray<
+    | readonly [number, string]
+    | readonly [number, string, readonly [number, number]]
+  >
 ) {
   const day = WibDate.make(wibToday())
   const posted = await page.request.post(
@@ -217,10 +221,16 @@ async function storeCodes(
           version: BrokerCodesProtocolVersion,
           feed: "Ajaib",
           day,
-          rows: rows.map(([number, text]) => [
-            TradeNumber.make(String(number)),
-            tradeCodes(text),
-          ]),
+          rows: rows.map(([number, text, orders]) =>
+            orders === undefined
+              ? [TradeNumber.make(String(number)), tradeCodes(text)]
+              : [
+                  TradeNumber.make(String(number)),
+                  tradeCodes(text),
+                  null,
+                  [OrderNumber.make(orders[0]), OrderNumber.make(orders[1])],
+                ]
+          ),
         })
       ),
     }
@@ -299,7 +309,7 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   await page.setViewportSize({ width: 1920, height: 1080 })
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}`)
   const log = page.getByRole("region", { name: "Sweep log" })
-  await expect(log).toContainText("Aggressor")
+  await expect(log).toContainText("Buyer")
   expect((await log.boundingBox())?.width).toBe(530)
   // At 1280 px, beside the sidebar, the log gives way down to 340 px before
   // the charts do, and its broker columns scroll sideways.
@@ -331,10 +341,21 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   await expect(note).toHaveText(
     "Codes still arriving: 2 of 2 sweeps have their brokers. Updates every 30 s."
   )
-  // Other side: YP bought the sell sweep, CC sold the buy sweep.
-  await expect(log).toContainText("Other side")
-  await expect(rows.first()).toContainText("YP [D]")
-  await expect(rows.nth(1)).toContainText("CC [D]")
+  // The columns swap with the side: YP bought the sell sweep from KZ, AK
+  // bought the buy sweep from CC and BK.
+  await expect(log).toContainText("Seller")
+  await expect(rows.first().locator('[data-column="buyer"]')).toHaveText(
+    "YP [D]"
+  )
+  await expect(rows.first().locator('[data-column="seller"]')).toHaveText(
+    "KZ [F]"
+  )
+  await expect(rows.nth(1).locator('[data-column="buyer"]')).toHaveText(
+    "AK [F]"
+  )
+  await expect(rows.nth(1).locator('[data-column="seller"]')).toHaveText(
+    "CC [D] +1"
+  )
 
   // A broker cell's tooltip lists every broker of the sweep with its lots,
   // the aggressors first.
@@ -446,8 +467,8 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   const phoneRows = phoneLog.locator("[data-sweep-id]")
   const phoneTip = phone.getByRole("tooltip", { name: "Sweep brokers" })
   await expect(phoneRows).toHaveCount(2)
-  await expect(phoneLog.getByText("Aggressor", { exact: true })).toBeVisible()
-  await expect(phoneLog.getByText("Other side")).toBeVisible()
+  await expect(phoneLog.getByText("Buyer", { exact: true })).toBeVisible()
+  await expect(phoneLog.getByText("Seller", { exact: true })).toBeVisible()
   // As above: one selection first, so the candle chart has panned once read.
   await phoneRows.first().getByText("Sell").tap()
   await expect(phoneRows.first()).toHaveAttribute("aria-current", "true")
@@ -567,6 +588,89 @@ test("a recorded day's sweep with two sellers in one second splits into two rows
   await expect(rows.nth(1)).toContainText("4 @ 500")
   await expect(rows.nth(1)).toContainText("XL [D]")
   await expect(rows.nth(1)).toContainText("AK [F]")
+})
+
+test("a recorded day's sweep whose trades have order numbers splits by order run, with ×N after a run's aggressor and its orders in the tip", async ({
+  page,
+}) => {
+  const relay = await openIngest()
+  const earlier = freshTradeNumbers()
+  const base = earlier + 1_000
+  const code = freshCode("SO")
+  // As the tests above: the sweep stamped now, above another code's trades.
+  const time = wibTime(marketNow())
+  const earlierCode = freshCode("SE")
+  await relay.sendAjaib([
+    ...[1, 600].map((seq) =>
+      ajaibTradeToday({
+        seq: earlier + seq,
+        time,
+        ticker: earlierCode,
+        price: 500,
+        lot: 1,
+      })
+    ),
+    // One sell sweep, all XL's: 10 and 20 lots, then 5.
+    ...[
+      { seq: 1, price: 500, lot: 10 },
+      { seq: 2, price: 495, lot: 20 },
+      { seq: 3, price: 495, lot: 5 },
+    ].map(({ seq, price, lot }) =>
+      ajaibTradeToday({
+        seq: base + seq,
+        time,
+        ticker: code,
+        price,
+        lot,
+        type: "SELL",
+      })
+    ),
+  ])
+  await closedOnceStored(page, relay, code, 35)
+  // XL's first two sell orders step by 2, one run; its third is 88 above,
+  // a run of its own. CC's one buy order took both of the first run's
+  // trades; YP's took the last. A sell's aggressor order is the larger.
+  await storeCodes(page, [
+    [base + 1, "CC D XL D", [1_515_001, 1_515_610]],
+    [base + 2, "CC D XL D", [1_515_001, 1_515_612]],
+    [base + 3, "YP D XL D", [1_515_100, 1_515_700]],
+  ])
+
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  await page.goto(
+    `${DASHBOARD}${PAGE}?code=${code}&day=${WibDate.make(wibToday())}`
+  )
+  const log = page.getByRole("region", { name: "Sweep log" })
+  const rows = log.locator("[data-sweep-id]")
+  await expect(log).toContainText("2 sweeps · Buy 0 · Sell 2")
+  const all = page
+    .getByRole("region", { name: "Chart" })
+    .getByRole("button", { name: "All" })
+  await all.click()
+  await expect(all).toHaveAttribute("aria-pressed", "true")
+  await expect(rows).toHaveCount(2)
+  // Newest first by first trade: the one-order run, with no ×N, then the
+  // two-order run.
+  const one = log.locator(`[data-sweep-id="${base + 3}"]`)
+  const two = log.locator(`[data-sweep-id="${base + 1}"]`)
+  await expect(one).toContainText("5 @ 495")
+  await expect(one.locator('[data-column="buyer"]')).toHaveText("YP [D]")
+  await expect(one.locator('[data-column="seller"]')).toHaveText("XL [D]")
+  await expect(two).toContainText("30 @ 500→495")
+  await expect(two.locator('[data-column="buyer"]')).toHaveText("CC [D]")
+  await expect(two.locator('[data-column="seller"]')).toHaveText("XL [D] ×2")
+
+  const tip = page.getByRole("tooltip", { name: "Sweep brokers" })
+  await two.getByText("XL [D]").hover()
+  await expect(tip).toContainText("Sell 30 lots @ 500→495 · 2 trades")
+  await expect(tip).toContainText(
+    "2 aggressor orders #1515610–1515612 · biggest passive order 30 lots"
+  )
+  await page.mouse.move(0, 0)
+  await one.getByText("XL [D]").hover()
+  await expect(tip).toContainText(
+    "1 aggressor order #1515700 · biggest passive order 5 lots"
+  )
 })
 
 test("a pin on a recorded day's sweep whose larger piece keeps its id moves to that piece's bubble", async ({
@@ -707,9 +811,13 @@ test("a recorded day's Auction row shows its lead buyer and seller, and a broker
   await expect(rows).toHaveCount(2)
   const auctionRow = log.locator('[data-side="none"]')
   await expect(auctionRow).toContainText("Auction")
-  // The lead buyer in the Aggressor column, the lead seller in Other side.
-  await expect(auctionRow).toContainText("AK [F] +1")
-  await expect(auctionRow).toContainText("CC [D] +1")
+  // The lead buyer in the Buyer column, the lead seller in Seller.
+  await expect(auctionRow.locator('[data-column="buyer"]')).toHaveText(
+    "AK [F] +1"
+  )
+  await expect(auctionRow.locator('[data-column="seller"]')).toHaveText(
+    "CC [D] +1"
+  )
   const tip = page.getByRole("tooltip", { name: "Sweep brokers" })
   await auctionRow.getByText("CC [D]").hover()
   await expect(tip).toContainText("Auction 35 lots @ 500 · 3 trades")

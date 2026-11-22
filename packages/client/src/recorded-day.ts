@@ -172,11 +172,11 @@ export const makeNewestWins = Effect.sync(() => {
 // apps/dashboard/src/lib/sweeps.ts).
 export const CODES_RECHECK = Duration.seconds(30)
 
-// Decision: a follower stops once an answer it shows is final: complete, or
-// fetched after the strip named the day cold, so served from R2. A hot
-// answer keeps it rechecking; the first recheck that finds cold fetches once
-// more and stops. Cold is read before each fetch from the browser's strip; a
-// strip that fails counts the day hot. See apinrdw/kumora#556 and PR #585.
+// Decision: a follower stops once an answer it shows is final: complete
+// (sweep brokers': saying the day takes no more codes, #632), or fetched
+// after the strip, read before each fetch, named the day cold. A hot
+// answer keeps it rechecking; the first recheck finding cold fetches once
+// more and stops. A strip that fails counts the day hot. See #556, PR #585.
 const isColdDay = (date: WibDate) =>
   fetchDayStrip().pipe(
     Effect.map((days) => days.some((day) => day.day === date && day.cold)),
@@ -261,11 +261,19 @@ export const followSweepBrokers = (
 ) =>
   Effect.gen(function* () {
     let final = false
+    // Decision: an answer is final once it says the day takes no more broker
+    // codes, or doesn't say. Order numbers never make a day complete, and
+    // the walks send them after its codes until its move starts, which a
+    // rebuild can hold past midnight: the day's own state ends it, not the
+    // calendar. See PR #632.
     const ask = (fresh: boolean) =>
       fetchFinal(
         date,
         fetchRecordedSweepBrokers(date, code, fresh),
-        Option.match({ onNone: () => true, onSome: (value) => value.complete })
+        Option.match({
+          onNone: () => true,
+          onSome: (value) => value.takesCodes !== true,
+        })
       ).pipe(
         Effect.map((shown) => {
           final = shown.final

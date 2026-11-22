@@ -9,6 +9,7 @@ import type {
   Sweep,
   SweepBroker,
   SweepBrokers,
+  SweepOrders,
   SweepPiece,
   TradeNumber,
 } from "@workspace/relay"
@@ -158,8 +159,9 @@ export interface KeptSweep extends Sweep {
   readonly own: number
 }
 
-// The brokers of a shown sweep (`SweepPiece` in @workspace/relay).
-type SweepSides = Pick<SweepPiece, "aggressor" | "other">
+// The brokers of a shown sweep, and an order run's orders (`SweepPiece` in
+// @workspace/relay).
+type SweepSides = Pick<SweepPiece, "aggressor" | "other" | "orders">
 
 // The sweeps the page shows: each whole sweep with an entry swapped for its
 // pieces, the rest as grouped, all in trade order; and each piece by its id.
@@ -301,11 +303,13 @@ export const pricePath = Effect.fnUntraced(function* (sweep: Sweep) {
     : `${first}→${yield* plain(sweep.last)}`
 })
 
-// What the tooltip on a sweep's bubble and broker cells shows: a title, then
-// each side's brokers as stored, largest first, `aggressor` first; no
-// sides while the sweep is not yet whole.
-interface SweepTip {
+// What the tooltip on a sweep's bubble and broker cells shows: a title, an
+// order run's aggressor orders and biggest passive order, then each side's
+// brokers as stored, largest first, `aggressor` first; no sides while the
+// sweep is not yet whole.
+export interface SweepTipText {
   readonly title: string
+  readonly orders: string | undefined
   readonly sides:
     | ReadonlyArray<{
         readonly label: string
@@ -320,6 +324,17 @@ const SIDE_WORDS = {
   none: { side: "Auction", aggressors: "Buyers", others: "Sellers" },
 } as const
 
+// An order run's orders as `22 aggressor orders #1515610–1515642 · biggest
+// passive order 997 lots`, one number for a one-order run.
+const ordersText = Effect.fnUntraced(function* (orders: SweepOrders) {
+  const numbers =
+    orders.first === orders.last
+      ? `#${orders.first}`
+      : `#${orders.first}–${orders.last}`
+  const many = `${yield* plain(orders.count)} aggressor ${orders.count === 1 ? "order" : "orders"}`
+  return `${many} ${numbers} · biggest passive order ${yield* lotsText(orders.biggestPassiveLots)} lots`
+})
+
 export const sweepTip = Effect.fnUntraced(function* (
   sweep: Sweep,
   brokers: SweepSides | undefined
@@ -327,8 +342,12 @@ export const sweepTip = Effect.fnUntraced(function* (
   const words = SIDE_WORDS[sweep.side]
   const trades = `${yield* plain(sweep.trades)} ${sweep.trades === 1 ? "trade" : "trades"}`
   const time = yield* tapeTime(DateTime.toEpochMillis(sweep.time))
-  const tip: SweepTip = {
+  const tip: SweepTipText = {
     title: `${words.side} ${yield* lotsText(sweep.lots)} lots @ ${yield* pricePath(sweep)} · ${trades} · ${time}`,
+    orders:
+      brokers?.orders === undefined
+        ? undefined
+        : yield* ordersText(brokers.orders),
     sides: brokers && [
       { label: words.aggressors, brokers: brokers.aggressor },
       { label: words.others, brokers: brokers.other },

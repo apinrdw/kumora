@@ -47,6 +47,33 @@ describe("the broker codes progress", () => {
   )
 
   it.effect(
+    "shows the Done Details walk's codes done of the day's, and the next walk starts without them",
+    () =>
+      Effect.gen(function* () {
+        const { saved, progress } = yield* harness()
+        const doneDetails: BrokerCodesProgress = {
+          ...WALKING,
+          feed: "Ajaib",
+          route: "done-details",
+        }
+        yield* progress.report(doneDetails)
+        yield* progress.codes(0, 900)
+        assert.deepStrictEqual(saved.at(-1), {
+          ...doneDetails,
+          stockCodes: { done: 0, of: 900 },
+        })
+        yield* TestClock.adjust("1 second")
+        yield* progress.codes(12, 900)
+        assert.deepStrictEqual(saved.at(-1), {
+          ...doneDetails,
+          stockCodes: { done: 12, of: 900 },
+        })
+        yield* progress.report(WALKING)
+        assert.deepStrictEqual(saved.at(-1), WALKING)
+      })
+  )
+
+  it.effect(
     "writes a walk's phase at once, and the next walk starts without it",
     () =>
       Effect.gen(function* () {

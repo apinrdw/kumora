@@ -6,9 +6,11 @@ import {
   BrokerCode,
   BrokerCodesProtocolVersion,
   MISSING_RANGES,
+  OrderNumber,
   TradeNumber,
   WibDate,
   StockCode,
+  ajaibDetailOrderNumbers,
   ajaibRowCodes,
   ajaibRowFields,
   brokerCodesAfter,
@@ -23,6 +25,7 @@ import {
   encodeRecordedBrokerCodes,
   stockbitRowCodes,
   stockbitRowFields,
+  stockbitRowOrderNumbers,
   type BrokerCodesBatch,
   type BrokerCodesStatus,
   type RecordedBrokerCodes,
@@ -32,6 +35,8 @@ import {
 
 const DAY = WibDate.make("2026-11-12")
 const number = (value: string) => TradeNumber.make(value)
+const orderPair = (buy: number, sell: number) =>
+  [OrderNumber.make(buy), OrderNumber.make(sell)] as const
 const codes: TradeCodes = {
   buyer: BrokerCode.make("YP"),
   buyerType: "D",
@@ -66,6 +71,50 @@ describe("a broker codes batch", () => {
         }
         const wire = yield* encodeBrokerCodesBatch(batch)
         assert.deepStrictEqual(yield* decodeBrokerCodesBatch(wire), batch)
+      })
+  )
+
+  it.effect(
+    "rows with order numbers, with fields or with none, travel and come back equal",
+    () =>
+      Effect.gen(function* () {
+        // HOPE's trades 8799 and 8800 on 2026-11-20, as Stockbit sent them.
+        const batch: BrokerCodesBatch = {
+          version: BrokerCodesProtocolVersion,
+          feed: "Stockbit",
+          day: DAY,
+          rows: [
+            [number("8799"), codes, fields, orderPair(276_574, 53_352)],
+            [number("8800"), codes, null, orderPair(276_574, 125_666)],
+            [number("8801"), codes, fields],
+          ],
+        }
+        const wire = yield* encodeBrokerCodesBatch(batch)
+        assert.deepStrictEqual(yield* decodeBrokerCodesBatch(wire), batch)
+      })
+  )
+
+  it.effect(
+    "of version 4, rows without order numbers, fails as a version mismatch",
+    () =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(
+          decodeBrokerCodesBatch(
+            JSON.stringify({
+              version: 4,
+              feed: "Stockbit",
+              day: DAY,
+              rows: [
+                [
+                  "1",
+                  codes,
+                  { ...fields, time: DateTime.toEpochMillis(fields.time) },
+                ],
+              ],
+            })
+          )
+        )
+        assert.strictEqual(error._tag, "BrokerCodesVersionMismatch")
       })
   )
 
@@ -157,6 +206,7 @@ describe("a broker codes batch", () => {
             number(String(9_999_995_000 + at)),
             codes,
             longest,
+            orderPair(4_294_967_295, 4_294_967_295),
           ]),
           end: { n: number("9999999999") },
         }
@@ -185,11 +235,17 @@ describe("a broker codes batch", () => {
           ["1", codes, { ...wire, side: "up" }],
           ["1", codes, { ...wire, time: undefined }],
           ["1", codes, { ...wire, time: "2026-11-12T07:59:58.000Z" }],
-          ["1", codes, null],
           ["1", codes, { ...wire, price: 8_000.5 }],
           ["1", codes, { ...wire, board: "XX" }],
           ["0", codes, wire],
           ["12345678901", codes, wire],
+          ["1", codes, wire, [0, 53_352]],
+          ["1", codes, wire, [276_574, -1]],
+          ["1", codes, wire, [276_574.5, 53_352]],
+          ["1", codes, wire, ["276574", "53352"]],
+          ["1", codes, wire, [276_574]],
+          ["1", codes, wire, [4_294_967_296, 53_352]],
+          ["1", codes, wire, null],
         ]) {
           const error = yield* Effect.flip(
             decodeBrokerCodesBatch(
@@ -249,6 +305,7 @@ describe("a broker codes status", () => {
       missingCount: 20,
       sources: { ajaib: 0, stockbit: 0 },
       crossCheck: { state: "none" },
+      orderNumbers: { ajaib: 0, stockbit: 0, differences: 0 },
     },
     {
       version: BrokerCodesProtocolVersion,
@@ -259,6 +316,7 @@ describe("a broker codes status", () => {
       missingCount: 3,
       sources: { ajaib: 1_500_487, stockbit: 0 },
       crossCheck: { state: "pending", walkedTo: number("0") },
+      orderNumbers: { ajaib: 1_500_000, stockbit: 0, differences: 0 },
     },
     {
       version: BrokerCodesProtocolVersion,
@@ -269,6 +327,7 @@ describe("a broker codes status", () => {
       missingCount: 0,
       sources: { ajaib: 1_500_487, stockbit: 3 },
       crossCheck: { state: "compared", covered: 1_500_487, differences: 4 },
+      orderNumbers: { ajaib: 1_499_000, stockbit: 1_490, differences: 2 },
     },
   ]
   for (const status of statuses)
@@ -571,6 +630,85 @@ describe("a Stockbit row", () => {
           assert.deepStrictEqual(
             Option.map(yield* stockbitRowFields(DAY, raw), (read) => read.side),
             Option.some(side)
+          )
+      })
+  )
+
+  it.effect("gives the trade's buy and sell order numbers", () =>
+    Effect.gen(function* () {
+      // HOPE's trade 8799 on 2026-11-20: its group order is the buy's.
+      assert.deepStrictEqual(
+        yield* stockbitRowOrderNumbers({
+          ...row,
+          buy_order_number: "276574",
+          sell_order_number: "53352",
+          group_order_number: "276574",
+        }),
+        Option.some(orderPair(276_574, 53_352))
+      )
+    })
+  )
+
+  it.effect(
+    "without both order numbers as positive integers has none, whatever its group order",
+    () =>
+      Effect.gen(function* () {
+        const orders = {
+          ...row,
+          buy_order_number: "276574",
+          sell_order_number: "53352",
+        }
+        for (const bad of [
+          row,
+          { ...row, group_order_number: "276574" },
+          { ...orders, buy_order_number: "0" },
+          { ...orders, sell_order_number: "0" },
+          { ...orders, sell_order_number: "" },
+          { ...orders, buy_order_number: "-3" },
+          { ...orders, buy_order_number: "2765.74" },
+          { ...orders, buy_order_number: "2,765" },
+          { ...orders, sell_order_number: 53_352 },
+          { ...orders, sell_order_number: "4294967296" },
+          { ...orders, buy_order_number: undefined },
+        ])
+          assert.isTrue(
+            Option.isNone(yield* stockbitRowOrderNumbers(bad)),
+            JSON.stringify(bad)
+          )
+      })
+  )
+
+  it("keeps an order number apart from a plain number", () => {
+    // @ts-expect-error a plain number is not an order number
+    const plain: typeof OrderNumber.Type = 276_574
+    assert.strictEqual(OrderNumber.make(276_574), plain)
+  })
+
+  it.effect(
+    "reads an Ajaib Done Details row's order numbers from its order ids' last 10 digits",
+    () =>
+      Effect.gen(function* () {
+        // HOPE's 16:00 closing auction trade on 2026-11-20, XL from MG.
+        const detail = {
+          buyer: { order_id: "202611200003114944", is_highlighted: true },
+          seller: { order_id: "202611200003090230", is_highlighted: false },
+        }
+        const day = WibDate.make("2026-11-20")
+        assert.deepStrictEqual(
+          yield* ajaibDetailOrderNumbers(day, detail),
+          Option.some(orderPair(3_114_944, 3_090_230))
+        )
+        for (const bad of [
+          { ...detail, buyer: { order_id: "202611190003114944" } },
+          { ...detail, seller: { order_id: "202611200000000000" } },
+          { ...detail, seller: { order_id: "20261120003090230" } },
+          { ...detail, seller: { order_id: 3_090_230 } },
+          { ...detail, seller: { order_id: "202611204294967296" } },
+          { buyer: detail.buyer },
+        ])
+          assert.isTrue(
+            Option.isNone(yield* ajaibDetailOrderNumbers(day, bad)),
+            JSON.stringify(bad)
           )
       })
   )

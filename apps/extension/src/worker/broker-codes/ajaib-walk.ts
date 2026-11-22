@@ -2,10 +2,13 @@
 // extension: the Ajaib walk"): the day's REST tape, one 3-minute block at a
 // time, then a repair pass over every block that took 2+ pages. Each page's
 // rows with valid codes are posted to Production as one batch, each with its
-// fields when they are valid; `end` follows the repair.
+// fields when they are valid; `end` follows the repair. Production's walk
+// keeps each trade it reads with a stock code for the Done Details walk
+// (done-details-walk.ts).
 import {
   AjaibTradeNum,
   BrokerCodesProtocolVersion,
+  StockCode,
   WibDate,
   ajaibRowCodes,
   ajaibRowFields,
@@ -21,12 +24,16 @@ import {
 import { Clock, DateTime, Effect, Option, Schema } from "effect"
 
 import type { Answer } from "../broker.ts"
-import { jwtPayloadText } from "../jwt.ts"
-import type { RequestingTab } from "../pacer.ts"
-import { ajaibWindowEnd, inStreamingHours, scheduleNow } from "./hours.ts"
+import {
+  RETRY,
+  START_POLL,
+  makeAjaibCalls,
+  type AjaibWalkTab,
+} from "./ajaib-calls.ts"
+import { keptTrade, type TapeTrade } from "./done-details-walk.ts"
+import { ajaibWindowEnd } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
 import {
-  halt,
   haltOnRefusal,
   settle,
   type WalkPhase,
@@ -49,21 +56,6 @@ const REPAIR_PAGE_SIZE = 4_999
 const MAX_PAGES = 40
 // The first call, whose newest row gives the day's highest trade number.
 const HEAD_PAGE_SIZE = 40
-
-// Decision: the walk starts once Ajaib says CLOSED and the newest page
-// carries valid codes, polling once a minute until then. A failed call
-// mid-walk is retried in place every 10 s. See apinrdw/kumora#244, "Ajaib
-// start".
-const START_POLL = "1 minute"
-const RETRY = "10 seconds"
-const RETRY_MS = 10_000
-// How long a 401 waits for a token Ajaib hasn't refused before the walk
-// reloads the Ajaib tab, and again each time this passes.
-const RELOAD_MS = 60_000
-
-// The Ajaib web app's cookie holding its access token.
-const TOKEN_COOKIE = "trade_access_token"
-const JWT = /eyJ[\w-]+\.[\w-]+\.[\w-]+/
 
 // Where a day's walk stands, kept so a restarted worker carries on: the
 // first pass's next block boundary (epoch ms, newest first) and the blocks
@@ -100,11 +92,13 @@ const TapeRow = Schema.Struct({
   date: WibDate,
   timestamp: Schema.Finite,
 })
-const Expiry = Schema.fromJsonString(Schema.Struct({ exp: Schema.Finite }))
-const decodeExpiry = Schema.decodeUnknownOption(Expiry)
+// A row's stock code, read apart from its other fields so a trade whose
+// fields aren't valid is still kept as its code's (done-details-walk.ts).
+const RowCode = Schema.Struct({ stock_code: StockCode })
 const decodeStatus = Schema.decodeUnknownOption(MarketStatus)
 const decodePage = Schema.decodeUnknownOption(TapePage)
 const decodeRow = Schema.decodeUnknownOption(TapeRow)
+const decodeRowCode = Schema.decodeUnknownOption(RowCode)
 
 const tapePath = (lastTimestamp: number, page: number, size: number) =>
   Effect.succeed(
@@ -115,6 +109,7 @@ interface PageRow {
   readonly date: WibDate
   readonly timestamp: number
   readonly number: TradeNumber
+  readonly code: Option.Option<StockCode>
   readonly codes: Option.Option<TradeCodes>
   readonly fields: Option.Option<TradeFields>
 }
@@ -138,6 +133,7 @@ const pageRows = Effect.fnUntraced(function* (answer: Answer) {
       date: row.value.date,
       timestamp: row.value.timestamp,
       number: yield* ajaibSequence(row.value.trade_num),
+      code: Option.map(decodeRowCode(raw), (valid) => valid.stock_code),
       codes: yield* ajaibRowCodes(raw),
       fields: yield* ajaibRowFields(raw),
     })
@@ -146,32 +142,35 @@ const pageRows = Effect.fnUntraced(function* (answer: Answer) {
 })
 
 // The batch rows of `rows` on `day` inside [from, boundary) with valid
-// codes.
+// codes, and each of them with a stock code as the Done Details walk keeps
+// it: with its key when its codes and fields are valid, else unkeyed.
 const blockRows = Effect.fnUntraced(function* (
   day: WibDate,
   from: number,
   boundary: number,
   rows: ReadonlyArray<PageRow>
 ) {
-  const kept: Array<BatchRow> = []
+  const batch: Array<BatchRow> = []
+  const kept: Array<TapeTrade> = []
   for (const row of rows) {
     const inBlock =
       row.date === day &&
       row.timestamp >= from &&
       row.timestamp < boundary &&
       row.number !== "0"
-    if (inBlock && Option.isSome(row.codes))
-      kept.push(yield* batchRow(row.number, row.codes.value, row.fields))
+    if (!inBlock) continue
+    if (Option.isSome(row.codes))
+      batch.push(yield* batchRow(row.number, row.codes.value, row.fields))
+    if (Option.isSome(row.codes) && Option.isSome(row.fields))
+      kept.push(yield* keptTrade(row.number, row.codes.value, row.fields.value))
+    else if (Option.isSome(row.code))
+      kept.push({ _tag: "Unkeyed", number: row.number, code: row.code.value })
   }
-  return kept
+  return { batch, kept }
 })
 
 export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
-  readonly tab: RequestingTab & {
-    readonly attached: Effect.Effect<boolean>
-    // Reloads the Ajaib tab, so its page signs its calls with a fresh token.
-    readonly reload: Effect.Effect<void>
-  }
+  readonly tab: AjaibWalkTab
   readonly post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
   readonly store: AjaibWalkStore
   // For the options page (progress.ts): the trades the first pass fetched
@@ -185,152 +184,21 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   readonly repaired?: (done: number, of: number) => Effect.Effect<void>
   // For the options page too: what the walk is doing, and since when.
   readonly phase?: (phase: WalkPhase) => Effect.Effect<void>
+  // Keeps each page's trades for the Done Details walk, before the page's
+  // batch goes up (done-details-walk.ts).
+  readonly keep?: (
+    day: WibDate,
+    trades: ReadonlyArray<TapeTrade>
+  ) => Effect.Effect<void>
 }) {
   const { tab, store } = options
+  const keep = options.keep ?? (() => Effect.void)
   const trades = options.trades ?? (() => Effect.void)
   const repaired = options.repaired ?? (() => Effect.void)
   const report = options.phase ?? (() => Effect.void)
-  // The phase a token wait returns to: waiting for the close, or fetching.
-  let phase = Option.none<WalkPhase>()
-  const enter = Effect.fnUntraced(function* (
-    step: "awaiting-close" | "fetching"
-  ) {
-    const next: WalkPhase = { step, since: yield* Clock.currentTimeMillis }
-    phase = Option.some(next)
-    yield* report(next)
-  })
+  const { enter, guard, call } = yield* makeAjaibCalls(tab, report)
   let fetched = 0
   let dayN = Option.none<number>()
-
-  // Before each call: Streaming hours stop the walk in place; past
-  // Ajaib's window, it can no longer serve the day.
-  // With no Ajaib tab relayed the walk waits in place, polling once a minute,
-  // until a tab is back or the window ends; Stockbit and the older days wait
-  // behind it meanwhile.
-  const guard = Effect.fnUntraced(function* (windowEnd: DateTime.Utc) {
-    while (true) {
-      const now = yield* scheduleNow
-      if (yield* inStreamingHours(now))
-        return yield* halt({ _tag: "stopped", cause: "streaming-hours" })
-      if (DateTime.isGreaterThanOrEqualTo(now, windowEnd))
-        return yield* halt({ _tag: "unserved", reason: "window-passed" })
-      if (yield* tab.attached) return
-      yield* Effect.sleep(START_POLL)
-    }
-  })
-
-  const pageToken = Effect.map(
-    Effect.suspend(() => tab.request({ _tag: "page-token" })),
-    (answer) =>
-      Option.map(
-        Option.filter(answer, (token) => token.status === 200),
-        (token) => token.body
-      )
-  )
-
-  // The token in the tab's `trade_access_token` cookie, URL-encoded and
-  // sometimes wrapped, so the JWT is matched out of it.
-  const cookieToken = Effect.map(
-    Effect.suspend(() => tab.request({ _tag: "cookie", name: TOKEN_COOKIE })),
-    (answer) =>
-      Option.flatMap(
-        Option.filter(answer, (cookie) => cookie.status === 200),
-        (cookie) => {
-          let text = cookie.body
-          try {
-            text = decodeURIComponent(text)
-          } catch {
-            // Not URL-encoded: matched as it is.
-          }
-          return Option.fromNullishOr(JWT.exec(text)?.[0])
-        }
-      )
-  )
-
-  // The cookie's token once a 401 made the walk take it; none while the
-  // page's own headers serve.
-  let cookie = Option.none<string>()
-  // Every token Ajaib refused this walk, so none is sent twice.
-  const refused = new Set<string>()
-
-  // Decision: a token past its JWT `exp` counts as refused and is never
-  // sent. Ajaib's 401 carries no CORS headers, so the tab reads it as a
-  // failed request, not a 401. 2026-11-20: an expired page token stalled the
-  // walk, retried every 10 s, with 122,400 trades missing.
-  const usable = Effect.fnUntraced(function* (token: string) {
-    if (refused.has(token)) return false
-    const expiry = Option.flatMap(yield* jwtPayloadText(token), decodeExpiry)
-    const now = yield* Clock.currentTimeMillis
-    return !Option.exists(expiry, ({ exp }) => exp * 1000 <= now)
-  })
-
-  // The token the next call sends: the cookie's once taken, else the page's.
-  const sending = Effect.suspend(() =>
-    Option.isSome(cookie) ? Effect.succeed(cookie) : pageToken
-  )
-
-  // Decision: on a 401 the walk sends the first usable token, the page's
-  // headers' then the `trade_access_token` cookie's; with neither
-  // it reloads the idle Ajaib tab every RELOAD_MS, which re-issues the cookie.
-  // Its position is in the store, so a reload loses nothing. It never calls
-  // refresh itself. 2026-11-17: a 22-hour-old token stalled the walk.
-  const findToken = Effect.fnUntraced(function* () {
-    const page = yield* pageToken
-    if (Option.isSome(page) && (yield* usable(page.value))) {
-      cookie = Option.none()
-      return true
-    }
-    const stored = yield* cookieToken
-    if (Option.isSome(stored) && (yield* usable(stored.value))) {
-      cookie = stored
-      return true
-    }
-    return false
-  })
-  const awaitNewToken = Effect.fnUntraced(function* (windowEnd: DateTime.Utc) {
-    if (yield* findToken()) return
-    const since = yield* Clock.currentTimeMillis
-    yield* report({ step: "awaiting-token", since, reloads: 0 })
-    let waited = 0
-    let reloads = 0
-    while (true) {
-      yield* Effect.sleep(RETRY)
-      waited += RETRY_MS
-      if (waited >= RELOAD_MS) {
-        yield* tab.reload
-        waited = 0
-        reloads++
-        yield* report({ step: "awaiting-token", since, reloads })
-      }
-      yield* guard(windowEnd)
-      if (yield* findToken()) break
-    }
-    if (Option.isSome(phase)) yield* report(phase.value)
-  })
-
-  // One call on Ajaib's API with the token `sending` gives; an expired token,
-  // or a 401, waits for a usable token and sends the call with it. None when
-  // the tab didn't answer.
-  const call = Effect.fnUntraced(function* (
-    windowEnd: DateTime.Utc,
-    path: string
-  ) {
-    while (true) {
-      const sent = yield* sending
-      if (Option.isSome(sent) && !(yield* usable(sent.value))) {
-        yield* awaitNewToken(windowEnd)
-        continue
-      }
-      const answer = yield* tab.request({
-        _tag: "page-fetch",
-        path,
-        ...(Option.isSome(cookie) ? { bearer: cookie.value } : {}),
-      })
-      if (Option.isNone(answer) || answer.value.status !== 401) return answer
-      if (Option.isSome(sent)) refused.add(sent.value)
-      yield* awaitNewToken(windowEnd)
-    }
-  })
 
   // One tape page, retried in place until it answers one.
   const tapePage = Effect.fnUntraced(function* (
@@ -433,10 +301,11 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
         windowEnd,
         yield* tapePath(boundary, page, size)
       )
-      const kept = yield* blockRows(day, from, boundary, rows)
-      if (kept.length > 0) yield* post({ day, rows: kept })
+      const { batch, kept } = yield* blockRows(day, from, boundary, rows)
+      if (kept.length > 0) yield* keep(day, kept)
+      if (batch.length > 0) yield* post({ day, rows: batch })
       if (size === PAGE_SIZE) {
-        fetched += kept.length
+        fetched += batch.length
         yield* trades(fetched, dayN)
       }
       const older = rows.some((row) => row.timestamp < from)

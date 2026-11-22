@@ -16,7 +16,7 @@ import {
 import { createPortal } from "react-dom"
 
 import { lots } from "@/lib/format"
-import { sweepTip } from "@/lib/sweeps"
+import { sweepTip, type SweepTipText } from "@/lib/sweeps"
 
 import type { ReplayCursor } from "./replay-cursor"
 import type { SweepStore, TipAt } from "./sweep-store"
@@ -93,6 +93,38 @@ function TipBrokers({
         ])}
       </tbody>
     </table>
+  )
+}
+
+// The tooltip's title, an order run's orders, then its brokers, or why
+// there are none yet.
+function TipBody({
+  tip,
+  picked,
+  withBrokers,
+}: {
+  tip: SweepTipText
+  picked: BrokerCode | undefined
+  withBrokers: boolean
+}) {
+  return (
+    <>
+      <p className="mb-1 font-sans font-semibold">{tip.title}</p>
+      {tip.orders !== undefined && (
+        <p className="mb-1 text-muted-foreground">{tip.orders}</p>
+      )}
+      {tip.sides === undefined ? (
+        <p className="text-muted-foreground">
+          {/* Decision: "after the close" is the owner's approved copy for
+              what arrives after the Seal: spec apinrdw/kumora#343, story 32. */}
+          {withBrokers
+            ? "Brokers show once every trade in this sweep has its codes."
+            : "Broker codes arrive after the close."}
+        </p>
+      ) : (
+        <TipBrokers sides={tip.sides} picked={picked} />
+      )}
+    </>
   )
 }
 
@@ -182,18 +214,7 @@ export function SweepTip({
       )}
       style={Effect.runSync(placement(at))}
     >
-      <p className="mb-1 font-sans font-semibold">{tip.title}</p>
-      {tip.sides === undefined ? (
-        <p className="text-muted-foreground">
-          {/* Decision: "after the close" is the owner's approved copy for
-              what arrives after the Seal: spec apinrdw/kumora#343, story 32. */}
-          {withBrokers
-            ? "Brokers show once every trade in this sweep has its codes."
-            : "Broker codes arrive after the close."}
-        </p>
-      ) : (
-        <TipBrokers sides={tip.sides} picked={picked} />
-      )}
+      <TipBody tip={tip} picked={picked} withBrokers={withBrokers} />
     </div>,
     document.body
   )

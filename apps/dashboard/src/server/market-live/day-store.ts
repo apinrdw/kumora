@@ -265,6 +265,10 @@ export const Fact = {
   // `codesComplete`): `true` or `false`, none on a day no batch or seal
   // wrote it for.
   codesComplete: "codes-complete",
+  // The broker codes store's order numbers (broker-codes.ts): the status's
+  // counts as JSON, none on a day no batch carried order numbers for, which
+  // has no order_number_chunks table.
+  orderNumbers: "order-numbers",
   // The one-off build of a day's order flow rows (order-flow-build.ts): the
   // last minute it wrote, then ORDER_FLOW_BUILT.
   orderFlowBuilt: "order-flow-built",
