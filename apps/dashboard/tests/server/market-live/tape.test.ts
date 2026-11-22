@@ -13,7 +13,7 @@ import { DateTime, Effect } from "effect"
 import { makeDayStore, type Sql } from "@/server/market-live/day-store"
 import { makeTape } from "@/server/market-live/tape"
 
-import { memorySql, rowShapedSql } from "./sql"
+import { memorySql, openedEmptySql, rowShapedSql } from "./sql"
 
 const wib = (at: string) => DateTime.makeUnsafe(`2026-11-09T${at}+07:00`)
 
@@ -385,6 +385,31 @@ describe("a chunked day's writes", () => {
             "SELECT name FROM sqlite_schema WHERE name = 'trade_chunks'"
           ),
           []
+        )
+      })
+  )
+
+  it.effect(
+    "an object opened before trade chunks that never held a trade chunks its tape",
+    () =>
+      Effect.gen(function* () {
+        const { sql, statements } = watched(openedEmptySql())
+        const store = yield* makeDayStore(sql, { today: true })
+        yield* store.write(flushOf(TAPE))
+        assert.deepStrictEqual(writesOf(statements), [
+          "trade_chunks",
+          "trade_chunks",
+          "trade_chunks",
+          "facts",
+        ])
+        assert.deepStrictEqual(
+          sql.exec("SELECT name FROM sqlite_schema WHERE name = 'trades'"),
+          []
+        )
+        const restarted = yield* makeDayStore(sql, { today: true })
+        assert.deepStrictEqual(
+          yield* restarted.tradesBetween(wib("08:00:00"), wib("10:00:00")),
+          TAPE
         )
       })
   )

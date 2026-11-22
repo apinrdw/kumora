@@ -19,7 +19,7 @@ import type { Sql } from "@/server/market-live/day-store"
 
 import { memoryBrokerTotalsDb } from "../broker-totals/memory-broker-totals-db"
 import { stockbitTrade, tradingDay } from "./day-harness"
-import { memorySql, rowShapedSql } from "./sql"
+import { memorySql, openedEmptySql, rowShapedSql } from "./sql"
 
 const DAY = WibDate.make("2026-11-09")
 const CODES = ["UNTR", "BBCA", "TLKM"] as const
@@ -214,5 +214,24 @@ describe("a recorded day on trade chunks and on a row per trade", () => {
       assert.include(chunked.walking[0], '"tradeNumber":"2600"')
       assert.deepStrictEqual(chunked, rows)
     })
+  )
+
+  it.effect(
+    "walks an object opened before trade chunks that never held a trade into chunks",
+    () =>
+      Effect.gen(function* () {
+        const chunked = yield* walkDay(memorySql())
+        const sql = openedEmptySql()
+        const opened = yield* walkDay(sql)
+        assert.deepStrictEqual(opened, chunked)
+        assert.deepStrictEqual(
+          sql.exec("SELECT name FROM sqlite_schema WHERE name = 'trades'"),
+          []
+        )
+        assert.isAbove(
+          Number(sql.exec("SELECT count(*) AS n FROM trade_chunks")[0]?.n),
+          0
+        )
+      })
   )
 })

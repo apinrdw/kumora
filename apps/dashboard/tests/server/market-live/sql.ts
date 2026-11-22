@@ -10,6 +10,7 @@ import {
 import { Effect } from "effect"
 
 import type { Sql, SqlValue } from "@/server/market-live/day-store"
+import { HOLDS_A_TRADE } from "@/server/market-live/tape"
 
 export const memorySql = (): Sql => {
   const database = new DatabaseSync(":memory:")
@@ -85,9 +86,9 @@ export const counted = (sql: Sql): Sql => {
   }
 }
 
-// A day recorded before trade chunks (spec apinrdw/kumora#555): its tape is
-// the row-per-trade `trades` table, made before the store starts.
-export const rowShapedSql = (): Sql => {
+// An object opened before trade chunks (spec apinrdw/kumora#555) that never
+// held a trade: the row-per-trade `trades` table, made and left empty.
+export const openedEmptySql = (): Sql => {
   const sql = memorySql()
   sql.exec(`CREATE TABLE trades (
     number INTEGER PRIMARY KEY,
@@ -100,4 +101,17 @@ export const rowShapedSql = (): Sql => {
     feeds TEXT NOT NULL
   )`)
   return sql
+}
+
+// A day recorded before trade chunks: its tape is the row-per-trade `trades`
+// table. Such a day held a trade before any store of this code started on
+// it, so the tape's check for one (HOLDS_A_TRADE) answers that it does, and
+// a test writes the day's trades after the store starts.
+export const rowShapedSql = (): Sql => {
+  const sql = openedEmptySql()
+  return {
+    ...sql,
+    exec: (query, ...bindings) =>
+      query === HOLDS_A_TRADE ? [{ 1: 1 }] : sql.exec(query, ...bindings),
+  }
 }
