@@ -329,8 +329,12 @@ describe("order flow events", () => {
             }
           })
         // 09:45's buy-aggressor lots rise to 1,300, over half the push's
-        // 2,400: the Exhaustion no longer holds. Flushed by 09:48:06.
+        // 2,400: the Exhaustion no longer holds. 09:43 and 09:44 rise over
+        // half of 2,800 too, so only 09:45 holds again below. Flushed by
+        // 09:48:06.
         yield* tick(day, "09:47:10", "09:48:00", [
+          trade("09:43:40", "UNTR", 1240, 200),
+          trade("09:44:40", "UNTR", 1240, 200),
           trade("09:45:40", "UNTR", 1240, 400),
         ])
         yield* at("09:48:06.000")
