@@ -556,6 +556,18 @@ describe("an alert's link", () => {
     })
   )
 
+  it.effect(
+    "names a book event for an alert stored before alerts named their event",
+    () =>
+      Effect.gen(function* () {
+        const { event: _, ...stored } = yield* alertOf(pulled(BBCA, T0))
+        assert.deepStrictEqual(yield* alertLink(stored), {
+          code: BBCA,
+          event: `BBCA|pulled|bid|9000|${T0}`,
+        })
+      })
+  )
+
   it.effect("names no event for a heavy side change", () =>
     Effect.gen(function* () {
       const told = yield* alertOf({
