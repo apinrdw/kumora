@@ -48,6 +48,7 @@ import {
   Effect,
   Option,
   Schema,
+  Scheduler,
   Scope,
   Semaphore,
 } from "effect"
@@ -704,6 +705,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // Each code's order flow state rebuilt from its stored minutes, and the
   // events found again that no flush stored (order-flow.ts, `restore`),
   // checked against that code's stored events alone.
+  // Decision: the replay never yields to Effect's scheduler. A fiber yields
+  // every 2,048 operations and waits on a timer, about 1 ms in workerd, and
+  // what needs the live day waits for it. Measured 2026-11-23 on the dev
+  // machine, the busy day in workerd (row-budgets.workerd.test.ts): 8,561
+  // yields waited 9.1 s of the replay's 12.2 s. See PR #633.
   const restoreOrderFlow = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis
     if (yield* orderFlow.due(now)) orderFlowJudged = true
@@ -727,7 +733,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       }),
       store.orderFlowEventsFrom
     )
-  })
+  }).pipe(Effect.provideService(Scheduler.PreventSchedulerYield, true))
   // The live day read back from the store: the tape, the bubble book, the
   // feeds' down stretches and the last frames.
   const restoreLive = Effect.gen(function* () {

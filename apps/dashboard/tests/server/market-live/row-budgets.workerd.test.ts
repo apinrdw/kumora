@@ -43,7 +43,7 @@ const withinBudget = Effect.fnUntraced(function* (
 
 // Decision: building the busy day takes about 6 s here; on CI's 2 cores the
 // build and its bundle get a minute, as does its teardown. A test here takes
-// at most 2.6 s (the whole suite about 45 s), so each gets 10 s, or 20 s for
+// at most 4.2 s (the whole suite about 80 s), so each gets 10 s, or 20 s for
 // one over 2 s: CI's 2 cores run it about twice as slow.
 layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
   "row budgets",
@@ -220,8 +220,10 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
           // rows more: 392,582 against 352,584.
           assert.isAtMost(stored.rows.rowsRead, none.rows.rowsRead + 10)
         }),
-      // The two restores take about 25 s here.
-      60_000
+      // The two restores take about 3.5 s here, each replaying the day's
+      // order flow. They took 24.6 s, past this timeout, while the replay
+      // yielded to the scheduler and saved every minute's state (PR #633).
+      20_000
     )
   }
 )
@@ -298,7 +300,9 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
   "row budgets of a walk day's batch",
   (it) => {
     // Spec apinrdw/kumora#555: sweep brokers' recompute reads the trade
-    // chunks of the minutes the batch's trades fall in.
+    // chunks of the minutes the batch's trades fall in. The walking day's
+    // object restores the live day first: the test takes 4 s here, and took
+    // 14.6 s before the order flow replay was cut (PR #633).
     it.effect(
       "a walk batch that fills 5,000 trades reads at most 10 K rows, its tape summary in place of its tape",
       () => withinBudget("walk batch", { rowsRead: 10_000 }),
