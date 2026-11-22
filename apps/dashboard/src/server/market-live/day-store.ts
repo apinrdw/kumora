@@ -385,6 +385,10 @@ const bookEventOf = Effect.fnUntraced(function* (
 // `detail`, decoded as the wire's OrderFlowEvent. A row this code can't read
 // is a defect.
 const decodeOrderFlowEvent = Schema.decodeUnknownEffect(OrderFlowEvent)
+// Its wire form, so each DateTime in `detail` is stored as epoch
+// milliseconds, the form `orderFlowEventOf` decodes.
+const encodeOrderFlowEvent = (event: OrderFlowEvent) =>
+  Schema.encodeEffect(OrderFlowEvent)(event).pipe(Effect.orDie)
 const orderFlowEventOf = Effect.fnUntraced(function* (
   row: Record<string, SqlValue>
 ) {
@@ -535,6 +539,10 @@ export const makeDayStore = (
 
     const write = Effect.fnUntraced(function* (flush: Flush) {
       const footprints = yield* footprintTexts(flush.footprints)
+      const orderFlowEvents = yield* Effect.forEach(
+        flush.orderFlowEvents ?? [],
+        encodeOrderFlowEvent
+      )
       yield* meteredTransaction(() => {
         tape.write(flush.trades)
         insertCandles(flush.candles)
@@ -588,12 +596,12 @@ export const makeDayStore = (
             JSON.stringify(detail)
           )
         }
-        for (const event of flush.orderFlowEvents ?? []) {
+        for (const event of orderFlowEvents) {
           const { code, at, kind, side, price, ...detail } = event
           sql.exec(
             "INSERT OR REPLACE INTO order_flow_events VALUES (?, ?, ?, ?, ?, ?)",
             code,
-            DateTime.toEpochMillis(at),
+            at,
             kind,
             side,
             price,
