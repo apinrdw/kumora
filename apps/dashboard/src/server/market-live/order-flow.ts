@@ -3,6 +3,7 @@
 // settles, the day's high and low, sessions, relay gaps and the restart's
 // replay. It folds each minute at its close and hands every continuous
 // minute of every share to the rules (order-flow-rules.ts), once per side.
+// A late trade folds its code again from the trade's minute.
 import {
   FLUSH_PAST_MINUTE,
   INDEX_CODES,
@@ -26,6 +27,7 @@ import {
   SIDE,
   SIDES,
   makeRules,
+  type ContinuousPhase,
   type Extreme,
   type FoldedMinute,
   type MinuteFigures,
@@ -37,20 +39,49 @@ import {
 // The daily 13:31:05 gap is 3–4 s. See apinrdw/kumora#602.
 const GAP_BLOCKS_MS = 10_000
 
+// Decision: a trade up to 10 minutes behind the newest folded minute folds
+// its code again from the trade's minute, as if it had arrived in time; an
+// older one is left out of the order flow state, though a restart's replay
+// counts it. A gap's backfill (gaps.ts) asks 5 s after a later number and
+// takes about 100 s for the widest gap it asks, and each code holds its
+// minutes and their states this far back. See spec apinrdw/kumora#605,
+// "Order flow events: the rules".
+const LATE_MINUTES = 10
+
+// What a code's minutes fold into, as it stands before a minute.
+interface Folding {
+  readonly extremes: Record<OrderFlowSide, Extreme | undefined>
+  // The day's cumulative delta in lots through the minutes folded: the
+  // footprint chart's CVD (lib/footprint.ts, minuteTotals).
+  readonly cum: number
+  // The last traded price.
+  readonly last: number | undefined
+  readonly window: ReadonlyArray<MinuteFigures>
+  readonly windowSession: ContinuousPhase | undefined
+  // Each rule's memory of the code, as an Effect that puts it back.
+  readonly memory: ReadonlyArray<Effect.Effect<void>>
+}
+
+// A minute folded in the last LATE_MINUTES: its figures, which a late trade
+// still moves, the state before it was folded, and the kind and side of
+// each event it sent.
+interface Held {
+  readonly figures: MinuteFigures
+  readonly before: Folding
+  readonly sent: Set<string>
+}
+
 interface CodeFlow {
   // Minutes with trades not folded yet, by minute.
   readonly pending: Map<number, MinuteFigures>
+  // The minutes folded in the last LATE_MINUTES, oldest first.
+  held: Array<Held>
+  // The oldest folded minute a late trade moved since the last judge.
+  lateFrom: number | undefined
   window: Array<MinuteFigures>
-  windowSession: number | undefined
+  windowSession: ContinuousPhase | undefined
   readonly extremes: Record<OrderFlowSide, Extreme | undefined>
-  // Each side's day extreme as it stood before a late trade moved it, until
-  // `judge` judges the move (`judgeLate`).
-  readonly moved: Record<OrderFlowSide, Extreme | undefined>
-  // The day's cumulative delta in lots, through the newest folded minute and
-  // any late trade since: the footprint chart's CVD (lib/footprint.ts,
-  // minuteTotals).
   cum: number
-  // The last traded price, as of the newest folded minute.
   last: number | undefined
   // Whether the rules judge the code: shares only, decided on its first fold.
   share: boolean | undefined
@@ -161,7 +192,11 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
   // Each session's continuous minutes, as the starts of its first minute
   // and of the minute after its last. Session 1's last second (12:00:00,
   // 11:30:00 on Friday) is no minute of its own.
-  const sessions: Array<{ readonly from: number; readonly to: number }> = []
+  const sessions: Array<{
+    readonly session: ContinuousPhase
+    readonly from: number
+    readonly to: number
+  }> = []
   // A day past the baked schedule has none: nothing is judged on it.
   const phases = yield* marketPhases(date).pipe(
     Effect.catchTag("ScheduleYearMissing", () => Effect.succeed([]))
@@ -170,69 +205,58 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
     if (phase.phase === "session-1" || phase.phase === "session-2") {
       const from = DateTime.toEpochMillis(phase.from)
       const end = DateTime.toEpochMillis(phase.to)
-      sessions.push({ from, to: Math.floor(end / MINUTE_MS) * MINUTE_MS })
+      sessions.push({
+        session: phase.phase,
+        from,
+        to: Math.floor(end / MINUTE_MS) * MINUTE_MS,
+      })
     }
   const sessionOf = (minute: number) =>
-    Effect.sync(() => {
-      const index = sessions.findIndex(
-        ({ from, to }) => minute >= from && minute < to
-      )
-      return index < 0 ? undefined : index
-    })
+    Effect.sync(() =>
+      sessions.find(({ from, to }) => minute >= from && minute < to)
+    )
 
   const codes = new Map<StockCode, CodeFlow>()
   // The newest minute folded, for every code.
   let foldedThrough = Number.NEGATIVE_INFINITY
 
-  // Decision: `settled` and its `addPrint` stay plain, as the bubble book's
-  // do (bubble-book.ts, the Decision at sumsOf): the candle book calls it for
-  // each regular-board trade it settles, inside its own plain arithmetic.
+  // Decision: `settled` and its `addPrint` and `emptyAt` stay plain, as the
+  // bubble book's do (bubble-book.ts, the Decision at sumsOf): the candle
+  // book calls it for each regular-board trade it settles, inside its own
+  // plain arithmetic.
   //
-  // A trade in a minute already folded moves that minute's figures, if the
-  // window still holds it, the cumulative delta and the day's extremes. An
-  // extreme it sets takes the cumulative delta as it stands, since the
-  // minute after it is rarely folded yet, and keeps the extreme it moved for
-  // `judgeLate`.
+  // A trade in a minute already folded moves that minute's figures and marks
+  // the code to fold again from it at the next judge.
   const settled = (code: StockCode, minute: number, print: Print) => {
     let flow = codes.get(code)
     if (flow === undefined) {
       flow = {
         pending: new Map(),
+        held: [],
+        lateFrom: undefined,
         window: [],
         windowSession: undefined,
         extremes: { buy: undefined, sell: undefined },
-        moved: { buy: undefined, sell: undefined },
         cum: 0,
         last: undefined,
         share: undefined,
       }
       codes.set(code, flow)
     }
-    if (minute > foldedThrough) {
-      let figures = flow.pending.get(minute)
-      if (figures === undefined) {
-        figures = emptyAt(minute, print.close)
-        flow.pending.set(minute, figures)
-      }
-      addPrint(figures, print)
-      return
+    let figures: MinuteFigures | undefined
+    if (minute <= foldedThrough) {
+      if (minute <= foldedThrough - LATE_MINUTES * MINUTE_MS) return
+      figures = flow.held.find(
+        (each) => each.figures.minute === minute
+      )?.figures
+      flow.lateFrom = Math.min(flow.lateFrom ?? minute, minute)
     }
-    const held = flow.window.find((each) => each.minute === minute)
-    if (held !== undefined) addPrint(held, print)
-    if (print.buyValue > 0) flow.cum += print.volume
-    if (print.sellValue > 0) flow.cum -= print.volume
-    const { buy, sell } = flow.extremes
-    const set = { price: print.close, at: minute, delta: flow.cum }
-    if (buy === undefined || print.close > buy.price) {
-      flow.moved.buy ??= buy
-      flow.extremes.buy = { ...set, pullback: undefined }
-    } else if (minute > buy.at)
-      buy.pullback = Math.min(buy.pullback ?? print.close, print.close)
-    if (sell === undefined || print.close < sell.price) {
-      flow.moved.sell ??= sell
-      flow.extremes.sell = { ...set, pullback: undefined }
-    } else if (minute > sell.at)
-      sell.pullback = Math.max(sell.pullback ?? print.close, print.close)
+    figures ??= flow.pending.get(minute)
+    if (figures === undefined) {
+      figures = emptyAt(minute, print.close)
+      flow.pending.set(minute, figures)
+    }
+    addPrint(figures, print)
   }
 
   // The latest minute judged at `now`: the newest whose close was
@@ -307,7 +331,7 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
   const slide = (
     flow: CodeFlow,
     figures: MinuteFigures,
-    session: number | undefined
+    session: ContinuousPhase | undefined
   ) =>
     Effect.sync(() => {
       const previous = flow.window.at(-1)
@@ -321,113 +345,140 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
       flow.windowSession = session
     })
 
-  // Every rule's events on one folded minute, for each of `sides`.
-  const judgeFolded = Effect.fnUntraced(function* (
-    folded: FoldedMinute,
-    sides: ReadonlyArray<OrderFlowSide> = SIDES
-  ) {
+  // Every rule's events on one folded minute, for each side.
+  const judgeFolded = Effect.fnUntraced(function* (folded: FoldedMinute) {
     const found: Array<OrderFlowEvent> = []
     for (const rule of judging)
-      for (const side of sides) {
+      for (const side of SIDES) {
         const event = yield* rule.judge(folded, side)
         if (event !== undefined) found.push(event)
       }
     return found
   })
 
-  // Folds one minute of one code into its state and judges it.
+  // The code's state as it stands, to fold again from.
+  const saved = Effect.fnUntraced(function* (code: StockCode, flow: CodeFlow) {
+    const copy = (extreme: Extreme | undefined) =>
+      extreme === undefined ? undefined : { ...extreme }
+    return {
+      extremes: {
+        buy: copy(flow.extremes.buy),
+        sell: copy(flow.extremes.sell),
+      },
+      cum: flow.cum,
+      last: flow.last,
+      window: [...flow.window],
+      windowSession: flow.windowSession,
+      memory: yield* Effect.forEach(judging, (rule) => rule.save(code)),
+    } satisfies Folding
+  })
+
+  const restoreTo = Effect.fnUntraced(function* (
+    flow: CodeFlow,
+    folding: Folding
+  ) {
+    flow.extremes.buy = folding.extremes.buy
+    flow.extremes.sell = folding.extremes.sell
+    flow.cum = folding.cum
+    flow.last = folding.last
+    flow.window = [...folding.window]
+    flow.windowSession = folding.windowSession
+    for (const put of folding.memory) yield* put
+  })
+
+  // Folds one minute of one code into its state, holds it for late trades
+  // and judges it. `sent` is what an earlier fold of the minute sent, which
+  // is not sent again.
   const fold = Effect.fnUntraced(function* (
     code: StockCode,
     flow: CodeFlow,
     minute: number,
-    blocked: FoldedMinute["blocked"]
+    blocked: FoldedMinute["blocked"],
+    sent: ReadonlySet<string> = new Set()
   ) {
     const traded = flow.pending.get(minute)
     flow.pending.delete(minute)
     if (traded === undefined && flow.last === undefined) return []
     const figures = traded ?? emptyAt(minute, flow.last!)
+    const held: Held = {
+      figures,
+      before: yield* saved(code, flow),
+      sent: new Set(sent),
+    }
+    flow.held.push(held)
     flow.cum += figures.buyLots - figures.sellLots
     const session = yield* sessionOf(minute)
     const sides = yield* moveExtremes(flow, figures)
-    yield* slide(flow, figures, session)
+    yield* slide(flow, figures, session?.session)
     flow.share ??= yield* isShare(code)
     if (session === undefined || !flow.share) return []
     const folded: FoldedMinute = {
       code,
       figures,
-      session,
-      sessionStart: sessions[session]!.from,
+      session: session.session,
+      sessionStart: session.from,
       window: [...flow.window],
       sides,
       blocked,
     }
-    return yield* judgeFolded(folded)
-  })
-
-  // Judges each side's extreme a late trade moved (`settled`) as its own
-  // minute setting it, again, for that side only: as if the trade had
-  // arrived before the minute was folded, which is how a restart replays
-  // it. A move in a minute the window no longer holds, an auction minute's
-  // or one over PUSH_MINUTES back, is not judged. Rules read a minute judged
-  // again from its window entry, so Failed break counts its value once.
-  // Decision: a late trade's new high or low is judged once, at the next
-  // judge, as the minute it traded in, not left unjudged or credited to a
-  // later minute: its event matches the one a restart's replay finds. See
-  // spec apinrdw/kumora#605, "Order flow events: the rules".
-  const judgeLate = Effect.fnUntraced(function* (
-    code: StockCode,
-    flow: CodeFlow,
-    blocked: FoldedMinute["blocked"]
-  ) {
     const found: Array<OrderFlowEvent> = []
-    for (const side of SIDES) {
-      const before = flow.moved[side]
-      const extreme = flow.extremes[side]
-      flow.moved[side] = undefined
-      if (before === undefined || extreme === undefined) continue
-      const at = flow.window.findIndex((each) => each.minute === extreme.at)
-      const session = flow.windowSession
-      if (at < 0 || session === undefined || flow.share !== true) continue
-      const still = (each: Extreme | undefined): SideExtremes => ({
-        before: each,
-        extreme: each,
-        set: false,
-      })
-      const sides: Record<OrderFlowSide, SideExtremes> = {
-        buy: still(flow.extremes.buy),
-        sell: still(flow.extremes.sell),
-        [side]: { before, extreme, set: true },
-      }
-      const folded: FoldedMinute = {
-        code,
-        figures: flow.window[at]!,
-        session,
-        sessionStart: sessions[session]!.from,
-        window: flow.window.slice(0, at + 1),
-        sides,
-        blocked,
-      }
-      found.push(...(yield* judgeFolded(folded, [side])))
+    for (const event of yield* judgeFolded(folded)) {
+      const key = `${event.kind}|${event.side}`
+      if (held.sent.has(key)) continue
+      held.sent.add(key)
+      found.push(event)
     }
     return found
   })
 
-  // Folds one code's minutes after `after` up to `through`, in time order:
-  // its traded ones and every continuous one.
+  // Folds one code's minutes up to `through` in time order: its traded ones
+  // and every continuous one in `continuous`. Holds the last LATE_MINUTES.
   const foldCode = Effect.fnUntraced(function* (
     code: StockCode,
     flow: CodeFlow,
     continuous: ReadonlyArray<number>,
     through: number,
-    blocked: FoldedMinute["blocked"]
+    blocked: FoldedMinute["blocked"],
+    sent: ReadonlyMap<number, ReadonlySet<string>> = new Map()
   ) {
     const minutes = new Set(continuous)
     for (const minute of flow.pending.keys())
       if (minute <= through) minutes.add(minute)
     const found: Array<OrderFlowEvent> = []
     for (const minute of [...minutes].sort((a, b) => a - b))
-      found.push(...(yield* fold(code, flow, minute, blocked)))
+      found.push(
+        ...(yield* fold(code, flow, minute, blocked, sent.get(minute)))
+      )
+    const kept = flow.held.findIndex(
+      (each) => each.figures.minute > through - LATE_MINUTES * MINUTE_MS
+    )
+    flow.held = kept < 0 ? [] : flow.held.slice(kept)
     return found
+  })
+
+  // Folds a code again from the oldest minute a late trade moved, from the
+  // state before it, then on to `through`: its state ends as if the late
+  // trades had arrived in time.
+  const foldLate = Effect.fnUntraced(function* (
+    code: StockCode,
+    flow: CodeFlow,
+    from: number,
+    through: number,
+    blocked: FoldedMinute["blocked"]
+  ) {
+    const at = flow.held.findIndex((each) => each.figures.minute >= from)
+    const again = at < 0 ? [] : flow.held.splice(at)
+    if (again[0] !== undefined) yield* restoreTo(flow, again[0].before)
+    for (const { figures } of again)
+      if (figures.traded) flow.pending.set(figures.minute, figures)
+    return yield* foldCode(
+      code,
+      flow,
+      yield* continuousBetween(from - MINUTE_MS, through),
+      through,
+      blocked,
+      new Map(again.map((each) => [each.figures.minute, each.sent]))
+    )
   })
 
   // The continuous minutes after `after` up to `through`.
@@ -445,25 +496,27 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
     })
 
   // Folds and judges every minute up to the latest due at `now`, each code's
-  // in time order, under the relay gaps so far. Returns the events found,
-  // oldest first.
+  // in time order, under the relay gaps so far, and folds again from each
+  // late trade's minute. Returns the events found, oldest first.
   const judge = Effect.fnUntraced(function* (
     now: number,
     gaps: ReadonlyArray<RelayGap>
   ) {
-    const through = yield* dueAt(now)
+    const through = Math.max(yield* dueAt(now), foldedThrough)
     const blocked = blockedBy(gaps)
+    const continuous = yield* continuousBetween(foldedThrough, through)
     const found: Array<OrderFlowEvent> = []
-    for (const [code, flow] of codes)
-      found.push(...(yield* judgeLate(code, flow, blocked)))
-    if (through > foldedThrough) {
-      const continuous = yield* continuousBetween(foldedThrough, through)
-      for (const [code, flow] of codes)
+    for (const [code, flow] of codes) {
+      const late = flow.lateFrom
+      flow.lateFrom = undefined
+      if (late !== undefined)
+        found.push(...(yield* foldLate(code, flow, late, through, blocked)))
+      else if (through > foldedThrough)
         found.push(
           ...(yield* foldCode(code, flow, continuous, through, blocked))
         )
-      foldedThrough = through
     }
+    foldedThrough = through
     return Arr.sort(found, EventOrder)
   })
 

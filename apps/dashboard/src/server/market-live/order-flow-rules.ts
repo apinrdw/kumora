@@ -11,6 +11,7 @@ import {
   MINUTE_MS,
   SHARES_PER_LOT,
   ticksBetween,
+  type MarketPhase,
   type OrderFlowEvent,
   type OrderFlowSide,
   type StockCode,
@@ -95,6 +96,9 @@ interface CellLots {
   sell: number
 }
 
+// The continuous trading a judged minute falls in: Session 1 or Session 2.
+export type ContinuousPhase = Extract<MarketPhase, "session-1" | "session-2">
+
 // What the rules read of one minute of one code: its range and close, and
 // each aggressor side's lots and value (lots × 100 × price, as the
 // footprint's cells sum it). A minute with no trades has 0 lots, and the
@@ -139,8 +143,7 @@ export interface SideExtremes {
 export interface FoldedMinute {
   readonly code: StockCode
   readonly figures: MinuteFigures
-  // Which session's continuous trading the minute is in: 0 or 1.
-  readonly session: number
+  readonly session: ContinuousPhase
   // The session's start, in epoch ms.
   readonly sessionStart: number
   // The consecutive continuous minutes of the session up to and including
@@ -157,6 +160,9 @@ interface OrderFlowRule {
     minute: FoldedMinute,
     side: OrderFlowSide
   ) => Effect.Effect<OrderFlowEvent | undefined>
+  // The rule's memory of `code` as it stands, as an Effect that puts it
+  // back: order-flow.ts folds a code again from a late trade's minute.
+  readonly save: (code: StockCode) => Effect.Effect<Effect.Effect<void>>
 }
 
 export const SIDES: ReadonlyArray<OrderFlowSide> = ["buy", "sell"]
@@ -211,6 +217,23 @@ const rangeOf = (figures: MinuteFigures) =>
 const sideKey = (code: StockCode, side: OrderFlowSide) =>
   Effect.succeed(`${code}|${side}`)
 
+// Saves one code's entries, both sides, of a rule's per-code memory.
+const saveSides = Effect.fnUntraced(function* <A>(
+  memory: Map<string, A>,
+  code: StockCode
+) {
+  const saved: Array<readonly [string, A | undefined]> = []
+  for (const side of SIDES) {
+    const key = yield* sideKey(code, side)
+    saved.push([key, memory.get(key)])
+  }
+  return Effect.sync(() => {
+    for (const [key, value] of saved)
+      if (value === undefined) memory.delete(key)
+      else memory.set(key, value)
+  })
+})
+
 // The push's busiest minute for the side, by aggressor lots, and its widest
 // range in ticks.
 const pushFigures = Effect.fnUntraced(function* (
@@ -231,7 +254,7 @@ const pushFigures = Effect.fnUntraced(function* (
 // at `from` back.
 const inOpen = (minute: FoldedMinute, from: number) =>
   Effect.succeed(
-    minute.session === 0 &&
+    minute.session === "session-1" &&
       from < minute.sessionStart + OPEN_SKIP_MINUTES * MINUTE_MS
   )
 
@@ -302,6 +325,7 @@ const makeExhaustion = Effect.sync((): OrderFlowRule => {
         widestTicks: widest,
       } satisfies OrderFlowEvent
     }),
+    save: (code) => saveSides(fired, code),
   }
 })
 
@@ -338,6 +362,7 @@ const makeDivergence = Effect.sync((): OrderFlowRule => ({
       earlierDelta: before.delta,
     } satisfies OrderFlowEvent
   }),
+  save: () => Effect.succeed(Effect.void),
 }))
 
 // The side's aggressor value at prices strictly past `level` in one minute.
@@ -388,8 +413,7 @@ const makeFailedBreak = Effect.sync((): OrderFlowRule => {
   })
 
   // The side's aggressor value past the level and the farthest price traded,
-  // over the window's minutes from the break on. Read from the window each
-  // time, so a minute judged again counts its trades once.
+  // over the window's minutes from the break on.
   const reached = Effect.fnUntraced(function* (
     minute: FoldedMinute,
     side: OrderFlowSide,
@@ -443,6 +467,7 @@ const makeFailedBreak = Effect.sync((): OrderFlowRule => {
         minutes: (figures.minute - going.from) / MINUTE_MS,
       } satisfies OrderFlowEvent
     }),
+    save: (code) => saveSides(open, code),
   }
 })
 

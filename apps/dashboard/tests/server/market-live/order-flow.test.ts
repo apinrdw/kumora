@@ -285,7 +285,7 @@ describe("Exhaustion", () => {
     })
   )
 
-  it.effect("takes a late trade in a judged minute into the day's high", () =>
+  it.effect("sends a late trade's event for a minute already sent once", () =>
     Effect.gen(function* () {
       const flow = yield* makeOrderFlow(DAY)
       const feed = (minutes: ReadonlyArray<Minute>) => {
@@ -304,13 +304,12 @@ describe("Exhaustion", () => {
       assert.deepStrictEqual(yield* flow.judge(wib("09:46:05"), []), [
         exhaustion("09:45"),
       ])
-      // 1,255 at 09:44 lands after 09:44 was judged: a new day's high the
-      // push set, so the next quiet minute fires at it.
+      // 1,255 at 09:44 lands after 09:45 was judged: in order, 09:45 fires
+      // at 1,255 and 09:46 stays quiet at that extreme. 09:45's event went
+      // out at 1,250 and is not sent again.
       flow.settled(CODE, wib("09:44:00"), print(1255, 1, "buy"))
       feed([m("09:46", 1245, 1245, 800)])
-      assert.deepStrictEqual(yield* flow.judge(wib("09:47:05"), []), [
-        exhaustion("09:46", { price: 1255, lots: 800, ticks: 0 }),
-      ])
+      assert.deepStrictEqual(yield* flow.judge(wib("09:47:05"), []), [])
     })
   )
 
