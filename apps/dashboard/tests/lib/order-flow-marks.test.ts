@@ -7,6 +7,7 @@ import { StockCode, type Candle, type OrderFlowEvent } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import { orderFlowMarks } from "@/lib/order-flow-marks"
+import { minuteEnd } from "@/lib/replay"
 
 const code = StockCode.make("BBCA")
 const ms = (time: string) => Date.parse(`2026-11-19T${time}+07:00`)
@@ -96,7 +97,7 @@ describe("order flow marks", () => {
   )
 
   it.effect(
-    "leaves off an event until the cursor passes its minute's close",
+    "leaves off an event until the cursor reaches its minute's end, where picking its candle puts it",
     () =>
       Effect.gen(function* () {
         const events = [exhaustion("10:13:00", 1250)]
@@ -106,8 +107,13 @@ describe("order flow marks", () => {
           "inside its minute, the minute hadn't closed"
         )
         assert.lengthOf(
-          yield* orderFlowMarks(events, candles, ms("10:14:00")),
-          1
+          yield* orderFlowMarks(
+            events,
+            candles,
+            yield* minuteEnd(ms("10:13:00"))
+          ),
+          1,
+          "picking 10:13's candle shows its event"
         )
       })
   )
