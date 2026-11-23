@@ -1,8 +1,12 @@
 // Fails when an ADR directory or a path into one is back in the repo, or when a
 // `Decision:` comment breaks its shape: the tag opens a comment line, and the
 // decision runs five lines at most from its tag. See docs/agents/domain.md.
-// Comments come from parsers: oxc for JS, TS and JSON, `yaml` for YAML. A file
-// of any other type is read for ADR links only, never for a Decision.
+// Comments come from parsers: oxc for JS, TS and JSON, `yaml` for YAML. Shell
+// and CSS comments, and those inside a YAML block scalar, are found by their
+// markers. A file of any other type is read for ADR links only, never for a
+// Decision. That includes SQL: every .sql file is a D1 migration, and Alchemy
+// refuses to deploy an applied migration edited even in a comment, so a
+// Decision in one can never be rewritten as a pointer.
 import { parseSync } from "oxc-parser"
 import { Console, Effect, FileSystem, Option, Path } from "effect"
 import { Parser } from "yaml"
@@ -15,11 +19,13 @@ const adrLink = /docs\/adrs?\//i
 const maxDecisionLines = 5
 const tag = "Decision:"
 // A tag in comment text; a backticked one is prose about the tag.
-const anyTag = new RegExp(String.raw`(?<!\`)\b${tag}`)
+export const anyTag = new RegExp(String.raw`(?<!\`)\b${tag}`)
 const script = /\.[cm]?[jt]sx?$/
 const jsx = /\.[jt]sx$/
 const json = /\.jsonc?$/
 const yaml = /\.ya?ml$/
+const shell = /\.sh$/
+const css = /\.css$/
 
 // A comment as a parser reports it: its text, after `//` or `#` or between
 // `/*` and `*/`, and the offset where it opens.
@@ -29,9 +35,43 @@ interface Found {
   readonly value: string
 }
 
-// The comments in a file: empty when it is not a parsed type, none when oxc
-// cannot parse it. The check then names the file and reads nothing from it.
-const readComments = Effect.fnUntraced(function* (file: string, text: string) {
+// The comments that open a line with `marker`: `#` in shell, and in a YAML
+// block scalar `#` (a `run:` script) or `//` (github-script).
+const lineComments = Effect.fnUntraced(function* (
+  text: string,
+  marker: string
+) {
+  let offset = 0
+  return text.split("\n").flatMap((line): Array<Found> => {
+    const start = offset
+    offset += line.length + 1
+    const at = line.length - line.trimStart().length
+    return line.trimStart().startsWith(marker)
+      ? [
+          {
+            block: false,
+            start: start + at,
+            value: line.slice(at + marker.length),
+          },
+        ]
+      : []
+  })
+})
+
+const cssComments = Effect.fnUntraced(function* (text: string) {
+  return Array.from(text.matchAll(/\/\*([\s\S]*?)\*\//g), (match): Found => ({
+    block: true,
+    start: match.index,
+    value: match[1] ?? "",
+  }))
+})
+
+// The comments in a file: empty when it is not a type with comments, none when
+// oxc cannot parse it. The check then names the file and reads nothing from it.
+export const readComments = Effect.fnUntraced(function* (
+  file: string,
+  text: string
+) {
   const oxc = (name: string, source: string, shift: number) => {
     const { errors, comments } = parseSync(name, source)
     return errors.length > 0
@@ -61,8 +101,21 @@ const readComments = Effect.fnUntraced(function* (file: string, text: string) {
   // JSON with comments is a JS expression once wrapped in parentheses; the
   // newline keeps a closing line comment from taking the `)`.
   if (json.test(file)) return oxc(`${file}.js`, `(${text}\n)`, 1)
-  if (yaml.test(file))
-    return Option.some(yamlComments([...new Parser().parse(text)]))
+  if (yaml.test(file)) {
+    // A block scalar is a string to the parser; add its full-line `#` and
+    // `//` comments, each once.
+    const parsed = yamlComments([...new Parser().parse(text)])
+    const seen = new Set(parsed.map(({ start }) => start))
+    const embedded = [
+      ...(yield* lineComments(text, "#")),
+      ...(yield* lineComments(text, "//")),
+    ].filter(({ start }) => !seen.has(start))
+    return Option.some(
+      [...parsed, ...embedded].sort((a, b) => a.start - b.start)
+    )
+  }
+  if (shell.test(file)) return Option.some(yield* lineComments(text, "#"))
+  if (css.test(file)) return Option.some(yield* cssComments(text))
   return Option.some([])
 })
 
@@ -76,35 +129,41 @@ interface Comment {
   readonly lines: Array<string>
 }
 
+// A file's comments laid over its source lines.
+export const layComments = Effect.fnUntraced(function* (
+  file: string,
+  text: string,
+  found: ReadonlyArray<Found>
+) {
+  return found.reduce<Array<Comment>>((all, { block, start, value }) => {
+    const line = text.slice(0, start).split("\n").length - 1
+    const before = text.slice(text.lastIndexOf("\n", start - 1) + 1, start)
+    const opens = (jsx.test(file) ? /^\s*\{?\s*$/ : /^\s*$/).test(before)
+    const lines = value
+      .split("\n")
+      .map((part) => (block ? part.replace(/^\s*\*?/, "") : part).trim())
+    const last = all.at(-1)
+    if (
+      last !== undefined &&
+      !block &&
+      !last.block &&
+      opens &&
+      last.opens &&
+      last.line + last.lines.length === line
+    )
+      last.lines.push(...lines)
+    else all.push({ line, opens, block, lines })
+    return all
+  }, [])
+})
+
 // A file's `Decision:` comments that sit partway along a line or run too long.
 const decisionFindings = Effect.fnUntraced(function* (
   file: string,
   text: string,
   found: ReadonlyArray<Found>
 ) {
-  const comments = found.reduce<Array<Comment>>(
-    (all, { block, start, value }) => {
-      const line = text.slice(0, start).split("\n").length - 1
-      const before = text.slice(text.lastIndexOf("\n", start - 1) + 1, start)
-      const opens = (jsx.test(file) ? /^\s*\{?\s*$/ : /^\s*$/).test(before)
-      const lines = value
-        .split("\n")
-        .map((part) => (block ? part.replace(/^\s*\*?/, "") : part).trim())
-      const last = all.at(-1)
-      if (
-        last !== undefined &&
-        !block &&
-        !last.block &&
-        opens &&
-        last.opens &&
-        last.line + last.lines.length === line
-      )
-        last.lines.push(...lines)
-      else all.push({ line, opens, block, lines })
-      return all
-    },
-    []
-  )
+  const comments = yield* layComments(file, text, found)
   // The lines a decision whose tag is on `lines[at]` runs: to the end of
   // its comment or an empty comment line.
   const runs = (lines: ReadonlyArray<string>, at: number) => {
