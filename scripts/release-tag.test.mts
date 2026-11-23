@@ -138,8 +138,16 @@ describe("judgeTag", () => {
     })
   )
 
-  it("dates a moment by the WIB calendar", () => {
-    assert.strictEqual(wibDate(new Date("2026-11-13T17:30:00Z")), "20261114")
-    assert.strictEqual(wibDate(new Date("2026-11-13T16:30:00Z")), "20261113")
-  })
+  it.effect("dates a moment by the WIB calendar", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(
+        yield* wibDate(new Date("2026-11-13T17:30:00Z")),
+        "20261114"
+      )
+      assert.strictEqual(
+        yield* wibDate(new Date("2026-11-13T16:30:00Z")),
+        "20261113"
+      )
+    })
+  )
 })

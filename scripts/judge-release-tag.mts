@@ -9,7 +9,7 @@ runScript(
     yield* checkReleaseTag(
       yield* repoRoot,
       process.argv[2] ?? "",
-      wibDate(new Date())
+      yield* wibDate(new Date())
     )
   })
 )

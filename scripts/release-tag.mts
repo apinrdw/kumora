@@ -29,25 +29,10 @@ export interface TagRef {
 
 const shape = /^v(\d+)\.(\d+)\.(\d+)-(\d{8})(?:-([1-9]\d*))?$/
 
-const parse = (name: string): ReleaseTag | undefined => {
-  const match = shape.exec(name)
-  if (match === null) return undefined
-  const [, major, minor, patch, date = "", n] = match
-  const version: Version = [Number(major), Number(minor), Number(patch)]
-  return n === undefined
-    ? { kind: "production", version, date }
-    : { kind: "candidate", version, date, n: Number(n) }
-}
-
-const compare = (a: Version, b: Version) =>
-  a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
-
-const show = (version: Version) => version.join(".")
-
 // Decision: N counts every Candidate ever tagged; refused tags are deleted
 // (docs/adr/0008-candidate-numbers-count-every-candidate-ever-tagged.md)
-export const wibDate = (now: Date) =>
-  new Intl.DateTimeFormat("en-CA", {
+export const wibDate = Effect.fnUntraced(function* (now: Date) {
+  return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Jakarta",
     year: "numeric",
     month: "2-digit",
@@ -55,15 +40,29 @@ export const wibDate = (now: Date) =>
   })
     .format(now)
     .replaceAll("-", "")
+})
 
 const refuse = (summary: string) =>
-  new CheckFailed({ summary: `Refusing ${summary}`, findings: [] })
+  Effect.fail(new CheckFailed({ summary: `Refusing ${summary}`, findings: [] }))
 
 export const judgeTag = Effect.fn("judgeTag")(function* (
   tag: TagRef,
   others: ReadonlyArray<TagRef>,
   today: string
 ) {
+  const parse = (name: string): ReleaseTag | undefined => {
+    const match = shape.exec(name)
+    if (match === null) return undefined
+    const [, major, minor, patch, date = "", n] = match
+    const version: Version = [Number(major), Number(minor), Number(patch)]
+    return n === undefined
+      ? { kind: "production", version, date }
+      : { kind: "candidate", version, date, n: Number(n) }
+  }
+  const compare = (a: Version, b: Version) =>
+    a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
+  const show = (version: Version) => version.join(".")
+
   const release = parse(tag.name)
   if (release === undefined)
     return yield* refuse(

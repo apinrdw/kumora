@@ -217,6 +217,64 @@ layer(Linted.layer)((suite) => {
 
     lints(
       it,
+      "a top-level helper that returns no Effect names Effect.fn",
+      script,
+      [
+        "export function a() {",
+        "  return 1",
+        "}",
+        "const b = (s: string) => s.length",
+        "export const c = function () {",
+        "  return 2",
+        "}",
+        "export const d = (s: string) => {",
+        "  return s",
+        "}",
+        "",
+        "export { b }",
+        "",
+      ].join("\n"),
+      (diagnostics) => {
+        assertBanned(diagnostics, "kumora(effect-functions)", "Effect.fn")
+        assert.strictEqual(
+          diagnostics.filter((line) =>
+            line.startsWith("kumora(effect-functions)")
+          ).length,
+          4
+        )
+      }
+    )
+
+    lints(
+      it,
+      "Effect.fn, an Effect chain and a generator's closure pass",
+      script,
+      [
+        'import { Effect } from "effect"',
+        "",
+        'export const a = Effect.fn("a")(function* (n: number) {',
+        "  const double = (m: number) => m * 2",
+        "  return double(n)",
+        "})",
+        "export const b = Effect.fnUntraced(function* () {",
+        "  return 1",
+        "})",
+        "export const c = (n: number) => Effect.succeed(n).pipe(Effect.as(2))",
+        "",
+      ].join("\n"),
+      (diagnostics) => assert.deepStrictEqual(diagnostics, [])
+    )
+
+    lints(
+      it,
+      "a test file may keep plain helpers",
+      "scripts/fixture.test.mts",
+      "export const double = (n: number) => n * 2\n",
+      (diagnostics) => assert.deepStrictEqual(diagnostics, [])
+    )
+
+    lints(
+      it,
       "process.env names Config",
       script,
       "export const token = process.env.TOKEN\n",
