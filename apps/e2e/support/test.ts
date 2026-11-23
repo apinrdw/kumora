@@ -20,7 +20,7 @@ import { recordVideo } from "./video"
 // apps/dashboard/src/server/auth/options.ts.
 const CLIENT_IP_HEADER = "cf-connecting-ip"
 
-// Decision: every context draws from 198.18.0.0/16 and only
+// Every context draws from 198.18.0.0/16 and only
 // newLimitSpendingContext draws from 198.19.0.0/16, so a spec that spends a
 // per-IP limit on purpose never shares a bucket with another spec and can run
 // alongside them (apinrdw/kumora#168). Each draw is fresh, so a repeated or
@@ -31,7 +31,7 @@ const LIMIT_SPENDING_BLOCK = 19
 const clientIp = (block: number) =>
   `198.${block}.${randomInt(256)}.${randomInt(1, 255)}`
 
-// Decision: every context gets support/turnstile.ts's stub, which passes at
+// Every context gets support/turnstile.ts's stub, which passes at
 // once and never contacts Cloudflare, except the shared accounts setup's,
 // which loads the real widget so e2e still proves it loads
 // (apinrdw/kumora#174).
@@ -117,11 +117,8 @@ export const test = base.extend<{
     },
     { auto: true },
   ],
-  // Decision: each test names its results folder in a `results-folder`
-  // annotation, because the JSON report lists only the built-in context's
-  // videos, not a hand-built context's `page@<hex>.webm`, and gives no folder
-  // for a test with none. scripts/e2e-evidence-plan.mts reads it and attaches
-  // every .webm in the folder (apinrdw/kumora#211).
+  // Decision: each test names its results folder in a results-folder annotation
+  // (apps/e2e/docs/adr/0003-each-test-names-its-results-folder-in-an-annotation.md)
   annotateResultsFolder: [
     async ({ browser: _browser }, provide, testInfo) => {
       testInfo.annotations.push({

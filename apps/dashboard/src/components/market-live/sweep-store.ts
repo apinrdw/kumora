@@ -81,7 +81,7 @@ export interface SweepStore {
   ) => void
   // The broker the log and the candle chart's bubbles are filtered to, or
   // none for all.
-  // Decision: it lives here, per code and per page, not in the URL or the
+  // It lives here, per code and per page, not in the URL or the
   // chart settings: the spec keeps it across neither a code switch nor a
   // reload (apinrdw/kumora#343, "The filter control").
   readonly picked: () => BrokerCode | undefined

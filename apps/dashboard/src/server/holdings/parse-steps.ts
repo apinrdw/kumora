@@ -89,7 +89,7 @@ const parseMonth = Effect.fnUntraced(function* (
 
 // `reconcile`, then a `parse:` step per month it picked. Fails only when
 // `reconcile` does.
-// Decision: a month that fails to parse doesn't stop the run; its parsed
+// A month that fails to parse doesn't stop the run; its parsed
 // holdings stay as they were, the run ends partial, and the next run's
 // reconcile picks the month again.
 export const parseMonths = Effect.fnUntraced(function* (

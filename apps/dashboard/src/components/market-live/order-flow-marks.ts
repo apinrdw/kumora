@@ -154,10 +154,8 @@ class OrderFlowMarks implements ISeriesPrimitive<Time> {
 
   // The marks at the chart's current scale, in CSS pixels, each at its
   // minute's centre.
-  // Decision: a mark in a minute with no candle (an empty minute's
-  // Exhaustion) sits between its neighbours, where the cursor line would
-  // (lib/replay.ts `cursorLogical`), as a book event's mark does
-  // (book-event-marks.ts).
+  // Decision: a candle-less minute's mark sits where the cursor line would
+  // (apps/dashboard/docs/adr/0024-chart-marks-in-an-empty-minute-sit-where-the-cursor-would.md)
   private placed(): ReadonlyArray<Placed> {
     const attached = this.attachedTo
     if (attached === undefined) return []

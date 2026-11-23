@@ -7,7 +7,7 @@ import { Duration, Effect, Option, Queue, Schema } from "effect"
 import type { PinEntry, PinStore, SignIn } from "./ajaib-session.ts"
 import type { Answer, LocalRequest, PageEvent } from "./broker.ts"
 
-// Decision: one synthetic `mousemove` every 10 minutes, all day while an
+// One synthetic `mousemove` every 10 minutes, all day while an
 // Ajaib tab is relayed, Streaming hours included. Ajaib's lock is a 4 h
 // idle timeout that a synthetic `mousemove` re-arms, as probed on
 // 2026-11-13. See apinrdw/kumora#243.
@@ -56,7 +56,7 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
       return options.save(next)
     })
 
-  // Decision: after the PIN is typed the lock screen has the whole
+  // After the PIN is typed the lock screen has the whole
   // REFUSAL_WAIT, and is unlocked only if the page's PIN validate call
   // answered 200 and the screen is gone at its end; a non-200 refuses at
   // once. A screen that goes and comes back sooner was redrawn, and one gone
@@ -91,11 +91,8 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
       )
     )
 
-  // Decision: the lock screen gets the kept PIN once per lock, and only from
-  // an entry read whole, last thing before `type-pin`, as `signed-in` and
-  // marked `typing`. The mark is stored first, and cleared once unlocked or
-  // when nothing was typed, so a try a restart cut short counts as refused.
-  // A refused PIN is wiped. See apinrdw/kumora#244, "Unlock".
+  // Decision: a PIN is tried once per sign-in and lock; a refused PIN is wiped
+  // (apps/extension/docs/adr/0002-the-ajaib-pin-is-tried-once-and-wiped-when-refused.md)
   const attempt = Effect.fnUntraced(function* (entry: PinEntry) {
     yield* record({ state: "unlocking" })
     yield* entry.setTyping(true)

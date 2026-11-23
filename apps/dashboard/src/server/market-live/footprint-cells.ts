@@ -43,10 +43,8 @@ export const cellsOut = (cells: Cells) =>
       .map(([price, lots]) => ({ price, ...lots }))
   )
 
-// Decision: a footprint row stores its cells as one JSON text of
-// [price, sell, buy, none] tuples, ascending by price: a busy code has under
-// 1,000 cells a day, so a minute's row stays small, and the row is replaced
-// whole like a candle's. See spec apinrdw/kumora#263.
+// Decision: footprint cells and sweeps are tuples, not keyed objects
+// (packages/relay/docs/adr/0007-footprint-cells-and-sweeps-are-tuples-on-the-wire-and-in-storage.md)
 export const cellsText = (cells: Cells) =>
   Effect.map(cellsOut(cells), (out) =>
     JSON.stringify(

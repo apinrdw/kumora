@@ -63,7 +63,7 @@ const columnShares = Effect.fnUntraced(function* (
   )
 })
 
-// Decision: a share is always of the whole origin, so hiding series never
+// A share is always of the whole origin, so hiding series never
 // inflates one; hiding only zooms the axis to the tallest shown column.
 export const holdingChart = Effect.fnUntraced(function* (
   months: ReadonlyArray<SeriesMonth>,
@@ -159,7 +159,7 @@ export const monthChange = Effect.fnUntraced(function* (
   for (const key of shown) {
     const at = series.findIndex((each) => each.key === key)
     const share = before.shares[at] ?? 0
-    // Decision: a share that prints the same as last month's has no change,
+    // A share that prints the same as last month's has no change,
     // as in Shareholders composition, so no arrow points at an equal figure.
     if ((yield* percent(share)) !== (yield* percent(now[at] ?? 0)))
       was.set(key, share)

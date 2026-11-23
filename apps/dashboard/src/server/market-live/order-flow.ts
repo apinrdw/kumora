@@ -34,12 +34,12 @@ import {
   type SideExtremes,
 } from "./order-flow-rules.ts"
 
-// Decision: a relay gap shorter than 10 s never blocks a check; one of 10 s
+// A relay gap shorter than 10 s never blocks a check; one of 10 s
 // or longer that overlaps a rule's window does, and so does one still open.
 // The daily 13:31:05 gap is 3–4 s. See apinrdw/kumora#602.
 const GAP_BLOCKS_MS = 10_000
 
-// Decision: a trade up to 10 minutes behind the newest folded minute folds
+// A trade up to 10 minutes behind the newest folded minute folds
 // its code again from its minute, as if it had come in time; an older one
 // stays out of the state (a restart's replay counts it). A gap's backfill
 // (gaps.ts) takes about 100 s at its widest, and each code holds this many
@@ -93,7 +93,7 @@ type Print = Pick<
 >
 
 // A minute's figures before its first trade, at `price`. Plain: the
-// Decision at `settled`.
+// comment at `settled`.
 const emptyAt = (minute: number, price: number): MinuteFigures => ({
   minute,
   high: price,
@@ -108,7 +108,7 @@ const emptyAt = (minute: number, price: number): MinuteFigures => ({
   cells: new Map(),
 })
 
-// Adds one trade to a minute's figures. Plain: the Decision at `settled`.
+// Adds one trade to a minute's figures. Plain: the comment at `settled`.
 const addPrint = (figures: MinuteFigures, print: Print) => {
   if (!figures.traded) {
     figures.high = print.close
@@ -149,7 +149,7 @@ export interface StoredMinute {
 
 // A stored minute as the prints `settled` adds: the range's ends and each
 // cell's lots by side, then the close.
-// Decision: a restart reads candles and footprints back, not the day's
+// A restart reads candles and footprints back, not the day's
 // trades: a minute's figures are its range, close and lots by side and
 // price, which these hold, at two rows a minute against a busy day's
 // millions of trades.
@@ -220,7 +220,7 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
   // The newest minute folded, for every code.
   let foldedThrough = Number.NEGATIVE_INFINITY
 
-  // Decision: `settled`, `addPrint` and `emptyAt` stay plain: the candle
+  // `settled`, `addPrint` and `emptyAt` stay plain: the candle
   // book calls `settled` for each trade it settles, in its own plain
   // arithmetic, as it does the bubble book's. Measured 2026-11-22 on the dev
   // machine: 100,000 settles over 900 codes took 13 ms plain, 62 ms as
@@ -432,7 +432,7 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
 
   // Folds one code's minutes up to `through` in time order: its traded ones
   // and every continuous one in `continuous`. Holds the last LATE_MINUTES.
-  // Decision: a minute older than that is never held, nor the state before
+  // A minute older than that is never held, nor the state before
   // it saved: a restart's replay folds a whole day at once, and saving each
   // minute's state was over a third of its work. Measured 2026-11-23 on the
   // dev machine, 800 codes of 435 minutes: 2,010 ms saving each, 1,290 ms
@@ -537,7 +537,7 @@ export const makeOrderFlow = Effect.fnUntraced(function* (date: WibDate) {
   // still held for late trades counts the code's events `storedFrom` gives
   // from it as sent, found again or not, so no late trade sends one twice.
   // Run before any trade.
-  // Decision: the restart replays the day through the rules rather than
+  // The restart replays the day through the rules rather than
   // storing their state: the day's high and low, cumulative delta, windows
   // and each rule's memory come back as the minutes made them, whatever a
   // rule keeps. A gap the restart opened ends at `now`, so it blocks no

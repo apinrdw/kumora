@@ -146,7 +146,7 @@ const emptyMeasured = (
     }
   })
 
-// Decision: a move runs at midnight ten trading days after the busy day,
+// A move runs at midnight ten trading days after the busy day,
 // out of its window, on a clock shifted there: the worker's own clock reads
 // whenever the suite runs.
 const MOVED_AT = Date.parse("2026-11-24T00:00:00+07:00")
@@ -296,8 +296,8 @@ const moved = Effect.fnUntraced(function* (
 const isOperation = (name: string): name is keyof typeof operations =>
   Object.hasOwn(operations, name)
 
-// Decision: a plain class, as TradingDayObject is: only the bridge may
-// import `cloudflare:workers`.
+// Decision: only the bridge and workflow.ts import cloudflare:workers
+// (packages/server/docs/adr/0001-only-the-bridge-and-the-workflow-runner-import-cloudflare-workers.md)
 export class BillingDay {
   constructor(
     private readonly ctx: DurableObjectState,

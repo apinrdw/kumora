@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # Blocks `gh pr merge` until every check on the PR has finished green.
-# Decision: the release branches' ruleset requires only e2e-evidence, which the
-# no-e2e-evidence label passes at once, so `gh pr merge --auto` merged #291
-# while static, unit-tests and fallow were still pending. Gh problems allow the
-# command, with a notice.
+# Decision: gh pr merge waits until every check on the PR is green
+# (docs/adr/0001-gh-pr-merge-waits-for-every-check.md)
 set -uo pipefail
 
 if ! command -v jq >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1; then

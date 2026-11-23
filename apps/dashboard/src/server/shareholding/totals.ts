@@ -20,7 +20,7 @@ export type ArchiveTotals = typeof ArchiveTotals.Type
 
 // One listing of reports/. A report counts once per stored file, so each
 // version of it counts.
-// Decision: the totals list every object under reports/, as the spec asks
+// The totals list every object under reports/, as the spec asks
 // ("one bucket listing of reports/ with custom metadata"): about 150 files
 // and their records on 2026-11-14, plus ~50 objects a month (~24 files,
 // docs/research/idx-kepemilikan-listing.md), a few hundred KB of keys, held

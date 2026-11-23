@@ -29,7 +29,7 @@ const unseededCode = () =>
 
 test.use({ storageState: ADMIN.storageState })
 
-// Decision: the card's Run now is never clicked here: it reads IDX's company
+// The card's Run now is never clicked here: it reads IDX's company
 // profiles from the Worker, which Playwright can't stub, and the Test stage
 // has no stand-in for IDX. The unit tests (apps/dashboard/tests/server/admin/
 // sectors.test.ts) run it against a stub HttpClient.

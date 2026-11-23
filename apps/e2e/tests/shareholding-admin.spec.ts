@@ -115,7 +115,7 @@ test.describe("a member", () => {
   })
 })
 
-// Decision: serial, since every test points the one runs/latest.json of the
+// Serial, since every test points the one runs/latest.json of the
 // Test stage's bucket at its own run.
 test.describe.serial("an admin's last archive run", () => {
   test.use({ storageState: ADMIN.storageState })
@@ -230,7 +230,7 @@ const wib = (iso: string) =>
     hourCycle: "h23",
   }).format(new Date(iso))} WIB`
 
-// Decision: these seed runs/ records without touching runs/latest.json, so
+// These seed runs/ records without touching runs/latest.json, so
 // they run beside the serial last-run tests above.
 test.describe("an admin's archive history", () => {
   test.use({ storageState: ADMIN.storageState })
@@ -267,7 +267,7 @@ test.describe("an admin's archive history", () => {
   })
 })
 
-// Decision: serial, and the only spec writing reports/, so the totals are
+// Serial, and the only spec writing reports/, so the totals are
 // exact before the parse runs store reports into stocks.spec.ts's HoldingsDb,
 // unserialized: classification as Dec 2025, before its months; investor-type's
 // AADI as seeded there, TRUE never opened; Parse coverage taking that seed's

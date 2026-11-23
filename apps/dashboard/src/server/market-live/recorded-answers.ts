@@ -34,12 +34,12 @@ import type { SweepBrokersStore } from "./sweep-brokers.ts"
 // The newest trades a viewer's snapshot carries, and a tape GET at a cursor.
 export const SNAPSHOT_TRADES = 200
 
-// Decision: a complete day's codes answer is kept a minute, never immutable:
+// A complete day's codes answer is kept a minute, never immutable:
 // a later Ajaib or Stockbit batch may still rewrite a trade's codes. An
 // incomplete day's is not stored, so the page's recheck sees new codes.
 const COMPLETE_CODES_CACHE = "private, max-age=60"
 
-// Decision: the bubbles answer is kept a minute, its build's span (spec
+// The bubbles answer is kept a minute, its build's span (spec
 // apinrdw/kumora#427, "Backfill GET").
 const BUBBLES_CACHE = "private, max-age=60"
 
@@ -56,7 +56,7 @@ const json = (text: string, cacheControl: string, status = 200) =>
   )
 
 // The bubbles answer, as last built: the live day only, its seal included.
-// Decision: owner, 2026-11-17: the live date's own body is still answered
+// Owner, 2026-11-17: the live date's own body is still answered
 // after its seal until midnight; past days 404. It replaces spec
 // apinrdw/kumora#427's "Sealed day: ... answers 404". The sealed body keeps
 // the live cache. See apinrdw/kumora#436.
@@ -123,10 +123,8 @@ export const recordedAnswer = Effect.fnUntraced(function* (
         }),
         cacheControl
       )
-    // Decision: the codes of the trades the tape answer at the same cursor
-    // (`at`, and `before` when given) holds, picked the same way, so the page sends no trade numbers. Codes arrive after
-    // the seal, so they are their own resource and the tape's answer stays
-    // byte-identical.
+    // Decision: broker codes and sweep brokers are their own resources, not immutable
+    // (apps/dashboard/docs/adr/0093-late-arriving-broker-data-are-their-own-cached-resources.md)
     case "BrokerCodes": {
       const trades = yield* store.tradesAt(resource, SNAPSHOT_TRADES)
       const complete = yield* day.brokerCodes.codesComplete
@@ -160,10 +158,8 @@ export const recordedAnswer = Effect.fnUntraced(function* (
         }),
         cacheControl
       )
-    // Decision: its own resource, cached as the codes answer is, never
-    // immutable: a later batch may still change a sweep's brokers, while the
-    // sweeps answer of a sealed day is cached for a year. See spec
-    // apinrdw/kumora#343, "The sweep brokers answer".
+    // Decision: broker codes and sweep brokers are their own resources, not immutable
+    // (apps/dashboard/docs/adr/0093-late-arriving-broker-data-are-their-own-cached-resources.md)
     case "SweepBrokers": {
       const complete = yield* day.brokerCodes.codesComplete
       return yield* json(
@@ -191,9 +187,8 @@ export const recordedAnswer = Effect.fnUntraced(function* (
     }
     case "Heatmap":
       return yield* json(yield* heatmapOf(resource.code, day), cacheControl)
-    // Decision: a day recorded before book events answers none, marked not
-    // recorded, so its page says so rather than "none yet". See spec
-    // apinrdw/kumora#517, "Book events".
+    // Decision: a day without a live reading answers its events not recorded
+    // (apps/dashboard/docs/adr/0094-only-a-live-reading-marks-a-day-s-events-recorded.md)
     case "BookEvents":
       return yield* json(
         yield* encodeRecordedBookEvents({
@@ -202,9 +197,8 @@ export const recordedAnswer = Effect.fnUntraced(function* (
         }),
         cacheControl
       )
-    // Decision: a day recorded before order flow events answers none,
-    // marked not recorded, as for book events. See spec apinrdw/kumora#605,
-    // "Order flow events: data".
+    // Decision: a day without a live reading answers its events not recorded
+    // (apps/dashboard/docs/adr/0094-only-a-live-reading-marks-a-day-s-events-recorded.md)
     case "OrderFlowEvents":
       return yield* json(
         yield* encodeRecordedOrderFlowEvents({

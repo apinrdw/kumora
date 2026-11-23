@@ -356,7 +356,7 @@ export function attachSweepBubbles({
   // The tooltip of the bubble at the pointer, or none once it is on no
   // bubble; a log cell's tooltip, and a pinned one, are left alone.
   // `pin` pins it, for a click or a tap.
-  // Decision: the bubbles' own hit test finds the bubble, since a tap's
+  // The bubbles' own hit test finds the bubble, since a tap's
   // click carries no hovered object (the library hit-tests where the
   // crosshair was, and a tap moved none there). Its point is pane-local, so
   // a point in another pane (the candle chart's volume) is on no bubble.

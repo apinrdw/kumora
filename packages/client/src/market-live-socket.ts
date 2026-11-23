@@ -31,9 +31,8 @@ export class NewVersion extends Schema.TaggedError<NewVersion>()(
 // The closes the page never reconnects after: 4401 and 4426.
 const isTerminal = Schema.is(Schema.Union([SignInRequired, NewVersion]))
 
-// Decision: any close but 4401 and 4426 reconnects, with backoff capped at
-// 10 s, and the page resumes from the fresh snapshot the new socket sends (spec
-// apinrdw/kumora#138, "The viewer protocol").
+// Decision: any close but 4401 and 4426 reconnects and resumes from a snapshot
+// (packages/client/docs/adr/0001-viewer-sockets-reconnect-on-any-close-but-4401-and-4426.md)
 const reconnect = Schedule.min([
   Schedule.exponential("500 millis"),
   Schedule.spaced("10 seconds"),

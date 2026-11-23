@@ -32,11 +32,8 @@ const DEFAULT_DEV_PORTS = {
 
 export const devPort = (app: App): Effect.Effect<number> =>
   Config.Port(DEV_PORT_VARIABLES[app]).pipe(
-    // Decision: the app's variable, else the default. apps/e2e/support/ports.ts
-    // gives each e2e run free ports, so parallel worktrees need no lock; this
-    // beat fixed ports behind a machine-wide lock. A port taken between pick
-    // and bind fails the run loudly, since each port is strict.
-    // See apinrdw/kumora#194.
+    // Decision: a dev port is its app's variable, else the default; e2e picks free
+    // (packages/deploy/docs/adr/0004-a-dev-port-is-its-app-s-variable-and-e2e-picks-free-ports.md)
     Config.withDefault(DEFAULT_DEV_PORTS[app]),
     Effect.orDie
   )
@@ -105,7 +102,7 @@ export interface DeployTarget {
   readonly stateStore: StateStore
 }
 
-// Decision: the newest date the workerd bundled with alchemy accepts, not today's,
+// The newest date the workerd bundled with alchemy accepts, not today's,
 // so local dev and the deployed Worker agree. Re-check on every `alchemy` bump:
 // set a far-future date, run `bun alchemy dev`, and read "the newest date
 // supported by this server binary". See apinrdw/kumora#19.

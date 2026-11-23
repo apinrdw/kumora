@@ -18,7 +18,7 @@ import { minuteEnd } from "./replay"
 // event, told apart by `kind`.
 export type MarketEvent = BookEvent | OrderFlowEvent
 
-// Decision: the first day the trading-day object records order flow events,
+// The first day the trading-day object records order flow events,
 // named on an earlier day's readout. Its GET says whether a day kept them;
 // this date is only the copy, set to the day they ship. See spec
 // apinrdw/kumora#605, "Order flow events: data".
@@ -98,7 +98,7 @@ export const marketEventName = Effect.fnUntraced(function* (
 
 // When an event was known: a book event at its instant, an order flow event
 // at its minute's end, where picking its candle puts the cursor.
-// Decision: a recorded day's cursor shows an order flow event from its
+// A recorded day's cursor shows an order flow event from its
 // minute's end on (lib/replay.ts minuteEnd), not its start: before then the
 // minute that makes it hadn't traded. See apinrdw/kumora#612.
 export const marketEventKnownAt = Effect.fnUntraced(function* (

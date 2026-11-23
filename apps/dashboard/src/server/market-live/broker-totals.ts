@@ -21,9 +21,8 @@ export const BROKER_TOTALS_DUE = "due"
 // once its corrections go quiet.
 export const BROKER_TOTALS_STALE = "stale"
 
-// Decision: the build keeps the regular board, which holds the auction
-// matches too; negotiated (NG) and cash (TN) trades count in neither totals
-// nor candles. See spec apinrdw/kumora#437, "The build".
+// Decision: broker totals and candles keep only the regular board
+// (apps/dashboard/docs/adr/0060-broker-totals-and-candles-keep-the-regular-board-only.md)
 const KEPT_BOARD = "RG" satisfies RunningTrade["board"]
 
 interface Side {
@@ -51,18 +50,15 @@ interface OpenCandle {
   trades: number
 }
 
-// Decision: lots are summed as whole shares (lots × SHARES_PER_LOT) and
+// Lots are summed as whole shares (lots × SHARES_PER_LOT) and
 // value as price × shares, so a day's sums are exact integers. See spec
 // apinrdw/kumora#437, "The build".
 const lotsOf = (shares: number) => Effect.succeed(shares / SHARES_PER_LOT)
 
 // The day's totals and candles, from the store's held trades a page at a
 // time, in trade number order, and the trades of 1..N it missed.
-// Decision: the build holds one page of trades and one entry per (code,
-// broker, investor type) and per code, never the day's trades, so its
-// memory is bounded by codes × brokers. At the largest day the store
-// accepts, 1.5M trades over 900 codes and 90 brokers, it held about 15 MB
-// (broker-totals-memory.test.ts).
+// Decision: the totals build holds one page of trades, bounded by codes × brokers
+// (apps/dashboard/docs/adr/0061-the-totals-build-holds-one-page-of-trades.md)
 export const buildBrokerTotals = Effect.fnUntraced(function* (
   brokerCodes: Pick<BrokerCodesStore, "heldTradesPage">,
   missingTrades: number

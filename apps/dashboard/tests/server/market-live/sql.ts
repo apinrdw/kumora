@@ -14,7 +14,7 @@ import { HOLDS_A_TRADE } from "@/server/market-live/tape"
 
 export const memorySql = (): Sql => {
   const database = new DatabaseSync(":memory:")
-  // Decision: each query string is prepared once and reused. Preparing per
+  // Each query string is prepared once and reused. Preparing per
   // call dominated the candles and recorded-day tests (#171).
   const statements = new Map<string, StatementSync>()
   const statement = (query: string) => {

@@ -374,7 +374,7 @@ const onClosed = Effect.fnUntraced(function* (
     draft.statuses.push({ connection, status: "closed" })
   draft.next[connection] = { ...idle, ever: link.ever }
   if (draft.next.window === "closed") return
-  // Decision: a socket that streamed reopens at once; one that closed before
+  // A socket that streamed reopens at once; one that closed before
   // its first frame waits for the next tick, so a broker refusing the relay
   // costs one attempt per 10 s rather than a tight loop.
   if (link.framed) yield* open(draft, connection)

@@ -56,7 +56,7 @@ const builtMinute = Effect.fnUntraced(function* (
   return { minute, candles, footprints } satisfies BuiltMinute
 })
 
-// Decision: the build goes minute by minute, each minute's whole rows and
+// The build goes minute by minute, each minute's whole rows and
 // its progress in one transaction, so a build that dies reruns from the
 // minute after the last that landed, to the same rows, and holds one
 // minute's trades at a time. See spec apinrdw/kumora#263, "One-off build of
@@ -91,7 +91,7 @@ const buildFrom = Effect.fnUntraced(function* (
   yield* store.markOrderFlowBuilt
 })
 
-// Decision: a walked day's candles, footprints and sweeps are built from its
+// A walked day's candles, footprints and sweeps are built from its
 // tape at its seal, from its first minute, as the one-off build goes: its
 // trades came out of time order, so the candle book would reread a stored
 // minute for nearly each. A seal that dies rebuilds it whole, to the same
@@ -100,11 +100,8 @@ export const buildWalkedDay = (store: DayStore) =>
   buildFrom(store, undefined, true)
 
 // Whether the day's order flow rows are built, as its object starts.
-// Decision: a day that stored nothing yet writes its order flow rows live,
-// so it is marked built from the start. Any other day without the mark was
-// recorded, whole or in part, before order flow shipped: once sealed, its
-// first order flow GET builds the rows. See spec apinrdw/kumora#263,
-// "One-off build of sealed days".
+// Decision: an empty day is marked built; an older one builds on its first GET
+// (apps/dashboard/docs/adr/0091-order-flow-rows-build-live-older-days-on-first-get.md)
 export const orderFlowBuiltAtStart = Effect.fnUntraced(function* (
   store: DayStore
 ) {

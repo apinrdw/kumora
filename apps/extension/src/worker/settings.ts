@@ -32,8 +32,8 @@ export type DashboardOrigin = typeof DashboardOrigin.Type
 const TargetName = Schema.Literals(["production", "extra"])
 export type TargetName = typeof TargetName.Type
 
-// Decision: the ingest tokens live in chrome.storage.local, pasted once per
-// target. Pairing from the dashboard was rejected. See apinrdw/kumora#134.
+// Decision: ingest tokens live in chrome.storage.local, pasted once per target
+// (apps/extension/docs/adr/0014-ingest-tokens-are-pasted-once-per-target.md)
 const Settings = Schema.Struct({
   productionToken: Schema.String,
   extra: Schema.NullOr(
@@ -59,10 +59,8 @@ export type TargetState = typeof TargetState.Type
 const TargetStates = Schema.Record(TargetName, TargetState)
 export type TargetStates = typeof TargetStates.Type
 
-// Decision: every credential the worker reads is remembered in memory for
-// redact (error-log.ts), beside those in storage when it redacts: a PIN a
-// failed check or the lock screen wiped, or a token the owner replaced,
-// can still sit in a line logged just before. See apinrdw/kumora#288.
+// Decision: a logged cause is redacted as text, from every credential read
+// (apps/extension/docs/adr/0010-credentials-are-redacted-as-text-before-a-cause-is-stored.md)
 const seenSecrets = new Set<string>()
 
 const remember = Effect.fnUntraced(function* (secrets: ReadonlyArray<string>) {
@@ -160,9 +158,8 @@ export const isHeldCodeListChange = Effect.fnUntraced(function* (
   return area === "local" && CODE_LIST_KEY in changes
 })
 
-// Decision: the options page's relay button asks the worker through session
-// storage, as the settings do: it writes `asked`, a change wakes a stopped
-// worker, and the worker writes the outcome back under the same key.
+// Decision: a page asks the worker through a session storage key it answers
+// (apps/extension/docs/adr/0015-pages-ask-the-worker-through-a-session-storage-key.md)
 const CODE_LIST_RELAY_KEY = "codeListRelay"
 
 const CodeListRelay = Schema.Struct({
@@ -204,11 +201,8 @@ export const isCodeListRelayAsk = Effect.fnUntraced(function* (
   return Option.isSome(asked) && asked.value.state === "asked"
 })
 
-// Decision: a test-only clock offset, in ms, moves the relay's schedule
-// (streaming hours, auctions, the code list's day) so the extension e2e runs
-// in streaming hours at any time; frames keep their real receive times. Only
-// a script in the worker's console sets it, never the options page.
-// See apinrdw/kumora#155.
+// Decision: a test-only clock offset moves the relay's schedule for e2e
+// (apps/extension/docs/adr/0006-a-test-only-clock-offset-moves-the-relay-s-schedule.md)
 //
 // apps/e2e/support/relay-extension.ts names this key too: it sets the offset.
 const CLOCK_OFFSET_KEY = "clockOffsetMs"
@@ -223,10 +217,8 @@ export const loadClockOffset = Effect.gen(function* () {
   )
 })
 
-// Decision: a changed offset ticks the relay at once, so a spec that moves the
-// clock waits for that tick instead of the next 10 s one. With the key never
-// set, as in the owner's browser, the relay ticks only on its timer. See
-// apinrdw/kumora#174.
+// Decision: a test-only clock offset moves the relay's schedule for e2e
+// (apps/extension/docs/adr/0006-a-test-only-clock-offset-moves-the-relay-s-schedule.md)
 export const isClockOffsetChange = Effect.fnUntraced(function* (
   changes: Readonly<Record<string, unknown>>,
   area: string
@@ -234,17 +226,11 @@ export const isClockOffsetChange = Effect.fnUntraced(function* (
   return area === "local" && CLOCK_OFFSET_KEY in changes
 })
 
-// Decision: the Ajaib PIN lives in chrome.storage.session alone: in memory,
-// cleared when Chrome closes, out of content scripts' reach. It is never
-// logged and leaves the worker only for the Ajaib tab's PIN check and lock
-// screen (`type-pin`); a restarted worker finds its sign-in beside it. See
-// https://developer.chrome.com/docs/extensions/reference/api/storage.
+// Decision: the Ajaib PIN lives in chrome.storage.session alone, never logged
+// (apps/extension/docs/adr/0016-the-ajaib-pin-lives-in-chrome-storage-session-alone.md)
 //
-// Decision: each entry keeps its PIN, sign-in and `typing` mark under keys
-// named by its own id, ENTRY_KEY names the newest, and one read takes them
-// all. A check or lock screen still busy with an older entry writes that
-// entry's keys only: chrome.storage has no compare-and-set to guard one
-// shared key.
+// Decision: each PIN entry keeps its values under keys named by its own id
+// (apps/extension/docs/adr/0017-each-pin-entry-keys-its-values-by-its-own-id.md)
 const ENTRY_KEY = "ajaibPinEntry"
 const PIN_PREFIX = "ajaibPin."
 const SIGN_IN_PREFIX = "ajaibSignIn."
@@ -470,11 +456,8 @@ export const incompleteDaysStore: IncompleteDaysStore = {
 // target's, kept with the origin it caught up, so another extra target
 // starts its own. A value that doesn't decode reads as none, which the walk
 // rebuilds.
-// Decision: both positions moved to new keys when a History day became a
-// recorded day, so every install walks its History again: a day walked for
-// codes alone lists its trades as missing their fields, and the gap walk
-// fetches them whole; a complete day costs one status GET. See spec
-// apinrdw/kumora#437, "A History walk day becomes a recorded day".
+// Decision: History positions moved to new keys, so every install rewalks
+// (apps/extension/docs/adr/0018-history-positions-moved-to-new-keys.md)
 const HISTORY_KEY = "brokerCodesHistoryTrades"
 
 export const historyStore: HistoryStore = {
@@ -534,10 +517,8 @@ export const isBrokerCodesProgressChange = Effect.fnUntraced(function* (
   return area === "session" && BROKER_CODES_PROGRESS_KEY in changes
 })
 
-// Decision: the owner's Pause switch lives in chrome.storage.local, so a
-// pause holds across restarts of the worker and of Chrome. It stops every
-// broker codes walk; the live relay and Market Live's backfill go on. See
-// apinrdw/kumora#244, "Pause".
+// Decision: the Pause switch lives in chrome.storage.local and stops every walk
+// (apps/extension/docs/adr/0019-the-pause-switch-lives-in-chrome-storage-local.md)
 const BROKER_CODES_PAUSED_KEY = "brokerCodesPaused"
 
 export const loadBrokerCodesPaused = Effect.gen(function* () {
@@ -565,11 +546,8 @@ export const brokerCodesPausedChange = Effect.fnUntraced(function* (
   return Option.some(changes[BROKER_CODES_PAUSED_KEY]?.newValue === true)
 })
 
-// Decision: "Run now" asks the worker through session storage, as the code
-// list's relay button does: the page writes `asked`, the change wakes a
-// stopped worker, and the worker answers `started` once it has triggered
-// the run queue, so the next press is a change again. See
-// apinrdw/kumora#244, "Run now".
+// Decision: a page asks the worker through a session storage key it answers
+// (apps/extension/docs/adr/0015-pages-ask-the-worker-through-a-session-storage-key.md)
 const BROKER_CODES_RUN_KEY = "brokerCodesRun"
 const BrokerCodesRun = Schema.Literals(["asked", "started"])
 type BrokerCodesRun = typeof BrokerCodesRun.Type
@@ -667,11 +645,8 @@ export const isHistoryChange = Effect.fnUntraced(function* (
   return area === "local" && HISTORY_KEY in changes
 })
 
-// Decision: the worker's Error and Fatal lines (error-log.ts) and the cause
-// "Relay stopped" ended on live in chrome.storage.session: they outlive the
-// service worker and the DevTools console, so the owner can still copy them
-// after the relay stopped, yet they are cleared when Chrome closes and never
-// synced. See apinrdw/kumora#274.
+// Decision: error lines and the Relay stopped cause live in storage.session
+// (apps/extension/docs/adr/0020-error-lines-live-in-chrome-storage-session.md)
 const ERROR_LOG_KEY = "relayErrors"
 const RELAY_STOPPED_KEY = "relayStopped"
 const ErrorLog = Schema.Array(ErrorLogEntry)
@@ -752,7 +727,7 @@ export const isRelayStoppedChange = Effect.fnUntraced(function* (
   return area === "session" && RELAY_STOPPED_KEY in changes
 })
 
-// Decision: diagnostics read these session keys by name, never
+// Diagnostics read these session keys by name, never
 // `chrome.storage.session.get(null)`: the session area also holds the Ajaib
 // PIN and its sign-in's tokens. See apinrdw/kumora#274.
 const DIAGNOSTIC_KEYS = [

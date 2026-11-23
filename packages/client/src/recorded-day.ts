@@ -2,7 +2,7 @@
 // "Recorded day loads"). Each GET answers none when nothing was recorded
 // (404); a 401 fails SignInRequired, so the page sends the visitor to sign
 // in.
-// Decision: any other status fails, a 5xx included. The page keeps None as a
+// Any other status fails, a 5xx included. The page keeps None as a
 // minute's missing book chunk and never asks again, so a Worker that can't
 // answer must not look like one that recorded nothing. See apinrdw/kumora#157.
 import {
@@ -166,13 +166,13 @@ export const makeNewestWins = Effect.sync(() => {
     })
 })
 
-// Decision: until the day's codes answer is final, the page asks again every
+// Until the day's codes answer is final, the page asks again every
 // 30 s (spec apinrdw/kumora#280, "Recheck"); the walks store codes for over
 // an hour after the seal. The sweep log's note names it (`arrivingNote` in
 // apps/dashboard/src/lib/sweeps.ts).
 export const CODES_RECHECK = Duration.seconds(30)
 
-// Decision: a follower stops once an answer it shows is final: complete
+// A follower stops once an answer it shows is final: complete
 // (sweep brokers': saying the day takes no more codes, #632), or fetched
 // after the strip, read before each fetch, named the day cold. A hot
 // answer keeps it rechecking; the first recheck finding cold fetches once
@@ -261,11 +261,8 @@ export const followSweepBrokers = (
 ) =>
   Effect.gen(function* () {
     let final = false
-    // Decision: an answer is final once it says the day takes no more broker
-    // codes, or doesn't say. Order numbers never make a day complete, and
-    // the walks send them after its codes until its move starts, which a
-    // rebuild can hold past midnight: the day's own state ends it, not the
-    // calendar. See PR #632.
+    // Decision: a day takes broker codes until its move starts; answers say so
+    // (packages/relay/docs/adr/0001-a-day-takes-broker-codes-until-its-cold-move-starts.md)
     const ask = (fresh: boolean) =>
       fetchFinal(
         date,

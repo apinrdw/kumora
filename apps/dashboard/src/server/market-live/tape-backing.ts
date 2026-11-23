@@ -28,11 +28,8 @@ interface MinuteSpan {
   readonly last: number
 }
 
-// Decision: `write`, `highestNumber`, `numbersBetween` and
-// `rebuildCandleSides` are plain, as the `Sql` port's methods are: the day
-// store's flush and the broker codes store's batches and summaries call them
-// inside a synchronous transaction, where an Effect could not run. The other
-// methods are Effects.
+// Decision: code run inside a synchronous transaction stays plain, not an Effect
+// (apps/dashboard/docs/adr/0076-methods-called-inside-a-synchronous-transaction-stay-plain.md)
 export interface Tape {
   // Which backing holds the day's trades (tape.ts, `makeTape`).
   readonly shape: "rows" | "chunks"

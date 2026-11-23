@@ -485,7 +485,7 @@ const compositionMonth = Effect.fnUntraced(function* (
 
 // Everything the stock page shows for a code. `month` is the URL's
 // `YYYY-MM`; a month the stock has no row in falls back to its newest.
-// Decision: one batch, so each month reads whole while a parse run replaces
+// One batch, so each month reads whole while a parse run replaces
 // it (apinrdw/kumora#355, #402).
 export const stockPage = Effect.fnUntraced(function* (
   code: StockCode,
@@ -585,7 +585,7 @@ const isStockCode = Schema.is(StockCode)
 // report, the classification report or the investor-type report, by code,
 // with the classification report's issuer name. KSEI's and the investor-type report
 // name no issuer. A code that isn't a stock code's shape is left out.
-// Decision: no above-1% source here. In IDX's data every above-1% stock is in
+// No above-1% source here. In IDX's data every above-1% stock is in
 // the investor-type report (spec apinrdw/kumora#479); one only above-1% has
 // opens by URL until its investor-type parse lands.
 export const stockList = Effect.gen(function* () {

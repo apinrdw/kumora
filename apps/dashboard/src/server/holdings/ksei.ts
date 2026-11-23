@@ -34,10 +34,8 @@ const TYPES = [
   "OT",
 ] as const satisfies ReadonlyArray<KseiType>
 
-// Decision: the one header a file may have, byte for byte. Every file from
-// Jan 2008 to Oct 2026 has it; a file with any other is rejected whole, so a
-// changed layout never stores wrong numbers. The two `Total`s share a name
-// and are read by position. See apinrdw/kumora#357.
+// Decision: a report header must match a known layout exactly, or the month fails
+// (apps/dashboard/docs/adr/0046-a-holdings-header-must-match-a-known-layout-exactly.md)
 const HEADER = [
   "Date",
   "Code",
@@ -149,7 +147,7 @@ const lineStock = Effect.fnUntraced(function* (
 })
 
 // One month's EQUITY rows: a stock-month per stock, and its holdings.
-// Decision: lines are read one at a time, so what parsing keeps grows with
+// Lines are read one at a time, so what parsing keeps grows with
 // the stocks read, never with the lines a file holds: splitting a file of
 // 2.8 million short lines took 93 MiB at once.
 const parseRows = Effect.fnUntraced(function* (text: string) {

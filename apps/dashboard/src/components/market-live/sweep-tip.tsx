@@ -28,7 +28,7 @@ const GAP_PX = 12
 const EDGE_PX = 8
 
 // Where the tooltip sits for `at`, and its size limits.
-// Decision: the list is uncapped, so the tooltip is held to the room on
+// The list is uncapped, so the tooltip is held to the room on
 // its side of the point and scrolls past it. A hover's tooltip takes no
 // pointer, so it never covers what it describes; a click or a tap pins it
 // and it takes the pointer, to scroll. See spec apinrdw/kumora#343, "One
@@ -115,8 +115,8 @@ function TipBody({
       )}
       {tip.sides === undefined ? (
         <p className="text-muted-foreground">
-          {/* Decision: "after the close" is the owner's approved copy for
-              what arrives after the Seal: spec apinrdw/kumora#343, story 32. */}
+          {/* Decision: "after the close" is the owner's approved copy for after the Seal
+              (apps/dashboard/docs/adr/0026-after-the-close-is-the-approved-copy-for-post-seal-arrivals.md) */}
           {withBrokers
             ? "Brokers show once every trade in this sweep has its codes."
             : "Broker codes arrive after the close."}
@@ -145,7 +145,7 @@ function useHiddenByCursor(
     DateTime.toEpochMillis(sweep.time) > cursor.state().at
   const hidden = useSyncExternalStore(subscribe, past, past)
   useEffect(() => {
-    // Decision: a tooltip whose sweep the cursor moved back before hides
+    // A tooltip whose sweep the cursor moved back before hides
     // for good, rather than following the cursor to another sweep or
     // showing again as the cursor passes it. See apinrdw/kumora#371.
     if (hidden) store.tip.set(undefined)

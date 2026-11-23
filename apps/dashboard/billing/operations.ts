@@ -77,7 +77,7 @@ const tapePage = (day: TradingDay) =>
 
 // The trading day's own flush adds candles and footprints to the same
 // transaction; the trade chunks are what this measures.
-// Decision: a live flush on the busy day writes a minute at its mean rate,
+// A live flush on the busy day writes a minute at its mean rate,
 // 1,460,000 over 435 minutes, past its tape's last, and the trades its relay
 // missed arriving late, each in a chunk of its own: 4 chunks for the minute
 // and 1 for each late trade. A peak minute (~30 K trades) writes ~31 chunk
@@ -201,7 +201,7 @@ const eventsFlush = (_day: TradingDay, sql: Sql) =>
     return Response.json({ flushed: FLUSHED_BOOK_EVENTS })
   })
 
-// Decision: a full Ajaib page, 5,000 trades, resent with the codes the day
+// A full Ajaib page, 5,000 trades, resent with the codes the day
 // holds, as a walk over a sealed day sends them: it changes no codes, so
 // it costs its chunks and its checks, `buildable`'s status pass and
 // `completed`, which reads what that pass kept.
@@ -222,7 +222,7 @@ const resentPost = (day: TradingDay) =>
     return yield* day.brokerCodes.post(text)
   })
 
-// Decision: a walk day's full Ajaib page, 5,000 trades the tape lacks
+// A walk day's full Ajaib page, 5,000 trades the tape lacks
 // with their fields, past its last: it fills the tape, so it costs its tape
 // and summary writes, its chunks, and its checks, `walkSealDue`'s status
 // pass and `completed`.

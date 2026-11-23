@@ -14,7 +14,7 @@ import { syncLogos } from "./sync.ts"
 
 const isStockCode = Schema.is(StockCode)
 
-// Decision: the codes are the sector table's, which the daily sector run
+// The codes are the sector table's, which the daily sector run
 // fills from IDX's listings, so a new listing gets its logo the week it
 // lists; with the stock page's list of codes HoldingsDb has holdings for,
 // so a stage whose sector table is empty still syncs. At most MAX_PROFILES

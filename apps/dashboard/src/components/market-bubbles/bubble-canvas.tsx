@@ -426,7 +426,7 @@ export function BubbleCanvas({
         const image = new Image()
         image.addEventListener("error", () => held.set(code, null))
         // Served by the dashboard itself (src/routes/logos/$code.ts).
-        // Decision: same origin, so drawing it never taints the canvas and
+        // Same origin, so drawing it never taints the canvas and
         // the snapshot still exports. See apinrdw/kumora#432.
         image.src = `/logos/${encodeURIComponent(code)}`
         held.set(code, image)

@@ -39,10 +39,8 @@ import {
 } from "./day-store.ts"
 import { regroupMinute, type CodeMinute } from "./minute-regroup.ts"
 
-// Decision: keyed by (code, minute) WITHOUT ROWID like the footprint rows:
-// the answer reads one code's rows, and a recompute replaces each touched
-// minute's rows by key, never scanning the table. `sweeps` stays TEXT for
-// old days' tables; SQLite keeps a new row's gzipped BLOB as it is.
+// Decision: day store tables are keyed WITHOUT ROWID; trades are the tape's
+// (apps/dashboard/docs/adr/0078-day-store-tables-are-keyed-without-rowid.md)
 const SCHEMA = `CREATE TABLE IF NOT EXISTS sweep_brokers (
   code TEXT NOT NULL,
   minute INTEGER NOT NULL,
@@ -57,11 +55,8 @@ const sweepsText = (sweeps: ReadonlyArray<SweepBrokers>) =>
 const sweepsFromText = (text: string) =>
   Effect.orDie(decodeSweepBrokersText(text))
 
-// Decision: a new row's sweeps are stored as a gzipped BLOB of the same
-// text, with the zlib the day store gzips book chunks with (day-store.ts).
-// A day recorded before holds plain-text rows, read as they are and never
-// rewritten, so SWEEP_BROKERS_SHAPE stays: a bump would rebuild every old
-// day. See spec apinrdw/kumora#555, "Gzipped sweep brokers".
+// Decision: a new sweep brokers row is a gzipped BLOB; old plain rows stay
+// (apps/dashboard/docs/adr/0099-new-sweep-brokers-rows-are-gzipped-blobs.md)
 const storedSweeps = (text: string) =>
   Effect.sync(() => new Uint8Array(gzipSync(text)))
 const textOf = (stored: SqlValue | undefined) =>
@@ -159,7 +154,7 @@ const pieceOf = Effect.fnUntraced(function* (
   return piece
 })
 
-// Decision: an order run joins one aggressor broker's next aggressor order
+// An order run joins one aggressor broker's next aggressor order
 // while its number is at most this far above the previous one's. The
 // order-number count is market-wide, about 113 a second: one sender's
 // bursts step by 1–3, a retail broker's customers in the same second by
@@ -251,11 +246,8 @@ const sidedPieces = Effect.fnUntraced(function* (
 // One code's whole sweeps and auction matches in a minute with their
 // pieces, in trade order. A sweep's members are the next `trades` of the
 // code's trades, and one with any member lacking codes is left out.
-// Decision: a whole sweep splits by aggressor broker, each broker's
-// members one piece however interleaved; once every member has order
-// numbers, it splits by order run instead. An auction match has no
-// aggressor: one piece. See spec apinrdw/kumora#384, "Where the split
-// happens", and #627, "Slice 2".
+// Decision: a sweep splits by aggressor broker, or by order run once numbered
+// (apps/dashboard/docs/adr/0100-a-sweep-splits-by-aggressor-broker-or-by-order-run.md)
 const wholeSweeps = Effect.fnUntraced(function* (
   { trades, sweeps }: CodeMinute,
   held: MinuteHeld
@@ -334,7 +326,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // One minute's rows worked out again from the codes and order numbers
   // `held` reads, metering the rows it read: for each code, its whole
   // sweeps' and auction matches' text, or none when none is whole.
-  // Decision: a row whose text is already stored, gzipped or plain, is left
+  // A row whose text is already stored, gzipped or plain, is left
   // out, and so is a delete of a row never stored, so a batch writes only
   // the rows it changes, not every code's row of each minute it touches. See
   // apinrdw/kumora#348.
@@ -393,7 +385,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
       codes: brokerCodes.heldCodes,
       orders: brokerCodes.heldOrderNumbers,
     })
-    // Decision: a minute whose rows are all stored still writes `facts`, the
+    // A minute whose rows are all stored still writes `facts`, the
     // build's progress, so a build cut off after a long run of such minutes
     // resumes past them. See apinrdw/kumora#371.
     yield* store.writeSweepBrokers(rows.length, facts, () =>
@@ -413,7 +405,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     }
   })
 
-  // Decision: after the seal each recompute, and the build as it ends, logs
+  // After the seal each recompute, and the build as it ends, logs
   // its own line; before it, the counts ride the next `Rows written`. The
   // storage line is logged again the first time an object finds the sealed
   // day's codes complete, checked after every accepted batch. See spec
@@ -447,7 +439,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
       return reached === undefined ? undefined : Number(reached)
     })
 
-  // Decision: the build goes minute by minute, each minute's rows and its
+  // The build goes minute by minute, each minute's rows and its
   // progress in one transaction, as the order flow build does
   // (order-flow-build.ts): a build that dies reruns from the minute after
   // the last that landed. A day with no tape has no minute and builds
@@ -470,7 +462,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     yield* completed
   })
 
-  // Decision: a day holding no codes as its object starts gets each batch's
+  // A day holding no codes as its object starts gets each batch's
   // rows as it lands, so it is marked built from the start. A day holding
   // codes without the current mark (sweep brokers or their shape came after
   // them, or a late trade did) is built by its next sweep brokers GET.
@@ -501,7 +493,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // the batch's, and written with `writeCodes` in one transaction
   // (broker-codes.ts, `write`), so the meter's billed rows written count the
   // batch's own chunk and fact writes too: a few rows per batch.
-  // Decision: a batch recomputes the minutes its changed trades' numbers
+  // A batch recomputes the minutes its changed trades' numbers
   // fall in, found per run of consecutive numbers (trade numbers run in time
   // order), so a sparse Stockbit fill recomputes only the minutes it
   // touched. A batch that changed only order numbers counts the same. See
@@ -533,11 +525,8 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // moved back before the earliest minute holding one; none while the day
   // holds no codes, or while its build is still to start from its first
   // minute.
-  // Decision: once the day holds codes, every flushed trade, coded or not,
-  // moves the build back in its flush's transaction: a trade stored after a
-  // recompute can bring codes, join a sweep or split one, and a sweep never
-  // crosses a minute, so the day's next GET rebuilds from its minute.
-  // See spec apinrdw/kumora#343, "The one-off build", apinrdw/kumora#349.
+  // Decision: once a day holds codes, every flushed trade moves the build back
+  // (apps/dashboard/docs/adr/0101-every-flushed-trade-moves-the-sweep-brokers-build-back.md)
   const persisting = Effect.fnUntraced(function* (
     trades: ReadonlyArray<RunningTrade>
   ) {

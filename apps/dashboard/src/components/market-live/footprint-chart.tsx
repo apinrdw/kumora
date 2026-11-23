@@ -28,9 +28,8 @@ import { useMergedStale } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
 import { useChartSettings } from "./use-chart-settings"
 
-// Decision: like the candle chart, the footprint chart runs Lightweight Charts
-// only in the browser, in its own chunk (live-chart.tsx; spec
-// apinrdw/kumora#138, "Chart").
+// Decision: Lightweight Charts runs only in the browser, in its own chunk
+// (apps/dashboard/docs/adr/0025-lightweight-charts-runs-only-in-the-browser.md)
 const FootprintCanvas = lazy(() => import("./footprint-canvas"))
 
 const CHART_HEIGHT = "h-[380px] lg:h-auto lg:min-h-[380px] lg:flex-1"

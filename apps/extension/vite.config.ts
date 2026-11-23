@@ -35,7 +35,7 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    // Decision: no minifying. The owner loads dist unpacked and reads its
+    // No minifying. The owner loads dist unpacked and reads its
     // stack traces in chrome://extensions.
     minify: false,
     rolldownOptions: {

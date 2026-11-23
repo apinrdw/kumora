@@ -246,7 +246,7 @@ const COLUMNS = {
   brokers: "grid-cols-[58px_44px_minmax(0,1fr)_76px_80px_80px_10px]",
 } as const
 
-// Decision: a recorded day's columns scroll sideways inside a log narrower
+// A recorded day's columns scroll sideways inside a log narrower
 // than they need, as the tape does (tape-list.tsx): a phone's Sweeps tab
 // (about 360 px), and from lg a log given way below 530 px (layout-b.tsx).
 // Time to Seller need about 520 px with the lots and price path whole.
@@ -451,8 +451,8 @@ function BrokerFilter({
       className="bg-surface ml-auto max-w-40 rounded-md border border-border px-1 py-px font-mono text-[11px] font-normal text-foreground disabled:opacity-50"
     >
       <option value="">
-        {/* Decision: "after the close" is the owner's approved copy for what
-            arrives after the Seal: spec apinrdw/kumora#343, story 32. */}
+        {/* Decision: "after the close" is the owner's approved copy for after the Seal
+            (apps/dashboard/docs/adr/0026-after-the-close-is-the-approved-copy-for-post-seal-arrivals.md) */}
         {withBrokers ? "All brokers" : "Brokers after the close"}
       </option>
       {!listed && <option value={view.picked}>{view.picked}</option>}
@@ -540,7 +540,7 @@ export function SweepLog({
     }
     return { buy, sell, big }
   }, [view.kept, view.at])
-  // Decision: `contain: size` at every width, so the log adds no height to
+  // `contain: size` at every width, so the log adds no height to
   // its grid row: a busy code's thousands of rows scroll inside it instead
   // of stretching both charts beside it (from lg, apinrdw/kumora#272) or
   // its phone tab (below lg) to thousands of px. Below lg it is its

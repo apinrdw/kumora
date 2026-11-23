@@ -31,7 +31,7 @@ export const dayStateAt = Effect.fnUntraced(function* (
   const first = upTo[0]
   const latest = upTo.at(-1)
   if (first === undefined || latest === undefined) return undefined
-  // Decision: a code whose day had no `liveprice` frame with a previous
+  // A code whose day had no `liveprice` frame with a previous
   // close (an index's never carry one) has no change: the row shows none
   // rather than one run from the day's open.
   const previousClose = answer.previousClose

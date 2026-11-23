@@ -8,8 +8,8 @@ import { FetchHttpClient } from "effect/http"
 import { holdingsDbD1 } from "../holdings/db.ts"
 import { recordedSectorRun } from "./sync.ts"
 
-// Decision: a Promise for Cloudflare's `scheduled`, for the reason
-// runArchiveCron gives (../shareholding/cron.ts).
+// Decision: a cron runner returns a Promise, standing in for scheduled
+// (apps/dashboard/docs/adr/0008-cron-runners-return-a-promise-for-scheduled.md)
 export const runSectorCron = (scheduledTime: number) =>
   runServerEffectResult(
     recordedSectorRun(new Date(scheduledTime)).pipe(

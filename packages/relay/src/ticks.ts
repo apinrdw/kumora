@@ -5,7 +5,7 @@ import { Effect } from "effect"
 
 import type { WibDate } from "./schedule.ts"
 
-// Decision: the tick table is Peraturan II-A VI.5.2 as amended by
+// The tick table is Peraturan II-A VI.5.2 as amended by
 // Kep-00158/BEI/10-2026, in force from 2026-10-20 with no end date. VI.5.4
 // makes the tick follow each order's own price, so one book straddling a band
 // edge uses two ticks, and a spread or gap across it counts each price on its
@@ -57,7 +57,7 @@ interface LimitBand {
 // From 2027-01-01 the permanent II-A VI.7.1.1 table (±35/25/20%) applies; a
 // new Kep extending the transition needs a change here. Days before
 // 2026-10-20 use the transition too: the limits only flag a code at its limit.
-// Decision: the regular boards' limits are Kep-00158/BEI/10-2026 (in force
+// The regular boards' limits are Kep-00158/BEI/10-2026 (in force
 // 2026-10-20): the lower limit is 7% from Rp15 and Rp1 below it until
 // 2026-12-31. See spec apinrdw/kumora#517, "Ticks, limits and excluded codes".
 const TRANSITION_ENDS = "2026-12-31"
@@ -74,14 +74,14 @@ const PERMANENT: ReadonlyArray<LimitBand> = [
   { through: 5_000, up: 25, down: 25 },
   { through: Number.POSITIVE_INFINITY, up: 20, down: 20 },
 ]
-// Decision: a Special Monitoring Board code's limits are Peraturan II-X
+// A Special Monitoring Board code's limits are Peraturan II-X
 // II.1.5 (Kep-00140/BEI/09-2026, in force 2026-09-28, no end date): ±Rp1 to
 // Rp10 and ±10% above. The 7% transition doesn't touch it.
 const SPECIAL: ReadonlyArray<LimitBand> = [
   { through: 10, up: undefined, down: undefined },
   { through: Number.POSITIVE_INFINITY, up: 10, down: 10 },
 ]
-// Decision: a warrant's limits are II-A VI.7.1.3, ±50% to Rp200, ±40% to
+// A warrant's limits are II-A VI.7.1.3, ±50% to Rp200, ±40% to
 // Rp5,000 and ±30% above, both ways and with no transition; the research
 // gives 50% from Rp10, read here as from Rp1. A right (HMETD) has none but
 // the Rp1 floor (VI.7.4). See docs/research/idx-board-ticks-limits.md,
@@ -99,7 +99,7 @@ const MINIMUM_PRICE = 1
 // numbers is exact only when it is whole.
 const settled = (price: number) => Effect.succeed(Math.round(price * 1e6) / 1e6)
 
-// Decision: a percentage limit lands on the valid tick toward the reference
+// A percentage limit lands on the valid tick toward the reference
 // (the upper limit rounds down, the lower up). II-A gives percentages, not how
 // JATS rounds them; this reading is inferred (docs/research/
 // idx-board-ticks-limits.md, "Open risks").

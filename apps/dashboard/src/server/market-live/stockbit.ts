@@ -26,7 +26,7 @@ interface Field {
 // A cursor over one message's bytes. Each read returns undefined when the
 // bytes end early. Varints are read as numbers: the fields read here
 // (seconds, nanos, enums, the daily trade sequence) stay far below 2^53.
-// Decision: the cursor and its reads stay plain functions, not Effects: they
+// The cursor and its reads stay plain functions, not Effects: they
 // step through every frame on the hot path, and as Effects decoding 100,000
 // running trades took 745 ms, not 385 ms (about 120 ns a yielded Effect).
 // `fieldsOf` wraps one message's loop in one Effect. See apinrdw/kumora#159.

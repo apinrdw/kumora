@@ -51,7 +51,7 @@ export const RelayOutcome = Schema.Literals([
 ])
 export type RelayOutcome = typeof RelayOutcome.Type
 
-// Decision: the code list is fetched from the Ajaib tab once a WIB day, and
+// The code list is fetched from the Ajaib tab once a WIB day, and
 // retried at most once a minute until it answers. See apinrdw/kumora#138.
 const CODE_LIST_RETRY = Duration.minutes(1)
 

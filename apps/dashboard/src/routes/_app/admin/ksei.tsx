@@ -48,7 +48,7 @@ function KseiPage() {
           each version, and the holdings parsed for the stock pages.
         </p>
       </header>
-      {/* Decision: at xl, the archive's column on the left and its parse
+      {/* At xl, the archive's column on the left and its parse
           run's on the right, each run over its coverage, so neither card
           leaves a hole beside a taller one. Narrower, the columns dissolve
           (contents) and both run cards come first, so Parse now stays near

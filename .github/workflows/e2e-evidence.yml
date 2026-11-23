@@ -5,25 +5,21 @@
 # scripts/e2e-evidence-plan.mts, so change them together.
 name: e2e evidence
 
-# Decision: a workflow of its own, not a job in ci.yml as #203 planned. In
-# ci.yml a label event would cancel the running checks through its concurrency
-# group, and would replace their results with skipped check runs on the head.
+# Decision: e2e-evidence is a commit status, red until evidence or the label
+# (docs/adr/0006-the-e2e-evidence-gate-is-a-commit-status-from-its-own-workflow.md)
 on:
-  # Decision: pull_request_target, because pull_request's token is read-only by
-  # default on a Dependabot or fork PR, so the status write would 403. Safe only
-  # while no step checks out or runs PR code and the script takes no ${{ }}.
-  # GitHub runs the base branch's copy: the gate starts once this file is on
-  # the base, and a PR that adds or edits it runs the old copy or none.
+  # Decision: e2e-evidence is a commit status, red until evidence or the label
+  # (docs/adr/0006-the-e2e-evidence-gate-is-a-commit-status-from-its-own-workflow.md)
   pull_request_target:
-    # Decision: a draft gets no status, like ci.yml's jobs; ready_for_review
-    # marks the head the PR has when it leaves draft.
+    # Decision: a draft PR runs no CI and gets no status until ready for review
+    # (docs/adr/0004-drafts-run-no-checks.md)
     types: [opened, synchronize, reopened, labeled, unlabeled, edited, ready_for_review]
 
 # Retargeting a PR changes its files but not its head, and is the one `edited`
 # event with `changes.base`. Any other edit skips the job through the same test
 # in its `if`, as does any event on a draft. The runs that mark a head share the PR's group, where a newer
 # one, whose payload is newer, cancels the one before it.
-# Decision: a skipped run takes a group of its own, named by its run id. In
+# A skipped run takes a group of its own, named by its run id. In
 # the PR's group GitHub would let it replace a pending run, whatever
 # cancel-in-progress says, and that run may be the one marking a new head
 # (apinrdw/kumora#217).
@@ -32,11 +28,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Decision: red until evidence, green for a PR with no app code or the
-  # no-e2e-evidence label, and a success someone else set is never touched
-  # (apinrdw/kumora#203). The gate's own success is recomputed, so removing the
-  # label or retargeting can turn it red. The job's name differs from the
-  # status's so its green check run can't satisfy a ruleset on `e2e-evidence`.
+  # Decision: e2e-evidence is a commit status, red until evidence or the label
+  # (docs/adr/0006-the-e2e-evidence-gate-is-a-commit-status-from-its-own-workflow.md)
   e2e-evidence:
     name: e2e-evidence gate
     if: "!github.event.pull_request.draft && (github.event.action != 'edited' || github.event.changes.base.ref.from != '')"
@@ -74,10 +67,8 @@ jobs:
               (f) =>
                 app.test(f.filename) || app.test(f.previous_filename ?? "")
             )
-            // Decision: a Sync (main into staging) only moves commits whose own
-            // PRs passed this gate. Production is reached by a Release, never
-            // a PR: a merge commit on main would stop release.yml
-            // fast-forwarding.
+            // Decision: publishing a Release fast-forwards main; no PR reaches Production
+            // (docs/adr/0007-production-is-reached-by-a-release-that-fast-forwards-main.md)
             const movesRelease =
               pr.head.repo?.full_name === `${owner}/${repo}` &&
               pr.head.ref === "main" &&

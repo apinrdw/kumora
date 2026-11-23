@@ -35,10 +35,8 @@ export const manifest = (
   // `cookies` reads the Stockbit tab's credential cookies, HttpOnly or not,
   // under STOCKBIT_COOKIES' host permission (src/worker/stockbit.ts).
   permissions: ["storage", "alarms", "cookies"],
-  // Decision: exact hosts only, never a `*.workers.dev` wildcard: workers.dev
-  // is on the Public Suffix List, so one would admit any Workers site. The
-  // extra target's ingest socket needs no host permission. See
-  // apinrdw/kumora#135.
+  // Decision: exact host permissions only, never a *.workers.dev wildcard
+  // (apps/extension/docs/adr/0001-host-permissions-name-exact-hosts-only.md)
   host_permissions: [
     `${productionDashboard}/*`,
     STOCKBIT_TAB,

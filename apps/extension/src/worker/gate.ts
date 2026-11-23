@@ -6,11 +6,8 @@ import { Effect } from "effect"
 
 import type { Window } from "./broker.ts"
 
-// Decision: connections open at 08:40 and close at 16:35 WIB on trading days.
-// A connection opened mid-auction is unproven, so during pre-opening and
-// pre-closing a dropped connection reconnects but none opens fresh. A year
-// missing from the schedule streams nothing, so a stale table fails quiet
-// rather than relaying a holiday. See apinrdw/kumora#62.
+// Decision: the relay streams 08:40 to 16:35 WIB; a missing year streams nothing
+// (packages/relay/docs/adr/0004-the-relay-streams-08-40-to-16-35-wib.md)
 export const windowAt = Effect.fnUntraced(function* (
   instant: DateTime.DateTime
 ) {

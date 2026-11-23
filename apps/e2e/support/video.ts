@@ -49,7 +49,7 @@ export function recording(
     typed.some((spec) => isNamedBy(spec)(file))
   )
   return {
-    // Decision: a picked relay-load spec or repaint bench records nothing,
+    // A picked relay-load spec or repaint bench records nothing,
     // since encoding video would take CPU from the relay whose lag, or the
     // charts whose repaint, it measures.
     chromium: picked.filter(
@@ -63,7 +63,7 @@ export function recording(
   }
 }
 
-// Decision: video records at the viewport's 1280×720, not Playwright's 800×450
+// Video records at the viewport's 1280×720, not Playwright's 800×450
 // downscale, so a reviewer can read the UI's small text (apinrdw/kumora#210).
 const SIZE = { width: 1280, height: 720 }
 

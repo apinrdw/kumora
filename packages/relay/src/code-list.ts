@@ -34,7 +34,7 @@ export const decodeAjaibCodeList = Effect.fnUntraced(function* (body: string) {
 const CodeKind = Schema.Literals(["share", "index", "warrant", "right"])
 export type CodeKind = typeof CodeKind.Type
 
-// Decision: the kind comes from the suffix alone, as the spec says: `-W` and
+// The kind comes from the suffix alone, as the spec says: `-W` and
 // `-W2` are warrants, `-R` rights. Ajaib's structured warrants (`BBRIDRCM3A`)
 // and funds (`R-LQ45X`) stay shares.
 export const kindOf = (code: string) =>

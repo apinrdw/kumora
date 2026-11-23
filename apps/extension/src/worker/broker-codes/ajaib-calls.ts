@@ -9,7 +9,7 @@ import type { RequestingTab } from "../pacer.ts"
 import { inStreamingHours, scheduleNow } from "./hours.ts"
 import { halt, type WalkPhase } from "./run-queue.ts"
 
-// Decision: the walk starts once Ajaib says CLOSED and the newest page
+// The walk starts once Ajaib says CLOSED and the newest page
 // carries valid codes, polling once a minute until then. A failed call
 // mid-walk is retried in place every 10 s. See apinrdw/kumora#244, "Ajaib
 // start".
@@ -98,7 +98,7 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
   // Every token Ajaib refused this walk, so none is sent twice.
   const refused = new Set<string>()
 
-  // Decision: a token past its JWT `exp` counts as refused and is never
+  // A token past its JWT `exp` counts as refused and is never
   // sent. Ajaib's 401 carries no CORS headers, so the tab reads it as a
   // failed request, not a 401. 2026-11-20: an expired page token stalled the
   // walk, retried every 10 s, with 122,400 trades missing.
@@ -114,7 +114,7 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
     Option.isSome(cookie) ? Effect.succeed(cookie) : pageToken
   )
 
-  // Decision: on a 401 the walk sends the first usable token, the page's
+  // On a 401 the walk sends the first usable token, the page's
   // headers' then the `trade_access_token` cookie's; with neither
   // it reloads the idle Ajaib tab every RELOAD_MS, which re-issues the cookie.
   // Its position is in the store, so a reload loses nothing. It never calls

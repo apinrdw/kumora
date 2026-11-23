@@ -33,10 +33,8 @@ class ClassificationUnreadable extends Schema.TaggedError<ClassificationUnreadab
 const unreadable = (message: string) =>
   new ClassificationUnreadable({ message })
 
-// Decision: a header label or issuer name is at most 256 characters, about
-// 4× the longest in Oct 2026 (a 62-character label, a 47-character name).
-// Any number of cells may name one shared string: a 1 MiB string as every
-// stock's issuer would go into the month's rows 2,000 times.
+// Decision: a report's parse is bounded to fit 48 MiB of the Worker's heap
+// (apps/dashboard/docs/adr/0045-a-holdings-parse-fits-a-bounded-heap.md)
 const MAX_TEXT_LENGTH = 256
 
 // A header cell's label and origin: `Local_Bank` is ("bank", local), `BANK`
@@ -194,9 +192,8 @@ const rowHoldings = Effect.fnUntraced(function* (
 
 // The stock a row below the header row names, by its code and issuer name;
 // undefined for a row holding nothing a month stores, such as a DATE alone.
-// Decision: a row holding a value under any label but DATE must name its
-// stock by a SHARE CODE of text, or the month fails: a row whose code wasn't
-// read was skipped while the month was replaced without it.
+// Decision: a row with any value must name its stock by a text code
+// (apps/dashboard/docs/adr/0047-a-holdings-row-with-values-must-name-its-stock.md)
 const rowStock = Effect.fnUntraced(function* (
   rowNumber: number,
   cells: Row,

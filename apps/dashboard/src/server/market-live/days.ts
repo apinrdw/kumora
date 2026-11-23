@@ -26,11 +26,8 @@ const refused = (status: 401 | 403, error: string, message: string) =>
     )
   )
 
-// Decision: recorded day loads read the session through Better Auth's cookie
-// cache (5 minutes), as the spec says: Play fetches the tape up to 4 times a
-// second. A ban or revoke bites here within those 5 minutes; the live socket
-// reads past the cache and closes at once. A denial fails with the access
-// policy's refusal.
+// Decision: recorded day loads read the session through the 5-minute cookie cache
+// (apps/dashboard/docs/adr/0042-recorded-day-loads-read-the-session-through-the-cookie-cache.md)
 const gateRecordedDay = Effect.fn("gateRecordedDay")(function* (
   request: Request
 ) {
@@ -105,7 +102,7 @@ export const dayStripRoute = (request: Request) =>
 
 // A strip that fails to load (the index unreachable, its body cut off, or
 // not understood) counts every day hot, and is asked again on the next GET.
-// Decision: the Worker reads which days are cold from the day strip, kept per
+// The Worker reads which days are cold from the day strip, kept per
 // isolate for a minute: one strip GET a minute per busy isolate, reading one
 // index row per recorded day. A day cold for less than that may still reach
 // its object. See spec apinrdw/kumora#556, "Routing and caching".

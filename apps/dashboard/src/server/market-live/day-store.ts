@@ -47,10 +47,8 @@ export type SqlValue = string | number | null | Uint8Array
 
 // The part of SQLite the store needs: Cloudflare's `SqlStorage` and Node's
 // `DatabaseSync` both fit behind it.
-// Decision: its methods are plain, not Effects: they adapt those synchronous
-// third-party calls, and `transaction` runs its write inside the database's
-// own synchronous transaction, where an Effect could not run. The store wraps
-// every call in an Effect. See apinrdw/kumora#159.
+// Decision: code run inside a synchronous transaction stays plain, not an Effect
+// (apps/dashboard/docs/adr/0076-methods-called-inside-a-synchronous-transaction-stay-plain.md)
 export interface Sql {
   readonly exec: (
     query: string,
@@ -69,11 +67,8 @@ export interface Sql {
 // What the store wrote since the meter was last taken, by table, and the
 // late trades that read a stored minute back (candles.ts, `slotSweeps`).
 // Billed figures come from the database's own count, when it keeps one.
-// Decision: the Staging cost check reads these from Workers Logs, a line a
-// flush or, after the seal, a sweep brokers recompute, as the feed lag lines
-// (apinrdw/kumora#231): no binding or route, and a restart loses at most
-// one line's counts. See apinrdw/kumora#270, docs/runbooks/order-flow-cost.md.
-// Each billed meter figure, and the database count it adds up.
+// Decision: the Staging cost check reads meter lines from Workers Logs
+// (apps/dashboard/docs/adr/0077-the-staging-cost-check-reads-meter-lines-from-workers-logs.md)
 const BILLED = {
   billedRowsWritten: "rowsWritten",
   billedMinuteRereadRows: "rowsRead",
@@ -151,9 +146,8 @@ export interface Flush {
   readonly orderFlowEvents?: ReadonlyArray<OrderFlowEvent>
 }
 
-// Decision: the trades are the tape's (tape.ts). The other tables are keyed
-// WITHOUT ROWID, replaced at most once a minute. See spec apinrdw/kumora#138,
-// "Storage and cost".
+// Decision: day store tables are keyed WITHOUT ROWID; trades are the tape's
+// (apps/dashboard/docs/adr/0078-day-store-tables-are-keyed-without-rowid.md)
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS candles (
     code TEXT NOT NULL,
@@ -202,8 +196,8 @@ const SCHEMA = [
   // A stock's book heatmap slices for one minute (heat-rows.ts), which a
   // day recorded before heatmaps were worked out on read holds beside each
   // book chunk.
-  // Decision: a new day still creates the table, empty, so old and new days
-  // read the same way; the third spec of apinrdw/kumora#555 drops it.
+  // Decision: a new day still creates the old table, empty, so all days read alike
+  // (apps/dashboard/docs/adr/0079-a-new-day-still-creates-the-retired-table-empty.md)
   `CREATE TABLE IF NOT EXISTS heatmaps (
     code TEXT NOT NULL,
     minute INTEGER NOT NULL,
@@ -245,11 +239,8 @@ const SCHEMA = [
   ) WITHOUT ROWID`,
 ]
 
-// Decision: a day store from before candles carried buy and sell value gains
-// both columns last, as in SCHEMA, so the candles INSERT fits. Today's and an
-// unsealed day's candles get them from the stored trades in that transaction:
-// today's bubbles answer until midnight (`bubblesAnswer`). A sealed past day's
-// keep 0: Market Bubbles is live only. See apinrdw/kumora#436.
+// Decision: an old day store gains buy and sell value last; sealed days keep 0
+// (apps/dashboard/docs/adr/0080-old-day-stores-gain-candle-buy-and-sell-value-columns-last.md)
 const ADDED_CANDLE_COLUMNS = ["buy_value", "sell_value"]
 
 // The keys of the facts table.
@@ -316,11 +307,8 @@ export const Fact = {
 export const TAPE_SUMMARY_BUILT = "built"
 
 export const ORDER_FLOW_BUILT = "built"
-// Decision: the build's progress and finished value both name the rows'
-// shape, a new one whenever their content changes, so a day holding either
-// under an older shape (`built`, a bare minute) counts as unbuilt and its
-// next sweep brokers GET rebuilds every row from its first minute. See spec
-// apinrdw/kumora#384, "Old days".
+// Decision: build progress names the rows' shape, so an older shape rebuilds
+// (apps/dashboard/docs/adr/0081-the-sweep-brokers-build-names-its-rows-shape.md)
 export const SWEEP_BROKERS_SHAPE = "split"
 export const SWEEP_BROKERS_BUILT = `${SWEEP_BROKERS_SHAPE}:built`
 
@@ -334,10 +322,8 @@ export interface BuiltMinute {
 }
 
 // The footprint rows one statement of the restart's sweep read takes.
-// Decision: `eachStoredSweeps` reads 500 rows a statement by the table's
-// key. `Sql.exec` hands a statement's rows back whole, and the worst day's
-// in one statement held 75 MiB against the spec's ~30 MB; paged, the read
-// peaks at 12 MiB (sweep-alerts-memory.test.ts). See spec apinrdw/kumora#510.
+// Decision: eachStoredSweeps reads 500 rows a statement to bound Worker memory
+// (apps/dashboard/docs/adr/0082-stored-sweeps-are-read-500-rows-a-statement.md)
 const SWEEP_PAGE = 500
 
 const storedCandleOf = (row: Record<string, SqlValue>) =>
@@ -416,9 +402,8 @@ const livePriceOf = (frame: SqlValue | undefined) =>
     return { ...rest, time: DateTime.makeUnsafe(time) }
   })
 
-// Decision: a book chunk is stored gzipped (spec apinrdw/kumora#138, "Storage
-// and cost"), with Node's zlib that the Worker's nodejs_compat flag provides:
-// synchronous, so a flush stays one transaction.
+// Decision: a book chunk is stored gzipped with Node's synchronous zlib
+// (apps/dashboard/docs/adr/0083-a-book-chunk-is-stored-gzipped-with-synchronous-zlib.md)
 const chunkOf = (blob: SqlValue | undefined) =>
   Effect.sync(() => new TextDecoder().decode(gunzipSync(blob as Uint8Array)))
 
@@ -567,11 +552,8 @@ export const makeDayStore = (
             minute,
             new Uint8Array(gzipSync(chunk))
           )
-        // Decision: each session's end writes one row per code whose book
-        // was served in it, about 900 rows at the break and 900 at the
-        // close, rather than a code's every chunk: a restart brings back
-        // every code's book and readings from them, then from any newer
-        // recorded chunk (trading-day.ts, `restoreLastFrames`).
+        // Decision: each session's end stores one book row per code served in it
+        // (apps/dashboard/docs/adr/0084-each-session-s-end-stores-one-book-row-per-code.md)
         for (const { code, chunk } of flush.sessionBooks ?? [])
           sql.exec(
             "INSERT OR REPLACE INTO session_books VALUES (?, ?)",
@@ -722,7 +704,7 @@ export const makeDayStore = (
     // One code's candles as an order flow restart replays them
     // (order-flow.ts, `restore`), ascending by minute: each one's range,
     // close and close order.
-    // Decision: a read of its own for 5 of a candle's 14 columns. Measured
+    // A read of its own for 5 of a candle's 14 columns. Measured
     // 2026-11-23 on the dev machine, the busy day's 348,000 candles in
     // workerd: 1.3 s read whole (`storedCandlesOf`), 0.5 s as these. See
     // PR #633.
@@ -747,7 +729,7 @@ export const makeDayStore = (
     // Every stock's day totals and newest `minutes` candles, for the bubble
     // book a restart rebuilds (bubble-book.ts). An index's candles have no
     // footprint, so a stock is a code with one.
-    // Decision: read once, at a live day's start: one pass over the candles
+    // Read once, at a live day's start: one pass over the candles
     // for the totals and one for the newest minutes, about 400,000 rows each
     // at a full day, not one read of the day's candles a build. See spec
     // apinrdw/kumora#427, "Where the day totals come from".
@@ -1018,11 +1000,8 @@ export const makeDayStore = (
 
     // The day's newest `limit` stored book events of every code, oldest
     // first.
-    // Decision: no index on `time`: this visits and sorts every book event
-    // of the day, 2 rows read an event, once an object, at its first
-    // snapshot (book-event-log.ts). An index read 100 rows for 100 events
-    // but wrote 2 rows an event, and a row written costs 1,000 read
-    // (docs/runbooks/order-flow-cost.md): it pays only past 500 reads a day.
+    // Decision: book_events has no index on time; the scan runs once an object
+    // (apps/dashboard/docs/adr/0085-book-events-have-no-index-on-time.md)
     const newestBookEvents = (limit: number) =>
       Effect.map(
         Effect.forEach(
@@ -1094,11 +1073,8 @@ export const makeDayStore = (
     // One stock's book heatmap rows by minute, ascending, each with the book
     // its chunk ended with: its stored heatmap rows, then from the minute
     // after the last of them each stored chunk's slices, worked out on read.
-    // Decision: a day stores no heatmap row, so a GET reads the code's book
-    // chunks, about 273 rows, and runs the chunk close's own math on them
-    // (heat-rows.ts, `chunkSlices`). A day recorded before holds a row beside
-    // each chunk until the change shipped, and answers those. See spec
-    // apinrdw/kumora#555, "Heatmaps worked out on read".
+    // Decision: a day stores no heatmap row; a GET works it out from book chunks
+    // (apps/dashboard/docs/adr/0086-heatmaps-are-worked-out-on-read-from-book-chunks.md)
     const heatmapOf = Effect.fnUntraced(function* (code: StockCode) {
       const rows: Array<HeatRow> = []
       for (const row of sql.exec(
@@ -1131,7 +1107,7 @@ export const makeDayStore = (
     })
 
     // The codes a table keyed by code first holds rows of, ascending.
-    // Decision: a seek per code down the primary key, not a DISTINCT scan:
+    // A seek per code down the primary key, not a DISTINCT scan:
     // about one row read a code, where the scan reads every row (about
     // 13 K book chunks, or every candle). See spec apinrdw/kumora#556,
     // "The move".

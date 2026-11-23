@@ -34,10 +34,8 @@ export const memoryCodeListStore = Effect.sync((): CodeListStore => {
   }
 })
 
-// Decision: an encoded list over 2 MB is dropped with a log. Ajaib's codes
-// encode to about 0.2 MB, so ten times that is a wrong answer rather than a
-// list that grew, and the cap keeps the value well under the Durable Object's
-// 8 MB per key and value. See apinrdw/kumora#157.
+// Decision: an encoded code list over 2 MB is dropped, under the DO's 8 MB cap
+// (apps/dashboard/docs/adr/0065-an-oversized-code-list-is-dropped.md)
 const MAX_STORED_BYTES = 2_000_000
 
 // Normalises Ajaib's body, adds the indices, which Ajaib doesn't list, and

@@ -15,7 +15,7 @@ import { monthRows } from "../holdings/month-replace.ts"
 export const PROFILES_URL =
   "https://www.idx.id/primary/ListedCompany/GetCompanyProfiles?emitenType=s&start=0&length=9999&lang=en"
 
-// Decision: at most 5,000 profiles, about 5× the 944 IDX listed on
+// At most 5,000 profiles, about 5× the 944 IDX listed on
 // 2026-11-16, so the table, and the map the dashboard serves from it
 // (map.ts), stay bounded. A profile took about 915 bytes of JSON with its
 // contact fields, so 8 MB holds the most with room for new fields.
@@ -103,7 +103,7 @@ const rowsOf = Effect.fnUntraced(function* (
       skipped.push(`"${code}" (no stock code)`)
       continue
     }
-    // Decision: a profile IDX still files under a JASICA sector (AGII on
+    // A profile IDX still files under a JASICA sector (AGII on
     // 2026-11-18) leaves the table, so its code shows as Unclassified; the
     // 90 % gate below still keeps the table when many go at once.
     if (!isSector(sector)) {

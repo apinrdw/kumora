@@ -45,11 +45,8 @@ import { useAlertOwner } from "./use-alert-owner"
 
 const LIMITS_LOCK = "kumora:book-alerts:limits"
 
-// Decision: each event alerts once per browser, and the cooldowns and the
-// minute's count hold across its tabs and reloads: one localStorage value,
-// admitted against under the Web Lock `kumora:book-alerts:limits` by the
-// alert owner (use-alert-owner.ts) only. An event heard twice cools on its
-// own code, kind and time. See apinrdw/kumora#526.
+// Decision: each event alerts once per browser, its limits shared under a Web Lock
+// (apps/dashboard/docs/adr/0023-book-alert-limits-hold-across-a-browser-s-tabs.md)
 const withLimitsLock = Effect.fnUntraced(function* (
   change: Effect.Effect<void>
 ) {

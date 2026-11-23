@@ -46,10 +46,8 @@ export const ArchiveRunResult = Schema.Struct({
   reportsChecked: Schema.Number,
   // URLs the run couldn't store; the next run retries them.
   notStored: Schema.Array(Schema.String),
-  // Decision: what records written while the archive run also parsed
-  // classification reports hold, kept optional so they still decode. A run
-  // no longer parses, so no new record has them, and the admin page doesn't
-  // show them. See apinrdw/kumora#402.
+  // Decision: old run records' parse fields stay optional so they still decode
+  // (apps/dashboard/docs/adr/0052-old-run-records-keep-their-parse-fields-optional.md)
   monthsParsed: Schema.optionalKey(Schema.Number),
   parseFailures: Schema.optionalKey(Schema.Array(ParseFailure)),
   // Reports archived under `other`: an unknown description prefix.

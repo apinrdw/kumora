@@ -142,7 +142,7 @@ function StockPageView() {
     if (staleSelection) setSearch({ selFrom: undefined, selTo: undefined })
   }, [staleSelection, setSearch])
   return (
-    // Decision: the Broker inventory tab takes the page's full width, for a
+    // The Broker inventory tab takes the page's full width, for a
     // long range's days. See apinrdw/kumora#421, "Amended 2026-11-16".
     <div
       className={cn(

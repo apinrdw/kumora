@@ -61,11 +61,8 @@ const levelsOf = (weights: ReadonlyMap<number, Weight>) => {
   return levels
 }
 
-// Decision: a book stays in force until the next frame, so a minute with no
-// frame keeps the book before it, the day's last one to the end of
-// streaming hours (`streamingEndOf`): no frame could replace it after. No
-// slice starts from there on, in the GET's answer or on the page. See
-// apinrdw/kumora#279.
+// Decision: a book holds until the next frame, the last to streaming end
+// (apps/dashboard/docs/adr/0030-a-book-stays-in-force-until-the-next-frame.md)
 export const heatEndOf = (date: WibDate) =>
   Effect.map(
     streamingEndOf(date),
@@ -79,7 +76,7 @@ export const heatEndOf = (date: WibDate) =>
 // book held them, in whole lots. `changes` ascend by time; the latest at or
 // before `from` is the book in force then, and before the first there is
 // none, which rests nothing. A slice with no lots is left out.
-// Decision: the weighting loop and its helpers stay plain, one Effect around
+// The weighting loop and its helpers stay plain, one Effect around
 // them: a busy code's day (~33 K frames of 20 levels a side, 2,622 slices)
 // took 33.5 ms plain and 45–48 ms with `add` and `levelsOf` as Effect.sync
 // yielded per call, about 35% slower (Node 26, 2 cores, median of 15, measured

@@ -88,7 +88,7 @@ const shares = Effect.fnUntraced(function* (
   const sum = (holders: "under5" | "atLeast5") =>
     KSEI_TYPES.reduce((total, type) => total + holdings[type][holders], 0)
   const scripless = sum("under5") + sum("atLeast5")
-  // Decision: scrip never below 0, for a report whose scripless shares pass
+  // Scrip never below 0, for a report whose scripless shares pass
   // its shares outstanding, which IDX doesn't rule out.
   const base =
     denominator === "outstanding"

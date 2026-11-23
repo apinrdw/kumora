@@ -11,7 +11,7 @@ import { SHARES_PER_LOT, type BookLevel, type OrderBook } from "./order-book.ts"
 import { wibDateAt, type MarketPhase } from "./schedule.ts"
 import { priceLimitsOf, ticksBetween } from "./ticks.ts"
 
-// Decision: every reading covers the best 5 levels a side, fixed: the user
+// Every reading covers the best 5 levels a side, fixed: the user
 // can't change it. See spec apinrdw/kumora#517, "Book readings".
 const NEAR_LEVELS = 5
 
@@ -24,9 +24,8 @@ export const READING_PHASES: ReadonlySet<MarketPhase> = new Set([
 
 // One side's readings over its best five levels: its lots, and its lots per
 // order (none without an order).
-// Decision: near depth, empty ticks and the spread are gone from readings;
-// lots stay because `limitOf` reads an empty side from them. See
-// apinrdw/kumora#601.
+// Decision: readings drop near depth, empty ticks and spread; lots stay
+// (packages/relay/docs/adr/0013-book-readings-drop-near-depth-empty-ticks-and-spread.md)
 const SideReadings = Schema.Struct({
   lots: Schema.Finite,
   lotsPerOrder: Schema.UndefinedOr(Schema.Finite),
@@ -49,9 +48,8 @@ const BookReadingsFields = Schema.Struct({
 // A reading's tuple: [code, as-of, imbalance, bid lots, bid lots per order,
 // offer lots, offer lots per order], none as null. Encoding rounds imbalance
 // to 4 places and lots per order to 2: finer digits are noise on the page.
-// Decision: readings travel as a tuple: every changed code's go out in each
-// delta, and keys would double the ~100 bytes the spec budgets for one. See
-// spec apinrdw/kumora#517, "Data".
+// Decision: book readings travel as a tuple, not a keyed object
+// (packages/relay/docs/adr/0014-book-readings-travel-as-a-tuple.md)
 const WireSide = [Schema.Finite, Schema.NullOr(Schema.Finite)] as const
 
 export const BookReadings = Schema.Tuple([
@@ -108,11 +106,8 @@ const readSide = (levels: ReadonlyArray<BookLevel>) =>
 // empty and its last price at the limit its previous close sets, under its
 // instrument's rule on the readings' day. Special Monitoring Board codes show
 // no readings, so a share takes the regular boards' rule.
-// Decision: readings are a function of their book alone, retaken on each book
-// change; a mark that also reads another input, as the limit reads the
-// prices, is derived on the page where the readings meet it (the scanner's
-// figures, the readout's Day state), so it follows both. See spec
-// apinrdw/kumora#517, "Book readings", and apinrdw/kumora#526.
+// Decision: readings read their book alone; marks mixing inputs derive on the page
+// (packages/relay/docs/adr/0015-book-readings-read-their-book-alone.md)
 export const limitOf = Effect.fnUntraced(function* (
   readings: BookReadings,
   prices: {
@@ -133,11 +128,11 @@ export const limitOf = Effect.fnUntraced(function* (
   return undefined
 })
 
-// Decision: a book is read for a heavy side when its imbalance is at least
+// A book is read for a heavy side when its imbalance is at least
 // 50% either way: one side holds 3× the other's lots over the best five
 // levels. See apinrdw/kumora#601.
 const HEAVY_IMBALANCE = 0.5
-// Decision: big orders when the heavy side's lots per order is at least 1.5×
+// Big orders when the heavy side's lots per order is at least 1.5×
 // the other side's, small orders at 1× or less, and none between, so a
 // near-tie doesn't flip the tag and fire alerts. See apinrdw/kumora#601.
 const BIG_ORDERS_RATIO = 1.5

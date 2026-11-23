@@ -6,10 +6,8 @@ import { testTimeout } from "../../vitest.timeout.mts"
 // the day object in workerd; `pnpm --filter dashboard test:row-budgets` runs
 // them alone.
 const ROW_BUDGETS = "tests/**/*.workerd.test.ts"
-// Decision: the whole busy day records for about 280 s in workerd, so it is a
-// project of its own that `pnpm --filter dashboard test:whole-day` runs, left
-// out of `pnpm check` and CI. A change to what a day writes or stores runs
-// it, and its PR reports the figures (spec apinrdw/kumora#555).
+// Decision: the whole busy day runs on request, outside pnpm check and CI
+// (apps/dashboard/docs/adr/0011-the-whole-busy-day-runs-outside-pnpm-check-and-ci.md)
 const WHOLE_DAY = "tests/**/whole-day.workerd.test.ts"
 
 // Tests run in Node without vite.config.ts and its TanStack Start plugins.
@@ -20,14 +18,14 @@ export default defineConfig({
   // out of tests.
   assetsInclude: ["**/*.xlsx", "**/*.zip"],
   test: {
-    // Decision: two workers, isolation kept on. Vitest's default on CI's
+    // Two workers, isolation kept on. Vitest's default on CI's
     // 2 vCPU is one worker, which ran the files one at a time. Turning
     // isolation off saves 18 s but leaks happy-dom documents between files
     // (#171).
     maxWorkers: 2,
     testTimeout,
-    // Decision: the row budgets are a project of the dashboard's tests, so
-    // `pnpm check` and CI's unit-tests job run them with the rest.
+    // Decision: the row budgets run with the unit tests in pnpm check and CI
+    // (apps/dashboard/docs/adr/0012-row-budgets-run-with-the-unit-tests.md)
     projects: [
       {
         extends: true,

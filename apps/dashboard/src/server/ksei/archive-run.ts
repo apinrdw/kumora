@@ -64,7 +64,7 @@ type StepServices = ArchiveBucket | HttpClient.HttpClient
 // runtime's 10 minutes.
 const KSEI_STEP: StepConfig = { timeout: KSEI_REQUEST_TIMEOUT }
 
-// Decision: `head` and `probe:` get their longest run of HEADs in turn at
+// `head` and `probe:` get their longest run of HEADs in turn at
 // KSEI's slowest answer, plus one stuck request: 4.4 minutes for 72 held
 // files, 7.6 for a probe. A flat 2 minutes timed out a healthy probe (42
 // HEADs at 3 s), and each retry restarted its year. See apinrdw/kumora#327.
@@ -292,7 +292,7 @@ const archiveListed = (
   )
 
 // A Deep backfill's find, null when KSEI redirects it.
-// Decision: a seeded file KSEI no longer serves is no failure: Wayback saw it
+// A seeded file KSEI no longer serves is no failure: Wayback saw it
 // once, and its month is probed like any other missing month. See
 // apinrdw/kumora#330.
 const archiveFind = (run: RunId, report: ListedKseiReport) =>
@@ -400,7 +400,7 @@ const summary = Effect.fnUntraced(function* (
   const earlier = yield* recordsByFilename(run.id)
   const result = KseiRunResult.make({
     ...(yield* finishedResult(run)),
-    // Decision: an MD5 mismatch and a Deep backfill's months not found leave the
+    // An MD5 mismatch and a Deep backfill's months not found leave the
     // run complete: they are what KSEI serves, and doesn't. A probe that
     // failed is partial, like a file not stored: its months weren't looked
     // at. See apinrdw/kumora#327 and #330.

@@ -57,11 +57,8 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: pnpm install --frozen-lockfile
-      # Decision: alchemy logs into Infisical with GitHub's OIDC token as
-      # kumora-github-teardown, so GitHub stores no secret. It is a project
-      # Viewer, so it can read `prod` too: Infisical's free plan has no
-      # per-environment roles. Accepted like the Workers Builds identity's;
-      # revisit with custom roles or outside contributors. See apinrdw/kumora#18.
+      # Decision: teardown logs into Infisical by OIDC, as a Viewer that sees prod
+      # (docs/adr/0009-teardown-reads-infisical-by-github-oidc-as-a-viewer.md)
       - run: bun packages/deploy/src/teardown.ts destroy "$STAGE"
         env:
           STAGE: ${{ needs.stage.outputs.stage }}

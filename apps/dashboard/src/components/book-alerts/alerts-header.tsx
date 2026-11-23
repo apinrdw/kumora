@@ -87,7 +87,7 @@ const ruleText = Effect.fnUntraced(function* (rule: AlertRule) {
   ].join(" · ")
 })
 
-// Decision: permission for background notifications is asked when the first
+// Permission for background notifications is asked when the first
 // rule is saved, the moment the user shows they want alerts. See spec
 // apinrdw/kumora#517, "Alerts".
 const askToNotify = Effect.sync(() => {

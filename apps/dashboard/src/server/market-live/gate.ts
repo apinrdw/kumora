@@ -13,11 +13,8 @@ import { refusal } from "../auth/refusal.ts"
 import { accountOf } from "../auth/session-account.ts"
 import { AccountId, SessionId } from "./routes.ts"
 
-// Decision: the gate runs once, at the upgrade, so the viewer carries its
-// session's `expiresAt` and the object closes the socket with 4401 once it
-// passes (trading-day.ts), where a session's delete hook never fires. A session
-// renewed after the upgrade still closes at the end the gate saw; the page
-// signs in again. See apinrdw/kumora#157.
+// Decision: the gate runs once; the object closes with 4401 at the session's end
+// (apps/dashboard/docs/adr/0041-a-viewer-closes-with-4401-once-its-session-ends.md)
 interface LiveViewer {
   readonly userId: AccountId
   readonly sessionId: SessionId

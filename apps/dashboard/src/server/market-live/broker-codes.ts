@@ -38,25 +38,18 @@ import type { Tape } from "./tape-backing.ts"
 import { TRADE_CHUNK } from "./tape-chunks.ts"
 import { fieldsOf, makeTape } from "./tape.ts"
 
-// Decision: chunk k holds trades 1000k+1 .. 1000k+1000 as 1,000 fixed 7-byte
-// records: buyer code, buyer type, seller code, seller type, and the source.
-// All zero bytes is an absent trade. A batch rewrites only the chunks it
-// touches: 1–2 per Stockbit batch, up to 6 per Ajaib batch of 5,000. The
-// row budgets' busy day (billing/busy-day.ts) writes its chunks with these.
+// Decision: a codes chunk holds 1,000 fixed 7-byte records with a source byte
+// (apps/dashboard/docs/adr/0055-broker-codes-are-stored-as-7-byte-records-in-1-000-trade-chunks.md)
 export const CHUNK = 1_000
 export const RECORD = 7
 export const SOURCE = 6
 
-// Decision: the source byte is `A` for Ajaib's, `S` for Stockbit's, and `B`
-// for Ajaib's that Stockbit's copy agreed with: the cross-check's covered
-// trades are counted from it, so a resent Stockbit batch counts none twice.
+// Decision: a codes chunk holds 1,000 fixed 7-byte records with a source byte
+// (apps/dashboard/docs/adr/0055-broker-codes-are-stored-as-7-byte-records-in-1-000-trade-chunks.md)
 export const Source = { ajaib: 65, stockbit: 83, both: 66 } as const
 
-// Decision: order numbers get their own chunk table, chunked as CHUNK, of
-// 9-byte records: buy and sell order number as big-endian uint32, then the
-// source byte; all zero is an absent trade. The first batch carrying order
-// numbers makes the table, so a day recorded before them never has it and
-// reads as before. See apinrdw/kumora#624.
+// Decision: order numbers are uint32s in their own 9-byte record chunk table
+// (packages/relay/docs/adr/0005-order-numbers-get-their-own-chunk-table-of-uint32-records.md)
 const ORDER_RECORD = 9
 const ORDER_SOURCE = 8
 const ORDER_NUMBER_CHUNKS = `CREATE TABLE IF NOT EXISTS order_number_chunks (
@@ -64,11 +57,8 @@ const ORDER_NUMBER_CHUNKS = `CREATE TABLE IF NOT EXISTS order_number_chunks (
     orders BLOB NOT NULL
   )`
 
-// Decision: an order record's source byte is Source's `A`, `S` or `B`, or
-// `D` for Ajaib's that Stockbit's differed from. Ajaib's stand: a Stockbit
-// row fills a trade without order numbers and is otherwise only compared.
-// The status's counts move with each record's source byte, so a resent
-// batch counts none twice. See spec apinrdw/kumora#627, "Slice 1".
+// Decision: order numbers are uint32s in their own 9-byte record chunk table
+// (packages/relay/docs/adr/0005-order-numbers-get-their-own-chunk-table-of-uint32-records.md)
 const OrderSource = { ...Source, differed: 68 } as const
 
 // The status's order number counts, kept as the `order-numbers` fact.
@@ -152,11 +142,8 @@ const SCHEMA = [
     ajaib BLOB NOT NULL,
     stockbit BLOB NOT NULL
   )`,
-  // Decision: a walk's fields of each trade the tape lacked, the first row
-  // kept. On a day the relay recorded they never fill the tape, so its
-  // recorded answers don't change; only the build reads them (#425). A walk
-  // day's batches fill its tape until its seal, and until then a row here
-  // holds none of its trades (`walkRowsHold`). See #437.
+  // Decision: walk_trades keeps a walk's fields of trades the tape lacked
+  // (apps/dashboard/docs/adr/0056-walk-trades-keeps-a-walk-s-fields-the-tape-lacked.md)
   `CREATE TABLE IF NOT EXISTS walk_trades (
     number INTEGER PRIMARY KEY,
     code TEXT NOT NULL,
@@ -164,28 +151,24 @@ const SCHEMA = [
     lots REAL NOT NULL,
     board TEXT NOT NULL
   )`,
-  // Decision: the tape summary, one row per chunk the tape holds a trade of:
-  // how many of its numbers the tape holds, and the runs it lacks as JSON
-  // [first, last] pairs. A row stands for the tape only once the
-  // `tape-summary` fact says so (TAPE_SUMMARY_BUILT). See apinrdw/kumora#543.
+  // Decision: tape_summary holds a row per chunk; old sealed days build it once
+  // (apps/dashboard/docs/adr/0057-the-tape-summary-holds-a-row-per-chunk.md)
   `CREATE TABLE IF NOT EXISTS tape_summary (
     chunk INTEGER PRIMARY KEY,
     taped INTEGER NOT NULL,
     holes TEXT NOT NULL
   )`,
-  // Decision: a day recorded before apinrdw/kumora#561 drops its broker
-  // trades index, which nothing read, and the facts of its rebuild. In
-  // workerd the drop of a busy day's 2.92 M rows read 14 rows and wrote
-  // none (row-budgets.workerd.test.ts).
+  // Decision: a day recorded before #561 drops its unread broker trades index
+  // (apps/dashboard/docs/adr/0058-days-before-561-drop-their-broker-trades-index.md)
   "DROP TABLE IF EXISTS broker_trades",
   `DELETE FROM facts WHERE key IN ('${DroppedFact.brokerTrades}', '${DroppedFact.indexWake}')`,
 ]
 
-// Decision: the status reads the chunks this many at a time, so a 1.5M-trade
+// The status reads the chunks this many at a time, so a 1.5M-trade
 // day's ~10 MB of records never sits in memory at once.
 const SCAN_PAGE = 64
 
-// Decision: a day builds with at most 1 in this many of its trades 1..N
+// A day builds with at most 1 in this many of its trades 1..N
 // missing (0.1%): a few numbers neither broker site lists never stop it,
 // and a half-walked day never passes for light trading. See
 // apinrdw/kumora#457.
@@ -215,7 +198,7 @@ const holesOf = (row: Record<string, SqlValue>) =>
 
 // The summary rows of chunks first..last that hold a tape trade, from one
 // read of their trades' numbers, inside a transaction.
-// Decision: the runs are worked out here, not in SQL: one statement that
+// The runs are worked out here, not in SQL: one statement that
 // grouped the tape by chunk over lag() billed 5 rows read a trade in workerd,
 // its window's and grouping's temporary tables counted, against 1 here.
 const summarizeChunks = (sql: Sql, tape: Tape, first: number, last: number) => {
@@ -270,7 +253,7 @@ const summarizeWhole = (sql: Sql) => {
 // A seal cut off before the summary summarizes on its retry (`finishSeal`,
 // trading-day.ts), or at a status pass before it (`scan`). A tape its walk
 // batches kept summarized isn't again.
-// Decision: the seal summarizes the tape in its own transaction, after the
+// The seal summarizes the tape in its own transaction, after the
 // sealed marker: on a busy day 5.9 K rows read and 1,460 written from trade
 // chunks, 1.46 M read from a row per trade (row-budgets.workerd.test.ts).
 export const summarizeTape = (sql: Sql) =>
@@ -294,11 +277,11 @@ const runsOf = (chunk: number, marks: Uint8Array) => {
 
 // What a walk batch's tape trades leave of their chunks' summary rows, in
 // the transaction that writes them. See apinrdw/kumora#543.
-// Decision: a walk day's batches keep its summary, so its status reads it
+// A walk day's batches keep its summary, so its status reads it
 // as a sealed day's does. In workerd a page of 5,000 trades in 5 chunks
 // billed 11 rows read and 5 written here, against 5,000 reading the chunks'
 // trades. A tape stored before the summary is summarized whole at its first
-// such write, as `summarizeTape`'s Decision bills it.
+// such write, as the comment at `summarizeTape` bills it.
 export const summarizeAddedTrades =
   (sql: Sql, numbers: ReadonlyArray<number>) => () => {
     if (numbers.length === 0) return
@@ -628,7 +611,7 @@ const tallyChunk = Effect.fnUntraced(function* (
 
 // Nothing to compare when Ajaib supplied nothing; compared once Stockbit's
 // walk ended; pending at its position until then.
-// Decision: covered and differences count only trades both sites sent, in
+// Covered and differences count only trades both sites sent, in
 // whichever order they came, so a day Stockbit ended before Ajaib's walk
 // reads compared at once and needs no second Stockbit walk. A replaced
 // Ajaib copy is compared again against the Stockbit copy its difference
@@ -648,7 +631,7 @@ const crossCheckOf = (
     }
   })
 
-// Decision: no status or batch answer is cached: the status changes with
+// No status or batch answer is cached: the status changes with
 // every batch. The route (broker-codes-route.ts) answers through this too. A
 // recorded day's codes answer is not one of these: see COMPLETE_CODES_CACHE
 // in recorded-answers.ts.
@@ -845,7 +828,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       recorded.set(chunk, stored)
       return Option.fromNullishOr(stored.get(number))
     })
-    // Decision: on an unsealed walk or unknown day, `walkTapeOf`
+    // On an unsealed walk or unknown day, `walkTapeOf`
     // (trading-day.ts, on the same condition) took the batch's fields as its
     // tape before the merge, so a walk_trades row would hold nothing. The
     // batch writes none and skips `writeFields`'s check against the tape: 0
@@ -911,7 +894,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return taped
   }
 
-  // Decision: a batch's fields land only for the trades the tape lacks as
+  // A batch's fields land only for the trades the tape lacks as
   // it is written, in the codes' transaction: one statement over the rows,
   // checked against the tape a chunk's span at a time (`tapedOf`), so a
   // sparse batch never reads the numbers between its trades. A trade
@@ -973,11 +956,8 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return complete
   }
 
-  // Decision: each batch writes the codes-complete fact in its own
-  // transaction, so a woken object answers from one row (spec #554). A batch
-  // never clears codes, so on a complete day one that doesn't raise N reads
-  // 1 row; else it recounts, up to every chunk, about 1,500 rows on a busy
-  // day.
+  // Decision: each batch writes the codes-complete fact; old days write it once
+  // (apps/dashboard/docs/adr/0059-the-codes-complete-fact-is-written-per-batch.md)
   const recountCodesCompleteIfStale = (nRaised: boolean) => {
     const [kept] = sql.exec(
       "SELECT value FROM facts WHERE key = ?",
@@ -1027,7 +1007,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // A batch merged into its chunks and written in one transaction, with
   // what `alongside` writes for the trades it changed, so a failed batch
   // writes nothing and the extension resends it.
-  // Decision: the sweep brokers rows land in the codes' own transaction.
+  // The sweep brokers rows land in the codes' own transaction.
   // Once a batch that changes no codes recomputes nothing, rows written in a
   // later transaction that failed would stay stale for good: the resent
   // batch would change nothing. See spec apinrdw/kumora#343, "When it is
@@ -1176,7 +1156,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // `walkRowsHold`, walk_trades holds, marked 1 from the first chunk's first
   // trade. walk_trades holds only trades that were holes, so its numbers are
   // read one by one.
-  // Decision: a day whose tape summary is built reads it, not the tape: a
+  // A day whose tape summary is built reads it, not the tape: a
   // status pass on a 1.46M-trade sealed day bills about 3 K rows read, the
   // chunks and their summary rows, against 2.7 M counting the tape
   // (row-budgets.workerd.test.ts). See apinrdw/kumora#543.
@@ -1206,11 +1186,8 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
 
   // Every chunk into the tally, SCAN_PAGE at a time, each run of adjacent
   // chunks of a page with its unfielded trades.
-  // Decision: a day sealed before the tape summary builds it at its first
-  // status pass, one scan of the tape: about 1.46 M rows read and 1,460
-  // written on a busy day, as the seal's (`summarizeTape`). Later passes
-  // read about 3 K; there is no migration. A relay day before its seal scans
-  // its growing tape, 2.7 M rows for a busy day's whole (`unfieldedOf`).
+  // Decision: tape_summary holds a row per chunk; old sealed days build it once
+  // (apps/dashboard/docs/adr/0057-the-tape-summary-holds-a-row-per-chunk.md)
   const scan = Effect.fnUntraced(function* (tally: Tally) {
     let summarized = (yield* fact(Fact.tapeSummary)) === TAPE_SUMMARY_BUILT
     if (!summarized && (yield* options.sealed)) {
@@ -1309,11 +1286,8 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // from its codes-complete fact. Market Live's answers read this, not the
   // status's `complete`. Play asks for the codes answer that carries it as
   // often as the tape (TAPE_INTERVAL_MS in src/lib/replay.ts).
-  // Decision: a day whose batches came before the fact existed reads its
-  // chunks once and writes the fact, about 1.46 K rows read and 2 written on
-  // a busy day, and the next GET reads the fact
-  // (row-budgets.workerd.test.ts); a day with no N reads 1 row and writes
-  // nothing.
+  // Decision: each batch writes the codes-complete fact; old days write it once
+  // (apps/dashboard/docs/adr/0059-the-codes-complete-fact-is-written-per-batch.md)
   const codesComplete = Effect.gen(function* () {
     const kept = yield* fact(Fact.codesComplete)
     if (kept !== undefined) return kept === "true"
@@ -1335,7 +1309,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       : Option.none<number>()
   )
 
-  // Decision: a held trade's fields are the tape's, else its walk row's: the
+  // A held trade's fields are the tape's, else its walk row's: the
   // tape can gain a trade after a walk row was stored for it, and walk rows
   // are never deleted. See apinrdw/kumora#425.
   const fieldsBetween = (low: number, high: number) =>

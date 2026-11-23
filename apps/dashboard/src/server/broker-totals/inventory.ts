@@ -117,7 +117,7 @@ const rangeOf = Effect.fnUntraced(function* (
   return { from: yield* customFrom(window.from, to), to }
 })
 
-// Decision: the range read answers for `today` on Market Live's clock, the
+// The range read answers for `today` on Market Live's clock, the
 // caller's: today is pending while it is a trading day without a built
 // day. See spec apinrdw/kumora#437, "Range".
 //

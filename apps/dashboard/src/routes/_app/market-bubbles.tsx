@@ -160,7 +160,7 @@ function useBubbleView() {
     [navigate, defaults]
   )
   // A `top` the URL names that is this device's default leaves the URL, once
-  // the device is known (parseMarketBubblesSearch's Decision).
+  // the device is known (the comment at parseMarketBubblesSearch).
   const { top } = search
   useEffect(() => {
     if (phone !== undefined && top === defaults.top) change({ top })

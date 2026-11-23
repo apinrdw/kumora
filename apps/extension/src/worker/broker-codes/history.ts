@@ -15,7 +15,7 @@ import {
   type PauseCause,
 } from "./run-queue.ts"
 
-// Decision: 15 empty weekdays in a row end the History walk for good: no
+// 15 empty weekdays in a row end the History walk for good: no
 // IDX holiday runs that long, so Stockbit no longer serves the days. New
 // days come only from the daily run. See apinrdw/kumora#130.
 const EMPTY_TO_END = 15
@@ -53,7 +53,7 @@ export const makeHistoryWalk = Effect.fnUntraced(function* (options: {
   readonly catchUpStore: HistoryCatchUpStore
   readonly report: (progress: BrokerCodesProgress) => Effect.Effect<void>
 }) {
-  // Decision: a lost position starts again from the weekday before the
+  // A lost position starts again from the weekday before the
   // newest closed day. The gap walk answers each complete day from one
   // status GET, and asks Stockbit again about each empty one, so the walk
   // rebuilds the position and the empty count as it goes. See
@@ -81,7 +81,7 @@ export const makeHistoryWalk = Effect.fnUntraced(function* (options: {
       })
       const result = yield* options.walk.walk(day)
       if (result._tag === "stopped") return Option.some(result.cause)
-      // Decision: a day the walk leaves incomplete joins the incomplete-days
+      // A day the walk leaves incomplete joins the incomplete-days
       // list, so later runs refetch its gaps from Stockbit: a gap walk
       // fetches only the missing ranges, and gives up a day with no rows.
       // See apinrdw/kumora#244, "Complete".
@@ -98,7 +98,7 @@ export const makeHistoryWalk = Effect.fnUntraced(function* (options: {
     }
   })
 
-  // Decision: the extra target follows Production's History walk, never
+  // The extra target follows Production's History walk, never
   // past it: from the oldest day it caught up (at first the weekday before
   // the newest closed day) back to Production's oldest, each day from its
   // own status. Production's walk alone knows a day is untraded, and

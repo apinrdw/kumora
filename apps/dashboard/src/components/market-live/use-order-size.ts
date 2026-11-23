@@ -5,10 +5,8 @@ import { useCallback, useSyncExternalStore } from "react"
 
 import { makeSchemaStoredValue } from "@/lib/stored-value"
 
-// Decision: like the watchlist (use-watchlist.ts), each browser keeps its
-// own fill estimate order size in localStorage, one amount per unit, so the
-// Rupiah / Lots toggle goes back to the last amount in each. See spec
-// apinrdw/kumora#517, "Book readings".
+// Decision: each browser keeps its own settings in localStorage
+// (apps/dashboard/docs/adr/0021-each-browser-keeps-its-own-settings-in-localstorage.md)
 const KEY = "kumora:market-live:order-size"
 
 const OrderSizes = Schema.Struct({

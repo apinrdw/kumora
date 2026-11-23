@@ -117,10 +117,8 @@ export const MoveProgress = Schema.Union([
 ])
 export type MoveProgress = typeof MoveProgress.Type
 
-// Decision: a step per alarm, well under its 30 s of CPU: 250 codes' views
-// (1,000 answers), 50 tape segments (500,000 trades) or 20 codes' books. The
-// busy day moves in 9 runs, about 1.5 s each, 385 K rows read and 19 written
-// (row-budgets.workerd.test.ts). See spec apinrdw/kumora#556, "The move".
+// Decision: a cold move takes one bounded step per alarm, well under 30 s of CPU
+// (apps/dashboard/docs/adr/0067-a-cold-move-takes-one-bounded-step-per-alarm.md)
 const CODES_PER_RUN = 250
 const SEGMENTS_PER_RUN = 50
 const BOOKS_PER_RUN = 20
@@ -147,11 +145,8 @@ const slice = (
 // the same keys, so a move that fails partway leaves the day hot, and a
 // retry is safe. An answer that isn't a 200 (a day with no code list) is
 // not written, so the cold read answers it 404.
-// Decision: views are written for each code listed, traded or booked: a
-// walk day has no list, and every day replays with every view; another code
-// answers 404 once cold. SweepBrokers is stored as found, cached for good:
-// a cold day takes no more broker codes. See spec apinrdw/kumora#556,
-// "Routing and caching".
+// Decision: a cold day stores views for each code listed, traded or booked
+// (apps/dashboard/docs/adr/0068-cold-views-are-stored-for-each-listed-traded-or-booked-code.md)
 export const moveStep = (
   date: WibDate,
   target: ColdTarget,
@@ -207,10 +202,8 @@ const writeAnswers = Effect.fnUntraced(function* (
       )
   }
   const { run, more } = yield* slice(yield* day.codes, after, CODES_PER_RUN)
-  // Decision: BookEvents and OrderFlowEvents are stored only for a code with
-  // an event; every other code's answer is built from whether the day
-  // recorded them, stored once (`noEvents`). A day moved before then answers
-  // BookEvents 404 and OrderFlowEvents not recorded. See PR #633.
+  // Decision: cold BookEvents and OrderFlowEvents are stored only for codes with one
+  // (apps/dashboard/docs/adr/0069-cold-events-are-stored-only-for-codes-with-one.md)
   const withEvents = new Set(yield* day.bookEvents.codes)
   const withFlow = new Set(yield* day.orderFlowEvents.codes)
   for (const code of run) {
@@ -263,11 +256,8 @@ const writeBooks = Effect.fnUntraced(function* (
 
 // `status.json` and `day-values.json`, then `manifest.json`, then the
 // index's mark.
-// Decision: the day's values are stored once at the move, as the next
-// trading day's object asks for them only the morning after, by when the day
-// is usually cold. Built as the hot answer is, from one pass over the
-// day's candles (`storedBubbles`): about 400 K rows on a full day, once, on
-// top of the busy day's 385 K. See spec apinrdw/kumora#517, "Data".
+// Decision: a day's Market Bubbles values are stored once, at its move
+// (apps/dashboard/docs/adr/0070-market-bubbles-values-are-stored-once-at-the-move.md)
 const finish = Effect.fnUntraced(function* (
   { date, bucket, day }: MoveStep,
   markCold: ColdTarget["markCold"]
@@ -394,10 +384,8 @@ export const coldDayValues = Effect.fnUntraced(function* (
 })
 
 // A stored final status's text as this protocol's status reads it.
-// Decision: a day moved before protocol 5 stored its status at protocol 4,
-// without order numbers; it holds none, so it answers this version with
-// zero counts rather than failing the GET. See spec apinrdw/kumora#627,
-// "Slice 1".
+// Decision: a status stored at protocol 4 answers with zero order number counts
+// (apps/dashboard/docs/adr/0071-a-status-stored-at-protocol-4-answers-zero-order-counts.md)
 const decodeStoredStatus = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown))
 )
@@ -413,10 +401,8 @@ const currentStatusText = (text: string) =>
 // The broker codes status a cold day's status GET answers: the stored final
 // status, its missing ranges listed past `after` as the hot status lists
 // them. None when the move stored none.
-// Decision: the stored status lists the day's first MISSING_RANGES ranges,
-// so past them a cold day lists none: a cold day takes no batch, so its
-// missing ranges only say what will stay missing. See spec
-// apinrdw/kumora#556, "Hot and cold days".
+// Decision: a status lists at most 1,000 missing ranges; walks page with after
+// (packages/relay/docs/adr/0011-a-broker-codes-status-lists-at-most-1-000-missing-ranges.md)
 const storedStatus = Effect.fnUntraced(function* (
   bucket: DayBucket,
   date: WibDate,
@@ -462,11 +448,8 @@ export const takenUnwritten = Effect.fnUntraced(function* (
 // nothing, the status GET from the final status the move stored, and the
 // next trading day's ask for its values from the values the move stored
 // (404 for a day moved before they were).
-// Decision: the emptied object answers from R2 itself, so a Worker isolate
-// that still counts the day hot for a minute (COLD_DAYS_KEPT_MS in days.ts)
-// reaches the same answers, and the move empties the object as soon as the
-// index marks it cold. See spec apinrdw/kumora#556, "The move".
-// `bucket` is read for each answer, from the request it answers.
+// Decision: an emptied object answers a cold day from R2 itself
+// (apps/dashboard/docs/adr/0072-an-emptied-object-answers-cold-days-from-r2.md)
 export const coldDay = (
   date: WibDate,
   bucket: Effect.Effect<DayBucket, never, WorkerEnv>

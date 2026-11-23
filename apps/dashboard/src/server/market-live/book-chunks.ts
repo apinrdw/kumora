@@ -88,9 +88,8 @@ export const makeBookChunks = Effect.sync(() => {
 
   // A book viewers were sent, kept in a chunk when the day records its
   // code's books (recorded-books.ts).
-  // Decision: a frame joins the chunk of the minute it was served in, by the
-  // object's clock, not by the book's as-of, so a code's deltas follow the
-  // viewers' timeline. See apinrdw/kumora#157.
+  // Decision: a book frame is placed by the instant it was served, not its as-of
+  // (packages/relay/docs/adr/0009-book-frames-follow-the-viewers-served-timeline-not-the-as-of.md)
   const record = Effect.fnUntraced(function* (
     book: OrderBook,
     recorded: boolean
@@ -108,7 +107,7 @@ export const makeBookChunks = Effect.sync(() => {
   // A code the day just began recording: its chunk opens now from `book`,
   // the one its viewer was just served, so the minute it joined replays
   // that book before any frame. The next frame's delta is against it.
-  // Decision: the served book, not the last recorded frame, opens it: a
+  // The served book, not the last recorded frame, opens it: a
   // restored Ajaib book is served with no frame before it. See
   // apinrdw/kumora#574.
   const begin = Effect.fnUntraced(function* (book: OrderBook) {

@@ -138,11 +138,8 @@ export const readLatestRunWhere = <
 
 // Points runs/latest.json at `id`, unless the run it names is in progress or
 // `id` ran before. Only a start writes the pointer: no step of a run does.
-// Decision: the pointer is the one claim on starting a run, for the cron and
-// Run now alike, written in one conditional R2 write only while its ETag is
-// the one this start judged. Of two starts that read the same pointer, one
-// claims it and the other judges again against the winner. See
-// apinrdw/kumora#309.
+// Decision: the run pointer is the one claim, taken by a conditional R2 write
+// (apps/dashboard/docs/adr/0044-the-run-pointer-is-the-one-claim-on-a-run.md)
 const claim = <
   Trigger extends string,
   Summary extends RunSummaryBase,
@@ -179,7 +176,7 @@ const claim = <
 
 // Claims the start, then creates the run's Workflow instance, kept for
 // RETENTION, with a `running` record.
-// Decision: the record is written before `create`: after `create`, the run's
+// The record is written before `create`: after `create`, the run's
 // own steps may already have ended it, and writing `running` then would
 // never be undone (apinrdw/kumora#309).
 export const startRunOf = <

@@ -5,7 +5,7 @@ import { useId, type ReactNode } from "react"
 
 import type { RunOutcome } from "@/server/archive/run"
 
-// Decision: a run's outcome is a dot and a word, not a KBadge: the badge's
+// A run's outcome is a dot and a word, not a KBadge: the badge's
 // tones carry the market's up and down arrows, which read as a price move
 // beside a run.
 const OUTCOME = {

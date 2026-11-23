@@ -72,9 +72,8 @@ const stored = <A>(
     subscribe: value.subscribe,
   }))
 
-// Decision: rules, the chime and the history are each browser's own, in
-// localStorage, like the watchlist (use-watchlist.ts). See spec
-// apinrdw/kumora#517, "Alerts".
+// Decision: each browser keeps its own settings in localStorage
+// (apps/dashboard/docs/adr/0021-each-browser-keeps-its-own-settings-in-localstorage.md)
 const NO_RULES: ReadonlyArray<AlertRule> = []
 export const alertRules: Stored<ReadonlyArray<AlertRule>> = Effect.runSync(
   stored("kumora:book-alerts:rules", Rules, NO_RULES)

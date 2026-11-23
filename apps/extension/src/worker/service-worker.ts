@@ -103,10 +103,8 @@ import { makeBrokerTab, type BrokerTab } from "./tab.ts"
 import { relayScheduler } from "./scheduler.ts"
 import { runTarget } from "./target.ts"
 
-// Decision: the service worker ticks every 10 s; in-tab timers are throttled
-// in background tabs and never relied on. A `chrome.alarms` alarm (30 s, its
-// shortest period) wakes a worker Chrome stopped, and ticks only when the
-// in-worker timer is overdue. See apinrdw/kumora#59.
+// Decision: the worker ticks every 10 s, woken by a 30 s chrome.alarms alarm
+// (apps/extension/docs/adr/0012-the-service-worker-ticks-every-10-s-woken-by-an-alarm.md)
 const TICK = Duration.seconds(10)
 const ALARM = "tick"
 
@@ -303,7 +301,7 @@ const main = Effect.gen(function* () {
     envelopes,
     changed: Effect.suspend(() => stockbitCodes.resubscribe(stockbitTab)),
   })
-  // Decision: the websocket key fetch goes with the backfill, served first:
+  // The websocket key fetch goes with the backfill, served first:
   // the live feed has no socket until it answers.
   const stockbitCodes: Subscriptions = yield* makeStockbitSubscriptions(
     codeList.codes,
@@ -381,7 +379,7 @@ const main = Effect.gen(function* () {
     ...ajaibPacer.tab("backfill"),
     attached: ajaibTab.attached,
   }
-  // Decision: the PIN check goes with the backfill, served first: it is the
+  // The PIN check goes with the backfill, served first: it is the
   // owner's own action, and a walk's queue would keep them waiting.
   const ajaibSession = yield* makeAjaibSession({
     tab: ajaibBackfillTab,
@@ -501,10 +499,8 @@ const main = Effect.gen(function* () {
     report: progress.report,
   })
   const brokerCodes = yield* makeRunQueue({
-    // Decision: Ajaib's tape walk, then its Done Details walk of the trades
-    // it kept, then Stockbit's walk, which fills the order numbers Ajaib's
-    // left. A day this browser didn't tape-walk from Ajaib keeps no trades,
-    // so its order numbers come from Stockbit alone. See apinrdw/kumora#627.
+    // Decision: walk order: Ajaib tape, then Done Details, then Stockbit
+    // (apps/extension/docs/adr/0013-walk-order-ajaib-tape-done-details-then-stockbit.md)
     newestDay: [
       { feed: "Ajaib", walk: ajaibWalk.walk },
       { feed: "Ajaib", route: "done-details", walk: doneDetailsWalk.walk },
@@ -558,11 +554,8 @@ const main = Effect.gen(function* () {
             session,
             ...Option.toArray(fetch),
           ])
-          // Decision: a completed tick (its PIN check, code list fetch and
-          // every earlier tick's have answered) leaves its clock offset in
-          // the worker's global scope, test-only, so a spec that moved the
-          // clock awaits a tick on the new clock instead of sleeping.
-          // See apinrdw/kumora#174.
+          // Decision: a test-only clock offset moves the relay's schedule for e2e
+          // (apps/extension/docs/adr/0006-a-test-only-clock-offset-moves-the-relay-s-schedule.md)
           Object.assign(globalThis, { [LAST_TICK_KEY]: offset })
         })
       )
@@ -645,7 +638,7 @@ Effect.runFork(
     Effect.provide(
       Logger.layer([makeErrorLog(errorLogStore)], { mergeWithExisting: true })
     ),
-    // Decision: every fiber runs on the relay scheduler, which yields through a
+    // Every fiber runs on the relay scheduler, which yields through a
     // `MessageChannel` message. Effect's default `setTimeout(0)` yields nest
     // under a backlog, and Chrome clamps nested timers to 4 ms: about 250
     // events a second. One provision covers every loop; none gets

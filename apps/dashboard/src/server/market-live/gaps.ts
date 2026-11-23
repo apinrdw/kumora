@@ -22,7 +22,7 @@ interface IngestPeer {
 // so a number is a gap only once it has had this long to arrive.
 const GAP_WAIT = 5_000
 
-// Decision: a gap wider than 10,000 numbers is asked for only its newest
+// A gap wider than 10,000 numbers is asked for only its newest
 // 10,000. A wider one means the relay was away for minutes, and the relay
 // fetches about 100 rows a call at about one call a second (the extension's
 // backfill.ts), so the newest 10,000 already take its budget for minutes.
@@ -42,7 +42,7 @@ export const makeGaps = Effect.fnUntraced(function* (options: {
   readonly ingests: Effect.Effect<ReadonlyArray<IngestPeer>>
 }) {
   const scope = yield* Scope.Scope
-  // Decision: the day's first number starts the count, and nothing below it is
+  // The day's first number starts the count, and nothing below it is
   // a gap. A restarted object counts on from the highest number it stored, so
   // what the relay sent while it was down is a gap.
   let highest: TradeNumberValue | undefined
@@ -51,7 +51,7 @@ export const makeGaps = Effect.fnUntraced(function* (options: {
 
   // A trade arrived: a jump past the highest number opens a gap, and a number
   // inside a gap closes its part of it.
-  // Decision: the timer that asks for due gaps (`request`) runs on its own
+  // The timer that asks for due gaps (`request`) runs on its own
   // fiber, outside the trading day's permit, and replaces `missing`, so `seen`
   // reads the clock first and touches `missing` in one synchronous step: a
   // yield in between would push onto the replaced list. See apinrdw/kumora#159.

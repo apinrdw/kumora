@@ -48,9 +48,8 @@ jobs:
               echo "::error::A Release is published on a Production tag, v<version>-<YYYYMMDD>; $TAG is a Candidate."
               exit 1
               ;;
-            # Decision: publishing a Release, not pushing a tag, is what
-            # releases. Publishing creates the tag too; that push passes here
-            # and the release run moves main.
+            # Decision: publishing a Release fast-forwards main; no PR reaches Production
+            # (docs/adr/0007-production-is-reached-by-a-release-that-fast-forwards-main.md)
             push:production)
               published="$(gh release view "$TAG" --json isDraft,isPrerelease --jq '(.isDraft or .isPrerelease) | not' 2>/dev/null || true)"
               if [ "$published" != "true" ]; then
@@ -77,9 +76,8 @@ jobs:
             -f state=success -f context=e2e-evidence \
             -f description="released as $TAG; its PRs passed this gate"
           git push origin "$sha:refs/heads/main"
-      # Decision: a refused Release or tag is deleted, so it never counts
-      # toward the next Candidate's N or the version Production must exceed.
-      # A Release refused on a Candidate keeps that Candidate's tag.
+      # Decision: N counts every Candidate ever tagged; refused tags are deleted
+      # (docs/adr/0008-candidate-numbers-count-every-candidate-ever-tagged.md)
       - if: failure()
         env:
           KIND: ${{ steps.tag.outputs.kind }}

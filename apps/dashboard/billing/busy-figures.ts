@@ -9,7 +9,7 @@ import {
 } from "@workspace/relay"
 import { DateTime } from "effect"
 
-// Decision: Production's busiest measured day, 1,460,000 trades
+// Production's busiest measured day, 1,460,000 trades
 // (docs/runbooks/order-flow-cost.md, "The thresholds"), over 800 codes
 // from 09:00 to 16:15 WIB, a few filled by a walk as walk_trades rows. Its
 // live books found 24,000 book events, 30 a code, and its rules 20,000
@@ -19,7 +19,7 @@ export const BUSY_DAY = {
   trades: 1_460_000,
   codes: 800,
   holes: [12_345, 404_040, 777_777, 1_000_001, 1_333_333],
-  // Decision: one viewed code's book chunks, as many as a busy code stores
+  // One viewed code's book chunks, as many as a busy code stores
   // (spec apinrdw/kumora#555, "Heatmaps worked out on read"): a chunk in 273
   // of the day's 435 minutes, the rest frameless.
   bookCode: "C1",
@@ -31,7 +31,7 @@ export const BUSY_DAY = {
 // The book events one flush writes in the flush's budget.
 export const FLUSHED_BOOK_EVENTS = 1_000
 
-// Decision: the whole day (billing/whole-day.ts) is the busy day's trades
+// The whole day (billing/whole-day.ts) is the busy day's trades
 // recorded live by a fresh object, with books for the 30 codes a viewer
 // watched (spec apinrdw/kumora#555, "Testing Decisions"), then walked in
 // Ajaib's 5,000-trade pages.
@@ -70,10 +70,8 @@ export const BROKERS = [
   "ZP",
   "RX",
 ]
-// Decision: trade n's buyer is BROKERS[(n * BUYER_STEP) % BROKERS.length],
-// its seller the same with SELLER_STEP, and a side's type F when its number
-// (n for the buyer, n + 1 for the seller) is a multiple of FOREIGN_EVERY.
-// busy-day.ts writes the broker trades index in SQL with these figures.
+// Decision: trade n's brokers follow BUYER_STEP and SELLER_STEP, as busy-day.ts
+// (apps/dashboard/docs/adr/0032-busy-day-figures-follow-fixed-steps-of-the-trade-number.md)
 export const BUYER_STEP = 7
 export const SELLER_STEP = 3
 export const FOREIGN_EVERY = 5

@@ -16,7 +16,7 @@ import { closeOf } from "./recorded-day"
 export const SPEEDS = [1, 10, 60, 300] as const
 export type Speed = (typeof SPEEDS)[number]
 
-// Decision: during Play the tape is asked at most 4 times a second (spec,
+// During Play the tape is asked at most 4 times a second (spec,
 // "Recorded day loads").
 export const TAPE_INTERVAL_MS = 250
 
@@ -33,7 +33,7 @@ export type ReplayDay = {
   readonly date: WibDate
   readonly start: number
   readonly close: number
-  // Decision: the scrubber and Play end at the close, 16:15, as the spec's
+  // The scrubber and Play end at the close, 16:15, as the spec's
   // transport bar says, but the relay records until it stops streaming at
   // 16:35, when the negotiated board has closed too. The tape at the close
   // reads at the record's end, so every stored trade of the day shows there;
@@ -87,7 +87,7 @@ export const playFrom = (day: ReplayDay, at: number) =>
 // A candle click's cursor: the end of that candle's minute.
 export const minuteEnd = (minute: number) => Effect.sync(() => minute + 59_999)
 
-// Decision: the tape is asked at the end of the cursor's second, a whole
+// The tape is asked at the end of the cursor's second, a whole
 // second's worth of cursors sharing one URL (so a sealed day's answer
 // caches) and every trade of that second included; at the close it is asked
 // at the day's end, for the trades after 16:15.

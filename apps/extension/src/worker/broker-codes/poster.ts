@@ -85,11 +85,8 @@ export const makeBrokerCodesPoster = Effect.fnUntraced(function* (options: {
   const halted =
     options.halted ?? (() => Effect.succeed(Option.none<PostStop>()))
   return {
-    // Decision: a POST that fails for any reason but 401 or 426 is resent
-    // with target.ts's backoff, 1 s doubling to 30 s; the trading-day object
-    // writes a resent batch idempotently (apinrdw/kumora#193). Each try asks
-    // `halted` and reads `target` again: Production's fixed token applies at
-    // once; the extra target's settings are captured (target-hold.ts).
+    // Decision: 401 refuses the token, 426 means reload the extension
+    // (packages/relay/docs/adr/0002-broker-codes-refusals-401-refuses-the-token-426-means-reload.md)
     post: Effect.fnUntraced(function* (batch: BrokerCodesBatch) {
       const body = yield* Effect.orDie(encodeBrokerCodesBatch(batch))
       const path = yield* brokerCodesPath(batch.day)

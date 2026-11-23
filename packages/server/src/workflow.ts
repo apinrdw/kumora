@@ -1,7 +1,5 @@
-// Decision: the second module that reaches `cloudflare:workers`, besides the
-// bridge: a Workflow class must extend WorkflowEntrypoint, so it imports it at
-// the top, which the bridge can't (prerender loads the bridge in Bun). Only a
-// Worker's entry imports this module, never a route. See apinrdw/kumora#305.
+// Decision: only the bridge and workflow.ts import cloudflare:workers
+// (packages/server/docs/adr/0001-only-the-bridge-and-the-workflow-runner-import-cloudflare-workers.md)
 import {
   type WorkflowEvent,
   type WorkflowStep,
@@ -30,7 +28,7 @@ export interface WorkflowRun<Params> {
 // failure as is, except `NonRetryable`, thrown as `NonRetryableError` to skip
 // the step's retries, and keeps the step's default retries: no Effect retry
 // on top. A step's failure or defect is logged with its cause first.
-// Decision: each step runs with its own `Effect.runPromise`, as spec
+// Each step runs with its own `Effect.runPromise`, as spec
 // apinrdw/kumora#303 ("Effect inside steps") asks, since the runtime calls a
 // step's callback for each attempt. This module is the runner CODING_STANDARDS
 // names for a Workflow, and it logs failures as the bridge does.

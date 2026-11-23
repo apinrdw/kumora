@@ -4,10 +4,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    # Decision: oxlint and oxfmt are pinned to exact versions in package.json
-    # and move only through this grouped PR. Oxlint minors add rules and change
-    # defaults without calling it breaking, so a range fails CI unannounced.
-    # `allow` limits version updates to these two packages; no other dependency gets PRs.
+    # Decision: oxlint and oxfmt are pinned exactly and move by one grouped PR
+    # (docs/adr/0003-oxlint-and-oxfmt-are-pinned-and-move-by-one-grouped-pr.md)
     allow:
       - dependency-name: "oxlint"
       - dependency-name: "oxfmt"

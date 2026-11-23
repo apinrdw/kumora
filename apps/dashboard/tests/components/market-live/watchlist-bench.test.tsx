@@ -29,7 +29,7 @@ const ROWS = 500
 // Ticks timed on each table, after WARMUP untimed ones.
 const TICKS = 60
 const WARMUP = 10
-// Decision: the store's path may cost up to twice the plain baseline: it
+// The store's path may cost up to twice the plain baseline: it
 // adds the queue, the source fiber and the frame to the same row renders.
 const LIMIT = 2
 

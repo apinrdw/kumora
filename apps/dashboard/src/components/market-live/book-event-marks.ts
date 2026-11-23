@@ -112,11 +112,8 @@ class BookEventMarks implements ISeriesPrimitive<Time> {
   // The marks at the chart's current scale, in CSS pixels: each at its
   // candle's centre plus its second's share of the candle spacing, or else
   // half a candle after the candle before it.
-  // Decision: an event in a minute with no candle (a wall in a minute with no
-  // trade) sits where the cursor line would (lib/replay.ts `cursorLogical`),
-  // not on added whitespace: both charts draw the same minutes
-  // (lib/chart-nav.ts `chartMinutes`), and the footprint has no events. See
-  // apinrdw/kumora#526.
+  // Decision: a candle-less minute's mark sits where the cursor line would
+  // (apps/dashboard/docs/adr/0024-chart-marks-in-an-empty-minute-sit-where-the-cursor-would.md)
   private placed() {
     const attached = this.attachedTo
     if (attached === undefined) return []

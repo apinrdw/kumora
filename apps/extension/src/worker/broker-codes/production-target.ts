@@ -23,10 +23,8 @@ export const makeProductionTarget = Effect.fnUntraced(function* (options: {
   // Production's state under its settings (target-hold.ts).
   readonly hold: TargetHold
 }) {
-  // Decision: Production's 401 or 426 stops it until its settings change,
-  // as the extra target's does, and its Target state shows it over the
-  // socket's, since the socket can stay connected while the dashboard
-  // refuses broker codes. See apinrdw/kumora#244, "Retries".
+  // Decision: 401 refuses the token, 426 means reload the extension
+  // (packages/relay/docs/adr/0002-broker-codes-refusals-401-refuses-the-token-426-means-reload.md)
   const poster = yield* makeBrokerCodesPoster({
     ...options,
     refused: options.hold.refused,

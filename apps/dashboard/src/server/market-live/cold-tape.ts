@@ -25,17 +25,12 @@ import {
 import { SNAPSHOT_TRADES } from "./recorded-answers.ts"
 import { TIME_SKEW_MS } from "./tape-backing.ts"
 
-// Decision: a block is 1,000 stored trades in a row by number, the tape's
-// trades and their codes as one gzipped JSON body: 12 KB in the tests' day,
-// about 18 KB for random fields. A page of 200 then spans at most two blocks.
-// Blocks run from the day's last trade back, so its first block may hold
-// fewer.
+// Decision: a cold tape block is 1,000 gzipped trades, stored 10 to an object
+// (apps/dashboard/docs/adr/0073-cold-tape-blocks-are-1-000-trades-10-to-an-object.md)
 const TAPE_BLOCK = 1_000
 
-// Decision: blocks are stored 10 to an object, a segment of 120 to 180 KB:
-// the move holds one segment at a time, never a busy day's 18 to 26 MB of
-// blocks, and writes about 150 objects (Class A writes) for it. A block's
-// range read is one GetObject, a Class B read, in any object size.
+// Decision: a cold tape block is 1,000 gzipped trades, stored 10 to an object
+// (apps/dashboard/docs/adr/0073-cold-tape-blocks-are-1-000-trades-10-to-an-object.md)
 const BLOCKS_PER_SEGMENT = 10
 
 const TapeBlock = Schema.Struct({
@@ -176,7 +171,7 @@ export const writeTapeRun = Effect.fnUntraced(function* (
   return undefined
 })
 
-// Decision: an isolate keeps the tape indexes of the 8 cold days it read
+// An isolate keeps the tape indexes of the 8 cold days it read
 // last, each about 125 KB on a busy day, so 1 MB at most: a cold day's index
 // never changes, and a replay asks its day's tape again on every cursor
 // move. A day read again after 8 others reads its index again.
@@ -347,7 +342,7 @@ const blockTradesAt = Effect.fnUntraced(function* (
 // A cold day's Tape or BrokerCodes answer from its blocks; none when the day
 // stored no tape index. The move wrote every byte it reads, so one that
 // doesn't decode is a defect.
-// Decision: the broker codes answer of a cold day is cached for good like
+// The broker codes answer of a cold day is cached for good like
 // the tape's, as its codes no longer change. See spec apinrdw/kumora#556,
 // "Routing and caching".
 export const coldTapeAnswer = Effect.fnUntraced(function* (

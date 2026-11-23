@@ -31,7 +31,7 @@ export class ScheduleYearMissing extends Schema.TaggedError<ScheduleYearMissing>
   { year: Schema.Int }
 ) {}
 
-// Decision: holidays are baked from IDX's yearly PDF announcement, not read
+// Holidays are baked from IDX's yearly PDF announcement, not read
 // from Ajaib's trading-day/detail at runtime: that needs the signed-in tab and
 // covers only today. Add each year when IDX publishes it (around September),
 // plus any mid-year announcement. A year with no entry fails with
@@ -104,7 +104,7 @@ const closing: ReadonlyArray<Stretch> = [
   { phase: "post-trading", first: "16:02:00", last: "16:15:00" },
 ]
 
-// Decision: session times from IDX Rule II-A, Kep-00158/BEI/10-2026 (in force
+// Session times from IDX Rule II-A, Kep-00158/BEI/10-2026 (in force
 // 20 Oct 2026), section IV.2. Only Friday differs, with a longer break; there
 // are no Ramadan hours and no half days. Pre-closing runs through the closing
 // match. See apinrdw/kumora#56.
@@ -136,9 +136,8 @@ const auctionMatchMinutes: ReadonlyArray<Span> = [
   { first: "16:00:00", last: "16:00:59" },
 ]
 
-// Decision: the relay streams 08:40–16:35 WIB, five minutes before
-// pre-opening to five minutes after the negotiated market ends, breaks
-// included. A narrower window loses auction data; a wider one costs little.
+// Decision: the relay streams 08:40 to 16:35 WIB; a missing year streams nothing
+// (packages/relay/docs/adr/0004-the-relay-streams-08-40-to-16-35-wib.md)
 const streaming: Span = { first: "08:40:00", last: "16:34:59" }
 
 // The first instant the relay streams on `date`: where Ajaib's broker codes

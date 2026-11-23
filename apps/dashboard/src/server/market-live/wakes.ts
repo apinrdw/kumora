@@ -3,11 +3,8 @@ import { DateTime, Effect } from "effect"
 
 import { Fact, type DayStore } from "./day-store.ts"
 
-// Decision: each alarm duty's deadline is a fact in the day's store, written
-// whenever it is set, so a start restores it and never moves it. The alarm
-// is armed for the earliest; it runs only the due duties, and each checks
-// its own precondition before it acts. See spec apinrdw/kumora#437, "When it
-// runs".
+// Decision: each alarm duty's deadline is a fact in the day's store
+// (apps/dashboard/docs/adr/0122-alarm-duty-deadlines-are-stored-facts.md)
 //
 // A due move runs after a due build, which it waits for.
 export const WAKES = ["seal", "build", "move"] as const
