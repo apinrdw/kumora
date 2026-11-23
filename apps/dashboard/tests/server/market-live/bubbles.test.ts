@@ -24,6 +24,7 @@ import {
 } from "@/lib/bubbles"
 import { marketStrip } from "@/lib/market-strip"
 import { makeBubbleBook } from "@/server/market-live/bubble-book"
+import type { Sql } from "@/server/market-live/day-store"
 
 import { ajaibTrade, stockbitTrade, tradingDay, withLines } from "./day-harness"
 import { FULL_DAY_CODES, FULL_DAY_MINUTES } from "./full-day"
@@ -57,14 +58,19 @@ const trade = (
   })
 
 // A regular-board `liveprice` frame of a stock, with its previous close.
-const stockPrice = (code: string, last: number, previous: number) =>
+const stockPrice = (
+  code: string,
+  last: number,
+  previous: number,
+  time = "09:00:50"
+) =>
   Uint8Array.from(
     messageField(9, [
       ...stringField(1, code),
       ...doubleField(2, last),
       ...doubleField(3, 100_000),
       ...doubleField(7, 10),
-      ...stringField(11, "2026-11-09T09:00:50+07:00"),
+      ...stringField(11, `2026-11-09T${time}+07:00`),
       ...doubleField(13, previous),
       ...doubleField(14, last * 100_000),
       ...varintField(23, 1),
@@ -241,6 +247,41 @@ describe("bubbles", () => {
           assert.strictEqual(line.bytes, next.text.length)
         })
       )
+  )
+
+  // The relay message here is a liveprice frame, whose previous close the
+  // build reads: the answer shows whether the message ran before the build.
+  // It arrives from inside the flush's write transaction, as a socket
+  // message the object took while the flush held the turn.
+  it.effect(
+    "a relay message that arrives while the flush writes is taken before that minute's build",
+    () =>
+      Effect.gen(function* () {
+        const services = yield* Effect.context<never>()
+        const memory = memorySql()
+        let arrive: Effect.Effect<void, unknown> | undefined
+        const sql: Sql = {
+          ...memory,
+          transaction: (write) => {
+            memory.transaction(write)
+            const message = arrive
+            arrive = undefined
+            if (message !== undefined)
+              Effect.runForkWith(services)(Effect.orDie(message))
+          },
+        }
+        yield* at("09:01:10")
+        const day = yield* tradingDay(sql)
+        yield* day.frames([stockPrice("UNTR", 23350, 23000)])
+        yield* day.trades([trade(40001, "09:01:01", "UNTR", 23300, 2, "buy")])
+        yield* TestClock.adjust("54 seconds")
+        arrive = day.frames([stockPrice("UNTR", 23350, 23100, "09:02:04")])
+        // Past the 09:02:05 flush.
+        yield* TestClock.adjust("1 second")
+        assert.isUndefined(arrive)
+        const { answer } = yield* bubbles(day)
+        assert.strictEqual(codeOf(answer, "UNTR")?.previousClose, 23100)
+      })
   )
 
   it.effect(

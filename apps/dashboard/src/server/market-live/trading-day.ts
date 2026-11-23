@@ -1137,7 +1137,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* candles.written
   })
 
-  // The bubbles answer is built on the flush 5 s past each minute
+  // The bubbles answer is built after the flush 5 s past each minute
   // and served as is until the next; a GET before the object's first build
   // builds it. Each build logs its codes and bytes for the cost check; its
   // time is measured off the Worker, whose clock stands still while it
@@ -1208,6 +1208,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
                 )
               )
             else yield* feedLags.logEnded
+          })
+        )
+      ),
+      // Decision: the flush and the bubbles build take separate turns
+      // (apps/dashboard/docs/adr/0123-the-flush-and-the-bubbles-build-take-separate-turns.md)
+      Effect.andThen(Effect.yieldNow),
+      Effect.andThen(
+        turn.withPermit(
+          Effect.gen(function* () {
+            if (sealed) return
             yield* buildBubbles.pipe(
               Effect.catchCause((cause) =>
                 Effect.logError("Bubbles not built", cause)
