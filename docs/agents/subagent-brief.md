@@ -40,6 +40,10 @@ Never print a secret value; hash prefixes only. Never run `alchemy deploy` or `a
 
 Branch, commit list, the verify output, each check's exit code, deviations from the spec, open concerns. Dev servers stopped.
 
+## Fan-out
+
+At most 20 subagents run at once. Any spawned past that fails at once with "Concurrent subagent limit reached" and is not queued, so send a fan-out over 20 in waves: start the next wave as the last one finishes. Spec #643's 26 judges, sent in one message, lost 9 and had to be resent by hand.
+
 ## e2e in parallel
 
 Ports are per run (`apps/e2e/support/ports.ts` says how a preset one is treated) and local state is per worktree, so parallel implementers run `pnpm test:e2e` with no lock. CPU is the shared limit: give each run `--workers=<cores / runs>`. Two runs at 8 workers each on 16 cores timed out sign-in specs; at 4 each, both passed.

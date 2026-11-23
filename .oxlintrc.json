@@ -124,6 +124,24 @@
       }
     },
     {
+      // Root scripts hold none of the exceptions to CODING_STANDARDS.md's
+      // "Every non-component function returns an Effect" but the ones the
+      // next override names, so lint holds the rule there.
+      "files": ["scripts/**"],
+      "jsPlugins": ["./scripts/oxlint-plugin.mts"],
+      "rules": {
+        "kumora/effect-functions": "error"
+      }
+    },
+    {
+      // Test helpers, the runtime that runs a script's Effect, and the oxlint
+      // plugin, whose rules oxlint calls as plain functions.
+      "files": ["scripts/**/*.test.mts", "scripts/lib/testing.mts", "scripts/lib/run.mts", "scripts/oxlint-plugin.mts"],
+      "rules": {
+        "kumora/effect-functions": "off"
+      }
+    },
+    {
       // Decision: React-free folders skip rules-of-hooks, listed one by one
       // (docs/adr/0014-react-free-code-skips-rules-of-hooks.md)
       "files": ["scripts/**", "packages/client/**", "packages/deploy/**", "packages/relay/**", "packages/server/**", "apps/extension/src/worker/**", "apps/*/alchemy.run.ts", "apps/*/src/server/**", "apps/*/src/worker.ts", "apps/dashboard/billing/**", "apps/dashboard/src/routes/api/**"],
