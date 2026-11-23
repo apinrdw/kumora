@@ -3,7 +3,7 @@
 // and each auction match folded into one row kept outside that cap. Deltas
 // mutate it in place, so a 1,278-trade delta costs a few milliseconds; the
 // view copies it with `freezeTape` when it must hold still.
-// Decision: the per-trade helpers return Effects like every other function
+// The per-trade helpers return Effects like every other function
 // here. That costs about 1 µs a trade on node (50k trades: 161 ms against
 // 101 ms as plain functions); a 1,278-trade delta still takes about 3.6 ms.
 import {
@@ -23,7 +23,7 @@ import { tradePosition } from "./trade-position"
 // The two auction matches whose prints fold.
 export type AuctionMatch = "opening" | "closing"
 
-// Decision: an auction match is a regular-board print in the 08:58:00 or
+// An auction match is a regular-board print in the 08:58:00 or
 // 16:00:00 WIB second, the IDX matching instants. Ajaib stamps them on the
 // whole second and Stockbit a few milliseconds in. A negotiated or cash print
 // in that second is continuous trading and does not fold.
@@ -42,7 +42,7 @@ const auctionMatchOf = (trade: RunningTrade) =>
     return MATCH_SECONDS.get((epochSeconds + WIB_OFFSET_SECONDS) % DAY_SECONDS)
   })
 
-// Decision: a big trade is worth Rp1 B or more on the regular board (spec
+// A big trade is worth Rp1 B or more on the regular board (spec
 // apinrdw/kumora#138, "Tape"), a fixed line for now.
 export const BIG_TRADE_IDR = 1_000_000_000
 
@@ -55,7 +55,7 @@ export const isBigTrade = (trade: RunningTrade) =>
     (value) => trade.board === "RG" && value >= BIG_TRADE_IDR
   )
 
-// Decision: the page keeps the 10,000 newest continuous-trading trades, the
+// The page keeps the 10,000 newest continuous-trading trades, the
 // count apinrdw/kumora#136 measured smooth at the opening match's peak.
 const KEPT_TRADES = 10_000
 

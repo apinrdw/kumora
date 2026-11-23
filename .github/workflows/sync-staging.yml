@@ -25,8 +25,8 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Decision: release.yml can only fast-forward main to a staging
-          # commit, so staging must contain all of main.
+          # Decision: publishing a Release fast-forwards main; no PR reaches Production
+          # (docs/adr/0007-production-is-reached-by-a-release-that-fast-forwards-main.md)
           if git merge-base --is-ancestor origin/main origin/staging; then
             echo "staging has every commit on main."
             exit 0

@@ -34,10 +34,8 @@ export const deployCommand = Command.make(
     }).pipe(Effect.provide(FetchHttpClient.layer))
     const stacks = yield* Stacks
     yield* Console.log(`Deploying ${app} to stage ${stage}`)
-    // Decision: Workers Builds runs two builds of one branch in parallel and
-    // the state store has no lock, so overlapping deploys of one stage can
-    // race. The risk is accepted; revisit if overlapping deploys cause
-    // trouble. See apinrdw/kumora#17.
+    // Decision: overlapping deploys of one stage may race; the risk is accepted
+    // (packages/deploy/docs/adr/0001-overlapping-deploys-of-one-stage-may-race.md)
     yield* Effect.scoped(
       Effect.andThen(tokenSwap(token), stacks.deploy(app, stage))
     )

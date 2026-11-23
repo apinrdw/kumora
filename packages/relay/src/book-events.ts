@@ -7,7 +7,7 @@ import { DateTime, Order, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
 
-// Decision: one rolling 30 s window for every book event, and a side with
+// One rolling 30 s window for every book event, and a side with
 // fewer than 2 frames in it is too quiet to read. See apinrdw/kumora#508.
 export const BOOK_EVENT_WINDOW_MS = 30_000
 export const MIN_SIDE_FRAMES = 2
@@ -101,13 +101,13 @@ export const EventOrder: Order.Order<{ readonly at: DateTime.Utc }> =
     DateTime.toEpochMillis(event.at)
   )
 
-// Decision: a snapshot carries the day's newest 100 book events across every
+// A snapshot carries the day's newest 100 book events across every
 // code, plus the selected code's day up to MAX_CODE_BOOK_EVENTS: the
 // scanner's feed shows the newest, the readout one code's day. See spec
 // apinrdw/kumora#517, "Book events".
 export const SNAPSHOT_BOOK_EVENTS = 100
 
-// Decision: one code's day is read, held and sent as its newest 2,500 book
+// One code's day is read, held and sent as its newest 2,500 book
 // events, so a Select snapshot and a recorded day's answer stay bounded
 // however many the store holds. The busiest minute seen was 7 events, at the
 // open (docs/research/book-event-thresholds.md); a code at that rate through

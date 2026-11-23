@@ -12,15 +12,12 @@ class ZipUnreadable extends Schema.TaggedError<ZipUnreadable>()(
 
 const unreadable = (message: string) => new ZipUnreadable({ message })
 
-// Decision: an entry inflates to at most 8 MiB, counted as it inflates, so a
-// small archived file can't expand past the Worker's 128 MiB. The largest
-// real entries are about 3× under it: IDX's sheet1.xml at 2.6 MB and KSEI's
-// Balancepos .txt at 530 KB (Sep and Oct 2026).
+// Decision: a report's parse is bounded to fit 48 MiB of the Worker's heap
+// (apps/dashboard/docs/adr/0045-a-holdings-parse-fits-a-bounded-heap.md)
 export const MAX_ENTRY_BYTES = 8 * 1024 * 1024
 
-// Decision: a zip's central directory takes at most 64 KiB, which bounds
-// the entries and names it decodes whatever their count. IDX's .xlsx lists
-// 23 files in about 2 KB, KSEI's .zip one (Oct 2026).
+// Decision: a report's parse is bounded to fit 48 MiB of the Worker's heap
+// (apps/dashboard/docs/adr/0045-a-holdings-parse-fits-a-bounded-heap.md)
 export const MAX_DIRECTORY_BYTES = 64 * 1024
 
 interface Entry {

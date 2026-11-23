@@ -159,7 +159,7 @@ function SourceDots({ feeds }: { feeds: ReadonlyArray<Source> }) {
 const CELL = "h-[22px] overflow-hidden py-0 leading-[22px] whitespace-nowrap"
 
 // Each column's width in px, in order.
-// Decision: a bold 45,000 price, 123,456 lots and Rp555.55 B each fit
+// A bold 45,000 price, 123,456 lots and Rp555.55 B each fit
 // whole, so no figure is clipped. The tape is never narrower than their sum:
 // layout B's 400 px column (layout-b.tsx) and a phone scroll it sideways,
 // because a column wide enough for the tape would narrow both charts below
@@ -458,7 +458,7 @@ export function TapeList({
       <div
         ref={scroller}
         onScroll={onScroll}
-        // Decision: relative, so the rows' absolute sr-only spans clip here;
+        // Relative, so the rows' absolute sr-only spans clip here;
         // otherwise the overscan rows under the fold lengthen the page.
         className="relative h-full overflow-auto overscroll-contain"
       >

@@ -35,7 +35,7 @@ import {
 } from "./run-queue.ts"
 
 const DETAILS_PATH = "v1/stock/data/broker-transaction"
-// Decision: 1,000 rows a page, the most Ajaib serves: 1,001 gets a
+// 1,000 rows a page, the most Ajaib serves: 1,001 gets a
 // Cloudflare 403. The window 00:00 to 23:59:59 holds the pre-opening, the
 // auctions and the negotiated board after the close. See
 // apinrdw/kumora#622.
@@ -176,7 +176,7 @@ export interface DoneDetailsStore {
   readonly clear: Effect.Effect<void>
 }
 
-// Decision: the rows are `result.transactions`, paged while
+// The rows are `result.transactions`, paged while
 // `result.has_next`, as Ajaib's web app reads them
 // (docs/research/ajaib-post-close-broker-codes.md on branch
 // research/order-number-routes).
@@ -356,11 +356,8 @@ const byAggressor = (rows: ReadonlyArray<ReadRow>) =>
     )
   )
 
-// Decision: a key (every field both sources report) gives its rows, in
-// aggressor order, to its kept trades only when as many and one run
-// (`oneRun`); a code with a row the walk can't read, which could be any
-// trade's, gets nothing. Other keys are left to Stockbit's walk, which has
-// trade numbers. See apinrdw/kumora#622 and PR #632.
+// Decision: a key's rows go to its trades only when as many and one run
+// (apps/extension/docs/adr/0004-done-details-rows-go-to-trades-only-as-one-run.md)
 //
 // Proven, if Ajaib lists each trade of the code once: tied trades are alike
 // in all both report with none of the code between them, so which takes
@@ -439,11 +436,8 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
     }
   })
 
-  // Decision: matched trades are held until the last code is walked, then
-  // posted in trade order, BATCH_ROWS a batch, so each batch spans a minute
-  // or two and the dashboard's sweep brokers recompute regroups each market
-  // minute about once, not once per code. Coalescing on the dashboard would
-  // write rows after a batch's 200. See apinrdw/kumora#632.
+  // Decision: matched trades post after the last code, in trade order
+  // (apps/extension/docs/adr/0005-matched-trades-post-after-the-last-code-in-trade-order.md)
   const postMatched = Effect.fnUntraced(function* (
     day: WibDate,
     post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>

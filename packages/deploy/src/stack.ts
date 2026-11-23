@@ -35,10 +35,8 @@ const stackTarget = Effect.fnUntraced(function* (
   return yield* stageTarget(app, yield* stackStage(stage))
 })
 
-// Decision: Cloudflare Workers with static assets, deployed by Workers Builds
-// running alchemy. Pages lost because Cloudflare steers new projects to Workers;
-// GitHub Actions deploys lost because they need Cloudflare and Infisical
-// credentials in CI. See apinrdw/kumora-monorepo#18 and apinrdw/kumora#17.
+// Decision: apps deploy as Cloudflare Workers by Workers Builds running alchemy
+// (packages/deploy/docs/adr/0002-apps-deploy-as-workers-through-workers-builds-running-alchemy.md)
 export const stackOptions = Effect.fnUntraced(function* (app: App) {
   return {
     providers: Cloudflare.providers(),
@@ -52,10 +50,8 @@ export const stackOptions = Effect.fnUntraced(function* (app: App) {
           : Cloudflare.state()
       })
     ),
-    // Decision: secrets are read from Infisical at deploy and bound as
-    // secret_text, so a rotation goes live on the next deploy. This supersedes
-    // syncing Infisical into Cloudflare; Secrets Store waits until a secret
-    // must rotate without a deploy. See apinrdw/kumora#18.
+    // Decision: secrets are read from Infisical at deploy and bound as secret_text
+    // (packages/deploy/docs/adr/0003-secrets-are-read-from-infisical-at-deploy.md)
     //
     // Alchemy calls this synchronously, so an unknown Stage is a defect that
     // runSync throws.

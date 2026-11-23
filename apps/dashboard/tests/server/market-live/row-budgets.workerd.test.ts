@@ -41,7 +41,7 @@ const withinBudget = Effect.fnUntraced(function* (
     )
 })
 
-// Decision: building the busy day takes about 6 s here; on CI's 2 cores the
+// Building the busy day takes about 6 s here; on CI's 2 cores the
 // build and its bundle get a minute, as does its teardown. A test here takes
 // at most 4.2 s (the whole suite about 80 s), so each gets 10 s, or 20 s for
 // one over 2 s: CI's 2 cores run it about twice as slow.
@@ -94,7 +94,7 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
       10_000
     )
 
-    // Decision: a codes GET reads its 200 tape trades on any object, so the
+    // A codes GET reads its 200 tape trades on any object, so the
     // spec's 10 rows bound what a fresh object reads past a warm one: the
     // codes-complete fact, never a status pass (#560).
     it.effect(

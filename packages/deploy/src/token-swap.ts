@@ -23,7 +23,7 @@ export const tokenSwap = Effect.fnUntraced(function* (
         cloudflare: process.env.CLOUDFLARE_API_TOKEN,
         infisical: process.env.INFISICAL_TOKEN,
       }
-      // Decision: drop the token Workers Builds injects. The process
+      // Drop the token Workers Builds injects. The process
       // environment is alchemy's last secret provider, so it would override
       // Infisical's scoped token, which alone has the Secrets Store access
       // Cloudflare.state() needs. See apinrdw/kumora#20.

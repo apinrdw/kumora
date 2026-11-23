@@ -15,7 +15,7 @@ import {
   video,
 } from "./support/video"
 
-// Decision: refuse a `--` in the arguments. `pnpm test:e2e -- <spec>` hands it
+// Refuse a `--` in the arguments. `pnpm test:e2e -- <spec>` hands it
 // to Playwright, which then drops every filter after it and runs the whole
 // suite: 7 agent sessions waited minutes for a one-spec run that way.
 if (process.argv.includes("--")) {
@@ -45,7 +45,7 @@ const projects = [
       ...recorded.chromium,
     ],
   },
-  // Decision: video is a worker option, so it can vary per project but not
+  // Video is a worker option, so it can vary per project but not
   // per test: the chromium specs an evidence run picks run in a project of
   // their own that records, and the rest record nothing.
   ...(recorded.chromium.length > 0
@@ -58,22 +58,19 @@ const projects = [
         },
       ]
     : []),
-  // Decision: the specs that send trades share one Durable Object, today's
-  // trading day, so they run one at a time: a spec alongside would add
-  // trades to the tape it counts. A run has one server and one storage, and
-  // the dashboard has no test-only key for a trading day. See
-  // apinrdw/kumora#157 and #169.
+  // Decision: specs that send trades share today's trading day, so run serially
+  // (apps/e2e/docs/adr/0001-trading-day-specs-run-one-at-a-time.md)
   {
     name: "trading-day",
     dependencies: ["setup"],
     testMatch: TRADING_DAY_SPECS,
     workers: 1,
-    // Decision: not split like chromium, or its two halves would run side
+    // Not split like chromium, or its two halves would run side
     // by side: when an evidence run picks any trading-day spec, the whole
     // project records.
     ...(recorded.tradingDay ? { use: { video } } : {}),
   },
-  // Decision: the cold day spec runs after every chromium and trading-day
+  // The cold day spec runs after every chromium and trading-day
   // spec. Its walk day's broker totals build writes the one BrokerTotalsDb,
   // whose built days and missing trades the stocks spec counts over every
   // window.
@@ -92,18 +89,17 @@ const projects = [
 
 const config = defineConfig({
   testDir: "tests",
-  // Decision: tests, not files, are the unit of parallelism, so one file's
-  // tests can run on different workers (apinrdw/kumora#168). A
-  // file whose tests form a sequence says so with a serial describe.
+  // Decision: tests, not files, run in parallel; a sequence uses a serial describe
+  // (apps/e2e/docs/adr/0002-tests-not-files-are-the-unit-of-parallelism.md)
   fullyParallel: true,
-  // Decision: no retries, so a flake the parallelism brings shows up and gets
+  // No retries, so a flake the parallelism brings shows up and gets
   // fixed instead of passing on a second try (apinrdw/kumora#168).
   retries: 0,
   reporter: "list",
   use: { browserName: "chromium" },
   projects: [
     ...projects,
-    // Decision: the relay-load spec times the relay against the wall clock,
+    // The relay-load spec times the relay against the wall clock,
     // so it runs alone, after every other project: a spec alongside would
     // share the CPU it measures (apinrdw/kumora#233).
     {
@@ -112,7 +108,7 @@ const config = defineConfig({
       testMatch: RELAY_LOAD_SPEC,
       workers: 1,
     },
-    // Decision: the repaint bench times the charts' paints on the CPU, so it
+    // The repaint bench times the charts' paints on the CPU, so it
     // too runs alone, after relay-load, which it would otherwise share the CPU
     // with. It sends trades to today's trading day, which no trading-day
     // spec is reading by then (apinrdw/kumora#272).
@@ -162,7 +158,7 @@ const config = defineConfig({
   ],
 })
 
-// Decision: refuse a run that names only specs of a project waiting on other
+// Refuse a run that names only specs of a project waiting on other
 // projects. Playwright runs every test of those projects first, so naming
 // relay-load's spec ran all 64 tests, and #272's implementer waited minutes
 // for its one bench. `--no-deps` with the projects named runs it alone.

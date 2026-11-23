@@ -10,7 +10,7 @@ import {
 import type { DayStore } from "./day-store.ts"
 import { makeEventLog } from "./event-log.ts"
 
-// Decision: while flushes keep failing, memory holds at most 20,000 order
+// While flushes keep failing, memory holds at most 20,000 order
 // flow events not stored yet (about 4 MB on node) and drops the oldest past
 // that. The replay of five recorded days found 3,503 a day across the market
 // (docs/research/order-flow-event-thresholds.md), before the push minimum

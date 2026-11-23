@@ -2,7 +2,7 @@ import { Effect } from "effect"
 
 import type { SoundSink } from "./sweep-alert-player"
 
-// Decision: pair B of the sound prototype (apinrdw/kumora#503, PAIRS[1] on
+// Pair B of the sound prototype (apinrdw/kumora#503, PAIRS[1] on
 // branch prototype/sweep-alert-sounds): a triangle-wave major third, up for
 // a buy and down for a sell. The two stay apart when they overlap. The volume
 // is fixed: no slider.

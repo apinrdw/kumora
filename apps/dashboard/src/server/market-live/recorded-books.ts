@@ -11,18 +11,12 @@ const RecordedCodes = Schema.fromJsonString(Schema.Array(StockCode))
 const encodeCodes = Schema.encodeEffect(RecordedCodes)
 const decodeCodes = Schema.decodeUnknownEffect(RecordedCodes)
 
-// Decision: a code joins only if the day's code list (code-list.ts) names
-// it, so the set holds listed codes alone: Ajaib's 3,406 and the indices.
-// Before the list arrives, at most UNLISTED_LIMIT join. At 16 characters a
-// code, the fact stays under 150 KB, well below Durable Object SQLite's 2 MB
-// row.
+// Decision: only listed codes join the recorded set, so its fact stays under 2 MB
+// (apps/dashboard/docs/adr/0095-only-listed-codes-join-the-recorded-books-set.md)
 const UNLISTED_LIMIT = 4_000
 
-// Decision: a day whose tape is a row per trade (tape.ts, `makeTape`) was
-// recorded before the change: it records every code's books to the close,
-// never answers a code not recorded, and writes no set. Every day since is
-// chunked from its first trade, so its set starts empty. See spec
-// apinrdw/kumora#555, "Books only for viewed codes".
+// Decision: a row-per-trade day records every code's books and writes no set
+// (apps/dashboard/docs/adr/0096-a-row-tape-day-records-every-code-s-books.md)
 export const makeRecordedBooks = Effect.fnUntraced(function* (
   store: Effect.Success<ReturnType<typeof makeDayStore>>
 ) {

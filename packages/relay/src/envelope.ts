@@ -37,10 +37,8 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 9: snapshots and deltas carry order flow events (spec apinrdw/kumora#605).
 export const ViewerProtocolVersion = 9
 
-// Decision: an extension that hits either code stops retrying that target and
-// shows it; any other close, 1006 included, retries with backoff. The token
-// travels as the first message because a browser websocket can't set headers.
-// See apinrdw/kumora#45.
+// Decision: 4403 refuses the token, 4426 a protocol; both stop ingest retries
+// (packages/relay/docs/adr/0003-ingest-socket-closes-4403-and-4426-stop-retries.md)
 //
 // 4403 and 4426 stop the relay retrying (apps/extension target.ts); 4408, a
 // socket closed without its token within the trading-day object's deadline,
@@ -74,9 +72,8 @@ export type Feed = typeof Feed.Type
 export const Connection = Schema.Literals(["A", "B"])
 export type Connection = typeof Connection.Type
 
-// Decision: a trade number travels as a string of digits. The date-prefixed
-// form (YYYYMMDD plus the sequence) exceeds 2^53, so a JSON number would lose
-// digits. See apinrdw/kumora#45.
+// Decision: a trade number travels as a string of digits, not a JSON number
+// (packages/relay/docs/adr/0019-a-trade-number-travels-as-a-string-of-digits.md)
 export const TradeNumber = Schema.String.check(Schema.isPattern(/^\d+$/)).pipe(
   Schema.brand("TradeNumber")
 )
@@ -149,11 +146,8 @@ export const AjaibFrames = Schema.TaggedStruct("Frames", {
   frames: Schema.Array(Schema.String),
 })
 
-// Decision: the trading-day object closes a new ingest socket's first message
-// with 4403 unread when it passes this many UTF-16 units, so a client without
-// the token can't have it decode a 32 MiB Frames envelope. A token message is
-// 91 (47 plus a 44-character token); later envelopes have no bound here.
-// See apinrdw/kumora#157.
+// Decision: an ingest socket's first message past the cap closes 4403 unread
+// (packages/relay/docs/adr/0020-an-ingest-socket-s-first-message-is-capped.md)
 export const INGEST_TOKEN_MESSAGE_LIMIT = 1024
 
 // The ingest token, the first message after the socket opens.
@@ -224,18 +218,12 @@ export const OnDemandCodes = Schema.TaggedStruct("OnDemandCodes", {
 const IngestDown = Schema.Union([Backfill, OnDemandCodes])
 export type IngestDown = typeof IngestDown.Type
 
-// Decision: a watchlist holds at most 10,000 codes, about three times the
-// 3,406 Ajaib lists. The object stores a viewer's codes as one value, capped
-// at 8 MB with its key; with 16-character codes the largest Select stores
-// under 200 KB (envelope.test.ts). A Select past the cap fails to decode and
-// its socket closes. See apinrdw/kumora#157.
+// Decision: a watchlist holds at most 10,000 codes, kept in object storage
+// (packages/relay/docs/adr/0010-a-viewer-s-watchlist-is-capped-and-stored-outside-the-socket.md)
 const WATCHLIST_LIMIT = 10_000
 
-// Decision: the trading-day object closes a viewer message past this many
-// UTF-16 units with 1011 unread, so a viewer can't have it parse a 32 MiB
-// message before the watchlist cap. The largest Select is 190,081 units
-// (envelope.test.ts). 1011, as for a Select past the cap, retries with
-// backoff, not terminal 4401 or 4426. See apinrdw/kumora#157.
+// Decision: a watchlist holds at most 10,000 codes, kept in object storage
+// (packages/relay/docs/adr/0010-a-viewer-s-watchlist-is-capped-and-stored-outside-the-socket.md)
 export const VIEWER_MESSAGE_LIMIT = 200_000
 
 // The page's selected code and watchlist, sent on open and on every change.
@@ -249,17 +237,14 @@ export const Select = Schema.TaggedStruct("Select", {
 export type ViewerUp = typeof Select.Type
 
 // Who took the aggressor side. Auction matches and negotiated prints have none.
-// Decision: a chunked tape's record stores a trade's side, board and feeds as
-// their index in Side, Board and TradeSource (apps/dashboard's
-// tape-chunks.ts), so each list is append-only: a stored day reads its
-// records back through the order it was written with. A record packs at most
-// four feeds.
+// Decision: tape chunks hold 32-byte records; Side, Board, feeds are indexes
+// (packages/relay/docs/adr/0006-tape-chunks-hold-fixed-32-byte-records-with-append-only-enums.md)
 export const Side = Schema.Literals(["buy", "sell", "none"])
 
 // The market board: regular, cash (tunai), or negotiated.
 export const Board = Schema.Literals(["RG", "TN", "NG"])
 
-// Decision: a trade frame without `market_type` is on the regular board. The
+// A trade frame without `market_type` is on the regular board. The
 // 2026-11-09 probe saw no `market_type` on any of 44,360 TRADE frames, all
 // regular-board stocks; an unknown value is read the same way until a capture
 // shows the cash and negotiated boards' frames.
@@ -366,10 +351,8 @@ export const SweepFields = Schema.Struct({
   trades: Schema.Int,
 })
 
-// Decision: a sweep travels as a tuple, [side, first trade, time, first,
-// last, lots, value, trades], not a keyed object. A delta resends a minute's
-// sweeps whole, and a busy code's peak minute of 370 measured 21 KB a delta
-// as tuples against 45 KB with the keys (apinrdw/kumora#279).
+// Decision: footprint cells and sweeps are tuples, not keyed objects
+// (packages/relay/docs/adr/0007-footprint-cells-and-sweeps-are-tuples-on-the-wire-and-in-storage.md)
 //
 // A footprint row (dashboard sweep-rows.ts) and a sweep brokers piece
 // (recorded-day.ts) store the same order; change all three. A stored sweep

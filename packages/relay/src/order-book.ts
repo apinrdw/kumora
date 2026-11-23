@@ -7,8 +7,8 @@ export const SHARES_PER_LOT = 100
 
 // What `lots` at `price` are worth in rupiah: a level's value, a wall's, or a
 // trade's.
-// Decision: plain, not an Effect: the level ledger and the book readings call
-// it for every level of every side frame (level-ledger.ts's Decision gives
+// Plain, not an Effect: the level ledger and the book readings call
+// it for every level of every side frame (the comment in level-ledger.ts gives
 // the timing).
 export const levelValue = (price: number, lots: number) =>
   price * lots * SHARES_PER_LOT
@@ -32,10 +32,8 @@ export type BookLevel = typeof BookLevel.Type
 // `liveprice` frame carried it, colours the prices. `at` is the later of the
 // two sides' times. A side no frame has set yet, and every book stored before
 // the per-side fields, has none of them: its time is `at`.
-// Decision: each side keeps its own frame's time and, from Stockbit, its
-// `sequence_number`, which orders a code's two sides even when their times
-// tie. A sequence has gaps and can arrive out of order, so a gap never means a
-// lost frame. See spec apinrdw/kumora#517, "Data".
+// Decision: each book side keeps its own time and sequence, replaced as a group
+// (packages/relay/docs/adr/0008-a-book-side-keeps-its-own-time-and-sequence-replayed-as-a-group.md)
 export const BookSideFields = {
   bidAt: Schema.optionalKey(Schema.DateTimeUtcFromMillis),
   offerAt: Schema.optionalKey(Schema.DateTimeUtcFromMillis),

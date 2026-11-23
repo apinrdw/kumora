@@ -8,21 +8,21 @@ import { Effect, Option, Schema } from "effect"
 import type { Answer, LocalRequest } from "./broker.ts"
 import { jwtPayloadText } from "./jwt.ts"
 
-// Decision: the key comes from Stockbit's REST host, called from the tab with
+// The key comes from Stockbit's REST host, called from the tab with
 // the token in its credential cookies. The relay never refreshes the token:
 // it reads the cookies again before every key fetch, so it uses whatever the
 // page last refreshed. See apinrdw/kumora#43.
 export const WEBSOCKET_KEY_URL =
   "https://exodus.stockbit.com/auth/websocket/key"
 
-// Decision: the access token is in one of two cookies, likely by how the
+// The access token is in one of two cookies, likely by how the
 // owner signed in. `credentialStorage` held it before; after a Google
 // sign-in (seen 2026-11-20) it holds the user's profile and no token, and
 // the token is in `sb_social_access_token`, with the same `data.uid`.
 // `credentialStorage` is read first. See apinrdw/kumora#591.
 const CREDENTIAL_COOKIES = ["credentialStorage", "sb_social_access_token"]
 
-// Decision: both REST calls stay on `exodus.stockbit.com` with the token as a
+// Both REST calls stay on `exodus.stockbit.com` with the token as a
 // Bearer header. The page itself now calls `exodus.api.stockbit.com` with its
 // cookies and no `Authorization` header (seen 2026-11-20). Whether that host
 // takes the Bearer header is untested, so moving there is a separate question
@@ -79,13 +79,10 @@ interface CookieTab {
   ) => Effect.Effect<Option.Option<Answer>>
 }
 
-// Decision: the service worker reads the Stockbit tab's cookies with
-// `chrome.cookies` (the `cookies` permission), which sees the HttpOnly
-// cookies the page's `document.cookie` hides: `sb_social_access_token` may be
-// one. They stay the tab's: with no Stockbit tab attached there is no
-// answer, as when the tab read them. See apinrdw/kumora#591.
+// Decision: the worker reads the Stockbit tab's cookies with chrome.cookies
+// (apps/extension/docs/adr/0021-the-worker-reads-stockbit-s-cookies-with-chrome-cookies.md)
 //
-// Decision: a cookie is looked up for the site, then for its API host: a
+// A cookie is looked up for the site, then for its API host: a
 // Google sign-in's `sb_social_access_token` is sent to
 // `exodus.api.stockbit.com` and isn't visible by the site's URL (seen
 // 2026-11-20: `getAll` under `https://stockbit.com/*` found none). The
@@ -212,7 +209,7 @@ const Channel = {
 } as const
 const Request = { userId: 1, channel: 2, key: 3, accessToken: 5 } as const
 
-// Decision: one channel message carries every listed code, unchunked. A new
+// One channel message carries every listed code, unchunked. A new
 // channel message replaces the whole subscription (apinrdw/kumora#48), so
 // chunks sent on one socket would each cancel the one before. 690 codes in one
 // message are proven; whether Stockbit caps a message below Ajaib's ~3,400

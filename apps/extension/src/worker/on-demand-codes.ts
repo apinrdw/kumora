@@ -27,7 +27,7 @@ export const makeOnDemandCodes = Effect.fnUntraced(function* (options: {
       const before = new Set(byTarget.get(name) ?? [])
       const codes = message?.codes ?? []
       byTarget.set(name, codes)
-      // Decision: a target's codes are diffed per target, not only as the
+      // A target's codes are diffed per target, not only as the
       // union. A code it newly asks for while the other target holds it, or
       // held before its socket dropped, is subscribed afresh so Ajaib resends
       // the whole book (see `onDemandMessages`): a book can't be backfilled.

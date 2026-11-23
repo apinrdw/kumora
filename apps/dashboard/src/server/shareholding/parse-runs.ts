@@ -2,7 +2,7 @@
 // an investor-type parse run and an above-1% parse run, one a day of each,
 // named after its scheduled date (UTC), unless one of that kind is still in
 // progress.
-// Decision: one cron starts all three kinds, not a cron each, and each kind
+// One cron starts all three kinds, not a cron each, and each kind
 // starts whether the others did or not: they read only R2 and HoldingsDb and
 // write different tables, so none waits on another. See apinrdw/kumora#397
 // and #473.

@@ -33,11 +33,8 @@
     "paneViews",
     "hitTest"
   ],
-  // Decision: the root declares the optional peers alchemy and
-  // @alchemy.run/cloudflare load at runtime (`alchemy dev` fails without
-  // @effect/platform-bun), since pnpm never auto-installs optional peers.
-  // @alchemy.run/infisical is for `alchemy profile`, which reads the manifests
-  // above the app folder. See apinrdw/kumora#16 and #122.
+  // Decision: the root declares the optional peers alchemy loads at runtime
+  // (docs/adr/0002-the-root-declares-alchemy-s-optional-runtime-peers.md)
   "ignoreDependencies": [
     "@alchemy.run/frontend-frameworks",
     "@alchemy.run/infisical",

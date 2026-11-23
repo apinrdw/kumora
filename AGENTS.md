@@ -14,7 +14,7 @@ Multi-context: root `GLOSSARY-MAP.md` indexes one `GLOSSARY.md` per pnpm workspa
 
 ### Decisions
 
-No ADRs. A decision lives as a `Decision:` comment on the line that enacts it, and a decision with no code site goes in the config file that enacts it. Read `Decision:` comments in a file before changing it, and keep them through `/no-comments` and `/deslop`. See **Decisions live in code, not ADRs** in `docs/agents/domain.md`.
+A decision whose undoing reaches beyond its line is an ADR in a `docs/adr/` directory, with a two-line `Decision:` pointer at each line that enacts it. Any other choice gets a plain why-comment, or nothing. Before changing a file, read its `Decision:` pointers and the ADRs they name. Write an ADR and its pointers with the code, without asking. `/no-comments` and `/deslop` keep every pointer. The bar, where an ADR lives, the pointer's shape and how to change a decision are in **Decisions are ADRs** in `docs/agents/domain.md`.
 
 ### Deploys
 
@@ -52,6 +52,8 @@ Before changing `turbo.json` or a turbo command, read `docs/README.md` in the in
 ### Pull requests
 
 Before writing a PR body (opening a PR or rewriting one), invoke the `/mattpocock-skills:pr` skill and follow its template. Keep the attribution line your harness requires at the end.
+
+List each ADR the PR adds, edits or supersedes, by title and path, under a `Decisions` heading in the PR body. Leave the heading out when there are none.
 
 CI holds a PR that touches `apps/{web,dashboard,extension,e2e}` or `packages/` on its `e2e-evidence` status. After opening one, run `pnpm e2e:evidence <spec...>` naming the specs that show the change, or add the `no-e2e-evidence` label when nothing visible changed. Rules: `.claude/skills/post-implementation-review/workspaces/e2e.md`.
 

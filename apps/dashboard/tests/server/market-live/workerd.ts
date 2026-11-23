@@ -148,7 +148,7 @@ const freePort = Effect.callback<number>((resume) => {
 // The local R2 worker's one module, as alchemy ships it.
 const R2_MODULE = "r2/R2Bucket.worker.mjs"
 
-// Decision: the research harness's config: one SQLite-backed namespace on a
+// The research harness's config: one SQLite-backed namespace on a
 // local disk, since in-memory storage is not SQLite-backed. The compatibility
 // date is the installed workerd's own, which has nodejs_compat on. The DAYS
 // bucket is alchemy's local R2 service, wired as its R2Bucket.ts wires it: a
@@ -269,7 +269,7 @@ export class BusyDay extends Context.Service<
             Effect.flatMap(decodeBilled),
             Effect.orDie
           ),
-        // Decision: through node:http, which sets no timeout: the whole day
+        // Through node:http, which sets no timeout: the whole day
         // answers after about 280 s, past fetch's 300 s headers timeout on
         // CI's slower cores.
         wholeDay: Effect.callback<string>((resume) => {

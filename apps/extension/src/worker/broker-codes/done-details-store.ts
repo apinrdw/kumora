@@ -30,11 +30,8 @@ const decodeRow = Schema.decodeUnknownOption(DetailRow)
 const decodeMatched = Schema.decodeUnknownOption(MatchedTrade)
 const decodeCode = Schema.decodeUnknownOption(StockCode)
 
-// Decision: version 4 keys the tape walk's trades, unkeyed ones too, and
-// the matched trades by trade number as a number, so they read back in
-// trade order and a span of numbers counts in one request. An older
-// database's walk is dropped whole: its trades say nothing of those the
-// tape walk read unkeyed, so that day's order numbers come from Stockbit.
+// Decision: Done Details store v4 keys trades by number; older walks are dropped
+// (apps/extension/docs/adr/0003-the-done-details-store-keys-trades-by-trade-number.md)
 const openDatabase = Effect.callback<IDBDatabase>((resume) => {
   const request = indexedDB.open(DATABASE, 4)
   request.onupgradeneeded = () => {
@@ -53,7 +50,7 @@ const openDatabase = Effect.callback<IDBDatabase>((resume) => {
   request.onerror = () => resume(Effect.die(request.error))
 })
 
-// Decision: each operation is one transaction whose requests are all made
+// Each operation is one transaction whose requests are all made
 // from IndexedDB's own callbacks: a request made after an Effect resumes
 // may find the transaction already committed. So `run` starts in the
 // callback that read the stored day, which it is given.

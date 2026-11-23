@@ -56,7 +56,7 @@ function ShareholdingPage() {
     },
     sectors,
   } = Route.useLoaderData()
-  // Decision: the jobs read as one ledger, a row each on shared columns, so
+  // The jobs read as one ledger, a row each on shared columns, so
   // their outcomes and counts compare at a glance; the history, totals and
   // coverage follow as panels of their own.
   return (

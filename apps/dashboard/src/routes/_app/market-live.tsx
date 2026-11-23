@@ -383,7 +383,7 @@ function MarketLiveDay({
   // columns and the width for them.
   const withBrokers = day !== undefined
   const pair = useChartPair(sweeps)
-  // Decision: the watchlist's Day state store starts empty on the server, and
+  // The watchlist's Day state store starts empty on the server, and
   // the loader gives it no server snapshot. The watchlist's codes live in the
   // browser's localStorage (use-watchlist.ts), so the server can't know which
   // codes' Day states to load. The server render shows no codes, and the

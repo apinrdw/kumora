@@ -59,9 +59,8 @@ export const loadServerFn = Effect.fnUntraced(function* <A>(
 })
 
 // Runs a route loader's Effect for the router.
-// Decision: loaders run their Effect with a bare runPromise and no services.
-// A loader runs during SSR and in the browser, so neither the client runtime
-// (browser only) nor runServerEffect (Worker only) fits. See apinrdw/kumora#132.
+// Decision: loaders run with a bare runPromise and no services
+// (packages/server/docs/adr/0003-loaders-run-their-effect-with-a-bare-runpromise.md)
 //
 // A NotFound dies as the router's notFound(), for the route's notFoundComponent;
 // the other closed-set errors reject as themselves, for its errorComponent.

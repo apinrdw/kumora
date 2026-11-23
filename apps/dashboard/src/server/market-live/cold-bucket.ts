@@ -28,17 +28,12 @@ export interface DayBucket {
   ) => Promise<{ readonly body: ReadableStream } | null>
 }
 
-// Decision: the answers' folder names their format's version, not the live
-// socket's: protocol 8 changed only live book readings, so days moved under
-// v7 stay readable and new days still go there. Bump it only with a stored
-// answer's change, converting the days already moved. See apinrdw/kumora#606.
+// Decision: a cold day sits under days/{date}/, answers under their format version
+// (apps/dashboard/docs/adr/0066-cold-days-sit-under-days-date-with-versioned-answers.md)
 const ANSWERS_VERSION = 7
 
-// Decision: a day's keys sit under `days/{date}/`. Its answers sit under
-// their format's version (`ANSWERS_VERSION`), as each was built for a page;
-// `status.json` (the broker codes protocol's) and `manifest.json` sit beside
-// that folder. A later change to an answer's format converts on read or
-// rewrites the day R2 to R2. See spec apinrdw/kumora#556, "The layout".
+// Decision: a cold day sits under days/{date}/, answers under their format version
+// (apps/dashboard/docs/adr/0066-cold-days-sit-under-days-date-with-versioned-answers.md)
 export const dayKeys = (date: WibDate) =>
   Effect.sync(() => {
     const day = `days/${date}`
@@ -76,10 +71,8 @@ export type DayKeys = Effect.Success<ReturnType<typeof dayKeys>>
 // reads ranges of its code's object. A code with no stored BookEvents or
 // OrderFlowEvents answer answers none from the day's `bookEvents` or
 // `orderFlowEvents` (cold-days.ts).
-// Decision: order flow events sit in the answers' folder, `v7`, not the
-// spec's `v9`: that folder names the stored answers' format, which protocol
-// 9 left alone, and the days already moved sit under it. See
-// apinrdw/kumora#606 and apinrdw/kumora#612.
+// Decision: a cold day sits under days/{date}/, answers under their format version
+// (apps/dashboard/docs/adr/0066-cold-days-sit-under-days-date-with-versioned-answers.md)
 export const answerKey = (date: WibDate, resource: RecordedResource) =>
   Effect.map(dayKeys(date), ({ answers: folder }) => {
     switch (resource._tag) {
@@ -123,7 +116,7 @@ export const putObject = (
 
 // A cold day's JSON answer, cached for good. A stored gzip is sent as it is:
 // the browser decodes it.
-// Decision: `encodeBody: "manual"` keeps workerd from gzipping the stored gzip
+// `encodeBody: "manual"` keeps workerd from gzipping the stored gzip
 // again. Set through a variable, as the tests' typecheck has no Workers
 // types, whose ResponseInit names it.
 export const sealedAnswer = (

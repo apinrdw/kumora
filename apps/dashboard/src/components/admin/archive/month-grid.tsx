@@ -52,7 +52,7 @@ function MarkWithLabel({ style }: { style: MarkStyle }) {
 
 // A month's mark as a button: a press selects its month, and pressing the
 // selected month again clears the selection.
-// Decision: its hit area is 24px, 3px past the 18px mark on each side, the
+// Its hit area is 24px, 3px past the 18px mark on each side, the
 // WCAG 2.2 AA minimum: twelve 44px targets don't fit a 390px phone's row,
 // and the 4px border spacing keeps neighbouring areas from overlapping.
 function SelectableMark({
@@ -127,7 +127,7 @@ export function MonthGrid<Month>({
   detail?: (month: Month, name: string) => ReactNode
   empty?: string
 }) {
-  // Decision: selected by position (year, month index), not by the month
+  // Selected by position (year, month index), not by the month
   // value, so a month stays selected when the page reloads its data.
   const [selected, setSelected] = useState<{ year: number; index: number }>()
   const selectedYear = years.find(({ year }) => year === selected?.year)

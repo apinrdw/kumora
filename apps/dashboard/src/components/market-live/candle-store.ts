@@ -31,10 +31,8 @@ export interface CandleStore {
 // nothing; a delta's candles and footprints of this code replace theirs by
 // minute.
 //
-// Decision: a footprint with no cells says its minute's last regular-board
-// trade left it (candles.ts, `takeChanged`). The store drops that minute's
-// footprint, and its candle unless the same delta carries one, and says
-// Dropped: a chart can't take one bar back. See apinrdw/kumora#279.
+// Decision: an emptied minute goes out as a footprint with no cells, no candle
+// (apps/dashboard/docs/adr/0028-an-emptied-minute-goes-out-as-a-footprint-with-no-cells.md)
 export const makeCandleStore = (code: StockCode) =>
   Effect.sync((): CandleStore => {
     const byMinuteOf = <A extends { readonly minute: DateTime.Utc }>(

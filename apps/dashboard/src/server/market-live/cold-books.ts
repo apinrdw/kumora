@@ -19,7 +19,7 @@ export interface StoredBookChunk {
 const ENTRY_BYTES = 8
 const COUNT_BYTES = 4
 
-// Decision: `book_chunks` keys a chunk by code and minute, so a code's index
+// `book_chunks` keys a chunk by code and minute, so a code's index
 // is never longer than a day's minutes' worth of entries. The read asks for
 // that much from the start of the object in one range, which R2 cuts to the
 // object's size, and so needs no read of the count first.

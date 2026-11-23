@@ -20,7 +20,7 @@ export {
 export { ShareholdingArchive } from "./server/shareholding/workflow.ts"
 
 export default {
-  // Decision: Cloudflare calls `fetch` and wants a Promise, so it runs the
+  // Cloudflare calls `fetch` and wants a Promise, so it runs the
   // route through the runner. Picking the route is pure and synchronous.
   fetch: (request: Request) =>
     Option.match(Effect.runSync(marketLiveRoute(request)), {

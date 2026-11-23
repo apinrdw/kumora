@@ -6,7 +6,8 @@ What every implementer or reviewer brief in this repo carries. Copy the shape; f
 
 - The issue is claimed (`in-progress`, per **Claiming an issue** in `docs/agents/issue-tracker.md`) before the brief goes out; say so in the brief.
 - The spec and ticket by command: `gh issue view <n>`. Name the sections of a spec doc the agent needs (for `docs/specs/*.md`, the config sections and **Gotchas**; the runbooks and provisioning sections are for humans) so it reads those and skips the rest.
-- The exact config: the spec doc under `docs/specs/`, and the `Decision:` comments in the files the ticket touches.
+- The exact config: the spec doc under `docs/specs/`.
+- The decisions: the `Decision:` pointers in the files the ticket touches, and the ADRs they name.
 - Repo rules: `AGENTS.md`. Review rules: `CODING_STANDARDS.md`.
 - Shared notes for later agents: `~/.t3/notes/<repo>/<spec>/`, never the checkout or `/tmp` (a tmpfs here: a reboot during spec #244 wiped its notes before the retro read them). Ask the agent to leave one short file there with what the next ticket's implementer should reuse. A read-only agent (`Explore`, `Plan`) cannot write files: ask it to return the notes in its report, and save them yourself.
 

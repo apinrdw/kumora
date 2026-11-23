@@ -6,9 +6,8 @@ name: CI
 on:
   push:
     branches: [main, staging]
-  # Decision: drafts run no CI; marking a PR ready runs it on the current head.
-  # A job skipped by its `if` reports skipped, which a required check accepts,
-  # and a draft can't merge anyway.
+  # Decision: a draft PR runs no CI and gets no status until ready for review
+  # (docs/adr/0004-drafts-run-no-checks.md)
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
@@ -26,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # Decision: full history, for check-extension-version.mts's
+          # Full history, for check-extension-version.mts's
           # merge-base with the PR's base branch. It costs about a second of
           # checkout (5 s for fallow's full clone, 4 s shallow, run 43219223062).
           fetch-depth: 0
@@ -36,10 +35,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Decision: turbo replays tasks from the GitHub Actions cache. It needs
-      # no secret, and GitHub scopes entries by ref, so a PR reads main's and
-      # its own while main never replays a PR's. Pinned to a commit because it
-      # holds the runner's cache token (v2.5.2); unit-tests pins the same commit.
+      # Decision: turbo replays tasks from the GitHub Actions cache, pinned by commit
+      # (docs/adr/0005-turbo-replays-tasks-from-the-github-actions-cache.md)
       - uses: rharkor/caching-for-turbo@760158c05c47e7a764f78e9a22ca3b5a6ed8c52e
       - run: pnpm check:static
 
@@ -61,7 +58,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # The same turbo cache as static's, pinned to the same commit.
       - uses: rharkor/caching-for-turbo@760158c05c47e7a764f78e9a22ca3b5a6ed8c52e
-      # Decision: one package's tests at a time on CI's 2 cores. A shared
+      # One package's tests at a time on CI's 2 cores. A shared
       # package's change misses the cache for every dependent, and their suites
       # run together ran 4-5x slower than locally, timing out tests near their
       # limits. Serial costs little, as dashboard's suite dominates; locally

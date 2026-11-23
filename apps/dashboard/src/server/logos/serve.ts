@@ -1,10 +1,8 @@
 // GET /logos/{CODE} (spec apinrdw/kumora#427, "Logos"): the code's logo from
 // the logo bucket, which the logo sync fills (sync.ts). The route is
 // src/routes/logos/$code.ts.
-// Decision: served from the dashboard's own origin, so a canvas that draws a
-// logo stays untainted and Market Bubbles' snapshot still exports. Open to
-// anyone, like any image a page links: the cache is public. See
-// apinrdw/kumora#432.
+// Decision: logos are served from the dashboard's own origin, publicly cached
+// (apps/dashboard/docs/adr/0053-logos-are-served-from-the-dashboard-s-own-origin.md)
 import { StockCode } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
 import { Effect, Schema } from "effect"

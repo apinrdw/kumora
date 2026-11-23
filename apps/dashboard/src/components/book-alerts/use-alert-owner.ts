@@ -10,7 +10,7 @@ const untilAborted = (signal: AbortSignal) =>
     signal.addEventListener("abort", () => resume(Effect.void), { once: true })
   })
 
-// Decision: the live page last brought to the front (shown or focused)
+// The live page last brought to the front (shown or focused)
 // holds the Web Lock `kumora:book-alerts` and tells; others queue, a
 // recorded day's page never asks, and a grant to a replaced or unmounted
 // request lets go at once. Without Web Locks every live page tells. See

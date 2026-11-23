@@ -195,7 +195,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
 
   // The extra target's walks: a stop ends the catch-up only, since
   // Production isn't paused.
-  // Decision: after the newest closed day, the extra target walks the gaps
+  // After the newest closed day, the extra target walks the gaps
   // of the older days that were incomplete as the run began, newest first,
   // so it also gets the days Production completed in this run. A day
   // Production completed in an earlier run, while the extra target failed,
@@ -214,7 +214,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     }
   })
 
-  // Decision: each run checks the last RECENT_DAYS days before the newest
+  // Each run checks the last RECENT_DAYS days before the newest
   // on Production and joins each one that holds trades but is incomplete.
   // A day can leave the list complete and fall short later, as #437's held
   // rule left the days walked before it. A day holding nothing is the
@@ -234,7 +234,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     return days
   })
 
-  // Decision: each run's newest closed day joins the list with every
+  // Each run's newest closed day joins the list with every
   // trading day since the last run's newest, so the evenings a closed
   // browser missed are walked from Stockbit. A first run adds only its own
   // day; the History walk covers the days before it. See
@@ -253,7 +253,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     yield* store.saveLastNewest(newest)
   })
 
-  // Decision: older incomplete days' gaps go newest first, each once a run,
+  // Older incomplete days' gaps go newest first, each once a run,
   // so the days the options page lists fill before History's (2026-11-17).
   // A day leaves the list once its gap walk finds it complete or Stockbit
   // answers it with no rows; any other end keeps it for a later run. See
@@ -311,7 +311,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     const history = yield* options.history.walk(day.value)
     if (Option.isSome(history))
       return yield* options.report({ state: "paused", cause: history.value })
-    // Decision: the extra target catches up once Production's queue is
+    // The extra target catches up once Production's queue is
     // empty, and gives way to the next trigger, which interrupts it and is
     // offered again so its run starts at once. The walks resume as after a
     // restart, and a failing extra target, whose posts retry for ever,
@@ -326,7 +326,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
       Effect.andThen(Queue.take(wakes), trigger)
     )
   })
-  // Decision: Pause interrupts the run in progress, the extra target's
+  // Pause interrupts the run in progress, the extra target's
   // catch-up included, and every trigger after it runs nothing until the
   // switch is off. Walks stop in place and resume as after a restart.
   // Resume is a trigger. See apinrdw/kumora#244, "Pause".
@@ -347,7 +347,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
   // when none is.
   const pause = Effect.andThen(Queue.offer(pauses, undefined), trigger)
 
-  // Decision: the first tick on which a new day is the newest closed one
+  // The first tick on which a new day is the newest closed one
   // starts a run: the first tick after 16:35 on a trading day, and the
   // worker's first tick after it starts. See apinrdw/kumora#244, "Triggers".
   let ticked = Option.none<WibDate>()

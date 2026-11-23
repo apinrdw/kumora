@@ -11,7 +11,7 @@ import {
 } from "../support/relay-extension"
 import { expect, test } from "../support/test"
 
-// Decision: about twice the real 09:00 peak, per Stockbit connection, for
+// About twice the real 09:00 peak, per Stockbit connection, for
 // longer than the relay's 10 s tick. A burst-then-collapse load would flake:
 // a burst collapses the timer-clamped relay of apinrdw/kumora#229 only about
 // 60% of the time. See apinrdw/kumora#233.

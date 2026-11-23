@@ -44,7 +44,7 @@ const dayTrades = () => {
 }
 const N = 18_200
 const TIMES = dayTrades()
-// Decision: a walk of this whole day is slow on purpose, so these tests set
+// A walk of this whole day is slow on purpose, so these tests set
 // their own timeout. On CI's 2 cores each took about 4.9 s against the 5 s
 // default (local ~0.9 s), and timed out on apinrdw/kumora#527, which touched no
 // extension code; 15 s keeps about 3x headroom.

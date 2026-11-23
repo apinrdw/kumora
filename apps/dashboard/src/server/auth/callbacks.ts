@@ -42,11 +42,8 @@ const STATUS = {
   Unauthorized: "UNAUTHORIZED",
 } as const satisfies Record<HttpError["_tag"], string>
 
-// Decision: TooManyMails crosses to HTTP as a 429 with a retry header beside
-// the closed HttpError set, because the spec prescribes that answer for the
-// per-address cap. CODING_STANDARDS' closed set binds server functions through
-// runServerEffect; a callback answers through Better Auth, and this is the one
-// place a sixth error crosses. See apinrdw/kumora#80, "Per-address cap".
+// Decision: TooManyMails answers 429 with a retry header, beside the HttpError set
+// (apps/dashboard/docs/adr/0033-toomanymails-crosses-to-http-as-a-429.md)
 //
 // Fails with the APIError that answers `error`.
 const toAPIError = (error: HttpError | TooManyMails) =>
@@ -80,9 +77,8 @@ const toBetterAuth = <E>(cause: Cause.Cause<E>) => {
   )
 }
 
-// Decision: the runner this builds is a plain function returning a Promise,
-// not an Effect: it is the runtime Better Auth's callbacks go through, and
-// Better Auth calls them with fixed Promise signatures.
+// Decision: Better Auth's entry points stay plain Promise code, not Effects
+// (apps/dashboard/docs/adr/0034-better-auth-s-callbacks-hooks-and-options-stay-promise-code.md)
 export const makeCallbackRunner = <R>(
   context: Context.Context<R>
 ): Effect.Effect<CallbackRunner<R>> =>
@@ -263,11 +259,8 @@ export const authorizeEmailChange = Effect.fn("authorizeEmailChange")(
   }
 )
 
-// Decision: an email on ADMIN_EMAILS becomes admin once it is verified, not
-// when the account is created, so nobody can squat an admin email before its
-// owner signs up. It runs after every write of an account; from then on the
-// role lives in the database. An email listed after verification is a config
-// admin at once (session-account.ts). See apinrdw/kumora#70.
+// Decision: an ADMIN_EMAILS address becomes admin once verified, not at sign-up
+// (apps/dashboard/docs/adr/0035-an-admin-emails-address-becomes-admin-once-verified.md)
 export const grantAdmin = Effect.fn("grantAdmin")(function* (
   user: WrittenUser
 ) {

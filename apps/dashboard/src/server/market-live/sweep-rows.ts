@@ -17,11 +17,8 @@ type SweepTuple = readonly [
   trades: number,
 ]
 
-// Decision: a footprint row stores its sweeps as one JSON text of
-// [side, first trade, time, first, last, lots, value, trades] tuples in trade
-// order, like its cells (footprint-cells.ts): a busy code has 10–18 K sweeps
-// a day, a few hundred a minute, and the row is replaced whole. See spec
-// apinrdw/kumora#263.
+// Decision: footprint cells and sweeps are tuples, not keyed objects
+// (packages/relay/docs/adr/0007-footprint-cells-and-sweeps-are-tuples-on-the-wire-and-in-storage.md)
 export const sweepsText = (sweeps: ReadonlyArray<Sweep>) =>
   Effect.sync(() =>
     JSON.stringify(

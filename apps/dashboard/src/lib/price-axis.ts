@@ -18,7 +18,7 @@ export const priceLabel = Effect.fnUntraced(function* (value: number) {
   return yield* price(yield* snapToTick(value))
 })
 
-// Decision: a label (and its gridline) needs 13 px of its own, so the axis
+// A label (and its gridline) needs 13 px of its own, so the axis
 // labels every tick from rows 13 px tall and every 2nd, 4th, 8th… below.
 const LABEL_PX = 13
 
@@ -56,7 +56,7 @@ export const labelPrices = Effect.fnUntraced(function* ({
   return kept.reverse()
 })
 
-// Decision: the footprint chart's rows are at most 36 px a tick, so a quiet
+// The footprint chart's rows are at most 36 px a tick, so a quiet
 // window's few prices don't stretch into giant cells (spec apinrdw/kumora#263,
 // "Rows").
 const ROW_PX = 36

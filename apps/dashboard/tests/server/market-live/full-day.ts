@@ -1,6 +1,4 @@
-// Decision: a full day for the bounded-memory tests is 900 codes trading
-// every minute from the 08:58 match to post-trading's end, about 400,000
-// candles: more codes than trade on a busy day, each in every minute
-// (CODING_STANDARDS.md, "Bounded memory on a Worker").
+// Decision: a restart reads only last-frame tables; at most 32 MiB on the heap
+// (apps/dashboard/docs/adr/0109-a-restarted-day-keeps-a-bounded-share-of-the-day-in-memory.md)
 export const FULL_DAY_CODES = 900
 export const FULL_DAY_MINUTES = 438

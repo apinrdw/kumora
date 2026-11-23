@@ -13,8 +13,8 @@ import { DayIndexColdPath } from "./routes.ts"
 
 const decodeDate = Schema.decodeUnknownEffect(WibDate)
 
-// Decision: a plain class, like the trading-day object: fetch only, and only
-// the bridge may import `cloudflare:workers`.
+// Decision: only the bridge and workflow.ts import cloudflare:workers
+// (packages/server/docs/adr/0001-only-the-bridge-and-the-workflow-runner-import-cloudflare-workers.md)
 export class DayIndexObject {
   private index!: Effect.Success<ReturnType<typeof makeDayIndex>>
 

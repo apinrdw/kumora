@@ -6,14 +6,20 @@ import { checkDecisionDocs } from "./decision-docs.mts"
 import { CheckFailed } from "./lib/check.mts"
 import { memoryFileSystem, recordingSpawner } from "./lib/testing.mts"
 
-// Built, so this file's own lines don't point into an ADR directory or carry
-// a tag.
+// Built, so this file's own lines don't point at an ADR or carry a tag.
 const adrDocs = ["docs", "adr"].join("/")
 const tag = ["Decision", ":"].join("")
-const comment = (lines: number, marker = "//") => [
+const one = `${adrDocs}/0001-one.md`
+// An ADR that a pointer to `one` reaches.
+const anADR = { [one]: "# One\n\nWhy." }
+// A decision of `lines` lines whose last names `target`.
+const comment = (lines: number, marker = "//", target = one) => [
   `${marker} ${tag} one`,
-  ...Array.from({ length: lines - 1 }, () => `${marker} more`),
+  ...Array.from({ length: lines - 2 }, () => `${marker} more`),
+  `${marker} (${target})`,
 ]
+const runs = (at: string, lines: number) =>
+  `${at}: Decision runs ${lines} lines; keep 2: a gist and the ADR path`
 
 // A repo whose index lists the files given, plus `unreadable` ones that are
 // listed but not on disk.
@@ -29,177 +35,312 @@ const repo = (
   const absolute = Object.fromEntries(
     Object.entries(files).map(([file, text]) => [`/repo/${file}`, text])
   )
-  return {
-    index,
-    layer: Layer.mergeAll(index.layer, memoryFileSystem(absolute), Path.layer),
-  }
+  return Layer.mergeAll(index.layer, memoryFileSystem(absolute), Path.layer)
 }
 
-describe("checkDecisionDocs", () => {
-  it.effect("passes on a repo with no ADRs", () => {
-    const { index, layer } = repo({
-      "README.md": "Decisions are `Decision:` comments.",
-      "assets/logo.png": `\0PNG ${adrDocs}/ inside binary`,
-    })
-    return Effect.gen(function* () {
-      yield* checkDecisionDocs("/repo")
-      assert.include(index.calls[0]?.args ?? [], ":(exclude)repos")
-      assert.deepStrictEqual(yield* TestConsole.logLines, [
-        "Checked 2 files: no ADRs, every Decision in shape.",
-      ])
-    }).pipe(Effect.provide(layer))
-  })
+const findings = (files: Record<string, string>) =>
+  Effect.flip(checkDecisionDocs("/repo")).pipe(
+    Effect.map((error) => {
+      assert.instanceOf(error, CheckFailed)
+      return error.findings
+    }),
+    Effect.provide(repo(files))
+  )
+const passes = (files: Record<string, string>) =>
+  checkDecisionDocs("/repo").pipe(Effect.provide(repo(files)))
+const partway = (at: string) =>
+  `${at}: ${tag} sits partway along a line; open a comment line with it`
 
-  it.effect(
-    "fails with CheckFailed naming ADR files and links into them",
-    () => {
-      const { layer } = repo({
-        [`${adrDocs}/0001-use-effect.md`]: "# Use Effect",
-        "AGENTS.md": `intro\nSee ${adrDocs}s/0001.md for why.`,
-      })
-      return Effect.gen(function* () {
-        const error = yield* Effect.flip(checkDecisionDocs("/repo"))
-        assert.instanceOf(error, CheckFailed)
-        assert.deepStrictEqual(error.findings, [
-          `${adrDocs}/0001-use-effect.md: lives in an ADR directory`,
-          "AGENTS.md:2: points into an ADR directory",
-        ])
-      }).pipe(Effect.provide(layer))
-    }
+describe("checkDecisionDocs", () => {
+  it.effect("skips a listed file it cannot read, and a binary one", () =>
+    Effect.gen(function* () {
+      yield* checkDecisionDocs("/repo").pipe(
+        Effect.provide(
+          repo(
+            {
+              "README.md": "",
+              "assets/logo.png": `\0PNG ${adrDocs}/0009-gone.md in binary`,
+            },
+            ["docs/notes.md"]
+          )
+        )
+      )
+      assert.deepStrictEqual(yield* TestConsole.logLines, [
+        "Checked 3 files: every Decision points at an ADR, every ADR has one.",
+      ])
+    })
   )
 
-  it.effect("skips a listed file it cannot read", () => {
-    const { layer } = repo({ "README.md": "" }, ["docs/adr-notes.md"])
-    return Effect.gen(function* () {
-      yield* checkDecisionDocs("/repo")
-      assert.deepStrictEqual(yield* TestConsole.logLines, [
-        "Checked 2 files: no ADRs, every Decision in shape.",
-      ])
-    }).pipe(Effect.provide(layer))
-  })
-
   it.effect(
-    "passes a five-line decision, closed by an empty comment line or */",
-    () => {
-      const { layer } = repo({
-        "a.ts": [...comment(5), "//", "// Unrelated.", "const a = 1"].join(
+    "passes a two-line decision, closed by an empty comment line or */",
+    () =>
+      passes({
+        ...anADR,
+        "a.ts": [...comment(2), "//", "// Unrelated.", "const a = 1"].join(
           "\n"
         ),
-        "b.tsx": ["/**", ...comment(5, " *"), " */"].join("\n"),
-        "c.yml": [...comment(5, "#"), "key: value"].join("\n"),
+        "b.tsx": ["/**", ...comment(2, " *"), " */"].join("\n"),
+        "c.yml": [...comment(2, "#"), "key: value"].join("\n"),
         "d.ts": `// Prose about the \`${tag}\` tag.`,
         "e.md": `Notes. ${tag} prose, not a comment.`,
       })
-      return Effect.gen(function* () {
-        yield* checkDecisionDocs("/repo")
-      }).pipe(Effect.provide(layer))
-    }
   )
 
   it.effect(
     "counts every line of a block comment whose lines carry no * prefix",
-    () => {
-      const plain = Array.from({ length: 6 }, () => "  more")
-      const { layer } = repo({
-        "a.tsx": [`{/* ${tag} one`, ...plain, "*/}"].join("\n"),
-        "b.ts": [`/** ${tag} one`, ...plain.slice(1), "  more */"].join("\n"),
+    () =>
+      Effect.gen(function* () {
+        assert.deepStrictEqual(
+          yield* findings({
+            ...anADR,
+            "a.tsx": [`{/* ${tag} one`, "  more", `  (${one})`, "*/}"].join(
+              "\n"
+            ),
+            "b.ts": [`/** ${tag} one`, "  more", `  (${one}) */`].join("\n"),
+          }),
+          [runs("a.tsx:1", 3), runs("b.ts:1", 3)]
+        )
       })
-      return Effect.gen(function* () {
-        const error = yield* Effect.flip(checkDecisionDocs("/repo"))
-        assert.instanceOf(error, CheckFailed)
-        assert.deepStrictEqual(error.findings, [
-          "a.tsx:1: Decision runs 7 lines; keep 5 and link the PR for the rest",
-          "b.ts:1: Decision runs 7 lines; keep 5 and link the PR for the rest",
-        ])
-      }).pipe(Effect.provide(layer))
-    }
   )
 
-  it.effect(
-    "passes a tag in a string or a YAML value, outside a comment",
-    () => {
-      const { layer } = repo({
-        "a.ts": `const label = '${tag} keep'`,
-        "b.yml": `description: "${tag} keep"`,
-      })
-      return Effect.gen(function* () {
-        yield* checkDecisionDocs("/repo")
-      }).pipe(Effect.provide(layer))
-    }
+  it.effect("passes a tag in a string or a YAML value, outside a comment", () =>
+    passes({
+      "a.ts": `const label = '${tag} keep'`,
+      "b.yml": `description: "${tag} keep"`,
+    })
   )
 
-  it.effect(
-    "reads no Decision in SQL or HTML, and fails one after code",
-    () => {
-      const { layer } = repo({
-        "a.sql": [`-- ${tag} one`, "--", `select 1 -- What. ${tag} why`].join(
-          "\n"
-        ),
-        "b.html": [
-          `<!-- ${tag} one`,
-          ...Array.from({ length: 5 }, () => "more"),
-          "-->",
-        ].join("\n"),
-        "c.ts": `const a = 1 // ${tag} why`,
-      })
-      return Effect.gen(function* () {
-        const error = yield* Effect.flip(checkDecisionDocs("/repo"))
-        assert.instanceOf(error, CheckFailed)
-        assert.deepStrictEqual(error.findings, [
-          `c.ts:1: ${tag} sits partway along a line; open a comment line with it`,
-        ])
-      }).pipe(Effect.provide(layer))
-    }
+  it.effect("reads no Decision in SQL or HTML, and fails one after code", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* findings({
+          "a.sql": [`-- ${tag} one`, "--", `select 1 -- What. ${tag} why`].join(
+            "\n"
+          ),
+          "b.html": [`<!-- ${tag} one`, "more", "more", "-->"].join("\n"),
+          "c.ts": `const a = 1 // ${tag} why`,
+        }),
+        [partway("c.ts:1")]
+      )
+    })
   )
 
-  it.effect("keeps a decision open past a line comment ending in */", () => {
-    const { layer } = repo({
-      "a.ts": [
-        `// ${tag} one`,
-        "// see apps/*/",
-        ...Array.from({ length: 4 }, () => "// more"),
+  it.effect("passes pointers in shell, CSS and a YAML block scalar", () => {
+    const adr = (n: number) => `${adrDocs}/000${n}-adr.md`
+    return passes({
+      ...Object.fromEntries([2, 3, 4, 5].map((n) => [adr(n), "# ADR"])),
+      "b.sh": ["#!/bin/sh", ...comment(2, "#", adr(2)), "true"].join("\n"),
+      "c.css": [`/* ${tag} one`, `   (${adr(3)}) */`, "a {}"].join("\n"),
+      "d.yml": [
+        "steps:",
+        "  - run: |",
+        ...comment(2, "      #", adr(4)),
+        "      echo hi",
+        "  - with:",
+        "      script: |",
+        ...comment(2, "        //", adr(5)),
+        "        core.info(1)",
       ].join("\n"),
     })
-    return Effect.gen(function* () {
-      const error = yield* Effect.flip(checkDecisionDocs("/repo"))
-      assert.instanceOf(error, CheckFailed)
-      assert.deepStrictEqual(error.findings, [
-        "a.ts:1: Decision runs 6 lines; keep 5 and link the PR for the rest",
-      ])
-    }).pipe(Effect.provide(layer))
   })
 
-  it.effect("fails a decision over five lines, or one opening mid-line", () => {
-    const { layer } = repo({
-      "a.ts": [...comment(6), "const a = 1"].join("\n"),
-      "b.tsx": ["/**", ...comment(5, " *"), " * more */"].join("\n"),
-      "c.ts": `// What this does. ${tag} why.`,
+  it.effect("fails decisions in shell, CSS and a YAML block scalar", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* findings({
+          ...anADR,
+          "b.sh": ["#!/bin/sh", ...comment(3, "#")].join("\n"),
+          "c.css": [`a {} /* ${tag} why */`, `/* ${tag} one */`].join("\n"),
+          "d.yml": [
+            "steps:",
+            "  - run: |",
+            ...comment(3, "      #"),
+            "      echo hi",
+          ].join("\n"),
+        }),
+        [
+          runs("b.sh:2", 3),
+          partway("c.css:1"),
+          `c.css:2: Decision names no ADR; add its docs/adr/NNNN-slug.md path`,
+          runs("d.yml:3", 3),
+        ]
+      )
     })
-    return Effect.gen(function* () {
-      const error = yield* Effect.flip(checkDecisionDocs("/repo"))
-      assert.instanceOf(error, CheckFailed)
-      assert.deepStrictEqual(error.findings, [
-        "a.ts:1: Decision runs 6 lines; keep 5 and link the PR for the rest",
-        "b.tsx:2: Decision runs 6 lines; keep 5 and link the PR for the rest",
-        `c.ts:1: ${tag} sits partway along a line; open a comment line with it`,
-      ])
-    }).pipe(Effect.provide(layer))
-  })
+  )
+
+  it.effect("keeps a decision open past a line comment ending in */", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* findings({
+          ...anADR,
+          "a.ts": [`// ${tag} one`, "// see apps/*/", `// (${one})`].join("\n"),
+        }),
+        [runs("a.ts:1", 3)]
+      )
+    })
+  )
+
+  it.effect("fails a decision over two lines, or one opening mid-line", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* findings({
+          ...anADR,
+          "a.ts": [...comment(3), "const a = 1"].join("\n"),
+          "b.tsx": ["/**", ...comment(2, " *"), " * more */"].join("\n"),
+          "c.ts": `// What this does. ${tag} why.`,
+        }),
+        [runs("a.ts:1", 3), runs("b.tsx:2", 3), partway("c.ts:1")]
+      )
+    })
+  )
+
+  it.effect("passes pointers into a workspace and the root ADR directory", () =>
+    passes({
+      ...anADR,
+      [`packages/relay/${adrDocs}/0002-token-refusal.md`]: "# Refusal",
+      "scripts/a.mts": comment(2).join("\n"),
+      "packages/relay/src/b.ts": comment(
+        2,
+        "//",
+        `packages/relay/${adrDocs}/0002-token-refusal.md`
+      ).join("\n"),
+    })
+  )
+
+  it.effect("fails a Decision that names no ADR, or one that is missing", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* findings({
+          "a.ts": [`// ${tag} gist`, "// and no path"].join("\n"),
+          "b.ts": comment(2, "//", `${adrDocs}/0002-gone.md`).join("\n"),
+        }),
+        [
+          "a.ts:1: Decision names no ADR; add its docs/adr/NNNN-slug.md path",
+          `b.ts:2: points at ${adrDocs}/0002-gone.md, which does not exist`,
+        ]
+      )
+    })
+  )
+
+  it.effect("fails a pointer written from its file, not the repo root", () =>
+    Effect.gen(function* () {
+      const fromFile = (at: string, written: string) =>
+        `${at}: Decision points at ${written}, a path from its file; write it from the repo root`
+      assert.deepStrictEqual(
+        yield* findings({
+          ...anADR,
+          "a.ts": comment(2, "//", `./${one}`).join("\n"),
+          "src/b.ts": comment(2, "//", `../${one}`).join("\n"),
+        }),
+        [fromFile("a.ts:2", `./${one}`), fromFile("src/b.ts:2", `../${one}`)]
+      )
+    })
+  )
+
+  it.effect("passes ADR links that resolve, and reads no placeholder", () =>
+    passes({
+      ...anADR,
+      [`packages/relay/${adrDocs}/0002-two.md`]: [
+        "---",
+        "Sites: none",
+        "---",
+        `# Two, after [one](../../../../${one})`,
+      ].join("\n"),
+      "AGENTS.md": [
+        `See [one](${one}) and \`packages/relay/${adrDocs}/0002-two.md\`.`,
+        `Write \`packages/relay/${adrDocs}/NNNN-token-refusal.md\`, or`,
+        `\`<workspace>/${adrDocs}/0003-slug.md\`.`,
+        `Upstream: https://github.com/a/b/blob/main/${adrDocs}/0009-x.md`,
+      ].join("\n"),
+      "a.ts": comment(2).join("\n"),
+    })
+  )
+
+  it.effect("fails a Markdown link to an ADR that does not resolve", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* findings({
+          "README.md": ["# Readme", `See [why](${adrDocs}/0003-gone.md).`].join(
+            "\n"
+          ),
+        }),
+        [`README.md:2: points at ${adrDocs}/0003-gone.md, which does not exist`]
+      )
+    })
+  )
+
+  const siteless = "---\nSites: none\n---\n# Siteless"
+
+  it.effect("passes ADR numbers reused across directories", () =>
+    passes({
+      ...anADR,
+      [`apps/web/${adrDocs}/0001-web.md`]: siteless,
+      "a.ts": comment(2).join("\n"),
+    })
+  )
+
+  it.effect("fails an ADR misnamed, or one reusing a number", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* findings({
+          [`${adrDocs}/notes.md`]: siteless,
+          [`${adrDocs}/0002-Bad_Name.md`]: siteless,
+          [`${adrDocs}/0003-a.md`]: siteless,
+          [`${adrDocs}/0003-b.md`]: siteless,
+        }),
+        [
+          `${adrDocs}/notes.md: name it NNNN-<slug>.md`,
+          `${adrDocs}/0002-Bad_Name.md: name it NNNN-<slug>.md`,
+          `${adrDocs}: ADR number 0003 is used by 0003-a.md and 0003-b.md; renumber one`,
+        ]
+      )
+    })
+  )
+
+  const two = `${adrDocs}/0002-two.md`
+  const reversal = {
+    [one]: "---\nStatus: superseded by ADR-0002\n---\n# One",
+    [two]: `# Two\n\nReverses [one](0001-one.md), ${one}.`,
+  }
+
+  it.effect("passes a superseded ADR that only its successor links", () =>
+    passes({ ...reversal, "a.ts": comment(2, "//", two).join("\n") })
+  )
+
+  it.effect("fails a pointer at a superseded ADR, naming its successor", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* findings({
+          ...reversal,
+          "a.ts": comment(2).join("\n"),
+          "b.ts": comment(2, "//", two).join("\n"),
+        }),
+        [`a.ts:2: points at ${one}, superseded by ${two}; point there`]
+      )
+    })
+  )
+
+  it.effect("passes a Sites: none ADR that no Decision points at", () =>
+    passes({ [one]: siteless })
+  )
+
+  it.effect("fails an ADR that only Markdown links, or nothing does", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* findings({
+          ...anADR,
+          [two]: "# Two",
+          "AGENTS.md": `See ${one}.`,
+        }),
+        [
+          `${one}: no Decision points here; add a pointer at its site, or mark it Sites: none`,
+          `${two}: no Decision points here; add a pointer at its site, or mark it Sites: none`,
+        ]
+      )
+    })
+  )
 
   // Each case below was misread by the line classifier these tests replaced.
-  const findings = (files: Record<string, string>) =>
-    Effect.flip(checkDecisionDocs("/repo")).pipe(
-      Effect.map((error) => {
-        assert.instanceOf(error, CheckFailed)
-        return error.findings
-      }),
-      Effect.provide(repo(files).layer)
-    )
-  const passes = (files: Record<string, string>) =>
-    checkDecisionDocs("/repo").pipe(Effect.provide(repo(files).layer))
-  const partway = (at: string) =>
-    `${at}: ${tag} sits partway along a line; open a comment line with it`
-
   it.effect("passes comment markers inside strings and template literals", () =>
     passes({
       "a.ts": [
@@ -243,7 +384,8 @@ describe("checkDecisionDocs", () => {
 
   it.effect("ends a decision at a private field after it", () =>
     passes({
-      "a.ts": ["class A {", ...comment(5, "  //"), "  #field = 1", "}"].join(
+      ...anADR,
+      "a.ts": ["class A {", ...comment(2, "  //"), "  #field = 1", "}"].join(
         "\n"
       ),
     })
@@ -251,8 +393,9 @@ describe("checkDecisionDocs", () => {
 
   it.effect("reads no block comment from a /* that is not one", () =>
     passes({
+      ...anADR,
       ".gitignore": ["/*", "!keep", `# ${tag} x`].join("\n"),
-      "a.ts": ["const glob = `", "/* all", "`", `// ${tag} one`].join("\n"),
+      "a.ts": ["const glob = `", "/* all", "`", ...comment(2)].join("\n"),
     })
   )
 
@@ -260,14 +403,12 @@ describe("checkDecisionDocs", () => {
     Effect.gen(function* () {
       assert.deepStrictEqual(
         yield* findings({
-          "a.jsonc": ["{", ...comment(6, "  //"), '  "a": 1', "}"].join("\n"),
+          ...anADR,
+          "a.jsonc": ["{", ...comment(3, "  //"), '  "a": 1', "}"].join("\n"),
           // No final newline after a closing line comment.
-          "b.jsonc": ['{ "a": 1 }', ...comment(6)].join("\n"),
+          "b.jsonc": ['{ "a": 1 }', ...comment(3)].join("\n"),
         }),
-        [
-          "a.jsonc:2: Decision runs 6 lines; keep 5 and link the PR for the rest",
-          "b.jsonc:2: Decision runs 6 lines; keep 5 and link the PR for the rest",
-        ]
+        [runs("a.jsonc:2", 3), runs("b.jsonc:2", 3)]
       )
     })
   )
@@ -276,16 +417,19 @@ describe("checkDecisionDocs", () => {
     Effect.gen(function* () {
       assert.deepStrictEqual(
         yield* findings({
-          "a.yml": [...comment(6, "#"), "key: value"].join("\n"),
+          ...anADR,
+          "a.yml": [...comment(3, "#"), "key: value"].join("\n"),
         }),
-        ["a.yml:1: Decision runs 6 lines; keep 5 and link the PR for the rest"]
+        [runs("a.yml:1", 3)]
       )
     })
   )
 
   it.effect("names a file it cannot parse and reads no Decision in it", () =>
     Effect.gen(function* () {
-      yield* passes({ "a.ts": ["const = ;", ...comment(6)].join("\n") })
+      yield* passes({
+        "a.ts": ["const = ;", `// ${tag} one`, "// more", "// more"].join("\n"),
+      })
       assert.deepStrictEqual(yield* TestConsole.errorLines, [
         "a.ts: does not parse, so no Decision in it was read",
       ])

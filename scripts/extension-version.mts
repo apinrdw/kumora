@@ -11,11 +11,8 @@ import { gitLines, stdoutOf } from "./lib/command.mts"
 const extension = "apps/extension"
 const manifestPackage = `${extension}/package.json`
 
-// Decision: every file under apps/extension is a build input except its
-// tests/, any *.md, and vitest.config.ts, which vite build never reads.
-// tsconfig.json stays in because vite resolves imports through it. Workspace
-// packages the extension imports (relay, ui, deploy) are out: watching them
-// would demand a bump for every dashboard-only change to packages/ui.
+// Decision: extension build inputs exclude tests, Markdown and workspace packages
+// (docs/adr/0016-extension-build-inputs-exclude-tests-markdown-and-packages.md)
 const notBuildInputs = [
   /^apps\/extension\/tests\//,
   /\.md$/,

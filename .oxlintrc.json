@@ -1,9 +1,6 @@
 {
-  // Decision: Oxlint and Oxfmt replace ESLint and Prettier: the same rule set
-  // lints the whole repo in 1.4 s against about 4 s per workspace. Vite Plus was
-  // deferred because it re-aliases `vite` and adds a second task runner.
-  // Type-aware rules (tsgolint) are off and `tsc --noEmit` stays the type gate:
-  // tsgolint's type-check mode is experimental. See apinrdw/kumora-monorepo#3.
+  // Decision: Oxlint and Oxfmt replace ESLint and Prettier; tsc stays the type gate
+  // (docs/adr/0011-oxlint-and-oxfmt-replace-eslint-and-prettier.md)
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "react", "jsx-a11y", "vitest"],
   "categories": { "correctness": "error" },
@@ -64,10 +61,8 @@
   // Overrides replace a rule's root options, they don't merge, so every
   // override that sets no-restricted-imports restates the root paths and
   // patterns. scripts/check-oxlint-overrides.mts fails when one is missing.
-  // Decision: packages/ui/src is in no override. It is regenerable shadcn CLI
-  // output, so it is exempt from every Effect ban and keeps only the root
-  // import bans; `shadcn add` output must lint clean unedited. See
-  // apinrdw/kumora#103 and #111.
+  // Decision: packages/ui/src is in no lint override, so shadcn output lints as is
+  // (docs/adr/0012-shadcn-output-in-packages-ui-lints-unedited.md)
   "overrides": [
     {
       // The full Effect ban set, tests included. A workspace that moves to
@@ -114,10 +109,8 @@
       }
     },
     {
-      // Decision: the tape is the one dashboard module that runs SQL against
-      // a trading day's trades table, so a second backing for the trades
-      // lands there alone (spec apinrdw/kumora#555, ticket #567). Tests that
-      // record a day before trade chunks still write the table directly.
+      // Decision: the tape is the one dashboard module that runs SQL on a trades table
+      // (docs/adr/0013-the-tape-is-the-one-module-that-runs-sql-on-a-trades-table.md)
       "files": ["apps/dashboard/src/**"],
       "jsPlugins": ["./scripts/oxlint-plugin.mts"],
       "rules": {
@@ -131,10 +124,8 @@
       }
     },
     {
-      // Decision: code that never renders React skips rules-of-hooks. The rule
-      // reads an Effect accessor such as `Clock.use((now) => now)` as React's
-      // `use` hook and fails it; agents hit this in three sessions. A new
-      // React-free folder joins this list; until then the rule still runs there.
+      // Decision: React-free folders skip rules-of-hooks, listed one by one
+      // (docs/adr/0014-react-free-code-skips-rules-of-hooks.md)
       "files": ["scripts/**", "packages/client/**", "packages/deploy/**", "packages/relay/**", "packages/server/**", "apps/extension/src/worker/**", "apps/*/alchemy.run.ts", "apps/*/src/server/**", "apps/*/src/worker.ts", "apps/dashboard/billing/**", "apps/dashboard/src/routes/api/**"],
       "rules": {
         "react/rules-of-hooks": "off"

@@ -1,5 +1,5 @@
 // Spec apinrdw/kumora#437, "The build": at the largest day the store
-// accepts (1.5M trades, broker-codes.ts's status Decision), the build holds
+// accepts (1.5M trades, the status comment in broker-codes.ts), the build holds
 // one entry per (code, broker, investor type) and per code, never a trade.
 import { setFlagsFromString } from "node:v8"
 import { runInNewContext } from "node:vm"

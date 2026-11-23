@@ -24,7 +24,7 @@ const severity: ReadonlyArray<TargetState> = [
   "off",
 ]
 
-// Decision: a target state with a badge of its own shows first; only when
+// A target state with a badge of its own shows first; only when
 // none does, `PIN` (the Ajaib tab locked) and then `OUT` (the Stockbit tab
 // signed out). Progress, throttling, Streaming hours and the owner's pause
 // never show, since nothing waits on the owner. See apinrdw/kumora#244,

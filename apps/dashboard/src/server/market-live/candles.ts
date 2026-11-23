@@ -40,11 +40,8 @@ import {
 import type { LivePrice } from "./stockbit-liveprice.ts"
 import { makeSweepAlerts, type KnownSweep } from "./sweep-alerts.ts"
 
-// Decision: a trade's part in its candle stays open for 5 s after it first
-// arrived, so a second feed's copy can still move or reprice it; after that a
-// later feed changes only the tape row. A minute such a copy emptied goes out
-// as a footprint with no cells and no candle (`takeChanged`). See spec
-// apinrdw/kumora#138 ("Merge and dedupe"); apps/e2e/support/clock.ts repeats it.
+// Decision: a trade's part in its candle stays open for 5 s after it arrives
+// (apps/dashboard/docs/adr/0062-a-trade-s-part-in-its-candle-stays-open-for-5-s.md)
 const MERGE_WINDOW = 5_000
 
 // A candle's figures. Open and close belong to the trades with the lowest and
@@ -148,7 +145,7 @@ interface Print {
   readonly frequency: number
 }
 
-// Decision: the candle arithmetic (`single`, `fold`, `add`, `printOf`) stays
+// The candle arithmetic (`single`, `fold`, `add`, `printOf`) stays
 // plain functions, not Effects: every 250 ms delta folds each trade still in
 // its merge window, and as Effects ingesting 100,000 trades took 2.7 s, not
 // 2.4 s. The Effects around it call it inline. See apinrdw/kumora#159.
@@ -331,11 +328,8 @@ interface Totals {
   readonly frequency: number
 }
 
-// Decision: the book keeps a candle in memory only while a trade of its is in
-// the merge window or its figures changed since the last flush; once written
-// it leaves, and a later trade in that minute reads it back from the store.
-// Holding the whole day would grow without bound on a Worker. A failed flush
-// keeps its candles and trades until the write lands. See apinrdw/kumora#157.
+// Decision: the candle book holds a candle in memory only until its flush lands
+// (apps/dashboard/docs/adr/0063-the-candle-book-holds-a-candle-only-while-it-can-change.md)
 //
 // `settled` hears each regular-board trade as it settles into its candle:
 // the minute's settled figures and the trade's own (bubble-book.ts).
@@ -430,7 +424,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // inside the merge window when `withOpen`. A trade numbered at or below
   // the stored sweeps' last can split one, so the minute's stored trades are
   // read back once and the sweeps grouped whole from then on.
-  // Decision: the book reads a minute's trades back only for such a late
+  // The book reads a minute's trades back only for such a late
   // trade. The trades table has no code index, so that read scans the whole
   // market's minute; a trade numbered above the stored sweeps carries them
   // on instead, and the minute a flush let go of reopens from its row. See
@@ -700,7 +694,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // Each minute's sweeps grouped again, every code's, and the alert rule's
   // decisions since: on these and on the sweeps that waited for their second
   // to close.
-  // Decision: every code's changed minutes are grouped on every delta, with
+  // Every code's changed minutes are grouped on every delta, with
   // no once-a-second cap, so an alert goes out ~250 ms after its second
   // closes. The 09:00 WIB peak measured 2.2–2.6 ms a delta at p50, 12.7 ms
   // at worst; if deltas run long at the open, group every code at most once
@@ -738,17 +732,11 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // no cells; and of any code the sweep alerts decided since (`regroupAll`).
   // Only the alert rule sees every code's sweeps.
   //
-  // Decision: a minute whose last regular-board trade left it goes out as a
-  // footprint with no cells, for any code, as its sweeps go out empty, and
-  // with no candle. The pages drop that minute (candle-store.ts, and Market
-  // Bubbles' lib/bubbles.ts), so the protocol needs no removal message. See
-  // apinrdw/kumora#279 and apinrdw/kumora#436.
+  // Decision: an emptied minute goes out as a footprint with no cells, no candle
+  // (apps/dashboard/docs/adr/0028-an-emptied-minute-goes-out-as-a-footprint-with-no-cells.md)
   //
-  // Decision: a changed minute's sweeps go out whole in every delta and the
-  // page replaces its copy, so the book is the only grouper and the join
-  // can't gap or double. A peak minute of 370 sweeps measured 21.7 KB in its
-  // last delta, 11.0 KB a delta over its 240 (sweeps.test.ts). If too heavy,
-  // send a minute's sweeps at most once a second. See apinrdw/kumora#279.
+  // Decision: a changed minute's sweeps go out whole and the page replaces them
+  // (apps/dashboard/docs/adr/0064-a-changed-minute-s-sweeps-go-out-whole.md)
   const takeChanged = Effect.fnUntraced(function* (
     selected: ReadonlySet<StockCode>
   ) {
@@ -876,7 +864,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // rule before it decides again, so each side's warm-up and cutoff carry
   // on. The rule counts the stored sweeps of a minute the book takes from
   // the store as ranked (`regroupAll`).
-  // Decision: the ranking is rebuilt from the footprints table once, not
+  // The ranking is rebuilt from the footprints table once, not
   // stored on its own: the research put it at a few MB, under ~30 MB at
   // worst, and the worst day's retains 12 MiB (sweep-alerts-memory.test.ts).
   // See spec apinrdw/kumora#510 and apinrdw/kumora#500.

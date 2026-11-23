@@ -110,7 +110,7 @@ export const idxPriceAxis = (
       const next = Effect.runSync(idxTick(latest ?? 0))
       if (next === tick) return
       tick = next
-      // Decision: the series' own price format, never the chart-wide
+      // The series' own price format, never the chart-wide
       // `localization.priceFormatter`, which would override the footer's
       // blank one (spec apinrdw/kumora#263, "Further Notes").
       series.applyOptions({

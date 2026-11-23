@@ -8,13 +8,13 @@ import { FetchHttpClient, HttpClient, HttpClientError } from "effect/http"
 // answer takes 6-8 s. See apinrdw/kumora#320.
 export const KSEI_SLOWEST_ANSWER = "8 seconds"
 
-// Decision: a request KSEI hasn't answered in 2 minutes fails, and the step
+// A request KSEI hasn't answered in 2 minutes fails, and the step
 // that sent it decides what that means: `head` records its file unanswered,
 // any other step retries. At 15 times KSEI's slowest answer, a request still
 // waiting is stuck. See apinrdw/kumora#327, "Fetching from KSEI".
 export const KSEI_REQUEST_TIMEOUT = "2 minutes"
 
-// Decision: every request to KSEI is `cache: "no-store"`: from a Worker,
+// Every request to KSEI is `cache: "no-store"`: from a Worker,
 // repeat requests came back in milliseconds, apparently from Cloudflare's
 // cache, which would hide a republished file. And `redirect: "manual"`: a
 // missing file answers `302 Location: /id`, which fetch would follow to the

@@ -12,7 +12,7 @@ import { ArchiveWorkflow, type WorkflowError } from "./workflow.ts"
 // run card shows it. From the summaries the listing of runs/ carries
 // (`source.metadata`), so it holds at most MAX_LISTED_OBJECTS of them per
 // trigger and reads no record.
-// Decision: one listing per trigger, starting after the key of a run that
+// One listing per trigger, starting after the key of a run that
 // trigger would have started 30 days ago. Run ids of one trigger sort as
 // their starts do (`runIdAt`), so the page lists only the past 30 days of
 // runs, and runs/ can grow without the page listing more of it. See

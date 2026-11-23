@@ -36,7 +36,7 @@ export const dayValuesAnswer = Effect.fnUntraced(function* (
   return dayValuesResponse(yield* encodeDayValues({ values }))
 })
 
-// Decision: the previous trading day looks back at most this many days,
+// The previous trading day looks back at most this many days,
 // the longest IDX closure the schedule allows for (`closedTradingDay`).
 const LOOK_BACK_DAYS = 31
 
@@ -73,11 +73,8 @@ const answerText = Effect.fnUntraced(function* (response: Response) {
 
 const NONE: ReadonlyMap<StockCode, number> = new Map()
 
-// Decision: today's object asks the previous trading day's for its values
-// once a day, on the relay's token, and keeps them as a day store fact. A
-// 404 (a day the relay didn't seal, after a gap) keeps none, so the floor
-// reads today's value alone; a failed ask keeps nothing and asks again on
-// the next token. See spec apinrdw/kumora#517, "Data".
+// Decision: today's object asks yesterday's for its values once, kept as a fact
+// (apps/dashboard/docs/adr/0092-today-s-object-keeps-the-previous-day-s-values-as-a-fact.md)
 export const makePreviousValues = Effect.fnUntraced(function* (options: {
   readonly date: WibDate
   readonly fact: (key: string) => Effect.Effect<string | undefined>

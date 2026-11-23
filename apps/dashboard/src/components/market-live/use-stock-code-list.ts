@@ -16,7 +16,7 @@ export type StockCodeList =
 const LOADING: StockCodeList = { _tag: "Loading" }
 const MISSING: StockCodeList = { _tag: "Missing" }
 
-// Decision: on the live day a missing list (the Worker's 404, `no-store`) is
+// On the live day a missing list (the Worker's 404, `no-store`) is
 // asked for again every RETRY_INTERVAL, so the page picks it up without a
 // reload once the relay delivers it; a recorded day's 404 is final. A failed
 // ask (5xx, dropped) retries on either day and hands the page nothing, so it

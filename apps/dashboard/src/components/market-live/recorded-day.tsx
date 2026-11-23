@@ -46,7 +46,7 @@ import { makeReplayCursor, useReplay, type ReplayCursor } from "./replay-cursor"
 import { signInAgain } from "./sign-in-again"
 import { TapeList, useFramedTape } from "./tape-list"
 
-// Decision: the book frame follows the cursor in quarter seconds, the
+// The book frame follows the cursor in quarter seconds, the
 // relay's book delta cadence; finer redraws would show the same frame.
 const BOOK_STEP_MS = 250
 

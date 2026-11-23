@@ -5,10 +5,8 @@ import type { RunningTrade, SweepAlert } from "@workspace/relay"
 import { TradeNumberOrder } from "@workspace/relay"
 import { Effect } from "effect"
 
-// Decision: the alerts live only in the object's memory, not in its store: a
-// restarted object snapshots none until it decides new ones, and an open
-// page keeps the marks it had across the reconnect (lib/tape.ts,
-// `applyViewerMessage`). See apinrdw/kumora#513.
+// Decision: sweep alerts live only in object memory; the page keeps its marks
+// (apps/dashboard/docs/adr/0087-sweep-alerts-live-only-in-the-object-s-memory.md)
 export const makeKeptAlerts = Effect.sync(() => {
   let kept: Array<SweepAlert> = []
 

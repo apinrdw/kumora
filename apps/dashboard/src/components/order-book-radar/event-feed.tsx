@@ -13,7 +13,7 @@ import { marketEventDetail, type MarketEvent } from "@/lib/order-flow-events"
 
 import type { RadarEventsStore } from "./radar-events-store"
 
-// Decision: the feed lists the newest 60 of the scanner's codes' events, as
+// The feed lists the newest 60 of the scanner's codes' events, as
 // the prototype did. See spec apinrdw/kumora#517, "The scanner".
 const FEED_EVENTS = 60
 

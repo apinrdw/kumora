@@ -91,7 +91,7 @@ export function HoldingComposition({
   onOrigin,
   onView,
 }: HoldingCompositionProps) {
-  // Decision: hidden series last one origin view. Every origin change shows
+  // Hidden series last one origin view. Every origin change shows
   // every series again, reset during render rather than keying the chart by
   // origin, which would remount the bars and lose their scroll.
   const [hidden, setHidden] = useState(NONE_HIDDEN)
@@ -401,14 +401,14 @@ function Bars({
       null
     )
   const scenePoints = useRef<ReadonlyArray<BarsPoint>>([])
-  // Decision: the keyboard month is our index into the months, set by
+  // The keyboard month is our index into the months, set by
   // month on hover, not the library's focused point: the library stepped
   // from a hovered segment, which its month navigation lacks, to the first
   // month. Keys and keyboard focus move the index and focus that month's
   // own stop.
   const at = useRef(0)
   const [showing, setShowing] = useState(false)
-  // Decision: while a month shows, Escape anywhere on the page hides it and
+  // While a month shows, Escape anywhere on the page hides it and
   // keeps focus where it was, as KTooltip did, whether hover, focus or tap
   // showed it; the next arrow key steps from the month it hid, and the next
   // pointer move over a month shows it again. The library dismisses on
@@ -487,7 +487,7 @@ function Bars({
         },
         y: {
           scale: scaleLinear().domain([0, chart.axisMax]),
-          // Decision: the y-axis labels are our own rail beside the
+          // The y-axis labels are our own rail beside the
           // scroller, not the chart's axis labels, which would scroll away
           // with the columns. The chart's axis keeps only its tick values,
           // to place the gridlines level with the rail's.
@@ -511,7 +511,7 @@ function Bars({
         range: shown.map(({ key }) => SERIES_COLOR[key]),
       },
       margin: { left: 0, right: 0, top: 0, bottom: X_AXIS },
-      // Decision: the chart is one tab stop whose arrow keys step the
+      // The chart is one tab stop whose arrow keys step the
       // months, not a button per month; the Table view lists every exact
       // value for anyone who wants them as cells.
       focus: "group-x",
@@ -522,7 +522,7 @@ function Bars({
         portal,
         anchor: "group-center",
         placement: ["right", "left"],
-        // Decision: a click or Enter never pins the tooltip. It shows on
+        // A click or Enter never pins the tooltip. It shows on
         // hover, focus and tap and goes when they leave, as KTooltip did.
         sticky: false,
         className: "holding-tooltip",
@@ -535,7 +535,7 @@ function Bars({
       },
     })
   }, [chart, stops, shown, origin, rows, views])
-  // Decision: a month focused by key near or past the scroller's edge
+  // A month focused by key near or past the scroller's edge
   // scrolls to the middle; a hovered one never scrolls. The library scrolls
   // nothing itself, and following hover as well jumped the columns half a
   // view under the pointer.
@@ -727,7 +727,7 @@ function Legend({
 }) {
   // The hidden set as it was before the last click, which a double-click's
   // second click decides from.
-  // Decision: a click hides or shows its series at once, and a double-click
+  // A click hides or shows its series at once, and a double-click
   // replaces whatever its first click did: a click that waited out a timer
   // for a double-click was applied anyway when the browser counted a
   // slower one, so double-clicking an entry shown alone isolated it again.

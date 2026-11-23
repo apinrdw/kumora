@@ -9,7 +9,7 @@ import { BUSY_DAY, WHOLE_DAY } from "../../../billing/busy-figures"
 
 import { BusyDay } from "./workerd"
 
-// Decision: Cloudflare's GB is 10⁹ bytes, as its storage is billed.
+// Cloudflare's GB is 10⁹ bytes, as its storage is billed.
 const GB = 1e9
 
 // The day records in about 280 s on the machine it was measured on; the

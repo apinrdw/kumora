@@ -227,7 +227,7 @@ const priceBase = (price: AjaibPrice) =>
     time: price.time,
   })
 
-// Decision: with Stockbit lost, a code carries on from its last `liveprice`
+// With Stockbit lost, a code carries on from its last `liveprice`
 // plus the regular-board trades after it, or, never sent, from its `PRICE`
 // frame (whose volume counts the day's trades) plus their regular-board value
 // and frequency. An Ajaib `PRICE` newer than the `liveprice` fills last and
@@ -252,7 +252,7 @@ const fromFallback = Effect.fnUntraced(function* (
   )
 })
 
-// Decision: the trades after a code's base are read as the candle book's
+// The trades after a code's base are read as the candle book's
 // candles after the base minute plus that minute's trades kept here, so a
 // restart, a late copy of a trade and an out-of-order frame leave the same
 // figures. A frame delayed past its minute's end counts that minute's trades
@@ -448,7 +448,7 @@ export const makeDayStates = (candles: {
 
     // A code's last price and previous close, as its Day state gives them,
     // or from its newest trade when it has neither a base nor a `PRICE`.
-    // Decision: the scanner's prices come from the feed the Day state reads,
+    // The scanner's prices come from the feed the Day state reads,
     // Stockbit's base while live, else the fallback's, its last trade kept
     // per code as trades land, not folded from every code's candles each
     // delta. A code with no `liveprice` reads from Ajaib even while Stockbit

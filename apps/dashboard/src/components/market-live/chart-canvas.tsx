@@ -218,7 +218,7 @@ export default function ChartCanvas({
     const token = (name: string) => css.getPropertyValue(name).trim()
     const up = token("--semantic-up")
     const down = token("--semantic-down")
-    // Decision: an index's values are fractional points, not prices on IDX
+    // An index's values are fractional points, not prices on IDX
     // ticks, so its chart keeps the library's decimal axis and grid lines.
     const anIndex = INDEX_CODES.includes(store.code)
     const zoom = savedZoom("candles")
@@ -249,7 +249,7 @@ export default function ChartCanvas({
         barSpacing: zoom.barSpacing ?? BAR_SPACING_DEFAULT,
       },
       localization: { locale: "en-US", timeFormatter: crosshairTime },
-      // Decision: on a phone a vertical swipe scrolls the page, not the
+      // On a phone a vertical swipe scrolls the page, not the
       // chart; a horizontal one pans both charts through the pair.
       handleScroll: { vertTouchDrag: false },
       // The chart's own reset would go back to the saved zoom, and jump to
@@ -414,7 +414,7 @@ export default function ChartCanvas({
       const times = Effect.runSync(Effect.forEach(all, timeOf))
       drawn = new Set(times)
       const newest = times.at(-1) ?? 0
-      // Decision: the chart closes gaps up, so a relay gap's minutes go in
+      // The chart closes gaps up, so a relay gap's minutes go in
       // as whitespace bars, which give it width to shade.
       const runs = Effect.runSync(
         chartMinutes(
@@ -461,7 +461,7 @@ export default function ChartCanvas({
         cursor.pickMinute((parameter.time as UTCTimestamp) * 1000)
     }
     chart.subscribeClick(click)
-    // Decision: a double click counts as a click. Lightweight Charts 5.2.1
+    // A double click counts as a click. Lightweight Charts 5.2.1
     // calls no click subscriber for a second click within 500 ms and 5 px
     // of the first (MouseEventHandler's mouseup handler), so a quick second
     // click on a bubble would select nothing.

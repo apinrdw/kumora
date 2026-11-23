@@ -859,7 +859,7 @@ export default function FootprintCanvas({
         tickMarkFormatter: tickMark,
       },
       localization: { locale: "en-US", timeFormatter: crosshairTime },
-      // Decision: on a phone a vertical swipe scrolls the page, not the
+      // On a phone a vertical swipe scrolls the page, not the
       // chart; a horizontal one pans both charts through the pair.
       handleScroll: { vertTouchDrag: false },
       // The chart's own reset would not refit the window: `watchZoom` hears
@@ -915,7 +915,7 @@ export default function FootprintCanvas({
         grid: token("--chart-grid"),
       })
     )
-    // Decision: the top margin is wider than the bottom's to leave the order
+    // The top margin is wider than the bottom's to leave the order
     // flow marks' row (order-flow-marks.ts, 20 px) clear of the cells at the
     // default zoom. See spec apinrdw/kumora#605, "Order flow events: on the
     // page".
@@ -933,7 +933,7 @@ export default function FootprintCanvas({
     )
     footer.attachPrimitive(new FooterLabels(palette))
     footer.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0 } })
-    // Decision: stretch factors, not `setHeight`: the chart may be made
+    // Stretch factors, not `setHeight`: the chart may be made
     // before its holder has a size, and Lightweight Charts 5.2.1 keeps a
     // zero-size pane's height. See spec apinrdw/kumora#263, "Further Notes".
     chart.panes()[0]?.setStretchFactor(4)

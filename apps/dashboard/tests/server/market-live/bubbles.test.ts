@@ -846,7 +846,7 @@ describe("bubbles", () => {
     })
   )
 
-  // Decision: the cost check reads the answer's size and build time at a full
+  // The cost check reads the answer's size and build time at a full
   // day, every code trading every minute, off this test's "Full day bubbles"
   // line (run it with `--silent=false`): a Worker's clock stands still while
   // it computes. Measured 2026-11-16 on the dev machine: 3.51 MB, about

@@ -40,7 +40,7 @@ export interface HeatmapStore {
 // (`heatEndOf`), as in the GET's answer. Each snapshot of this code, a
 // reconnect's included, asks the GET again: the books a dropped socket missed
 // are the object's to answer, not the last one heard to stand in for.
-// Decision: "when it arrived" is on the object's clock, not the browser's,
+// "when it arrived" is on the object's clock, not the browser's,
 // which can run minutes off it (and does on the Test stage). The store keeps
 // the browser's clock (`now`) plus the largest offset seen from an instant
 // the object had passed when it was heard: the GET's join and each book's

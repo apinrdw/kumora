@@ -37,18 +37,15 @@ class Above1Unreadable extends Schema.TaggedError<Above1Unreadable>()(
 
 const unreadable = (message: string) => new Above1Unreadable({ message })
 
-// Decision: at most 15,000 rows, 2× Feb 2026's 7,257; an INVESTOR_NAME of at
-// most 256 characters, 2.5× the longest (102), and other text of 128, 2.7×
-// ISSUER_NAME's (47). A parse holds every row and its holder key, so these
-// keep it under PARSE_HEAP_MIB (tests/server/holdings/bounded-heap.ts):
-// 20,000 rows of 256-character texts took past it.
+// Decision: a report's parse is bounded to fit 48 MiB of the Worker's heap
+// (apps/dashboard/docs/adr/0045-a-holdings-parse-fits-a-bounded-heap.md)
 const MAX_ROWS = 15_000
 const MAX_NAME_LENGTH = 256
 const MAX_TEXT_LENGTH = 128
 
 // Words the holder key drops once punctuation is spaces: legal forms, then
 // honorifics.
-// Decision: `DR` is kept: it marks TLKM's depositary-receipt account at BNY
+// `DR` is kept: it marks TLKM's depositary-receipt account at BNY
 // Mellon, `THE BANK OF NEW YORK MELLON DR`, and dropping it merges that with
 // BNY Mellon's own holding in the same month. Without it the list merges no
 // two holders within any month of Feb–Oct 2026. See apinrdw/kumora#478.
@@ -141,9 +138,8 @@ const layoutOf = (investor: Layout["investor"], controller: boolean) =>
 // (row 5 in Feb, 7 in Mar–Apr, 6 in May–Sep and 5 in Oct 2026): Feb–Mar's
 // INVESTOR_TYPE in E, Apr–Sep's INVESTOR_CLASSIFICATION in E, and Oct's
 // CONTROLLER_OR_AFFILIATE in F with the rest one column right.
-// Decision: a header must match a layout's every label exactly, or the month
-// fails: across the 9 months IDX wrote these three, so any other label is a
-// layout change, not a variant to tolerate. See apinrdw/kumora#473.
+// Decision: a report header must match a known layout exactly, or the month fails
+// (apps/dashboard/docs/adr/0046-a-holdings-header-must-match-a-known-layout-exactly.md)
 const LAYOUTS: ReadonlyArray<Layout> = Effect.runSync(
   Effect.all([
     layoutOf("INVESTOR_TYPE", false),
@@ -285,7 +281,7 @@ const sharesAt = Effect.fnUntraced(function* (at: At, label: Label) {
 
 // PERCENTAGE as published, rounded to 2 decimals, × 100: 15.370000000000001
 // and Apr 2026's 36.108405090747539 are 1537 and 3611.
-// Decision: stored as published, never checked against the total or listed
+// Stored as published, never checked against the total or listed
 // shares: 28 rows in Feb–Jul 2026 carry hand-typed percentages, and IDX's
 // own value is what the report says. See apinrdw/kumora#473.
 const hundredthsAt = Effect.fnUntraced(function* (at: At) {
@@ -348,9 +344,8 @@ const holdsNothing = (cells: ReadRow) =>
 
 // The stock a row below the header names; undefined for a row holding no
 // holder.
-// Decision: a row holding anything but errors and blanks must name its stock
-// by a SHARE_CODE of text, as the other parses require: a row whose code
-// wasn't read would be dropped from its month.
+// Decision: a row with any value must name its stock by a text code
+// (apps/dashboard/docs/adr/0047-a-holdings-row-with-values-must-name-its-stock.md)
 const rowStock = Effect.fnUntraced(function* (
   rowNumber: number,
   cells: ReadRow

@@ -119,7 +119,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   const conditions = page.getByRole("group", { name: "Market conditions" })
   await expect(conditions.getByRole("list", { name: "Feeds" })).toBeVisible()
 
-  // Decision: the merge window is waited out from when the live page shows
+  // The merge window is waited out from when the live page shows
   // the trades, not from `sentAt`. The window opens when the object takes a
   // trade (candles.ts), which is after the spec sent it and no later than the
   // page showing it, so a slow connection or object can't make the relay

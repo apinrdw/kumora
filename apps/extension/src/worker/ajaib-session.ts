@@ -15,7 +15,7 @@ import type { BrokerTab } from "./tab.ts"
 export const PIN_VALIDATE_URL =
   "https://ht2.ajaib.co.id/api/v5/users/me/pin/validate"
 
-// Decision: the account id is the access token's `sub` claim, as the archived
+// The account id is the access token's `sub` claim, as the archived
 // orca-trader Ajaib capture read it; `user_id` and `id` are taken when `sub`
 // is missing. No capture in this repo shows the claim, so the owner confirms
 // it in DevTools (runbook, "The relay extension").
@@ -118,11 +118,8 @@ export const makeAjaibSession = Effect.fnUntraced(function* (options: {
   const { tab, store } = options
   const checking = yield* Semaphore.make(1)
 
-  // Decision: a PIN is tried once: its sign-in moves from `waiting` (a new
-  // entry) to `signing-in` before the call, one check at a time, so no
-  // retry, restart or second tick sends it again; a wrong PIN tried twice
-  // could lock the account. Any answer but `signed-in` wipes it, so the lock
-  // screen types none other. See apinrdw/kumora#244, "The PIN's storage".
+  // Decision: a PIN is tried once per sign-in and lock; a refused PIN is wiped
+  // (apps/extension/docs/adr/0002-the-ajaib-pin-is-tried-once-and-wiped-when-refused.md)
   const check = Effect.gen(function* () {
     if (!(yield* tab.attached)) return
     const latest = yield* store.latest

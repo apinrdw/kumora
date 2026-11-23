@@ -21,7 +21,7 @@ import { signInAgain } from "@/components/market-live/sign-in-again"
 import { makeFiguresStore } from "./figures-store"
 import { makeRadarEventsStore } from "./radar-events-store"
 
-// Decision: the scanner selects its unfolded code, so the object sends that
+// The scanner selects its unfolded code, so the object sends that
 // code's whole book (deltas carry whole books only for selected codes), and
 // IHSG, which has no book, while none is unfolded. It sends the watchlist
 // too: those codes stay live through Ajaib's book while Stockbit is stale.

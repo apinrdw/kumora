@@ -34,7 +34,7 @@ import { windowOfLast } from "@/lib/footprint"
 
 import { makeWindowBand } from "./window-band"
 
-// Decision: the footprint chart opens on 10 whole minutes, the most whose cells
+// The footprint chart opens on 10 whole minutes, the most whose cells
 // read as text beside the sweep log. See spec apinrdw/kumora#263, "Chart 2".
 // Once the viewer zooms it, its window keeps the minutes they zoomed to
 // through every jump and resize, until a double click on its time axis brings
@@ -78,7 +78,7 @@ type Fit =
   | { readonly _tag: "UpTo"; readonly minute: number }
   | { readonly _tag: "Middle"; readonly logical: number }
 
-// Decision: a touch pan goes on for 3 s after the last finger lifts.
+// A touch pan goes on for 3 s after the last finger lifts.
 // Lightweight Charts 5.2.1 coasts the chart on (kinetic scroll) for at most
 // 2.8 s, from its top speed of 7 px/ms, its damping of 0.997 a ms and its
 // narrowest bar of 0.5 px, and tells no one when it stops.
@@ -91,7 +91,7 @@ export const makeChartPair = () =>
     let band: Effect.Success<ReturnType<typeof makeWindowBand>> | undefined
     // The chart a gesture is panning; none after a fit, so a refit under a
     // held pointer stays the footprint chart's own.
-    // Decision: only a pan gesture moves the other chart, not every range
+    // Only a pan gesture moves the other chart, not every range
     // change on the chart the pointer last touched (spec apinrdw/kumora#263,
     // "Pan sync"). Lightweight Charts also moves a range, its width kept,
     // with no gesture: a new minute scrolls it on, a redraw shifts it, a
@@ -271,7 +271,7 @@ export const makeChartPair = () =>
         const from = range.from + apart
         move(follower.chart, { from, to: from + target.to - target.from })
       }
-      // Decision: the pair reads a chart's range when the chart attaches.
+      // The pair reads a chart's range when the chart attaches.
       // Lightweight Charts 5.2.1 reports a range only when it changes, and a
       // chart whose data was in the store when it mounted has its range
       // before the pair subscribes: with no report to measure from, the

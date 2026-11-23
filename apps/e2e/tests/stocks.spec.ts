@@ -217,7 +217,7 @@ const INVESTOR_TYPE_MONTHS = {
 // src/server/holdings/above-1.ts builds it. Against Aug,
 // Sep has Dwimuria unchanged on a few more shares, Anthoni Salim up,
 // BlackRock down, Gamma off list, and Salim Group new on two rows.
-// Decision: Feb and Apr 2026 are left unseeded, since
+// Feb and Apr 2026 are left unseeded, since
 // shareholding-admin.spec.ts's Parse now parses them into the same
 // HoldingsDb, with no BBCA or BBRI rows.
 const ABOVE_1_MONTHS = {
@@ -399,7 +399,7 @@ const barsTooltip = (page: Page) => chart(page).getByRole("status")
 
 // Focuses the Bars chart and presses End, retried until the page has
 // hydrated: the tooltip shows the newest month and the chart has focus.
-// Decision: it checks focus too, since the tooltip can show over a chart
+// It checks focus too, since the tooltip can show over a chart
 // that lost focus. The server renders the chart's SVG, so End can land
 // before React hydrates it. React then hydrates it inside that key press,
 // and the dev build's StrictMode runs the chart's effects twice, which
@@ -475,7 +475,7 @@ const stockSearch = (page: Page) =>
     .getByRole("banner")
     .getByRole("combobox", { name: "Open a stock", exact: true })
 
-// Decision: serial, since every test reads the one HoldingsDb this block
+// Serial, since every test reads the one HoldingsDb this block
 // seeds. The admin specs' Parse now, beside it, replace KSEI's Sep and Oct
 // 2026 and investor-type 2025-11-28 with fixtures whose BBCA and AADI rows
 // equal this block's, no test here reads their other stocks' rows, and their

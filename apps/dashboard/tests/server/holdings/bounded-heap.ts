@@ -2,9 +2,8 @@ import { Worker } from "node:worker_threads"
 
 import { Effect } from "effect"
 
-// Decision: parsing a report, KSEI's or one of IDX's, takes at most 48 MiB of
-// heap, so the Worker's 128 MiB still holds the archived file and the run
-// around it.
+// Decision: a report's parse is bounded to fit 48 MiB of the Worker's heap
+// (apps/dashboard/docs/adr/0045-a-holdings-parse-fits-a-bounded-heap.md)
 export const PARSE_HEAP_MIB = 48
 
 export type Report = "ksei" | "classification" | "investor-type" | "above-1"

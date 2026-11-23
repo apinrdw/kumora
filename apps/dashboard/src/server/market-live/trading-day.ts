@@ -177,19 +177,17 @@ const DELTA_INTERVAL = "250 millis"
 // How long an accepted ingest socket has to send its token (`alarm`).
 const INGEST_TOKEN_DEADLINE = Duration.seconds(10)
 
-// Decision: the tape in memory holds the newest 10,000 trades, the most the
-// page keeps; a restarted object reloads them from the day store. An older
-// trade is still deduped, counted in its candle and merged (the candle book
-// holds it), but viewers aren't sent it. See apinrdw/kumora#157.
+// Decision: the tape in memory holds the newest 10,000 trades, as the page does
+// (apps/dashboard/docs/adr/0107-the-live-tape-holds-the-newest-10-000-trades.md)
 const TAPE_LIMIT = 10_000
-// Decision: each feed remembers the last 40,000 trade numbers it timed, four
+// Each feed remembers the last 40,000 trade numbers it timed, four
 // tapes' worth. A copy falls outside the tape only after a tape of newer
 // trades; connection B trails A by seconds, far inside 30,000 more of the
 // feed's trades. Two sets of 40,000 short strings cost a few MB.
 const TIMED_LIMIT = 4 * TAPE_LIMIT
 
 // IHSG's close and change on the strip, from its last `liveprice` frame.
-// Decision: an index's frames carry no previous close and, so far observed,
+// An index's frames carry no previous close and, so far observed,
 // no change (the 2026-11-06 probe, `stockbit-ihsg-liveprice.json`), so the
 // day records no IHSG change rather than one run from a price seen today,
 // and the strip shows none; a frame that does carry either is used.
@@ -234,11 +232,8 @@ const latestByCode = <T extends { readonly code: StockCode }>(
     return [...earlier.filter((row) => !codes.has(row.code)), ...later]
   })
 
-// Decision: a viewer whose session ended is closed with 4401 when it would
-// next be served, a delta or a snapshot, not by a timer, which hibernation
-// would lose. An idle expired socket stays open, served nothing, until then.
-// A viewer tagged without an end is closed the same way. See
-// apinrdw/kumora#157.
+// Decision: the gate runs once; the object closes with 4401 at the session's end
+// (apps/dashboard/docs/adr/0041-a-viewer-closes-with-4401-once-its-session-ends.md)
 const sessionEnded = Effect.fnUntraced(function* (viewer: Peer) {
   if (viewer.sessionEnd === undefined) return false
   const end = yield* viewer.sessionEnd
@@ -273,10 +268,8 @@ const merge = (held: RunningTrade, arriving: RunningTrade) =>
     }
   })
 
-// Decision: the auction matches (inside pre-opening and pre-closing) and the
-// negotiated board have no side, whichever feed claims one: Ajaib types about
-// 99.5% of match prints SELL. Applied to the merged trade; the cash board
-// (TN) keeps Stockbit's real aggressor. See spec apinrdw/kumora#138.
+// Decision: auction matches and the negotiated board record no trade side
+// (apps/dashboard/docs/adr/0108-auction-matches-and-the-negotiated-board-carry-no-side.md)
 const settleSide = Effect.fnUntraced(function* (trade: RunningTrade) {
   if (trade.side === "none") return trade
   const { phase } = yield* marketMomentAt(trade.time)
@@ -322,10 +315,8 @@ const keepLatest = (latest: Map<StockCode, OrderBook>, book: OrderBook) =>
   })
 
 // Each code's served book, rebuilt after a restart, and its readings.
-// Decision: an unviewed code has no chunk, so its book comes back from the
-// last session's end (session-books.ts): one served after it is missing
-// until its next frame, its Ajaib book served meanwhile. See spec
-// apinrdw/kumora#555, "Books only for viewed codes".
+// Decision: each session's end stores one book row per code served in it
+// (apps/dashboard/docs/adr/0084-each-session-s-end-stores-one-book-row-per-code.md)
 const restoreBooks = Effect.fnUntraced(function* (day: {
   readonly store: Effect.Success<ReturnType<typeof makeDayStore>>
   readonly books: Effect.Success<ReturnType<typeof makeOrderBooks>>
@@ -378,11 +369,8 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
   readonly bookChunks: Effect.Success<typeof makeBookChunks>
   readonly readings: Effect.Success<ReturnType<typeof makeReadingsBook>>
 }) {
-  // Decision: a restart reads back only the last-frame tables, one row per
-  // code, bounded by the code list. The day's candles stay in the store: the
-  // candle book reads a code's as a snapshot, the Day state fallback or a
-  // trade in a past minute asks for them (candles.ts), so a full day's
-  // ~400,000 rows never sit in memory.
+  // Decision: a restart reads only last-frame tables; at most 32 MiB on the heap
+  // (apps/dashboard/docs/adr/0109-a-restarted-day-keeps-a-bounded-share-of-the-day-in-memory.md)
   const prices = yield* day.store.livePrices
   yield* day.candles.restore(prices)
   for (const price of prices) {
@@ -430,7 +418,7 @@ const orderFlowEventKey = (event: OrderFlowEvent) =>
     `${event.code}|${DateTime.toEpochMillis(event.at)}|${event.kind}|${event.side}`
   )
 
-// Decision: a batch that corrects a built day marks it stale and moves its
+// A batch that corrects a built day marks it stale and moves its
 // rebuild to this long after the batch, so a burst of corrections costs one
 // rebuild. See spec apinrdw/kumora#437, "When it runs".
 const REBUILD_QUIET = Duration.minutes(5)
@@ -469,7 +457,7 @@ const sealWakeAtStart = Effect.fnUntraced(function* (
 // never built and buildable, a quiet wait after the start for one marked
 // stale.
 //
-// Decision: a sealed day never built, buildable at the start, is marked due
+// A sealed day never built, buildable at the start, is marked due
 // and built at once, as `totalsWritten` does: a day sealed before its gate
 // let it build (apinrdw/kumora#464) has no fact. An older version waits for
 // the reconcile poke. See apinrdw/kumora#457.
@@ -544,11 +532,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 }) {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
-  // Decision: the object's callbacks and timer bodies run one at a time:
-  // every guard on the day's state reads what its write then changes, and the
-  // run loop yields mid-callback, so overlapping callbacks write over each
-  // other. One permit, taken only where a callback or timer body enters and
-  // never inside, so nothing under it waits on it. See apinrdw/kumora#159.
+  // Decision: the object's callbacks and timer bodies run one at a time
+  // (apps/dashboard/docs/adr/0110-the-trading-day-runs-callbacks-one-at-a-time.md)
   const turn = yield* Semaphore.make(1)
   const codeListStore = options.codeList ?? (yield* memoryCodeListStore)
   // The codes the stored list names, read on the first Select after it
@@ -563,11 +548,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const store = yield* makeDayStore(options.sql, { today })
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
   const sealAt = yield* sealInstant(options.date)
-  // Decision: a day's tape source is unknown until its first relay trade
-  // before 17:00 makes it relay or a walk's first fields make it walk, kept
-  // for good. A relay day seals at 17:00, a walk day once buildable from
-  // 17:00, an unknown day never. Walk rows hold on a relay day and on any
-  // sealed day, so a later, higher `end` leaves no sealed day short (#449).
+  // Decision: a day's tape source is relay or walk, set once and kept for good
+  // (apps/dashboard/docs/adr/0111-a-day-s-tape-source-is-set-once.md)
   //
   // So a sealed day never changes, and its answers are immutable. A day an
   // older revision sealed holding no trade, as it sealed a History day, is
@@ -598,11 +580,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   let orderFlowBuilt = yield* orderFlowBuiltAtStart(store)
   // Midnight WIB after the day, in epoch ms.
   const dayEnd = DateTime.toEpochMillis(yield* wibDayEnd(options.date))
-  // Decision: a viewer is served only until the object's day ends: past it,
-  // the socket is closed with 1001 when it would next be served, and the page
-  // reconnects through the gate to today's object. A ban, revoke or delete
-  // reaches today's object alone (live-viewers.ts), so a socket served on
-  // yesterday's would outlive it. See apinrdw/kumora#157.
+  // Decision: a viewer is served only until the object's day ends, then 1001
+  // (apps/dashboard/docs/adr/0112-a-viewer-is-served-only-until-the-object-s-day-ends.md)
   //
   // A WIB date is ISO, so a later one reads greater.
   const dayEnded = Effect.map(
@@ -636,10 +615,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const orderFlowEvents = yield* makeOrderFlowEventLog(store)
   // Whether the store holds the marker that this day records order flow
   // events, and whether this object judged a minute.
-  // Decision: only an object that judged minutes marks the day, as only a
-  // ledger read marks book events: a seal alone records none, so a day from
-  // before order flow events answers that none were recorded. See spec
-  // apinrdw/kumora#605, "Order flow events: data".
+  // Decision: a day without a live reading answers its events not recorded
+  // (apps/dashboard/docs/adr/0094-only-a-live-reading-marks-a-day-s-events-recorded.md)
   let orderFlowMarked = (yield* store.fact(Fact.orderFlowEvents)) !== undefined
   let orderFlowJudged = false
   const candles = yield* makeCandleBook(
@@ -668,9 +645,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   let ledgerRegime = ""
   // Whether the store holds the marker that this day records book events,
   // and whether this object read the ledger from live books.
-  // Decision: only a ledger read from live books marks the day: a History
-  // walk or a seal alone records no book events, so the day answers that
-  // none were recorded. See spec apinrdw/kumora#517, "Book events".
+  // Decision: a day without a live reading answers its events not recorded
+  // (apps/dashboard/docs/adr/0094-only-a-live-reading-marks-a-day-s-events-recorded.md)
   let bookEventsMarked = (yield* store.fact(Fact.bookEvents)) !== undefined
   let bookEventsRead = false
   const gaps = yield* makeGaps({ ingests })
@@ -705,7 +681,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // Each code's order flow state rebuilt from its stored minutes, and the
   // events found again that no flush stored (order-flow.ts, `restore`),
   // checked against that code's stored events alone.
-  // Decision: the replay never yields to Effect's scheduler. A fiber yields
+  // The replay never yields to Effect's scheduler. A fiber yields
   // every 2,048 operations and waits on a timer, about 1 ms in workerd, and
   // what needs the live day waits for it. Measured 2026-11-23 on the dev
   // machine, the busy day in workerd (row-budgets.workerd.test.ts): 8,561
@@ -754,7 +730,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* candles.rankStored
     yield* restoreOrderFlow
   })
-  // Decision: a day not sealed restores the live day at its start, a sealed
+  // A day not sealed restores the live day at its start, a sealed
   // past day never. Today's sealed day restores it once, when a viewer's
   // Select or the bubbles answer first needs it: its object wakes for every
   // broker codes recheck until midnight, and a busy day's restore read
@@ -889,7 +865,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // A feed's running trades from one envelope, merged into the day, timed at
   // the feed's first relayed copy of each: new to the day, or held from the
   // other feed alone. Backfill pages aren't relayed and are never timed.
-  // Decision: a copy held only outside the tape and merge windows is timed for
+  // A copy held only outside the tape and merge windows is timed for
   // the arriving feed unless the feed timed that number before, its feeds
   // unread: a feed over a tape's span behind the other (Stockbit ~17 min
   // behind Ajaib) has only such copies. See apinrdw/kumora#239.
@@ -910,9 +886,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // The book events of the books that changed, read only in Sessions 1 and
   // 2 with no relay gap open.
-  // Decision: book events are read only in Sessions 1 and 2, and the ledger
-  // resets whenever the phase changes or a relay gap opens or closes. See
-  // spec apinrdw/kumora#517, "Book events".
+  // Decision: book events are read only in Sessions 1 and 2
+  // (apps/dashboard/docs/adr/0113-book-events-are-read-only-in-sessions-1-and-2.md)
   const readLedger = Effect.fnUntraced(function* (
     changedBooks: ReadonlyArray<OrderBook>,
     conditions: MarketConditions
@@ -965,11 +940,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // Each input has one source: last price and previous close
   // `dayStates.pricesOf`, the previous day's value `previousValues`, today's
   // value the bubbles' day sums; the readings carry only their book's.
-  // Decision: every scanner input but the readings is a figure, and each
-  // delta sends every code whose figures differ from `sentFigures`, compared
-  // rather than tracked, so whatever books, trades and frames come in, every
-  // page holds each code's current inputs after the next delta. See spec
-  // apinrdw/kumora#517, "Data".
+  // Decision: each delta sends every code whose figures differ from those sent
+  // (apps/dashboard/docs/adr/0114-each-delta-sends-every-code-whose-figures-differ.md)
   const changedFigures = Effect.gen(function* () {
     const changed: Array<Effect.Success<ReturnType<typeof figuresOf>>> = []
     for (const figures of yield* currentFigures) {
@@ -989,9 +961,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return false
   })
 
-  // Decision: a delta carries every candle that changed, of any code, not
-  // just each viewer's selected code's: one encoded text serves every viewer
-  // and no socket keeps its selection. The page keeps its own code's.
+  // Decision: a delta carries every changed candle, of any code, to every viewer
+  // (apps/dashboard/docs/adr/0115-a-delta-carries-every-changed-candle-of-any-code.md)
   const sendDelta = Effect.gen(function* () {
     deltaScheduled = false
     const trades = [...pending.values()].sort((a, b) =>
@@ -1009,7 +980,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const bookReadings = yield* readings.read(changedBooks, conditions.phase)
     yield* sessionBooks.served(changedBooks, conditions.phase)
     yield* readLedger(changedBooks, conditions)
-    // Decision: order flow rules judge each minute in the delta tick once
+    // Order flow rules judge each minute in the delta tick once
     // its candle settled, 5 s past its close as the flush waits, never inside
     // the flush. See spec apinrdw/kumora#605, "Order flow events: the rules".
     yield* candles.settledBefore
@@ -1018,10 +989,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* orderFlowEvents.add(
       yield* orderFlow.judge(judgedAt, conditions.gaps)
     )
-    // Decision: a delta carries whole books only for codes some viewer
-    // selected, as footprints do: a page reads only its selected code's, and
-    // whole books were 86% of a viewer's inflated bytes. Every other changed
-    // code goes out as its readings. See spec apinrdw/kumora#517, "Data".
+    // Decision: a delta carries whole books only for codes some viewer selected
+    // (apps/dashboard/docs/adr/0116-a-delta-carries-whole-books-only-for-selected-codes.md)
     const orderBooks = changedBooks.filter((book) => selected.has(book.code))
     const encoded = yield* encodeConditions(conditions)
     const conditionsChanged = encoded !== sentConditions
@@ -1080,7 +1049,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     )
   })
 
-  // Decision: while a viewer is connected, the object checks the market
+  // While a viewer is connected, the object checks the market
   // conditions every second and sends a delta when they changed, so a stale
   // feed or a phase turn reaches viewers without a frame. With no viewer it
   // stops: freshness and gaps come from frame and close instants, not these
@@ -1168,13 +1137,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* candles.written
   })
 
-  // Decision: the bubbles answer is built after the flush 5 s past each minute
+  // The bubbles answer is built after the flush 5 s past each minute
   // and served as is until the next; a GET before the object's first build
   // builds it. Each build logs its codes and bytes for the cost check; its
   // time is measured off the Worker, whose clock stands still while it
   // computes (bubbles.test.ts). See spec apinrdw/kumora#427, "When it is built".
   //
-  // Decision: a sealed day's answer is settled before the day's end: the seal
+  // A sealed day's answer is settled before the day's end: the seal
   // settled every trade and the day takes none after it, so the one build
   // after the seal settles past every snapshot of the day. See
   // apinrdw/kumora#436.
@@ -1210,7 +1179,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // included, a feed lag line to log, or a session's books to write at its
   // end. A wake with nothing to write only logs, so the lines add no
   // transaction.
-  // Decision: feed lag lines are logged on this flush, 5 s past the minute, as
+  // Feed lag lines are logged on this flush, 5 s past the minute, as
   // structured Effect logs that Workers Logs keeps: no binding, metric store
   // or alert. A minute's timed trades keep the flush armed until its lines
   // are out. See apinrdw/kumora#231.
@@ -1242,11 +1211,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           })
         )
       ),
-      // Decision: the flush and the bubbles build each take the turn on
-      // their own, with a yield to the event loop between, so relay messages
-      // that came during the flush run before the build, rather than one
-      // turn holding both, inside which the relay's ingest socket closed.
-      // See apinrdw/kumora#603.
+      // Decision: the flush and the bubbles build take separate turns
+      // (apps/dashboard/docs/adr/0123-the-flush-and-the-bubbles-build-take-separate-turns.md)
       Effect.andThen(Effect.yieldNow),
       Effect.andThen(
         turn.withPermit(
@@ -1291,7 +1257,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* flush(true, {
       [Fact.gaps]: yield* encodeRecordedGaps({ gaps: sealGaps }),
     })
-    // Decision: a day buildable at its seal builds just after it, in the
+    // A day buildable at its seal builds just after it, in the
     // seal's own wake: never under the turn while the market streams. See
     // spec apinrdw/kumora#437, "When it runs".
     const due = options.brokerTotalsDb !== undefined && (yield* buildable)
@@ -1323,7 +1289,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // What a sealed day's seal still owes past its marker: the build's wake,
   // the tape summary and the storage line.
-  // Decision: the seal wake stays set until all of this is done, so a
+  // The seal wake stays set until all of this is done, so a
   // failure past the marker is retried a minute later, as one before it is.
   // Each step is safe to run again; a summary that failed reads the tape
   // again, about 1.46 M rows on a busy day. The build is armed first, from
@@ -1425,7 +1391,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       return setAlarm(at)
     })
   // The seal is due at 17:00 WIB, a minute after a seal that didn't land.
-  // Decision: a walk day arms the seal only once buildable (`buildable`,
+  // A walk day arms the seal only once buildable (`buildable`,
   // MISSING_ALLOWANCE in broker-codes.ts): until then it is never listed.
   // The batch that makes it so arms the seal at once (`walkSealDue`). See
   // spec apinrdw/kumora#437 and apinrdw/kumora#457.
@@ -1444,11 +1410,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     )
   )
 
-  // Decision: the alarm closes an ingest socket still without its token with
-  // 4408 once INGEST_TOKEN_DEADLINE passed since its accept instant in its
-  // tags, so a tokenless client can't fill the object's 32,768 sockets. No
-  // cap on silent sockets, which would let such a client lock out the relay.
-  // See apinrdw/kumora#157.
+  // Decision: an ingest socket still tokenless at its deadline closes with 4408
+  // (apps/dashboard/docs/adr/0117-a-tokenless-ingest-socket-closes-past-its-deadline.md)
   //
   // Whether a socket still has time.
   const closeOverdueIngests = Effect.fnUntraced(function* (now: number) {
@@ -1564,7 +1527,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }),
   }
 
-  // Decision: the alarm, set for the seal at 17:00 WIB, never fails: a seal
+  // The alarm, set for the seal at 17:00 WIB, never fails: a seal
   // that didn't land sets the alarm a minute later, as the runner answers a
   // failure as handled, so Cloudflare would not retry it and nothing else
   // wakes the object. Every alarm sweeps the ingest sockets first. See
@@ -1592,10 +1555,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // The day's broker totals and candles, built and written to the broker
   // totals DB, then the build version marked, its figures logged as the
   // first real day's sizes. See spec apinrdw/kumora#437, "Further Notes".
-  // Decision: a day no longer buildable, as a stale one can be, loses its
-  // built figures and reads as a gap, never as a day with its old sums and
-  // fewer trades missing. Its fact stays, so the batch that makes it
-  // buildable again rebuilds it. See apinrdw/kumora#457.
+  // Decision: a day no longer buildable loses its built figures and reads as a gap
+  // (apps/dashboard/docs/adr/0118-a-day-no-longer-buildable-reads-as-a-gap.md)
   const buildTotals = Effect.fnUntraced(function* (
     db: Layer.Layer<BrokerTotalsDb, never, WorkerEnv>
   ) {
@@ -1622,7 +1583,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     )
   })
 
-  // Decision: a batch that corrects a built or stale day marks it stale and
+  // A batch that corrects a built or stale day marks it stale and
   // moves its rebuild REBUILD_QUIET past it. Else a batch that leaves a
   // sealed day buildable, no build wake set and its build not current, arms
   // one at once (an unbuilt day marked due): a wake that found the day
@@ -1647,11 +1608,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* wakes.set("build", yield* DateTime.now)
   })
 
-  // Decision: the reconcile cron's poke builds a sealed, buildable day on the
-  // alarm at once, marked due, whatever its own fact says: the cron pokes
-  // only days the broker totals DB holds unbuilt or older, as a DB reset
-  // leaves a day this version built. Other days it leaves alone. See spec
-  // apinrdw/kumora#437, "On request".
+  // Decision: the reconcile cron's poke builds a sealed, buildable day at once
+  // (apps/dashboard/docs/adr/0119-the-reconcile-poke-builds-a-sealed-day-at-once.md)
   //
   // Whether the day will build.
   const reconcile = Effect.gen(function* () {
@@ -1713,10 +1671,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
 
   // The token a new socket's first message carries, or none.
-  // Decision: a first message past INGEST_TOKEN_MESSAGE_LIMIT, or not a Token
-  // of this protocol version, carries none. Only another protocol version
-  // fails, closing with 4426 (envelope.ts); an escaped decode failure would
-  // leave the unauthenticated socket open. See apinrdw/kumora#157.
+  // Decision: 4403 refuses the token, 4426 a protocol; both stop ingest retries
+  // (packages/relay/docs/adr/0003-ingest-socket-closes-4403-and-4426-stop-retries.md)
   const firstToken = Effect.fnUntraced(function* (text: string) {
     if (text.length > INGEST_TOKEN_MESSAGE_LIMIT) return undefined
     const first = yield* decodeIngestUp(text).pipe(
@@ -1742,10 +1698,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
       const message = yield* decodeIngestUp(text)
-      // Decision: a day past taking ingest (`takesIngest`) takes nothing
-      // more, but one with no code list takes the relay's first. Its 404 was
-      // never cached (`no-store`), so no immutable answer changes, and a day
-      // whose list missed the seal stays searchable. A list stays fixed.
+      // Decision: a day's code list is fixed once taken; only a missing one is filled
+      // (apps/dashboard/docs/adr/0120-a-day-s-code-list-is-fixed-once-taken.md)
       if (!(yield* takesIngest)) {
         if (
           message._tag === "CodeList" &&
@@ -1857,7 +1811,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       })
       yield* socket.send(snapshot)
       yield* socket.setState("ready")
-      // Decision: a snapshot arms the flush, so a viewer that came after the
+      // A snapshot arms the flush, so a viewer that came after the
       // last one, as in the break, after the close or with the relay down,
       // gets a bubbles build settled past its snapshot at the next one, the
       // only build its page waits for (bubbles.ts, `takeSettled`). See
@@ -1880,7 +1834,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   )
 
   // An ingest socket closed.
-  // Decision: the relay is offline when the closed socket was ready and no
+  // The relay is offline when the closed socket was ready and no
   // other ingest socket is open and ready, read from socket state that
   // survives hibernation, not an instance flag a woken object would lack; it
   // flushes at once. Counted under the permit, so a pending token is settled.
@@ -1938,9 +1892,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // A sealed day's order flow GET, and any day's sweep brokers GET, builds
   // the rows first if the day needs it: it never answers empty. GETs take
   // the turn, so a second GET awaits the first's build.
-  // Decision: sweep brokers build before the seal too, as codes land before
-  // it, so a day holding rows under an older shape never decodes them. See
-  // spec apinrdw/kumora#384, "Old days".
+  // Decision: build progress names the rows' shape, so an older shape rebuilds
+  // (apps/dashboard/docs/adr/0081-the-sweep-brokers-build-names-its-rows-shape.md)
   const builtFirst = Effect.fnUntraced(function* (resource: RecordedResource) {
     if (resource._tag === "SweepBrokers") return yield* sweepBrokers.builtFirst
     if (!sealed || orderFlowBuilt) return
@@ -1949,7 +1902,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     orderFlowBuilt = true
   })
 
-  // Decision: a walk day answers bubbles as a past day does, 404, even on its
+  // A walk day answers bubbles as a past day does, 404, even on its
   // own date: Market Bubbles is live only, and a History walk sends no live
   // tape, so its bubble book never fills. See apinrdw/kumora#436.
   const recorded = (resource: RecordedResource) =>
@@ -2056,11 +2009,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // Sets the day's move for when it may start, once it is due; whether the
   // day moves.
-  // Decision: a move starts at midnight after its day at the earliest, as
-  // the object serves the live day's viewers until then. The day takes broker
-  // codes, the order-number walks' too, until its first step runs and none
-  // after (`brokerCodes.post`), so its stored answers match what it held. See
-  // spec apinrdw/kumora#556, "Hot and cold days", and PR #632.
+  // Decision: a day takes broker codes until its move starts; answers say so
+  // (packages/relay/docs/adr/0001-a-day-takes-broker-codes-until-its-cold-move-starts.md)
   const startMove = Effect.gen(function* () {
     if (options.cold === undefined) return false
     if ((yield* store.fact(Fact.move)) !== undefined) return true
@@ -2089,7 +2039,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // Whether the day still takes broker codes, as its sweep brokers answer
   // tells a follower (followSweepBrokers): until its move's first step.
-  // Decision: with no cold storage a day never moves and writes codes for
+  // With no cold storage a day never moves and writes codes for
   // good, but tells a follower it takes them only while hot (`pastWindow`),
   // as a cold stage would: codes a still-incomplete older day gets later
   // show on the page's next load, not live. See PR #632.
@@ -2115,7 +2065,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
   })
 
-  // Decision: once a WIB day, an object that ran logs what its SQL adapter
+  // Once a WIB day, an object that ran logs what its SQL adapter
   // counted since its last line, after a callback it already takes: on its
   // own date the seal's, else the date's first. No alarm wakes it for this.
   // The date is a fact, read once, so a restart logs no second line. See
@@ -2168,13 +2118,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     // Every code's value, for the next trading day's object; a cold day's
     // as its move stored them.
     dayValues: turned(dayValues, (emptied) => emptied.dayValues),
-    // Decision: on a day the relay recorded, and on any sealed day, broker
-    // codes touch no recorded day state (no flush, seal or index row), so its
-    // answers stay byte-identical (#244). A walk day before its seal takes
-    // their fields as its tape (`walkTapeOf`), and the batch that makes it
-    // buildable arms its seal (`walkSealDue`). See spec apinrdw/kumora#437.
+    // Decision: broker codes touch no recorded state of a relay or sealed day
+    // (apps/dashboard/docs/adr/0121-broker-codes-touch-no-recorded-day-state.md)
     brokerCodes: {
-      // Decision: a batch that changes codes rewrites its trades' sweep
+      // A batch that changes codes rewrites its trades' sweep
       // brokers rows from their minutes' stored trades, in the codes' turn
       // and transaction, before its 200; one that changes none recomputes
       // nothing. See spec apinrdw/kumora#343, "When it is recomputed".

@@ -102,11 +102,8 @@ const CANDLES_COLUMNS = [
   "trades",
 ]
 
-// Decision: a build's inserts go in batches of at most this many
-// statements, each statement one INSERT … SELECT over json_each of at most
-// 1,000 rows and 90,000 bytes (monthRows, as a month replace's), under D1's
-// 100 KB a statement. A ~60,000-row day is 7 batches. See
-// apinrdw/kumora#419.
+// Decision: D1 inserts go in json_each chunks under D1's statement limits
+// (apps/dashboard/docs/adr/0018-d1-inserts-go-in-json-each-chunks-under-statement-limits.md)
 const STATEMENTS_PER_BATCH = 10
 
 // The day's rows of one table as INSERT statements.
@@ -146,11 +143,8 @@ export const clearBuiltDay = Effect.fnUntraced(function* (day: WibDate) {
   yield* (yield* BrokerTotalsDb).batch(yield* deleteDay(day))
 })
 
-// Decision: a day is written in this order: its built-days row deleted, its
-// totals and candles deleted and inserted in batches, its built-days row
-// inserted last. A half-written or rebuilding day reads as a gap, and a
-// repeat converges: every write starts by deleting the day. See
-// apinrdw/kumora#419.
+// Decision: a day's built-days row is deleted first and inserted last
+// (apps/dashboard/docs/adr/0019-a-built-day-s-row-is-deleted-first-and-inserted-last.md)
 //
 // The statements and rows it wrote, for the build's log line.
 export const writeBuiltDay = Effect.fnUntraced(function* (
@@ -288,7 +282,7 @@ export const readBuiltDays = Effect.gen(function* () {
 const BUILT_IN_RANGE =
   "day BETWEEN ? AND ? AND day IN (SELECT day FROM built_days WHERE day BETWEEN ? AND ?)"
 
-// Decision: the range read is one batch of three key-range reads, so a day
+// The range read is one batch of three key-range reads, so a day
 // rebuilt meanwhile reads whole or as a gap, never half. See
 // apinrdw/kumora#419.
 //

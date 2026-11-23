@@ -11,7 +11,7 @@ import { KIND_LABEL, KseiReportKind } from "./kind.ts"
 
 // One call returns a whole listing: `page[size]` defaults to 30, and KSEI
 // lists 36 per kind.
-// Decision: no `locale` or `append`, so an entry names its file `pdf_en`, as
+// No `locale` or `append`, so an entry names its file `pdf_en`, as
 // in the recorded fixtures. `pdf_id` needs `locale=id&append=pdf_id` and
 // names the same file URLs; only `name` changes language. The Schema pins
 // `pdf_en`, so a renamed field fails the listing instead of reading no
@@ -112,7 +112,7 @@ const FIXED_RESULT_BYTES = 4096
 
 // The most files one listing may hold; past it, that listing is unreadable.
 // `plan`'s result holds both listings' files.
-// Decision: 510 a kind, what fits `plan`'s result at MAX_LISTED_REPORT_BYTES
+// 510 a kind, what fits `plan`'s result at MAX_LISTED_REPORT_BYTES
 // each. KSEI lists 36 a kind on 2026-11-14, a rolling three years, so it
 // stays far below. See apinrdw/kumora#327.
 export const MAX_LISTED_REPORTS = Math.floor(

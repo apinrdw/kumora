@@ -39,7 +39,7 @@ import {
   type MarketFlow,
 } from "@/lib/bubbles"
 
-// Decision: the page selects IHSG on the viewer socket. Every delta carries
+// The page selects IHSG on the viewer socket. Every delta carries
 // every code's changed candles and the whole tape whatever is selected, and
 // an index has no book or sweeps to send; the header strip reads IHSG's Day
 // state from it (spec apinrdw/kumora#427, "The header strip").
@@ -100,7 +100,7 @@ const untilBuilt = (clockOffset: number) =>
     )
   })
 
-// Decision: the page asks at most FRESH_ASKS fresh backfills in a row that
+// The page asks at most FRESH_ASKS fresh backfills in a row that
 // leave it waiting, then stops until the next snapshot: each GETs up to
 // about 3.5 MB, and no Worker state may make a page download one a minute
 // all day. Until then its earlier socket's minutes stay as it left them.
@@ -110,7 +110,7 @@ const FRESH_ASKS = 5
 // The backfill into `flow` after a snapshot: the browser's copy, then a
 // fresh one after each build while the flow waits for one
 // (missingFromBackfill).
-// Decision: the asks are timed by the browser's clock and `clockOffset`,
+// The asks are timed by the browser's clock and `clockOffset`,
 // and nothing rests on that timing: a body settled short of the snapshot or
 // a recount (applyBubbles), as one asked for before its build, costs one
 // more GET a minute later, never a trade. See apinrdw/kumora#436 and spec

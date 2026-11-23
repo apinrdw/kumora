@@ -8,9 +8,8 @@ import { makeStoredValue } from "@/lib/stored-value"
 
 import { wakeSound } from "./sweep-alert-sound"
 
-// Decision: like the watchlist (use-watchlist.ts), each browser keeps the
-// Speaker toggle in localStorage, off until turned on (spec
-// apinrdw/kumora#510, "Dashboard: Running trades").
+// Decision: each browser keeps its own settings in localStorage
+// (apps/dashboard/docs/adr/0021-each-browser-keeps-its-own-settings-in-localstorage.md)
 const KEY = "kumora:market-live:speaker"
 const ON = "on"
 

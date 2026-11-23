@@ -20,11 +20,8 @@ import { WibDate } from "./schedule.ts"
 // Bump on any change to a batch's or a status's shape. Only this version is
 // accepted: the Worker answers any other with 426, which the extension shows
 // as `reload-extension`. Separate from IngestProtocolVersion.
-// Decision: 2 since the status lists at most MISSING_RANGES ranges; 3 since
-// rows carry trade fields (apinrdw/kumora#425); 4 since they carry time and
-// side, which a walk day takes as its tape, and 0.0.29 sent 3 without them
-// (#437); 5 since a row may carry order numbers and the status counts them
-// (#627). An older extension gets 426 and shows `reload-extension`.
+// Decision: 401 refuses the token, 426 means reload the extension
+// (packages/relay/docs/adr/0002-broker-codes-refusals-401-refuses-the-token-426-means-reload.md)
 export const BrokerCodesProtocolVersion = 5
 
 const PREFIX = "/api/broker-codes"
@@ -94,10 +91,8 @@ export type TradeCodes = typeof TradeCodes.Type
 
 // One running trade's own fields, as a broker's REST row reads them: what
 // the day's tape holds for it, but its feeds.
-// Decision: lots may be 0. Ajaib's tape cuts a negotiated-board trade's
-// fractional lots to 0 (CTRA, trade 1559660 on 2026-11-16, NG), and a
-// walk that dropped the row would drop its codes too. Broker totals and
-// candles count the regular board only, so the 0 never reaches a figure.
+// Decision: a broker codes row may carry 0 lots, and the walk keeps it
+// (packages/relay/docs/adr/0016-a-broker-codes-row-may-carry-0-lots.md)
 const TradeFields = Schema.Struct({
   time: Schema.DateTimeUtcFromMillis,
   code: StockCode,
@@ -118,9 +113,8 @@ export const DayTradeNumber = TradeNumber.check(
 // One order's number on its day, as Stockbit sends it and as the last 10
 // digits of Ajaib's `order_id`: one count over every stock code and both
 // sides, from 1 each day.
-// Decision: at most 2^32 - 1, so the trading-day object keeps each as a
-// uint32 (#624). A day's count reached about 3.1 M by HOPE's last trade on
-// 2026-11-20, three orders of magnitude below it.
+// Decision: order numbers are uint32s in their own 9-byte record chunk table
+// (packages/relay/docs/adr/0005-order-numbers-get-their-own-chunk-table-of-uint32-records.md)
 export const OrderNumber = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: 0xff_ff_ff_ff })
 ).pipe(Schema.brand("OrderNumber"))
@@ -133,9 +127,8 @@ export type OrderNumbers = typeof OrderNumbers.Type
 // The day's highest trade number, as the walk that sends it confirmed it.
 const End = Schema.Struct({ n: DayTradeNumber })
 
-// Decision: a batch holds at most 5,000 rows, one Ajaib page at
-// `page_size=5000`; a Stockbit batch holds ~1,000. The Worker reads a body
-// no longer than BROKER_CODES_BATCH_LIMIT, which a full batch fits.
+// Decision: a batch holds at most 5,000 rows, read up to BROKER_CODES_BATCH_LIMIT
+// (packages/relay/docs/adr/0012-a-broker-codes-batch-fits-one-byte-limit-on-both-sides.md)
 export const BATCH_ROWS = 5_000
 
 // In UTF-16 units of the body. A full batch at 10-digit trade numbers,
@@ -214,10 +207,8 @@ const CrossCheck = Schema.Union([
 ])
 export type CrossCheck = typeof CrossCheck.Type
 
-// Decision: a status lists at most 1,000 missing ranges, the first after
-// the GET's `after`, and counts every missing trade in `missingCount`. A
-// 1.5M-trade day missing every other trade has 750,000 ranges, which as one
-// list exhausted a Worker's 128 MiB. A walk pages on with `after`.
+// Decision: a status lists at most 1,000 missing ranges; walks page with after
+// (packages/relay/docs/adr/0011-a-broker-codes-status-lists-at-most-1-000-missing-ranges.md)
 export const MISSING_RANGES = 1_000
 
 // A day's broker codes as its trading-day object holds them. `n` is the

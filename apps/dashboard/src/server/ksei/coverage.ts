@@ -13,10 +13,8 @@ import type { DeepFinds } from "./run-result.ts"
 // The archive's first month, as YYYY-MM: the first the grid shows, the first
 // a Deep backfill probes (deep.ts), and the first whose reports a run stores
 // (archive-run.ts, deep.ts).
-// Decision: November 2018 for both kinds. The owner chose on 2026-11-15 to
-// keep 2018-11 onward only; Production then held Statistik Efek 2008-01 to
-// 2013-04 and Kepemilikan Efek 2008-04 to 2013-04 and 2018-01 to 2018-10,
-// then a gap, and those earlier reports were deleted once by hand.
+// Decision: the KSEI archive keeps November 2018 onward only
+// (apps/dashboard/docs/adr/0049-the-ksei-archive-starts-at-november-2018.md)
 const FIRST_MONTH = "2018-11"
 
 export const FIRST_YEAR = Number(FIRST_MONTH.slice(0, 4))

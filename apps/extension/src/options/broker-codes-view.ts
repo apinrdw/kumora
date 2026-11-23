@@ -245,7 +245,7 @@ export const walkView = Effect.fnUntraced(function* (
   }
 })
 
-// Decision: the History walk is finished once its position says it ended,
+// The History walk is finished once its position says it ended,
 // running while the queue walks a History day, and waiting otherwise. See
 // apinrdw/kumora#252.
 export const historyView = Effect.fnUntraced(function* (

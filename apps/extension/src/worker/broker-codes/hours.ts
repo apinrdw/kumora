@@ -9,21 +9,16 @@ import {
 } from "@workspace/relay"
 import { Context, DateTime, Effect, Option } from "effect"
 
-// Decision: the walks read Streaming hours, the newest closed day and
-// Ajaib's window on the relay's schedule clock, which the test clock offset
-// moves (settings.ts), so an e2e spec walks a closed day at any hour. The
-// service worker provides it; anywhere else it is the real clock. Tape
-// queries keep the real time. See apinrdw/kumora#273.
+// Decision: a test-only clock offset moves the relay's schedule for e2e
+// (apps/extension/docs/adr/0006-a-test-only-clock-offset-moves-the-relay-s-schedule.md)
 export const ScheduleClock = Context.Reference<Effect.Effect<DateTime.Utc>>(
   "extension/ScheduleClock",
   { defaultValue: () => DateTime.now }
 )
 export const scheduleNow = Effect.flatten(ScheduleClock)
 
-// Decision: walks run only outside Streaming hours (schedule.ts in
-// @workspace/relay), so the live relay keeps the tab and the account's
-// calls (apinrdw/kumora#196). A year missing from the schedule reads as
-// outside it, as the relay's own window does (gate.ts).
+// Decision: broker codes walks run only outside Streaming hours
+// (apps/extension/docs/adr/0007-walks-run-only-outside-streaming-hours.md)
 export const inStreamingHours = Effect.fnUntraced(function* (
   instant: DateTime.DateTime
 ) {
@@ -116,7 +111,7 @@ export const tradingDaysBetween = Effect.fnUntraced(
   )
 )
 
-// Decision: Ajaib's walk of a day runs from the close until 00:00 WIB that
+// Ajaib's walk of a day runs from the close until 00:00 WIB that
 // night, retrying whatever stops it; then Stockbit takes the day. The tape
 // holds only the day's own evening, and the owner wants Ajaib's faster walk
 // tried all evening before Stockbit's (2026-11-17).

@@ -25,11 +25,8 @@ const TONE = {
 const ITEM =
   "flex h-10 shrink-0 flex-col justify-center rounded-md border border-border px-2.5 py-1 text-[12px] leading-4 hover:bg-muted aria-[current=page]:border-foreground aria-[current=page]:bg-muted"
 
-// Decision: the strip is loaded on mount, and again, past the copy the
-// browser keeps until 17:01 WIB (day-index.ts), a minute after the loader
-// first says the market shut on a day, so the 17:00 seal has written the day's
-// row; a row its retry lands later shows on the next load. Midnight and 08:40
-// change the loader's answer, not the days recorded. See apinrdw/kumora#157.
+// Decision: the day strip reloads past day-index.ts's 17:01 WIB cache
+// (apps/dashboard/docs/adr/0027-the-day-strip-reloads-after-the-market-shuts.md)
 const SEAL_SETTLED = "1 minute"
 
 export const stripLoad = (

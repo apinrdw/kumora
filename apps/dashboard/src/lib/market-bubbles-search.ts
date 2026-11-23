@@ -66,7 +66,7 @@ export const parseMarketBubblesSearch = (raw: Record<string, unknown>) =>
       window: yield* field(Window, raw.window),
       sector: yield* field(SectorName, raw.sector),
     })
-    // Decision: `top` passes at any value. Its default is the device's (Top
+    // `top` passes at any value. Its default is the device's (Top
     // 50 below `lg`), which the route can't know; the page drops a `top` that
     // is its device's default once it knows the device (useBubbleView), so
     // an absent `top` means the device's default.

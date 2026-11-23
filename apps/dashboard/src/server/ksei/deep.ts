@@ -20,11 +20,8 @@ import { WAYBACK_SEED } from "./wayback-seed.ts"
 
 // The years a Deep backfill probes, one step per kind and year; the first
 // year's step probes only its months from FIRST_MONTH.
-// Decision: FIRST_MONTH's year (2018) to 2023. KSEI serves files back to
-// 2008, but the owner chose on 2026-11-15 to archive November 2018 onward
-// only (coverage.ts). KSEI's listings hold November 2023 onward on
-// 2026-11-14 (a rolling three years), which the daily runs keep from then
-// on. See apinrdw/kumora#324.
+// Decision: the KSEI archive keeps November 2018 onward only
+// (apps/dashboard/docs/adr/0049-the-ksei-archive-starts-at-november-2018.md)
 export const PROBE_YEARS = Array.from(
   { length: 2023 - FIRST_YEAR + 1 },
   (_, i) => FIRST_YEAR + i

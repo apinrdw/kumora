@@ -77,7 +77,7 @@ const FIXED_RESULT_BYTES = 4096
 // `summary` holds less) or its URL and an ETag (`head`), so this many fit:
 // 1,483. The held ETags and hashes grow with every record, so no step
 // result carries them.
-// Decision: IDX lists 145 on 2026-11-14 and adds ~24 a month
+// IDX lists 145 on 2026-11-14 and adds ~24 a month
 // (docs/research/idx-kepemilikan-listing.md): about four and a half years
 // before the run must split its steps. See apinrdw/kumora#303.
 export const MAX_LISTED_REPORTS = Math.floor(

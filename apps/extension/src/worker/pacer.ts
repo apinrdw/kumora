@@ -37,14 +37,13 @@ export interface PacedTab extends RequestingTab {
 // Who a call is for. Backfill calls start before any waiting walk call.
 export type Priority = "backfill" | "walk"
 
-// Decision: 3 calls a second per site, spaced evenly so Cloudflare never sees
-// a burst (apinrdw/kumora#196). Half rate doubles the spacing.
+// Decision: 3 calls a second per site; a throttle stops the site 5 minutes
+// (apps/extension/docs/adr/0011-the-pacer-spaces-calls-and-backs-off-on-a-throttle.md)
 const FULL_SPACING = 334
 const HALF_SPACING = 2 * FULL_SPACING
 
-// Decision: a throttle stops the site for 5 minutes, then half rate until 10
-// minutes pass without another (apinrdw/kumora#196). The extension never
-// tries to solve a challenge.
+// Decision: 3 calls a second per site; a throttle stops the site 5 minutes
+// (apps/extension/docs/adr/0011-the-pacer-spaces-calls-and-backs-off-on-a-throttle.md)
 const STOPPED_FOR = 5 * 60_000
 const HALF_RATE_FOR = 10 * 60_000
 
@@ -75,8 +74,8 @@ const isThrottle = Effect.fnUntraced(function* (answer: Answer) {
   )
 })
 
-// Decision: Ajaib allows one call in flight (apinrdw/kumora#192); Stockbit's
-// limit is the rate alone.
+// Decision: 3 calls a second per site; a throttle stops the site 5 minutes
+// (apps/extension/docs/adr/0011-the-pacer-spaces-calls-and-backs-off-on-a-throttle.md)
 const IN_FLIGHT: Readonly<Record<Feed, number>> = {
   Stockbit: Number.POSITIVE_INFINITY,
   Ajaib: 1,
@@ -130,10 +129,8 @@ export const makePacer = Effect.fnUntraced(function* (options: {
 
   // One paced REST call: it waits for its turn, then runs on the tab. An
   // interrupted call leaves the queue, or frees its slot if it started.
-  // Decision: a started call's fetch holds its slot until the tab answers or
-  // goes, even once its caller is interrupted or gives up after
-  // REQUEST_TIMEOUT: the content script's fetch can't be cancelled, and
-  // Ajaib allows one in flight. The tab going answers every call.
+  // Decision: 3 calls a second per site; a throttle stops the site 5 minutes
+  // (apps/extension/docs/adr/0011-the-pacer-spaces-calls-and-backs-off-on-a-throttle.md)
   const paced = Effect.fnUntraced(function* (
     priority: Priority,
     request: TabRequest

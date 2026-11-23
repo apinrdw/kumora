@@ -44,7 +44,8 @@ const compare = (a: Version, b: Version) =>
 
 const show = (version: Version) => version.join(".")
 
-// Decision: a tag's date is the day it is pushed in WIB, the owner's day.
+// Decision: N counts every Candidate ever tagged; refused tags are deleted
+// (docs/adr/0008-candidate-numbers-count-every-candidate-ever-tagged.md)
 export const wibDate = (now: Date) =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Jakarta",
@@ -89,8 +90,8 @@ export const judgeTag = Effect.fn("judgeTag")(function* (
       `${tag.name}: its version must be above Production's ${show(released)}.`
     )
   if (release.kind === "candidate") {
-    // Decision: N counts every Candidate ever tagged, whatever its date or
-    // version, so it never resets when the day changes.
+    // Decision: N counts every Candidate ever tagged; refused tags are deleted
+    // (docs/adr/0008-candidate-numbers-count-every-candidate-ever-tagged.md)
     const next =
       Math.max(
         0,

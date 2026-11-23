@@ -17,11 +17,8 @@ export interface ErrorLogStore {
   readonly secrets: Effect.Effect<ReadonlyArray<string>>
 }
 
-// Decision: a cause is redacted as text right before it is stored, not by
-// carrying credentials as `Redacted`: the text hides a value however it got
-// there, a message built from an unwrapped one included. It hides each value
-// the worker has read (settings.ts), and any JWT, which covers Stockbit's token
-// read from its cookie and never stored. See apinrdw/kumora#288.
+// Decision: a logged cause is redacted as text, from every credential read
+// (apps/extension/docs/adr/0010-credentials-are-redacted-as-text-before-a-cause-is-stored.md)
 const JWT = /eyJ[\w-]*\.[\w-]+\.[\w-]*/g
 
 export const REDACTED = "<redacted>"

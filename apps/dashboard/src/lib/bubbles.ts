@@ -171,7 +171,7 @@ const WINDOW_MINUTES: Record<Exclude<BubbleWindow, "30s" | "D">, number> = {
 // The phases whose windows end now; any other ends at the day's last trade.
 const SESSIONS: ReadonlySet<MarketPhase> = new Set(["session-1", "session-2"])
 
-// Decision: what a trade or candle runs stays plain (isIndex to newestKey,
+// What a trade or candle runs stays plain (isIndex to newestKey,
 // newestLetGo and letGo included, newestHeld to waitForPrice, takeMinute,
 // secondOf to countTrade), the applies' loops Effects: a delta can carry
 // thousands. Dev machine, 900 codes, 100,000 each, plain then Effect each:
@@ -220,7 +220,7 @@ const newestCounted = (flow: MarketFlow) =>
 // The day's last regular-board trade the flow still counts, in epoch ms: its
 // time when the tape carried it, else the start of the newest minute with
 // trades the flow holds, kept or let go (newestHeld, as lastPrice reads).
-// Decision: derived from what the flow holds each time it is asked, never
+// Derived from what the flow holds each time it is asked, never
 // kept as a field, which went stale whenever a correction or a backfill took
 // its trade or minute away. Measured 2026-11-17 on the dev machine
 // (bubbles.test.ts, "Recompute", 900 codes, run alone): median 1.2 ms without
@@ -352,7 +352,7 @@ const newestHeld = (code: CodeFlow): HeldMinute | undefined => {
 
 // A code's last price: the close of the newest minute the flow holds of it
 // with trades, kept or let go (newestHeld); none when it holds none.
-// Decision: the newest minute's close, its highest-numbered trade's price
+// The newest minute's close, its highest-numbered trade's price
 // (candles.ts `fold`), read off the minutes' latest copies, never cached
 // past them. A let-go copy stands until a backfill settled past its `heard`
 // (applyBubbles). Recompute bench, 900 codes, 2026-11-17: median 1.3 to
@@ -417,11 +417,8 @@ const keepLetGo = (
 
 // A body settled before `settledBefore` taken: whether it takes back an
 // earlier socket's minutes.
-// Decision: a body holds every trade that reached the Worker before its
-// `settledBefore`, the clock the messages' `at` is on. Only one settled past
-// this socket's snapshot takes back an earlier socket's minutes, and only
-// one past a recount's trigger recounts; one settled short, however early
-// it was asked for, leaves both waiting. See apinrdw/kumora#436.
+// Decision: a bubbles body holds every trade the Worker had before settledBefore
+// (apps/dashboard/docs/adr/0029-a-bubbles-body-holds-every-trade-before-settledbefore.md)
 const takeSettled = (flow: MarketFlow, settledBefore: number) =>
   Effect.sync(() => {
     flow.settledBefore = settledBefore
@@ -436,7 +433,7 @@ const takeSettled = (flow: MarketFlow, settledBefore: number) =>
     return takesBack
   })
 
-// Decision: a minute is the candle book's latest copy (candles.ts): a
+// A minute is the candle book's latest copy (candles.ts): a
 // delta's candle, or footprint with no cells, replaces it, smaller too. The
 // body has only settled trades, which never leave a minute, so it fills the
 // minutes no delta carried. See apinrdw/kumora#436 and spec #427,
@@ -497,7 +494,7 @@ export const missingFromBackfill = (flow: MarketFlow) =>
     return false
   })
 
-// Decision: a code's previous close is asked for in at most CLOSE_MISSES
+// A code's previous close is asked for in at most CLOSE_MISSES
 // backfills after it traded, then given up on for the day: each ask GETs
 // the whole backfill, up to about 3.5 MB, and a code whose `liveprice`
 // frame never came would ask once a minute all day. Its day change and
@@ -505,7 +502,7 @@ export const missingFromBackfill = (flow: MarketFlow) =>
 const CLOSE_MISSES = 3
 
 // `row` as the book's copy of `code`'s minute `at`; none when its last
-// trade left it. Plain, per candle (the Decision at isIndex).
+// trade left it. Plain, per candle (the comment at isIndex).
 const takeMinute = (
   flow: MarketFlow,
   stock: StockCode,
@@ -589,7 +586,7 @@ interface Counted {
 }
 
 // `code`'s row of `second`, made when it has none, letting older ones go.
-// Plain, per trade (the Decision at isIndex).
+// Plain, per trade (the comment at isIndex).
 const secondOf = (code: CodeFlow, second: number) => {
   const held = code.seconds.get(second)
   if (held !== undefined) return held
@@ -774,7 +771,7 @@ const priceBefore30s = (
     : code.minutes.get(minute)!.close
 }
 
-// Decision: a code's window figures are plain functions, not Effects: the
+// A code's window figures are plain functions, not Effects: the
 // page asks for every code's each second, and the spec holds that under 2 ms
 // for 900 codes. Measured 2026-11-16 on the dev machine (bubbles.test.ts,
 // "Recompute"): median 1.0 ms plain, 1.23 ms with an Effect per code. The

@@ -47,7 +47,7 @@ interface CodeBubbles {
   readonly minutes: Map<number, MinuteFigures>
 }
 
-// Decision: a settle and its helpers (sumsOf, figuresOf, added, keepMinute, the
+// A settle and its helpers (sumsOf, figuresOf, added, keepMinute, the
 // book's `settled`) are plain functions, not Effects: the candle book calls
 // it for each regular-board trade it settles, inside its own plain
 // arithmetic (candles.ts). Measured 2026-11-16 on the dev machine: 100,000
@@ -90,7 +90,7 @@ const keepMinute = (
   minutes.set(minute, figures)
 }
 
-// Decision: the day totals are a running sum, each settled trade added once,
+// The day totals are a running sum, each settled trade added once,
 // not a re-read of the day's candles, which a restart never loads; a restart
 // rebuilds them once from the candles table (`restore`). A minute is its
 // candle's settled figures, so a late trade replaces it. See spec
@@ -109,7 +109,7 @@ export const makeBubbleBook = Effect.sync(() => {
 
   // A regular-board trade settled into its candle: `print` is the trade's own
   // figures, `candle` its minute's settled figures with it. Plain (the
-  // Decision at sumsOf).
+  // comment at sumsOf).
   const settled = (
     code: StockCode,
     minute: number,

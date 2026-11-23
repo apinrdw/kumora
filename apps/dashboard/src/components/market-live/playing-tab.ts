@@ -68,7 +68,7 @@ const outranks = (a: Peer, b: Peer) =>
         : a.id < b.id
   )
 
-// Decision: every tab keeps the same list of open tabs and works out the
+// Every tab keeps the same list of open tabs and works out the
 // Playing tab from it, so no tab hands over and a closing tab only says Bye
 // (spec apinrdw/kumora#510, "One tab plays"). A tab that closes without a
 // word (a crash) stays the Playing tab in the others' lists until another tab

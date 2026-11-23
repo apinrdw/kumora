@@ -23,9 +23,8 @@ export class WorkerEnv extends Context.Service<WorkerEnv, WorkerEnvShape>()(
   "@workspace/server/WorkerEnv"
 ) {}
 
-// Decision: the only module that reaches `cloudflare:workers`, and only lazily
-// per request. Prerender runs every route module in Bun, where a top-level
-// import of it fails. See apinrdw/kumora#23.
+// Decision: only the bridge and workflow.ts import cloudflare:workers
+// (packages/server/docs/adr/0001-only-the-bridge-and-the-workflow-runner-import-cloudflare-workers.md)
 const workerEnvLive = Layer.effect(
   WorkerEnv,
   Effect.promise(() => import("cloudflare:workers")).pipe(
@@ -132,10 +131,8 @@ export function makeRunServerEffect<R>({ isolate, workerEnv }: Bridge<R>) {
   }
 }
 
-// Decision: a second runner for code that answers an HTTP error differently
-// per surface (the dashboard's Worker entry: socket close 4401, 401 JSON, 403
-// on ingest). It hands back the HTTP error, or the bare 500 Response for
-// anything else, instead of throwing. See apinrdw/kumora#81.
+// Decision: runServerEffectResult hands back the HTTP error instead of throwing
+// (packages/server/docs/adr/0002-a-second-runner-hands-back-the-http-error.md)
 export function makeRunServerEffectResult<R>({
   isolate,
   workerEnv,

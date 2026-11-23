@@ -19,7 +19,7 @@ export type ImbalanceRatio = (typeof IMBALANCE_RATIOS)[number]
 
 // A chart's zoom as the viewer's last gesture left it, the same for every
 // code. A field not there is the chart's default zoom.
-// Decision: the zoom level only, never where the chart is: live data opens
+// The zoom level only, never where the chart is: live data opens
 // at the latest minute and a recorded day at its cursor.
 interface ChartZoom {
   // How many times tighter than its automatic fit the price axis is, about

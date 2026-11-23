@@ -5,7 +5,7 @@ How the engineering skills should consume this repo's domain documentation when 
 ## Before exploring, read these
 
 - **`GLOSSARY-MAP.md`** at the repo root: it points at one `GLOSSARY.md` per context. Read each one relevant to the topic.
-- **`Decision:` comments** in the files you are about to change: `rg 'Decision:' <path>`. They hold the choices a change could quietly undo.
+- **`Decision:` pointers** in the files you are about to change (`rg 'Decision:' <path>`), and the ADRs they name. They hold the choices a change could quietly undo.
 
 If a context's `GLOSSARY.md` doesn't exist yet, **proceed silently**. Don't flag its absence; don't suggest creating it upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates it lazily when a term actually gets resolved.
 
@@ -32,16 +32,33 @@ This is a **multi-context** repo. Contexts are the pnpm workspaces under `apps/*
 
 A term shared by more than one context belongs in the system-wide section of `GLOSSARY-MAP.md`, not duplicated per context. When a new workspace is added, add a row to `GLOSSARY-MAP.md`.
 
-## Decisions live in code, not ADRs
+## Decisions are ADRs
 
-This repo keeps no ADRs. A decision is recorded as a comment at the line that enacts it, and `scripts/check-decision-docs.mts` fails CI if an ADR directory or a link to one comes back.
+A decision that clears the bar is an ADR, and each line that enacts it carries a `Decision:` pointer to that ADR. Any other choice gets a plain why-comment, or nothing. `scripts/check-decision-docs.mts` enforces the pointer, path and numbering rules below.
 
-- **Where.** On the code or config line that would change if the decision were reversed. A decision with no single code site (a platform or tool choice) goes in the config file that enacts it: `.oxlintrc.json`, `.fallowrc.jsonc`, `pnpm-workspace.yaml`.
-- **Tag.** Open a comment line with `Decision:` in the file's comment syntax (`// Decision:`, `# Decision:`), in a comment that starts its own line rather than following code. The tag tells `/no-comments`, `/deslop` and reviewers to keep it, and makes every decision greppable.
-- **Content.** The choice, the constraint it puts on the code, and in one clause the main option it beat and why. Link the wayfinder ticket or PR for the full trade-off. Keep it to five lines at most, from the tag to the first empty comment line or code line; the tracker holds the rest. `scripts/check-decision-docs.mts` fails a longer one, and one whose tag sits partway along a line, after code or after other text on its comment line. It reads the comments of JS, TS, JSON and YAML files only.
-- **When.** Only for a choice that is hard to reverse, surprising without context, and the result of a real trade-off. Anything else needs no comment.
+- **The bar.** A choice clears it when undoing it reaches beyond its line, meaning it does at least one of these:
+  - binds more than one site, across files or packages;
+  - shapes data that is stored or sent, so old data or deployed clients outlive a change;
+  - guards Production data or a platform limit;
+  - fixes a tool, platform or process the whole repo depends on.
 
-When `/domain-modeling` says to offer or write an ADR, write a `Decision:` comment instead. When a change makes a `Decision:` comment false, update or delete it in the same commit.
+  A choice local to one function, component, constant or test stays a why-comment, however surprising it is. The comment at the site already stops a reader from "fixing" it.
+- **Where.** A decision of one workspace goes in that workspace's `docs/adr/`. Root scripts and root config (`scripts/`, `.github/`, `turbo.json`, `pnpm-workspace.yaml`) and system-wide decisions go in the root `docs/adr/`. A decision enacted in several workspaces goes in the lowest context every site depends on, even when that context has no enacting line of its own: the token refusal shared by `apps/extension` and `apps/dashboard` goes in `packages/relay`. When no workspace is shared by all the sites, it goes in the root. Create a directory when its first ADR is written, glossary or not, and name it in the ADRs column of `GLOSSARY-MAP.md`.
+- **Format.** `/domain-modeling`'s ADR format, named `NNNN-slug.md` with the next free number in its directory: a title, then a short paragraph of the context, the choice and the reason, naming the sites it constrains and linking its issue or PR. Frontmatter may carry `Status`, and `Sites: none` for a decision with no code or config line that can take a pointer. A D1 migration cannot: Alchemy refuses to deploy an applied one edited even in a comment, and the checker reads no SQL, so a decision enacted only in migrations names them in its body and declares `Sites: none`.
+- **Pointer.** A gist, then the ADR's path from the repo root, in at most two comment lines. It uses the file's comment syntax and opens its own comment line, not one that follows code:
+
+  ```ts
+  // Decision: 401 refuses the token, 426 means reload the extension
+  // (packages/relay/docs/adr/NNNN-token-refusal.md)
+  ```
+
+  One decision gets one ADR, with the same pointer at each enacting site. The checker (`scripts/decision-docs.mts`) names the file types whose comments it reads, and it reads `docs/adr/` links in every tracked file. `Decision:` lines in Markdown under `docs/research/` and `docs/runbooks/`, and in D1 migrations (`*.sql`), are dated records and keep their wording.
+- **Writing.** Write the ADR and its pointers in the same commit as the code, without asking first, and list the ADR under the PR body's `Decisions` heading.
+- **Changing.** A refinement, or a new site, edits the ADR in place. A reversal writes a new ADR, sets the old one's `Status` to `superseded by ADR-NNNN`, and moves every pointer to the new one; the checker fails a pointer left behind. When a change makes a why-comment false, update or delete it in the same commit.
+- **Number clash.** When another branch lands the same number in the directory first, the checker fails yours on `staging`. Renumber your ADR and update its pointers.
+- **Pruning.** `/no-comments` and `/deslop` keep a `Decision:` pointer while its ADR holds. A plain why-comment is pruned on its merits, like any comment.
+
+`/domain-modeling` writes ADRs as its format describes, against this bar. Where it says to offer an ADR, write it instead.
 
 ## Use the glossary's vocabulary
 
@@ -51,6 +68,6 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 
 ## Flag decision conflicts
 
-If your output contradicts a `Decision:` comment, surface it explicitly rather than silently overriding:
+If your output contradicts an ADR, surface it explicitly rather than silently overriding:
 
-> _Contradicts the `Decision:` in `.oxlintrc.json` (no type-aware rules), but worth reopening because…_
+> _Contradicts the ADR behind the `Decision:` in `.oxlintrc.json` (no type-aware rules), but worth reopening because…_
