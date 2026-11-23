@@ -3,7 +3,8 @@
 // its tag, and names, by its path from the repo root, an ADR that exists and is
 // not superseded. Every ADR path in any file resolves, ADRs are named
 // `NNNN-slug.md` with numbers unique per directory, and every ADR has a pointer
-// or declares `Sites: none`. See docs/agents/domain.md.
+// or declares `Sites: none`. An ADR ends with a `Sites:` list, exactly the files
+// whose pointer names it, and a `Source:` line. See docs/agents/domain.md.
 // Comments come from parsers: oxc for JS, TS and JSON, `yaml` for YAML. Shell
 // and CSS comments, and those inside a YAML block scalar, are found by their
 // markers. A file of any other type is read for ADR links only, never for a
@@ -318,6 +319,17 @@ export const checkDecisionDocs = Effect.fn("checkDecisionDocs")(function* (
     )
   }
 
+  // The backticked paths in the body's `Sites:` list, or nothing when the
+  // body has no list.
+  const sitesListed = (text: string) => {
+    const list = /^Sites:\n((?:- .*(?:\n|$))+)/m.exec(text)?.[1]
+    return list === undefined
+      ? undefined
+      : [...list.matchAll(/`([^`]+)`/g)].flatMap(([, site]) =>
+          site === undefined ? [] : [site]
+        )
+  }
+
   const adrs = present.flatMap(({ file, text }) => {
     const [, dir, name] = adrFile.exec(file) ?? []
     if (dir === undefined || name === undefined) return []
@@ -333,6 +345,8 @@ export const checkDecisionDocs = Effect.fn("checkDecisionDocs")(function* (
         number: adrName.exec(name)?.[1],
         siteless: fields.get("sites")?.toLowerCase() === "none",
         successor,
+        sites: sitesListed(text),
+        sourced: /^Source: \S/m.test(text),
       },
     ]
   })
@@ -346,11 +360,14 @@ export const checkDecisionDocs = Effect.fn("checkDecisionDocs")(function* (
   const named = adrs.flatMap(({ number, ...adr }) =>
     number === undefined ? [] : [{ ...adr, number }]
   )
-  const pointed = new Set(
-    present.flatMap(({ file, pointers }) =>
-      pointers.map(({ written }) => target(file, written))
-    )
-  )
+  // Each ADR, by path, and the files whose pointers name it.
+  const holders = new Map<string, Set<string>>()
+  for (const { file, pointers } of present)
+    for (const { written } of pointers) {
+      const adr = target(file, written)
+      holders.set(adr, (holders.get(adr) ?? new Set()).add(file))
+    }
+  const pointed = new Set(holders.keys())
   const findings = [
     ...present.flatMap(({ file, shape, links, pointers }) => [
       ...shape,
@@ -390,6 +407,33 @@ export const checkDecisionDocs = Effect.fn("checkDecisionDocs")(function* (
             `${file}: no Decision points here; add a pointer at its site, or mark it Sites: none`,
           ]
     ),
+    ...named.flatMap(({ file, sourced }) =>
+      sourced
+        ? []
+        : [
+            `${file}: add a Source: line naming its issue or PR, or Source: none`,
+          ]
+    ),
+    // A siteless ADR's list names the files that enact it without a pointer,
+    // and a superseded one's the sites it had before they moved. An ADR no
+    // pointer reaches is reported above.
+    ...named.flatMap(({ file, sites, siteless, successor }) => {
+      const held = [...(holders.get(file) ?? [])].sort()
+      if (siteless || successor !== undefined || held.length === 0) return []
+      if (sites === undefined)
+        return [`${file}: add a Sites: list naming ${held.join(", ")}`]
+      return [
+        ...held
+          .filter((site) => !sites.includes(site))
+          .map((site) => `${file}: ${site} points here; add it to Sites`),
+        ...sites
+          .filter((site) => !held.includes(site))
+          .map(
+            (site) =>
+              `${file}: Sites lists ${site}, which holds no Decision pointing here; drop it`
+          ),
+      ]
+    }),
   ]
   if (findings.length > 0)
     return yield* new CheckFailed({

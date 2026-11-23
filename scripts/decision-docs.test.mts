@@ -21,6 +21,33 @@ const comment = (lines: number, marker = "//", target = one) => [
 const runs = (at: string, lines: number) =>
   `${at}: Decision runs ${lines} lines; keep 2: a gist and the ADR path`
 
+const adrFile = /(?:^|\/)docs\/adr\/\d{4}-[^/]*\.md$/
+
+// Ends each ADR the way the checker asks, unless it already does: a `Sites:`
+// list of the files that point at it, and a `Source:` line. The Sites and
+// Source cases write their ADRs whole.
+const wellFormed = (files: Record<string, string>) =>
+  Object.fromEntries(
+    Object.entries(files).map(([file, text]) => {
+      if (!adrFile.test(file) || /^(Sites:$|Source:)/m.test(text))
+        return [file, text]
+      const written = new RegExp(
+        String.raw`\((?:\.\.?\/)*${file.replaceAll(".", "\\.")}\)`
+      )
+      const sites = Object.entries(files)
+        .filter(([site, body]) => !site.endsWith(".md") && written.test(body))
+        .map(([site]) => `- \`${site}\``)
+      return [
+        file,
+        [
+          text,
+          ...(sites.length > 0 ? ["Sites:", ...sites, ""] : []),
+          "Source: none",
+        ].join("\n"),
+      ]
+    })
+  )
+
 // A repo whose index lists the files given, plus `unreadable` ones that are
 // listed but not on disk.
 const repo = (
@@ -33,7 +60,10 @@ const repo = (
       .join(""),
   }))
   const absolute = Object.fromEntries(
-    Object.entries(files).map(([file, text]) => [`/repo/${file}`, text])
+    Object.entries(wellFormed(files)).map(([file, text]) => [
+      `/repo/${file}`,
+      text,
+    ])
   )
   return Layer.mergeAll(index.layer, memoryFileSystem(absolute), Path.layer)
 }
@@ -338,6 +368,37 @@ describe("checkDecisionDocs", () => {
         ]
       )
     })
+  )
+
+  it.effect("passes an ADR whose Sites list is exactly its pointers", () =>
+    passes({
+      [one]:
+        "# One\n\nWhy.\n\nSites:\n- `a.ts`\n- `b.ts`\n\nSource: apinrdw/kumora#1",
+      "a.ts": comment(2).join("\n"),
+      "b.ts": comment(2).join("\n"),
+    })
+  )
+
+  it.effect(
+    "fails an ADR with no Source line, or a Sites list off its pointers",
+    () =>
+      Effect.gen(function* () {
+        assert.deepStrictEqual(
+          yield* findings({
+            [one]: "# One\n\nSites:\n- `a.ts`\n- `gone.ts`",
+            [two]: "# Two\n\nSource: none",
+            "a.ts": comment(2).join("\n"),
+            "b.ts": comment(2).join("\n"),
+            "c.ts": comment(2, "//", two).join("\n"),
+          }),
+          [
+            `${one}: add a Source: line naming its issue or PR, or Source: none`,
+            `${one}: b.ts points here; add it to Sites`,
+            `${one}: Sites lists gone.ts, which holds no Decision pointing here; drop it`,
+            `${two}: add a Sites: list naming c.ts`,
+          ]
+        )
+      })
   )
 
   // Each case below was misread by the line classifier these tests replaced.
