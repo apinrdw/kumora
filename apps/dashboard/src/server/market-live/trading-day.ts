@@ -1168,7 +1168,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* candles.written
   })
 
-  // Decision: the bubbles answer is built on the flush 5 s past each minute
+  // Decision: the bubbles answer is built after the flush 5 s past each minute
   // and served as is until the next; a GET before the object's first build
   // builds it. Each build logs its codes and bytes for the cost check; its
   // time is measured off the Worker, whose clock stands still while it
@@ -1244,9 +1244,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ),
       // Decision: the flush and the bubbles build each take the turn on
       // their own, with a yield to the event loop between, so relay messages
-      // that came during the flush run before the build. One turn held both
-      // up to 3.8 s at 13:31:05, and the relay's ingest socket closed 1006
-      // inside it on 2026-11-16 to 11-19. See apinrdw/kumora#603.
+      // that came during the flush run before the build, rather than one
+      // turn holding both, inside which the relay's ingest socket closed.
+      // See apinrdw/kumora#603.
       Effect.andThen(Effect.yieldNow),
       Effect.andThen(
         turn.withPermit(

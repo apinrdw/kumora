@@ -251,6 +251,8 @@ describe("bubbles", () => {
 
   // The relay message here is a liveprice frame, whose previous close the
   // build reads: the answer shows whether the message ran before the build.
+  // It arrives from inside the flush's write transaction, as a socket
+  // message the object took while the flush held the turn.
   it.effect(
     "a relay message that arrives while the flush writes is taken before that minute's build",
     () =>
