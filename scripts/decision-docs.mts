@@ -20,7 +20,7 @@ import { gitLines } from "./lib/command.mts"
 const maxDecisionLines = 2
 const tag = "Decision:"
 // A tag in comment text; a backticked one is prose about the tag.
-export const anyTag = new RegExp(String.raw`(?<!\`)\b${tag}`)
+const anyTag = new RegExp(String.raw`(?<!\`)\b${tag}`)
 const script = /\.[cm]?[jt]sx?$/
 const jsx = /\.[jt]sx$/
 const json = /\.jsonc?$/
@@ -102,10 +102,7 @@ const cssComments = Effect.fnUntraced(function* (text: string) {
 
 // The comments in a file: empty when it is not a type with comments, none when
 // oxc cannot parse it. The check then names the file and reads nothing from it.
-export const readComments = Effect.fnUntraced(function* (
-  file: string,
-  text: string
-) {
+const readComments = Effect.fnUntraced(function* (file: string, text: string) {
   const oxc = (name: string, source: string, shift: number) => {
     const { errors, comments } = parseSync(name, source)
     return errors.length > 0
@@ -164,7 +161,7 @@ interface Comment {
 }
 
 // A file's comments laid over its source lines.
-export const layComments = Effect.fnUntraced(function* (
+const layComments = Effect.fnUntraced(function* (
   file: string,
   text: string,
   found: ReadonlyArray<Found>
