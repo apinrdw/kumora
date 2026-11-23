@@ -109,7 +109,8 @@
     },
     "//#format:check:root": {
       "inputs": [
-        "scripts/**"
+        "scripts/**",
+        "package.json"
       ]
     },
     "//#typecheck:root": {

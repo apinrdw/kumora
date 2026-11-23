@@ -5,8 +5,8 @@
   "private": true,
   "scripts": {
     "lint": "oxlint --deny-warnings",
-    "format": "oxfmt --write \"**/*.{ts,tsx}\"",
-    "format:check": "oxfmt --check \"**/*.{ts,tsx}\"",
+    "format": "oxfmt --write \"**/*.{ts,tsx}\" package.json",
+    "format:check": "oxfmt --check \"**/*.{ts,tsx}\" package.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
