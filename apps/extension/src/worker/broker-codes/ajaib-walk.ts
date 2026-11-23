@@ -43,7 +43,7 @@ import {
 const STATUS_PATH = "v1/stock/data/trading-day/time/"
 const TAPE_PATH = "v1/stock/detail/running_trades/"
 
-// Decision: the tape floors `last_timestamp` to a 3-minute WIB boundary and
+// The tape floors `last_timestamp` to a 3-minute WIB boundary and
 // answers rows strictly before it, newest first; page p starts at
 // (p - 1) × (size + 1), so each seam drops one row, and a second pass at
 // 4,999 drops others. `total_pages` always says 2 and is ignored. Probed on
@@ -73,7 +73,7 @@ export interface AjaibWalkStore {
   readonly save: (position: AjaibWalkPosition) => Effect.Effect<void>
 }
 
-// Decision: `trading-day/time/`'s market status is read from `result.status`,
+// `trading-day/time/`'s market status is read from `result.status`,
 // or a top-level `status`: the probe (apinrdw/kumora#192) read either, and no
 // capture in this repo shows which Ajaib sends.
 const MarketStatus = Schema.fromJsonString(

@@ -8,11 +8,8 @@ import { Effect } from "effect"
 import type { SqlValue, Statement } from "../d1.ts"
 import { HoldingsDb } from "./db.ts"
 
-// Decision: a month lists at most 2,000 stocks in any report, about 2× what
-// each listed in Sep and Oct 2026 (962 in IDX's classification report,
-// 1,005 in KSEI's Securities holdings report), so each of the three parses,
-// investor-type included, stays under PARSE_HEAP_MIB
-// (tests/server/holdings/bounded-heap.ts).
+// Decision: a report's parse is bounded to fit 48 MiB of the Worker's heap
+// (apps/dashboard/docs/adr/0045-a-holdings-parse-fits-a-bounded-heap.md)
 export const MAX_STOCKS = 2_000
 
 // Why a parse refuses a report listing more.
@@ -39,11 +36,8 @@ export interface MonthReplace {
   }
 }
 
-// Decision: rows go in at most 1,000 and 90,000 bytes of JSON at a time,
-// each chunk one INSERT … SELECT over json_each of one bound JSON array,
-// under D1's 100 bound parameters and 100 KB per statement: 1,000 rows of
-// issuer names at their 256 characters, each written as \u0001, took 1.55 MB.
-// See apinrdw/kumora#355.
+// Decision: D1 inserts go in json_each chunks under D1's statement limits
+// (apps/dashboard/docs/adr/0018-d1-inserts-go-in-json-each-chunks-under-statement-limits.md)
 const CHUNK_ROWS = 1000
 const CHUNK_BYTES = 90_000
 
@@ -51,7 +45,7 @@ const encoder = new TextEncoder()
 
 // Gathers a table's rows as a parse reads them, each chunk of them turned
 // into one JSON array as soon as it is full.
-// Decision: a parse holds its month as JSON text, about 35 bytes a row,
+// A parse holds its month as JSON text, about 35 bytes a row,
 // not as an array a row, about 100: a classification report's 234,000
 // holdings took 8 MiB as JSON and 22 MiB as arrays.
 export const monthRows = (table: string, columns: ReadonlyArray<string>) =>

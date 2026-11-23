@@ -84,11 +84,8 @@ const stateOf = (socket: WebSocket) =>
 
 const WATCHING = "watching:"
 
-// Decision: a viewer's codes live in the object's storage under its socket's
-// id, not in the socket's attachment: an attachment holds 16,384 bytes, about
-// 2,300 codes, and a Select past it would throw after the snapshot. A storage
-// value holds 8 MB; a viewer's codes stay under 200 KB (envelope.test.ts).
-// See apinrdw/kumora#157.
+// Decision: a watchlist holds at most 10,000 codes, kept in object storage
+// (packages/relay/docs/adr/0010-a-viewer-s-watchlist-is-capped-and-stored-outside-the-socket.md)
 const watchingStore = (storage: DurableObjectStorage) =>
   Effect.sync(() => {
     const held = new Map<string, ReadonlyArray<StockCode>>()
@@ -235,10 +232,8 @@ const listed = (date: WibDate) =>
 const COLD = "cold"
 
 // Empties the object's storage and keeps the cold mark.
-// Decision: deleteAll() and the mark's put go out with no await between
-// them, so the output gate writes them as one: a restart finds either the
-// day whole or the mark. The alarm goes first, so nothing wakes the emptied
-// object. See spec apinrdw/kumora#556, "The move".
+// Decision: deleteAll and the cold mark go out together, alarm first
+// (apps/dashboard/docs/adr/0105-the-cold-move-empties-the-object-and-marks-it-in-one-write.md)
 const emptied = Effect.fnUntraced(function* (storage: DurableObjectStorage) {
   yield* Effect.promise(() => storage.deleteAlarm())
   const [deleted, marked] = yield* Effect.sync(
@@ -293,18 +288,16 @@ const dayValuesOf = Effect.fnUntraced(function* (date: WibDate) {
   )
 })
 
-// Decision: a plain class, not `DurableObject` from `cloudflare:workers`: the
-// object needs no RPC, and only the bridge may import that module. Each
-// callback runs through the bridge's result runner, which logs any failure.
+// Decision: only the bridge and workflow.ts import cloudflare:workers
+// (packages/server/docs/adr/0001-only-the-bridge-and-the-workflow-runner-import-cloudflare-workers.md)
 export class TradingDayObject {
   private day!: Effect.Success<ReturnType<typeof makeTradingDay>>
   private peerFor!: PeerLookup
   // An emptied object's answers, its day moved to R2; none while it is hot.
   private cold: ColdDay | undefined
 
-  // Decision: the constructor takes no bindings, though Cloudflare hands it
-  // them: the start and every callback read WorkerEnv, which the runner
-  // provides, so no copy of a binding outlives the request that read it.
+  // Decision: the object's constructor takes no bindings; callbacks read WorkerEnv
+  // (apps/dashboard/docs/adr/0106-the-trading-day-object-s-constructor-takes-no-bindings.md)
   constructor(private readonly ctx: DurableObjectState) {
     // The Worker entry reaches the object by name, so the name is set.
     const date = decodeDate(ctx.id.name)

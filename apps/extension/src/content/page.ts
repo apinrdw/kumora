@@ -51,7 +51,7 @@ new MutationObserver(() => {
   postLock()
 }).observe(document, { childList: true, subtree: true })
 
-// Decision: each box gets its digit through the native value setter and an
+// Each box gets its digit through the native value setter and an
 // `input` event, so React's own change tracking sees it, as typing would.
 const setValue = Object.getOwnPropertyDescriptor(
   HTMLInputElement.prototype,
@@ -101,7 +101,7 @@ const PIN_VALIDATE = "/pin/validate"
 const postValidated = (status: number) =>
   window.postMessage({ kumoraRelay: "pin-validated", status }, location.origin)
 
-// Decision: only a call that carries `authorization` is kept. A token-less
+// Only a call that carries `authorization` is kept. A token-less
 // call under the API path, such as a `content-type: text/plain` one seen on
 // 2026-11-20, otherwise replaced the signed headers the relay sends.
 const report = (url: string, headers: Headers) => {

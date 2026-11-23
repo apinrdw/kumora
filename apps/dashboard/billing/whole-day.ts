@@ -48,7 +48,7 @@ import {
 
 // Every code sends a liveprice frame each minute, and the 30 busiest are
 // viewed, their books framed on both sides every 15 s.
-// Decision: the busy day's trades come in bursts of BURST, one code and side
+// The busy day's trades come in bursts of BURST, one code and side
 // each, the code drawn by Zipf's law over its 800 codes: about 0.31 sweeps
 // a trade and 145 K stock-minutes, near the cost model's 0.3 and 150 K
 // (docs/runbooks/order-flow-cost.md, "Why the old estimate missed the reads").
@@ -57,7 +57,7 @@ const SEAL = DateTime.toEpochMillis(
   DateTime.makeUnsafe("2026-11-09T17:00:00+07:00")
 )
 const BOOK_EVERY_MS = 15_000
-// Decision: the relay's frames land in one envelope every 5 s, holding the
+// The relay's frames land in one envelope every 5 s, holding the
 // trades timed before its end. A flush takes a minute's settled trades
 // whatever envelopes brought them, and the day records in about 280 s
 // against 325 s with an envelope a second.

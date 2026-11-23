@@ -143,7 +143,7 @@ const dayGets = async (page: Page, day: WibDate) => {
   return gets
 }
 
-// Decision: a cold day's 404 is not kept (cold-days.ts `notStored`): the
+// A cold day's 404 is not kept (cold-days.ts `notStored`): the
 // day has no code list, so its codes answer is one, and so is its book, as
 // the walks recorded none. Every other answer comes from R2, kept for good.
 const NOT_KEPT = new Set(["codes", "books"])
@@ -188,7 +188,7 @@ test("a cold day replays, is never rechecked, and reloads from the browser's cac
     message: "Not recorded",
   })
 
-  // Decision: the context's routes go (support/test.ts sets the client
+  // The context's routes go (support/test.ts sets the client
   // address and the Turnstile stub through them): Playwright turns the
   // browser's HTTP cache off while any route is set, and this spec reads
   // that cache. It signs in from saved state, so neither is needed.
@@ -245,7 +245,7 @@ test("a cold day replays, is never rechecked, and reloads from the browser's cac
   expect(gets.slice(loaded)).toEqual([])
 
   // Reloaded, the browser's copies answer the day's GETs.
-  // Decision: reloaded twice, the second read. The dev build mounts the
+  // Reloaded twice, the second read. The dev build mounts the
   // page's effects twice, interrupting the first loads, and an interrupted
   // GET of the selected code's candles, which two loads ask for at once,
   // can leave no copy, so the first reload may ask it again.

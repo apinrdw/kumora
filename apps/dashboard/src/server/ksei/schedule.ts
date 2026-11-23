@@ -8,7 +8,7 @@ import { nextRunOf, timesWib } from "../archive/schedule.ts"
 // The KSEI archive cron (UTC): 10:00 WIB every day. alchemy.run.ts sets it
 // on Production only, and runCron (../crons.ts) tells it from the
 // shareholding archive's cron by this expression.
-// Decision: daily, after KSEI's uploads at about 07:08 WIB on the first
+// Daily, after KSEI's uploads at about 07:08 WIB on the first
 // weekday after a period end, so a new month's files are archived the
 // morning they appear. See apinrdw/kumora#322.
 export const KSEI_CRON = "0 3 * * *"
@@ -22,9 +22,8 @@ export const nextKseiRun = (now: Date) => nextRunOf(KSEI_CRON, now)
 // archive cron, so a file archived that morning is parsed the same morning.
 // alchemy.run.ts sets it on Production only, and runCron (../crons.ts) tells
 // it from the archive crons by this expression.
-// Decision: its own cron an hour later, not a step of the archive run: the
-// parse run reads only R2 and HoldingsDb, and runs apart from KSEI's
-// availability. See apinrdw/kumora#359.
+// Decision: parse runs are runs of their own, not steps of an archive run
+// (apps/dashboard/docs/adr/0010-parse-runs-are-runs-of-their-own.md)
 export const KSEI_PARSE_CRON = "0 4 * * *"
 
 // "11:00 WIB"

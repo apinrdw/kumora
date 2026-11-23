@@ -50,9 +50,8 @@ const FROM_START = TradeNumber.make("0")
 // A day's status from a target, asked once, listing the missing ranges after
 // `after`: the status, the target's refusal, or none when it gave no answer
 // worth reading.
-// Decision: a 401 refuses the token. A 426, or a 200 whose body isn't this
-// version's status, means the dashboard moved on and the extension must be
-// reloaded.
+// Decision: 401 refuses the token, 426 means reload the extension
+// (packages/relay/docs/adr/0002-broker-codes-refusals-401-refuses-the-token-426-means-reload.md)
 export const askStatus = Effect.fnUntraced(function* (
   get: Get,
   target: BrokerCodesTarget,
@@ -92,7 +91,7 @@ export const makeBrokerCodesStatus = Effect.fnUntraced(function* (options: {
 }) {
   const refused = options.refused ?? (() => Effect.void)
   return {
-    // Decision: a GET that fails for any reason but a refusal is asked again
+    // A GET that fails for any reason but a refusal is asked again
     // with the poster's backoff, 1 s doubling to 30 s.
     status: Effect.fnUntraced(function* (
       day: WibDate,

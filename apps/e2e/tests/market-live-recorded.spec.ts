@@ -45,7 +45,7 @@ test("trades and order books the relay sent are read back from the store after t
   const code = freshCode("RD")
   const day = WibDate.make(wibToday())
   const relay = await openIngest()
-  // Decision: the waits below run from when the live page shows the trade and
+  // The waits below run from when the live page shows the trade and
   // the book, not from `sentAt`: the merge window opens when the object takes
   // the trade (candles.ts) and the book's chunk is the minute the object served
   // its frame in (book-chunks.ts), both after the spec sent them. See

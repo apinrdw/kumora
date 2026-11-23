@@ -8,11 +8,8 @@
     ".oxfmtrc.json"
   ],
   "tasks": {
-    // Decision: the package tasks CI runs (typecheck, build, lint,
-    // format:check, test) and test's transit hash no Markdown, so a
-    // GLOSSARY-only edit replays them from cache. No package's code or tests
-    // read a .md file; one that starts to must drop the "!**/*.md" from the
-    // tasks that read it.
+    // Decision: CI's package tasks hash no Markdown, so GLOSSARY edits replay cache
+    // (docs/adr/0017-ci-package-tasks-hash-no-markdown.md)
     "lint": {
       "dependsOn": [
         "^lint"
@@ -121,10 +118,8 @@
         "tsconfig.json"
       ]
     },
-    // Decision: the root tests split by what they read, so a workflow or
-    // lockfile edit reruns only the *.repo.test.mts files that read live repo
-    // config (#170). scripts/root-test-inputs.repo.test.mts checks each task's
-    // inputs cover the files its tests read.
+    // Decision: the root tests split by what they read, checked by a repo test
+    // (docs/adr/0018-root-tests-split-by-what-they-read.md)
     "//#test:root": {
       "inputs": [
         "scripts/**",

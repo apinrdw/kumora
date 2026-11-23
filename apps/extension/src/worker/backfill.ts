@@ -21,7 +21,7 @@ import type { RequestingTab } from "./pacer.ts"
 import type { TargetName } from "./settings.ts"
 import { RUNNING_TRADE_URL, tabCredential } from "./stockbit.ts"
 
-// Decision: backfill makes about one REST call a second per site, the pace
+// Backfill makes about one REST call a second per site, the pace
 // apinrdw/kumora#61 set. It calls through the site's pacer (pacer.ts), which
 // caps the site at 3/s, starts backfill's calls before a walk's, and stops
 // the site when it throttles.
@@ -31,7 +31,7 @@ const CALL_INTERVAL = "1 second"
 // share a call, so they are fetched as one range.
 const STOCKBIT_PAGE = 100n
 
-// Decision: Ajaib's REST tape runs about 2 minutes behind (apinrdw/kumora#48),
+// Ajaib's REST tape runs about 2 minutes behind (apinrdw/kumora#48),
 // so a range reaches Ajaib no sooner than 2 minutes after its next trade, and
 // pages of 40, the size Ajaib's own web app asks for (its cap is unmeasured).
 const AJAIB_LAG = 120_000
@@ -171,7 +171,7 @@ const enqueue = Effect.fnUntraced(function* (
   return kept
 })
 
-// Decision: Production's ranges are fetched first; a range only the extra
+// Production's ranges are fetched first; a range only the extra
 // target asked for waits for a spare call. See apinrdw/kumora#134.
 const takeNext = Effect.fnUntraced(function* (
   queue: Array<Job>,

@@ -152,7 +152,7 @@ test.describe("a member", () => {
   })
 })
 
-// Decision: serial, since these tests share the Test stage's KSEI bucket.
+// Serial, since these tests share the Test stage's KSEI bucket.
 // Each last-run test points its one runs/latest.json at its own run, the
 // totals count all of reports/, and the coverage reads all of reports/ and
 // the newest deep run with finds. So the totals and the coverage before any
@@ -415,7 +415,7 @@ test.describe.serial("an admin's KSEI archive", () => {
 
   // Last: its Securities holdings reports would change the totals and
   // coverage above.
-  // Decision: its parse writes the Test stage's one HoldingsDb, which
+  // Its parse writes the Test stage's one HoldingsDb, which
   // stocks.spec.ts seeds and reads, unserialized: it replaces only KSEI's
   // 2026-09-30 and 2026-10-30, whose BBCA rows equal that spec's seed, and
   // its Parse coverage check accepts the mark that seed leaves after it.
@@ -465,7 +465,7 @@ test.describe.serial("an admin's KSEI archive", () => {
   })
 })
 
-// Decision: these seed runs/ records without touching runs/latest.json, and
+// These seed runs/ records without touching runs/latest.json, and
 // no deep finds, so they run beside the serial tests above.
 test.describe("an admin's KSEI archive history", () => {
   test.use({ storageState: ADMIN.storageState })

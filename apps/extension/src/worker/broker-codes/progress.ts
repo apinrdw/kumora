@@ -6,7 +6,7 @@ import { Clock, Effect, Option } from "effect"
 
 import type { BrokerCodesProgress, WalkPhase } from "./run-queue.ts"
 
-// Decision: a walk's trades are written at most once a second; a walk
+// A walk's trades are written at most once a second; a walk
 // fetching 3 pages a second would otherwise write session storage, and
 // wake the page and the badge, on every page.
 const TRADES_EVERY = 1_000

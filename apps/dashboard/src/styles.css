@@ -103,7 +103,7 @@
   --font-sans: "Manrope Variable", Arial, sans-serif;
   --font-heading: "Manrope Variable", Arial, sans-serif;
   --font-mono: "Manrope Variable", Arial, sans-serif;
-  /* Decision: a true monospace for the archive admin pages' data (run ids,
+  /* A true monospace for the archive admin pages' data (run ids,
      file names, key prefixes, counts, the month grids), so a long id reads
      character by character. --font-mono stays Manrope: the market pages'
      figures are drawn in it. */
@@ -123,7 +123,7 @@
   --color-secondary-text: var(--text-secondary);
   --color-accent-hover: var(--accent-hover);
   --color-vwap: var(--chart-vwap);
-  /* Decision: the tape's broker codes by investor type, foreign amber and
+  /* The tape's broker codes by investor type, foreign amber and
      domestic blue: neither is up or down, which mean buy and sell on the
      tape, and the [F] or [D] beside the code is the cue that needs no
      colour. Dark is the only theme. */

@@ -51,23 +51,22 @@ const RESULTS_FOLDER = "results-folder"
 // The commit status the gate (.github/workflows/e2e-evidence.yml) reads and
 // the label it takes as an opt-out; the gate names both again, so change them
 // together.
-// Decision: a commit status set with the author's own gh login, not a check
-// run, which only a GitHub App can create; the gate keeps a success its own
-// bot did not set (apinrdw/kumora#203, #211).
+// Decision: e2e-evidence is a commit status, red until evidence or the label
+// (docs/adr/0006-the-e2e-evidence-gate-is-a-commit-status-from-its-own-workflow.md)
 const CONTEXT = "e2e-evidence"
 const OPT_OUT_LABEL = "no-e2e-evidence"
 
-// Decision: `gh pr comment --attach` first ships in gh 2.99.0, so a real run
+// `gh pr comment --attach` first ships in gh 2.99.0, so a real run
 // refuses an older gh rather than fail at the post (apinrdw/kumora#204).
 const GH_MINIMUM = [2, 99, 0] as const
 
-// Decision: GitHub's upload cap on the paid plan is 100 MB a video, counted
+// GitHub's upload cap on the paid plan is 100 MB a video, counted
 // in decimal megabytes so a video at the edge is refused here, not by the
 // upload (apinrdw/kumora#205).
 const VIDEO_CAP_MB = 100
 const MB = 1_000_000
 
-// Decision: each comment carries at most 50 videos, the most `gh pr comment`
+// Each comment carries at most 50 videos, the most `gh pr comment`
 // takes per command (gh 2.103.3's help). More videos are split, in pick order,
 // into as many comments as they need, and the status links the first. A
 // single comment refused every PR that changes many specs: apinrdw/kumora#449
@@ -77,7 +76,7 @@ const ATTACH_CAP = 50
 /** The folder each comment's body is written to; gh runs from it. */
 const BODY_DIR = "apps/e2e/test-results"
 
-// Decision: only a *.spec.ts under apps/e2e/tests is picked, not every changed
+// Only a *.spec.ts under apps/e2e/tests is picked, not every changed
 // file under apps/e2e: a setup file or support module is no one test's video
 // (apinrdw/kumora#202).
 const SPEC_FILE = /^apps\/e2e\/tests\/.+\.spec\.ts$/
@@ -189,7 +188,7 @@ export const preflight = Effect.fn("preflight")(function* ({
     ...(yield* offThePrHead({ dirty, head }, pr)),
     ...(oldGh === undefined ? [] : [oldGh]),
   ]
-  // Decision: a dry run posts nothing and sets no status, so it runs past
+  // A dry run posts nothing and sets no status, so it runs past
   // the preconditions that protect the post (a dirty tree, HEAD not the PR
   // head, a gh without --attach) and prints them instead. It still needs a
   // PR and a selection to plan the post (apinrdw/kumora#212).
@@ -312,7 +311,7 @@ const testFiles = Effect.fnUntraced(function* (
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 })
 
-// Decision: every .webm in a test's results folder goes under its title, not
+// Every .webm in a test's results folder goes under its title, not
 // only the video the JSON report attaches, which leaves out each hand-built
 // context's page@<hex>.webm. A test that opens no page is still listed, as "no
 // page, no video", so the reader sees it ran (apinrdw/kumora#211).
@@ -391,7 +390,7 @@ const splitComments = Effect.fnUntraced(function* (
   })
 })
 
-// Decision: any failure blocks the post, in a picked spec or not, and so does
+// Any failure blocks the post, in a picked spec or not, and so does
 // a non-zero exit with no failed test (a global setup error, a test.only).
 // Nothing is posted and the status is left alone; the author gets each
 // failure's video and trace to look at (apinrdw/kumora#207).
@@ -435,7 +434,7 @@ export const evidencePlan = Effect.fn("evidencePlan")(function* (
   const red = yield* redRun(tests, inputs)
   if (red !== undefined) return yield* new EvidenceRefused({ reason: red })
 
-  // Decision: the checkout is read again once the suite ends, because the dev
+  // The checkout is read again once the suite ends, because the dev
   // servers serve the working tree: an edit or a switched commit mid-run means
   // the suite did not test the PR's head. A throwaway checkout per run would
   // also catch an edit undone before the end, but adds an install and a cold
@@ -472,7 +471,7 @@ export const evidencePlan = Effect.fn("evidencePlan")(function* (
       paragraphs.push(
         ...(yield* section(
           titled,
-          // Decision: the body and --attach name each video from the body
+          // The body and --attach name each video from the body
           // file's folder, where gh runs, written ./x as gh's help does, not
           // repo-relative: gh reads a --body-file's paths from its folder and
           // only falls back to the working directory (gh 2.103.3's help).

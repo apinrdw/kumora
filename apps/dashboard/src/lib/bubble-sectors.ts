@@ -129,7 +129,7 @@ const SETTLES = 500
 
 // Pushes two circles at least GAP apart, the smaller further; true when they
 // overlapped.
-// Decision: `part` and `partAll` are plain functions, not Effects: a pack
+// `part` and `partAll` are plain functions, not Effects: a pack
 // parts every pair of sectors up to 720 times, and the page packs each
 // second. Measured 2026-11-16 on the dev machine, packing the 11 sectors:
 // 0.4 ms plain, 2.6 ms with both as Effects. packSectors stays an Effect.
@@ -162,7 +162,7 @@ const partAll = (circles: ReadonlyArray<SectorCircle>) => {
   return overlapped
 }
 
-// Decision: the pack relaxes from where the last one left each sector, so
+// The pack relaxes from where the last one left each sector, so
 // a recompute moves the clusters only as far as their totals changed; the
 // canvas eases toward these targets. A first pack starts with the largest
 // at the centre and the rest round it.

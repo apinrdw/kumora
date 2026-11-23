@@ -19,7 +19,7 @@ export class CursorLine implements ISeriesPrimitive<Time> {
       target.useBitmapCoordinateSpace((scope) => {
         const timeScale = this.attachedTo?.chart.timeScale()
         if (timeScale === undefined || this.logical === undefined) return
-        // Decision: Lightweight Charts 5.2.1's logicalToCoordinate returns 0
+        // Lightweight Charts 5.2.1's logicalToCoordinate returns 0
         // for a fractional position, so the line starts from its whole
         // minute's coordinate and adds the fraction of the bar spacing.
         const whole = Math.floor(this.logical)

@@ -41,11 +41,8 @@ interface Listing {
 
 // `fetchedAt` is an ISO instant; the key drops its colons and keeps it
 // sortable.
-// Decision: the key ends in a digest of the listing, so two listings of the
-// same bytes recorded in the same millisecond (one run storing a file IDX
-// uploaded twice) get two keys instead of one overwriting the other. The
-// spec's `<sha256>.<fetched-at>.json` alone can't tell them apart. See
-// apinrdw/kumora#307.
+// Decision: a record key ends in a digest of its listing
+// (apps/dashboard/docs/adr/0050-an-archive-record-key-ends-in-a-digest-of-its-listing.md)
 export const recordKey = Effect.fnUntraced(function* (
   kind: ReportKind,
   dataDate: string,

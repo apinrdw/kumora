@@ -183,7 +183,7 @@ export class Auth extends Context.Service<
         database: env.AUTH_DB,
         baseURL: env.AUTH_BASE_URL,
         secret: env.BETTER_AUTH_SECRET,
-        // Decision: no schema check on the Worker. It would introspect D1 on
+        // No schema check on the Worker. It would introspect D1 on
         // every request, since Auth is built per request; the migration drift
         // check in CI and the handler test seam cover the schema.
         validateSchema: false,

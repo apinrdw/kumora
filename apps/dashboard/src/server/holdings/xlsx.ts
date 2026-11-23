@@ -1,7 +1,7 @@
 // Reads the first worksheet of an .xlsx by hand: its two XML parts out of
 // the zip (zip.ts), then regexes, since workerd has no DOMParser. It reads
 // text, numbers, booleans and errors, and refuses any other cell.
-// Decision: no dependency. SheetJS adds 380 KiB and is 5× slower; exceljs
+// No dependency. SheetJS adds 380 KiB and is 5× slower; exceljs
 // hangs a reused isolate. See apinrdw/kumora#351.
 import { Data, Effect, Schema } from "effect"
 
@@ -16,11 +16,8 @@ class XlsxUnreadable extends Schema.TaggedError<XlsxUnreadable>()(
 export type Cell = string | number
 
 // An error cell (`t="e"`), such as `#DIV/0!`, by the error Excel shows.
-// Decision: an error is a CellError, never text (as text, `#N/A` was stored
-// as a stock), and each parser decides: the classification and investor-type
-// parses read through `forEachRowWithoutErrors`, so any error fails them; the
-// above-1% parse skips Apr 2026's `#DIV/0!`-only rows and fails on an error
-// in a cell it reads. See apinrdw/kumora#473.
+// Decision: an error cell is a CellError, never text; each parser decides on it
+// (apps/dashboard/docs/adr/0048-an-xlsx-error-cell-is-a-cellerror-never-text.md)
 export class CellError extends Data.TaggedClass("CellError")<{
   readonly text: string
 }> {}
@@ -40,10 +37,8 @@ const unreadable = (message: string) => new XlsxUnreadable({ message })
 const SHEET = "xl/worksheets/sheet1.xml"
 const SHARED_STRINGS = "xl/sharedStrings.xml"
 
-// Decision: the shared strings inflate to at most 1 MiB, 16× Oct 2026's
-// 64 KB, and the sheet to MAX_ENTRY_BYTES. A parse holds both as text at
-// once, each up to twice its bytes when a character takes two: two 8 MiB
-// parts took past 48 MiB.
+// Decision: a report's parse is bounded to fit 48 MiB of the Worker's heap
+// (apps/dashboard/docs/adr/0045-a-holdings-parse-fits-a-bounded-heap.md)
 export const MAX_SHARED_STRINGS_BYTES = 1024 * 1024
 
 const NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }
@@ -83,7 +78,7 @@ interface Element {
 
 // Each <`name`> of `xml`, in order, or null in place of the first one never
 // closed, which ends the walk.
-// Decision: tags are found by indexOf and walked plainly, one at a time: a
+// Tags are found by indexOf and walked plainly, one at a time: a
 // lazy `[\s\S]*?` regex rescanned to the end from each unclosed tag, 600,000
 // rich-text runs matched at once took past 48 MiB, and an Effect per tag read
 // Oct 2026's sheet in 157 ms, not 55 (Node 26, median of 30, 2026-11-15).
@@ -138,7 +133,7 @@ const sharedStrings = Effect.fnUntraced(function* (xml: string) {
   return strings
 })
 
-// Decision: a cell's column is at most XFD, Excel's last, so a row holds at
+// A cell's column is at most XFD, Excel's last, so a row holds at
 // most 16,384 cells however many its XML spells out.
 const LAST_COLUMN = { letters: "XFD", index: 16_383 }
 
@@ -168,7 +163,7 @@ const READ_TYPES: ReadonlySet<string> = new Set([
 ])
 
 // A boolean cell's value as Excel shows it.
-// Decision: read, not refused: Excel's autocorrect wrote the stock code TRUE
+// Read, not refused: Excel's autocorrect wrote the stock code TRUE
 // as a boolean in IDX's Apr 2026 investor-type report. As text, a boolean in
 // a share column still fails as no share count. See apinrdw/kumora#395.
 const BOOLEAN_TEXT = new Map([
@@ -180,7 +175,7 @@ const BOOLEAN_TEXT = new Map([
 // text (`t="str"`, or `t="inlineStr"` from its <is>), a number (`t="n"`, or
 // no type), a boolean (`t="b"`) as its text, `TRUE` or `FALSE`, or an error
 // (`t="e"`) as a CellError.
-// Decision: a cell of any other type, or one holding something but no value,
+// A cell of any other type, or one holding something but no value,
 // fails the report: a date names no stock or share count, and an inline
 // string read as no value dropped a stock while its month was replaced.
 const cellValue = Effect.fnUntraced(function* (
@@ -225,7 +220,7 @@ const cellValue = Effect.fnUntraced(function* (
 })
 
 // A row's cells with a value.
-// Decision: only cells with a value are kept, so a row grows with the bytes
+// Only cells with a value are kept, so a row grows with the bytes
 // of its values, never with the column a cell names: dense rows held 1,200
 // XFD cells as 19.6 million slots.
 const rowCells = Effect.fnUntraced(function* (
@@ -253,7 +248,7 @@ const rowCells = Effect.fnUntraced(function* (
 
 // Calls `onRow` with each of the first worksheet's rows with a value, in
 // the sheet's order, by its 1-based row number.
-// Decision: a row at a time, kept by nothing here, so a parse keeps only
+// A row at a time, kept by nothing here, so a parse keeps only
 // what it takes from each row: a report padded to the largest sheet held
 // its every row and the month's holdings at once.
 export const forEachRow = Effect.fnUntraced(function* <E, R>(

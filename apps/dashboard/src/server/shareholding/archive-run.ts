@@ -233,9 +233,8 @@ const summary = Effect.fnUntraced(function* (
     reportsAdded: archived.filter(
       ({ sourceUrl }) => !changedUrls.has(sourceUrl)
     ).length,
-    // Decision: a changed ETag that serves bytes a record of its URL already
-    // holds adds a record but no new version: the file IDX serves didn't
-    // change. See apinrdw/kumora#307.
+    // Decision: a changed ETag serving held bytes adds a record but no new version
+    // (apps/dashboard/docs/adr/0051-a-changed-etag-serving-held-bytes-adds-no-version.md)
     newVersions: archived.filter(
       ({ sourceUrl, sha256 }) =>
         changedUrls.has(sourceUrl) &&

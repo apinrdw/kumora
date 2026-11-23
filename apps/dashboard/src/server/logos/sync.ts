@@ -1,7 +1,7 @@
 // The logo sync (spec apinrdw/kumora#427, "Logos"): copies Stockbit's logo
 // for every stock code into the logo bucket, which /logos/{CODE} serves
 // (serve.ts). The logo cron runs it weekly, on Production only (cron.ts).
-// Decision: Stockbit's logos, though its terms allow personal, non-commercial
+// Stockbit's logos, though its terms allow personal, non-commercial
 // use only and forbid bulk extraction and retransmission without written
 // consent. The owner accepted that risk on 2026-11-16. If Stockbit objects,
 // swap in Logo.dev's licensed storage API, which covered 97 of the top 100

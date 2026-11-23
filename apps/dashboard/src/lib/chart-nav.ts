@@ -36,7 +36,7 @@ export const panShift = (previous: BarRange, next: BarRange) =>
 // The minutes a chart draws, epoch ms: its candles' and, as whitespace, each
 // relay gap's minutes that have no candle (`runs`, to shade). A gap with no
 // end runs to `end`.
-// Decision: both charts draw exactly these minutes, so a logical index is the
+// Both charts draw exactly these minutes, so a logical index is the
 // same minute on each and a pan moves both by the same minutes.
 export const chartMinutes = Effect.fnUntraced(function* (
   candleMinutes: ReadonlyArray<number>,

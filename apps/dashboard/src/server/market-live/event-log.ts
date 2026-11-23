@@ -48,7 +48,7 @@ export const makeEventLog = <E extends Event>(options: {
     // next flush and the snapshots, never sent in a delta.
     const restore = keep
 
-    // Decision: the store's newest are read when a snapshot first asks, not
+    // The store's newest are read when a snapshot first asks, not
     // as the object starts: the read (day-store.ts, `newestBookEvents`,
     // `storedOrderFlowEvents`) visits every event of the day, and a sealed
     // day's object starts at each 30 s recheck with no snapshot. At 24,000

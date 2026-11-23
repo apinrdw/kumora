@@ -3,7 +3,7 @@ import { Effect } from "effect"
 
 export const MINUS = "−"
 
-// Decision: en-US separators with K/M/B suffixes, replacing id-ID (issue #137).
+// en-US separators with K/M/B suffixes, replacing id-ID (issue #137).
 const nfInt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 1,

@@ -5,8 +5,8 @@ import { Effect, Option, Schema } from "effect"
 
 import { DEFAULT_CODE } from "@/lib/market-live-search"
 
-// Decision: kept per browser in localStorage, not on the account, the way
-// Market Live's watchlist is.
+// Decision: each browser keeps its own settings in localStorage
+// (apps/dashboard/docs/adr/0021-each-browser-keeps-its-own-settings-in-localstorage.md)
 const KEY = "kumora:stocks:last"
 
 // Storage blocked, or a stored value that isn't a stock code, reads as none:

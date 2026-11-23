@@ -14,11 +14,8 @@ import {
 import { scheduledParseRuns } from "./parse-runs.ts"
 import { scheduledArchiveRun } from "./runs.ts"
 
-// Decision: returns a Promise, standing in for Cloudflare's `scheduled`,
-// which CODING_STANDARDS exempts and which reaches this only through runCron
-// (../crons.ts). It lives outside worker.ts so a test can run it without
-// TanStack Start; returning the Effect would leave the runner the test covers
-// in untested worker.ts. See apinrdw/kumora#308.
+// Decision: a cron runner returns a Promise, standing in for scheduled
+// (apps/dashboard/docs/adr/0008-cron-runners-return-a-promise-for-scheduled.md)
 export const runArchiveCron = (scheduledTime: number) =>
   runServerEffectResult(
     scheduledArchiveRun(scheduledTime).pipe(

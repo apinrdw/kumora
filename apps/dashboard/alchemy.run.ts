@@ -27,11 +27,8 @@ const AuthDb = Cloudflare.D1.Database("AuthDb", { migrations: "./migrations" })
 // Parsed holdings: the parse runs parse reports into it, the stock page
 // reads it. Bound on every stage like the archive buckets; only
 // Production's fills, since only Production's buckets hold reports.
-// Decision: a D1 of its own, apart from AuthDb, with its own migrations.
-// Read replication stays off (Alchemy's default): a replica could serve a
-// month mid-replace. See apinrdw/kumora#353.
-// apps/e2e/reset-test-stage.ts reads its state file, HoldingsDb.json, by
-// this id.
+// Decision: a data set gets a D1 of its own, read replication off
+// (apps/dashboard/docs/adr/0001-each-data-set-gets-its-own-d1-with-read-replication-off.md)
 const HoldingsDb = Cloudflare.D1.Database("HoldingsDb", {
   migrations: "./holdings-migrations",
 })
@@ -41,19 +38,14 @@ const HoldingsDb = Cloudflare.D1.Database("HoldingsDb", {
 // apps/e2e/reset-test-stage.ts reads its state file, BrokerTotalsDb.json, by
 // this id, and apps/e2e/support/broker-totals.ts seeds its tables by it, in
 // the migration's column order.
-// Decision: a D1 of its own, apart from HoldingsDb, with its own migrations,
-// so it can be reset or rebuilt alone. Read replication stays off
-// (Alchemy's default), as HoldingsDb's: a replica could serve a day
-// mid-write. See apinrdw/kumora#419.
+// Decision: a data set gets a D1 of its own, read replication off
+// (apps/dashboard/docs/adr/0001-each-data-set-gets-its-own-d1-with-read-replication-off.md)
 const BrokerTotalsDb = Cloudflare.D1.Database("BrokerTotalsDb", {
   migrations: "./broker-totals-migrations",
 })
 
-// Decision: Production alone owns the mailer.pusat.ai sending subdomain; every
-// other stage only binds EMAIL with this sender, so destroying a Preview never
-// removes it, and their mail fails until Production has deployed it. Message
-// previews are off on the subdomain: Alchemy's SendEmail binding has no
-// previewEnabled. See apinrdw/kumora#82.
+// Decision: Production alone owns the mailer.pusat.ai sending subdomain
+// (apps/dashboard/docs/adr/0002-production-alone-owns-the-mail-sending-subdomain.md)
 const SendingSubdomain = Effect.gen(function* () {
   const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment
   const zone = yield* Cloudflare.Zone.findZoneByName({
@@ -99,11 +91,8 @@ export const Website = Cloudflare.Website.Vite(
   Effect.gen(function* () {
     const stage = yield* currentStage
     const turnstile = yield* turnstileKeys(stage)
-    // Decision: Google sign-in is bound (from Infisical `/dashboard`) by stage,
-    // on Production and Staging only, never by whether its secret is present:
-    // Previews and Dev read `staging`, which holds the client too, but their
-    // URLs are not OAuth redirect URIs. On Production or Staging, a missing
-    // secret fails the deploy, never hides Google sign-in. See apinrdw/kumora#89.
+    // Decision: Google sign-in binds by stage, on Production and Staging only
+    // (apps/dashboard/docs/adr/0003-google-sign-in-is-bound-by-stage.md)
     const google: Partial<
       Record<
         "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET",
@@ -115,10 +104,8 @@ export const Website = Cloudflare.Website.Vite(
           GOOGLE_CLIENT_SECRET: Config.Redacted("GOOGLE_CLIENT_SECRET"),
         }
       : {}
-    // Decision: the Test stage alone takes a Market Live clock offset (ms),
-    // so the e2e opens the page in a chosen market phase; no deployed stage
-    // can shift it. apps/e2e/support/clock.ts sets it, turbo.json passes it
-    // through. See src/server/market-live/market-clock.ts.
+    // Decision: the Test stage alone takes a Market Live clock offset
+    // (apps/dashboard/docs/adr/0004-the-test-stage-alone-takes-a-market-live-clock-offset.md)
     const clockOffset: Partial<
       Record<
         "MARKET_LIVE_CLOCK_OFFSET",
@@ -134,9 +121,7 @@ export const Website = Cloudflare.Website.Vite(
           }
         : {}
     // Decision: the Test stage alone moves days to R2 in Streaming hours
-    // (src/server/market-live/cold-window.ts): its market clock reads
-    // session 1 all run, so the e2e's cold day would never move. No
-    // deployed stage binds it.
+    // (apps/dashboard/docs/adr/0005-the-test-stage-alone-moves-days-to-r2-in-streaming-hours.md)
     const testMoves: Partial<Record<"MARKET_LIVE_MOVES_ANY_HOUR", "on">> =
       stage === TEST ? { MARKET_LIVE_MOVES_ANY_HOUR: "on" } : {}
     // The stage's crons and their Decisions: src/server/stage-crons.ts.
@@ -182,10 +167,8 @@ export const Website = Cloudflare.Website.Vite(
         MARKET_LIVE_INDEX: Cloudflare.DurableObject("DayIndex"),
         // Cold days: each recorded day's finished answers once it moves out
         // of its trading-day object (src/server/market-live/cold-bucket.ts).
-        // Decision: one bucket per stage, beside the stage's objects.
-        // Production's survives a stack destroy; any other stage's is
-        // emptied and destroyed with it, so a Preview teardown takes its
-        // days. See spec apinrdw/kumora#556, "The layout".
+        // Decision: one bucket per stage; only Production's survives a stack destroy
+        // (apps/dashboard/docs/adr/0006-only-production-s-buckets-survive-a-stack-destroy.md)
         DAYS_BUCKET: Cloudflare.R2.Bucket("DaysBucket", {
           forceDestroy: (yield* stageKind(stage)) !== "production",
         }),
@@ -194,9 +177,8 @@ export const Website = Cloudflare.Website.Vite(
         // stays empty. src/worker.ts exports the Workflow class.
         SHAREHOLDING_ARCHIVE_BUCKET: Cloudflare.R2.Bucket(
           "ShareholdingArchiveBucket",
-          // Decision: Production's archive survives a stack destroy; any
-          // other stage's is emptied with it, so a Preview teardown never
-          // stops on a bucket a Run now filled. See apinrdw/kumora#305.
+          // Decision: one bucket per stage; only Production's survives a stack destroy
+          // (apps/dashboard/docs/adr/0006-only-production-s-buckets-survive-a-stack-destroy.md)
           { forceDestroy: (yield* stageKind(stage)) !== "production" }
         ),
         // Typed as every archive Workflow is, so the shared start
@@ -209,9 +191,8 @@ export const Website = Cloudflare.Website.Vite(
         // shareholding archive's, in a bucket of their own.
         KSEI_ARCHIVE_BUCKET: Cloudflare.R2.Bucket(
           "KseiArchiveBucket",
-          // Decision: as the shareholding archive's bucket, Production's
-          // survives a stack destroy and every other stage's is emptied with
-          // it. See apinrdw/kumora#305.
+          // Decision: one bucket per stage; only Production's survives a stack destroy
+          // (apps/dashboard/docs/adr/0006-only-production-s-buckets-survive-a-stack-destroy.md)
           { forceDestroy: (yield* stageKind(stage)) !== "production" }
         ),
         KSEI_ARCHIVE: Cloudflare.Workflow<RunParams>("KseiArchive", {

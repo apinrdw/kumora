@@ -15,7 +15,7 @@ export const AjaibAccountId = Schema.Union([
 ]).pipe(Schema.brand("AjaibAccountId"))
 export type AjaibAccountId = typeof AjaibAccountId.Type
 
-// Decision: a frame carries the account id once the relay knows it, in the
+// A frame carries the account id once the relay knows it, in the
 // page's own field order (`{"method","id","stream","streamObject"}`, seen
 // 2026-11-06, apinrdw/kumora#50); until then it goes without, as the relay
 // always sent it. The id comes from the tab's token or the PIN sign-in
@@ -41,7 +41,7 @@ const message = Effect.fnUntraced(function* (
 export const tradeSubscribe = (id: Option.Option<AjaibAccountId>) =>
   message("SUBSCRIBE", "TRADE", "*", id)
 
-// Decision: each code is subscribed once per socket, and a change of the
+// Each code is subscribed once per socket, and a change of the
 // on-demand set sends only the difference; a code in `fresh` the socket holds
 // gets UNSUBSCRIBE then SUBSCRIBE so Ajaib resends its whole book (inferred,
 // not yet observed). Diffing beat reopening the sockets, which starts from

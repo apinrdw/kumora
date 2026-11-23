@@ -293,7 +293,7 @@ function RecordedReadings({
 const PART_COLUMNS = [
   undefined,
   "lg:grid-cols-[1.1fr_1fr]",
-  // Decision: the book events sit under the readings and the fill estimate
+  // The book events sit under the readings and the fill estimate
   // until 2xl: in layout B's chart column at lg, three parts squeeze the fill
   // estimate's controls under the events list.
   "lg:grid-cols-[1.1fr_1fr] 2xl:grid-cols-[1.1fr_1fr_1.2fr]",

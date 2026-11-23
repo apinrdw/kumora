@@ -127,7 +127,7 @@ interface Frame {
   readonly full: number
 }
 
-// Decision: each past minute is painted once into an offscreen canvas and
+// Each past minute is painted once into an offscreen canvas and
 // copied while the bar spacing, pixel ratio and price mapping hold; only the
 // current minute (newest live, the cursor's when recorded) paints each frame.
 // Minutes out of view drop their canvas, so the cache holds about one chart's
@@ -272,11 +272,8 @@ class BookHeatmap implements ISeriesPrimitive<Time> {
     let shaded = 0
     for (const minute of this.minutes) {
       if (minute.minute > current) break
-      // Decision: a minute starts at its coordinate, the centre of its
-      // candle, and each slice one `SLICES`th of the bar spacing further on: where
-      // the cursor line and a sweep bubble of that second sit (lib/replay.ts
-      // `cursorLogical`, lib/sweeps.ts `bubbleOffset`). See
-      // apinrdw/kumora#279.
+      // Decision: a candle-less minute's mark sits where the cursor line would
+      // (apps/dashboard/docs/adr/0024-chart-marks-in-an-empty-minute-sit-where-the-cursor-would.md)
       const x = xOf(minute.time)
       // No coordinate: the chart does not draw the minute (it has no candle
       // and no gap whitespace), so it is not in view and gets no canvas.

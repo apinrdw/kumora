@@ -20,73 +20,73 @@ import { DateTime, Effect } from "effect"
 
 import { LEVEL_FLOOR } from "./level-ledger.ts"
 
-// Decision: the push is the 5 minutes before the latest: at 3 or 8 minutes
+// The push is the 5 minutes before the latest: at 3 or 8 minutes
 // busy-code rates move by 10% or less. See apinrdw/kumora#595 and
 // apinrdw/kumora#599.
 export const PUSH_MINUTES = 5
 
-// Decision: the latest minute's extreme is within 2 ticks of the day's: at 1
+// The latest minute's extreme is within 2 ticks of the day's: at 1
 // tick the open's events fall 16%, at 3 they rise 9%. See
 // apinrdw/kumora#595 and apinrdw/kumora#599.
 const NEAR_TICKS = 2
 
-// Decision: the latest minute's side lots are at most ½ the push's busiest
+// The latest minute's side lots are at most ½ the push's busiest
 // minute's: ⅓ to ⅔ pick almost the same events. See apinrdw/kumora#595 and
 // apinrdw/kumora#599.
 const DRIED_UP = 0.5
 
-// Decision: the latest minute's range is at most ½ the push's widest
+// The latest minute's range is at most ½ the push's widest
 // minute's: at ⅓ busy events fall by two thirds, at ⅔ nothing changes. See
 // apinrdw/kumora#595 and apinrdw/kumora#599.
 const SLOWED = 0.5
 
-// Decision: the push's widest minute spans at least 3 ticks, dropping the
+// The push's widest minute spans at least 3 ticks, dropping the
 // "2 ticks, then 1" events that only said the next minute was quieter. See
 // apinrdw/kumora#602.
 const WIDEST_TICKS = 3
 
-// Decision: the push's busiest minute had at least Rp100 M of the side's
+// The push's busiest minute had at least Rp100 M of the side's
 // aggressor value, the book events' floor: at Rp250 M mid codes lose a
 // third. See apinrdw/kumora#595 and apinrdw/kumora#599.
 const PUSH_FLOOR = LEVEL_FLOOR
 
-// Decision: no push minute falls in Session 1's first 5 minutes
+// No push minute falls in Session 1's first 5 minutes
 // (09:00–09:04), whose highs and lows almost every code sets at once;
 // Session 2 has no such skip. See apinrdw/kumora#602.
 const OPEN_SKIP_MINUTES = 5
 
-// Decision: Delta divergence's earlier high is at least 10 minutes before
+// Delta divergence's earlier high is at least 10 minutes before
 // the new one, so a push that sets several highs in a row doesn't fire. See
 // apinrdw/kumora#596 and apinrdw/kumora#599.
 const EARLIER_MINUTES = 10
 
-// Decision: price traded at least 3 ticks back from the earlier high
+// Price traded at least 3 ticks back from the earlier high
 // between the two, so they are separate highs and not one push. See
 // apinrdw/kumora#596 and apinrdw/kumora#599.
 const PULLBACK_TICKS = 3
 
-// Decision: cumulative delta trails the earlier high's by at least Rp100 M
+// Cumulative delta trails the earlier high's by at least Rp100 M
 // of lots at the new high's price, the book events' floor: strictly lower or
 // a % margin fires on noise and breaks near zero. See apinrdw/kumora#596 and
 // apinrdw/kumora#599.
 const DIVERGENCE_FLOOR = LEVEL_FLOOR
 
-// Decision: a Failed break's level is the day's extreme as it stood, set at
+// A Failed break's level is the day's extreme as it stood, set at
 // least 10 minutes before the break (candle start times), so a push's own
 // new extremes are never levels. See apinrdw/kumora#597.
 const LEVEL_AGE_MINUTES = 10
 
-// Decision: a break trades at least 1 tick past the level. See
+// A break trades at least 1 tick past the level. See
 // apinrdw/kumora#597.
 const BREAK_TICKS = 1
 
-// Decision: from the breaking minute through the return, the side's
+// From the breaking minute through the return, the side's
 // aggressor value at prices strictly past the level totals at least
 // Rp100 M, the book events' floor. See apinrdw/kumora#597 and
 // apinrdw/kumora#599.
 const BREAK_FLOOR = LEVEL_FLOOR
 
-// Decision: a minute closes back inside within 3 minutes counting the
+// A minute closes back inside within 3 minutes counting the
 // breaking minute, so a one-minute wick counts. See apinrdw/kumora#597.
 const RETURN_MINUTES = 3
 

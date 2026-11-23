@@ -151,7 +151,7 @@ export interface RadarSettings {
   readonly direction: "high" | "low"
 }
 
-// Decision: the floor is Rp1 B by default, ranked by Imbalance, most
+// The floor is Rp1 B by default, ranked by Imbalance, most
 // lopsided first, with no price band and any heavy side. See spec
 // apinrdw/kumora#517, "The scanner", and apinrdw/kumora#601.
 export const DEFAULT_SETTINGS: RadarSettings = {
@@ -165,7 +165,7 @@ export const DEFAULT_SETTINGS: RadarSettings = {
   direction: "high",
 }
 
-// Decision: a row whose book hasn't changed for 60 s greys out and sinks to
+// A row whose book hasn't changed for 60 s greys out and sinks to
 // the end of its half. See spec apinrdw/kumora#517, "The scanner".
 const STALE_MS = 60_000
 
@@ -178,7 +178,7 @@ export interface CodeFigures {
   readonly value: number
 }
 
-// Decision: Events in 5 minutes counts a code's market events, book and
+// Events in 5 minutes counts a code's market events, book and
 // order flow, of the last 5 minutes on the object's clock, and the row's
 // last-event chip shows only an event that recent. See spec
 // apinrdw/kumora#517, "Book events", and apinrdw/kumora#605.
@@ -262,7 +262,7 @@ const ranked = Effect.fnUntraced(function* (
   return keyed.map(({ readings }) => readings.code)
 })
 
-// The value the floor reads (the Decision at `scan`).
+// The value the floor reads (the comment at `scan`).
 export const floorValue = (figures: CodeFigures | undefined) =>
   Math.max(figures?.value ?? 0, figures?.previousValue ?? 0)
 
@@ -316,7 +316,7 @@ const place = (
     else into.offer.push(readings)
   })
 
-// Decision: a code joins the scanner when its value today or on the
+// A code joins the scanner when its value today or on the
 // previous trading day, whichever is larger, reaches the floor; with no
 // previous day's value (after a gap), today's alone. Special Monitoring
 // Board codes and codes at Rp1–10 never join, and the notes count those

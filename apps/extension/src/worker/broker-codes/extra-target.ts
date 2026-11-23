@@ -24,7 +24,7 @@ import { DashboardOrigin } from "../settings.ts"
 import { askStatus, statusOnce, type Get } from "./status.ts"
 import type { TargetHold } from "./target-hold.ts"
 
-// Decision: the batches handed to the extra target wait in a lane of 16
+// The batches handed to the extra target wait in a lane of 16
 // (~80,000 trades at Ajaib's 5,000 a batch). A batch past that is dropped,
 // as is one being sent when the settings change; the catch-ups send what
 // either left out. A lane that kept every batch of an unreachable target
@@ -92,7 +92,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
   readonly hold: TargetHold
 }) {
   const { hold } = options
-  // Decision: a request the extra target fails, by a status other than 401
+  // A request the extra target fails, by a status other than 401
   // or 426 or by none (0: a network or CORS failure), shows it as retrying
   // until one goes through, so a target the browser can't reach is never
   // retried unseen. See apinrdw/kumora#244, "Retries".
@@ -110,10 +110,8 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     Effect.tap(options.get(request), ({ status }) => answered(request, status))
   const lane = yield* Queue.dropping<BrokerCodesBatch>(LANE)
 
-  // Decision: a 401 or 426, or a status read's 200 whose body isn't this
-  // version's status, stops the extra target until its origin or token
-  // changes; nothing is sent to it meanwhile. See apinrdw/kumora#244,
-  // "Retries".
+  // Decision: 401 refuses the token, 426 means reload the extension
+  // (packages/relay/docs/adr/0002-broker-codes-refusals-401-refuses-the-token-426-means-reload.md)
   const postTo = Effect.fnUntraced(function* (
     target: Option.Option<BrokerCodesTarget>,
     batch: BrokerCodesBatch
@@ -206,7 +204,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     // the Done Details walk or Stockbit's, so the trade catch-up never
     // resends a batch of them its lane dropped. `walks` post to it: the Done
     // Details walk its held matched trades, Stockbit's walk its whole day.
-    // Decision: the extra target converges on Production's order number
+    // The extra target converges on Production's order number
     // counts: fewer with Ajaib's has the Done Details walk post its held
     // trades again, then fewer in all has Stockbit's day walked whole. No
     // batch is kept until the extra target takes it: that would hold a day

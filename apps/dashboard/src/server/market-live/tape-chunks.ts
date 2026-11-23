@@ -27,10 +27,8 @@ import {
 // price and lots as float64s, so every field reads back exactly. Side, board
 // and feed are their index in the relay's lists, which stay append-only
 // (envelope.ts, Side).
-// Decision: chunk k holds trades 1000k+1 .. 1000k+1000 as fixed 32-byte
-// records placed by number; all zero bytes is a trade the tape lacks. A flush
-// rewrites only the chunks it adds trades to: about 4 a minute on a busy day.
-// See spec apinrdw/kumora#555, "Trade chunks".
+// Decision: tape chunks hold 32-byte records; Side, Board, feeds are indexes
+// (packages/relay/docs/adr/0006-tape-chunks-hold-fixed-32-byte-records-with-append-only-enums.md)
 export const TRADE_CHUNK = 1_000
 const RECORD = 32
 const SIDE = 1
@@ -46,10 +44,8 @@ const TRADE_CHUNKS_SCHEMA = `CREATE TABLE IF NOT EXISTS trade_chunks (
     records BLOB NOT NULL
   )`
 
-// Decision: the day's code list is one fact, a JSON array the records index
-// into, appended to in the transaction of the flush that first holds a code:
-// a tape read loads it in one row, and a restart finds it beside the chunks
-// that use it.
+// Decision: the day's code list is one JSON fact the chunk records index into
+// (apps/dashboard/docs/adr/0102-a-chunked-tape-s-code-list-is-one-fact.md)
 export const TRADE_CODES_FACT = "trade-codes"
 
 // A value's index in a relay list. A value outside it fails the decode, so
@@ -106,10 +102,8 @@ export const putRecord = (
 }
 
 // One stored chunk, read field by field from its records.
-// Decision: no chunk buffer outlives its chunk's step. A scan decodes or
-// reduces each stored trade to plain values before it reads the next chunk,
-// and a write stores each chunk before it reads the next, so a sparse tape's
-// 10,000 trades never hold 10,000 32 KB chunks. See PR apinrdw/kumora#574.
+// Decision: no chunk buffer outlives its chunk's step
+// (apps/dashboard/docs/adr/0103-no-chunk-buffer-outlives-its-chunk-s-step.md)
 const chunkReader = (chunk: number, records: Uint8Array) => {
   const view = new DataView(records.buffer, records.byteOffset)
   const at = (slot: number) => slot * RECORD
@@ -162,11 +156,8 @@ type StoredSlot = readonly [Chunk, number]
 const chunkOfRow = (row: Record<string, unknown>) =>
   chunkReader(Number(row.chunk), new Uint8Array(row.records as Uint8Array))
 
-// Decision: the plain methods run inside a synchronous transaction, and a
-// scan in one synchronous step (tape-backing.ts, Tape), so their helpers stay
-// plain: `chunkOf`, `emptyRecords`, `indexIn`'s lookups, `putRecord`,
-// `chunkReader`, `chunkOfRow`, `loadCodes`, `codeAt`, `stored`,
-// `chunksBetween`, `nearest`, `highest`, `eachStored` and `tradeOf`.
+// Decision: code run inside a synchronous transaction stays plain, not an Effect
+// (apps/dashboard/docs/adr/0076-methods-called-inside-a-synchronous-transaction-stay-plain.md)
 export const makeChunkTape = (sql: Sql): Tape => {
   sql.exec(TRADE_CHUNKS_SCHEMA)
 
@@ -378,7 +369,7 @@ export const makeChunkTape = (sql: Sql): Tape => {
 
   // Within the chunk the search lands on, the bound is its highest trade at
   // or before the target; every later chunk starts after it.
-  // Decision: the trades up to an instant are bounded by a binary search on
+  // The trades up to an instant are bounded by a binary search on
   // the chunks by each one's first trade's time, as tape.ts searches rows:
   // IDX hands numbers out in time order. It targets the instant plus
   // TIME_SKEW_MS, and reads about 11 chunk rows on a busy day.

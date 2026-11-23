@@ -12,12 +12,12 @@ import { readCappedJson } from "../archive/capped-body.ts"
 import { HoldingsDb } from "../holdings/db.ts"
 
 // Every code with a notation, in English.
-// Decision: not GetCompanyProfiles' listing board, which still named BRRC on
+// Not GetCompanyProfiles' listing board, which still named BRRC on
 // 2026-11-18, 21 months after it left the board. See apinrdw/kumora#488.
 export const SPECIAL_NOTATION_URL =
   "https://www.idx.id/secondary/get/ListedCompanies/SpecialNotation/SpecialNotation?Language=en-us&indexFrom=1&pageSize=9999"
 
-// Decision: a run accepts 20 to 200 board codes. IDX listed 59 on
+// A run accepts 20 to 200 board codes. IDX listed 59 on
 // 2026-11-18 of 944 listed, so fewer means a broken answer, and more would
 // put over a fifth of the market on the board. Either way yesterday's table stays.
 const MIN_BOARD_CODES = 20

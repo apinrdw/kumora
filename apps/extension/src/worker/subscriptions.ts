@@ -128,7 +128,7 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
   accountId: Effect.Effect<Option.Option<AjaibAccountId>>
 ): Effect.fn.Return<OnDemandSubscriptions, never, Scope.Scope> {
   const held = new Map<string, ReadonlyArray<StockCode>>()
-  // Decision: the fresh codes wait per socket until its subscribe sends,
+  // The fresh codes wait per socket until its subscribe sends,
   // not in the subscribe's arguments: a subscribe still asking the tab for
   // the account id is replaced by the next, which would drop them, and a
   // target's whole book would never come. A closed socket forgets them; its

@@ -66,11 +66,8 @@ export const makeTargetHold = Effect.fnUntraced(function* (
     // The settings held now, for an operation to capture as it starts.
     settings: Effect.sync(() => held.target),
 
-    // Decision: an operation on the extra target (a catch-up walk, a post, a
-    // status read, a checkpoint load or save) captures the held settings as
-    // it starts and asks `haltOf` before each step, each retry included: on
-    // other settings, or on a refusal, it stops and its result is dropped.
-    // See apinrdw/kumora#255.
+    // Decision: an extra-target operation holds its settings and asks haltOf each step
+    // (apps/extension/docs/adr/0009-an-extra-target-operation-stops-on-changed-settings.md)
     haltOf: (target: BrokerCodesTarget) =>
       Effect.flatMap(holds(target), (own) =>
         own

@@ -10,10 +10,8 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-// Decision: a day stays hot while it is one of the newest ten trading days,
-// the ones the extension's broker codes run asks (the newest and the 9
-// before it); a trading day counts as newest from its 17:00 seal. See spec
-// apinrdw/kumora#556, "Hot and cold days".
+// Decision: a day stays hot while it is one of the newest ten trading days
+// (apps/dashboard/docs/adr/0074-a-day-stays-hot-while-one-of-the-newest-ten.md)
 const WINDOW = 10
 
 // Whether `date` is a trading day; a year the schedule doesn't bake counts
@@ -61,7 +59,7 @@ export const leavingAt = Effect.fnUntraced(function* (date: WibDate) {
     if ((yield* trading(day)) && ++before === WINDOW) return day
 })
 
-// Decision: a move runs outside Streaming hours, so its reads and R2 writes
+// A move runs outside Streaming hours, so its reads and R2 writes
 // never share the object with live ingest: a step due inside them waits
 // for their end. A date past the baked schedule has none. See spec
 // apinrdw/kumora#556, "The move".

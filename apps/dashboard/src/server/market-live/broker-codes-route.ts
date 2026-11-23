@@ -15,11 +15,8 @@ import { checkedBatch, noStoreAnswer } from "./broker-codes.ts"
 import { ingestTokenMatches } from "./ingest-token.ts"
 import { ObjectPath } from "./routes.ts"
 
-// Decision: every answer (401, 426 and 400 too) allows any origin, and a
-// preflight is answered before the token check: the manifest grants only
-// Production's host, so the extension reaches an extra target cross-origin.
-// Safe since the token is a bearer header, never a cookie. See
-// apinrdw/kumora#244, "The extension: targets".
+// Decision: every broker codes answer allows any origin; preflight before token
+// (apps/dashboard/docs/adr/0054-broker-codes-answers-allow-any-origin.md)
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, content-type",
@@ -51,10 +48,8 @@ class BodyTooLong extends Schema.TaggedError<BodyTooLong>()(
   {}
 ) {}
 
-// Decision: the body is read in chunks and dropped once it passes
-// BROKER_CODES_BATCH_LIMIT bytes, before any of it is decoded, so a batch
-// holds at most that much of the Worker's memory. A batch is ASCII JSON, so
-// its bytes are its UTF-16 units.
+// Decision: a batch holds at most 5,000 rows, read up to BROKER_CODES_BATCH_LIMIT
+// (packages/relay/docs/adr/0012-a-broker-codes-batch-fits-one-byte-limit-on-both-sides.md)
 const boundedText = Effect.fnUntraced(function* (request: Request) {
   const reader = request.body?.getReader()
   if (reader === undefined) return ""

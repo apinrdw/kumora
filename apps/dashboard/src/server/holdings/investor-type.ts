@@ -126,10 +126,8 @@ const layoutOf = Effect.fnUntraced(function* (
 // `JUMLAH_SAHAM_BEREDAR`, 9 types × (`<5%`, `>=5%`) and
 // `TOTAL_SAHAM_SCRIPLESS`; Jan 2026 on have 3, the shares column
 // `NUMBER_OF_SHARES`, `DOMESTIC` then `FOREIGN` types and `TOTAL SCRIPLESS`.
-// Decision: a header must match a layout's every label exactly, or the month
-// fails: within each layout IDX wrote the same header in all 12 months, so
-// any other label is a layout change, not a variant to tolerate. See
-// apinrdw/kumora#397.
+// Decision: a report header must match a known layout exactly, or the month fails
+// (apps/dashboard/docs/adr/0046-a-holdings-header-must-match-a-known-layout-exactly.md)
 const LAYOUTS: ReadonlyMap<string, Layout> = new Map([
   [
     "JUMLAH_SAHAM_BEREDAR",
@@ -243,9 +241,8 @@ const rowHoldings = Effect.fnUntraced(function* (
 
 // The stock a row below the header names; undefined for a row holding
 // nothing a month stores, such as an empty trailing one or a DATE alone.
-// Decision: a row holding a value under any labelled column but DATE must
-// name its stock by a STOCK_CODE of text, as the classification parse
-// requires: a row whose code wasn't read would be dropped from its month.
+// Decision: a row with any value must name its stock by a text code
+// (apps/dashboard/docs/adr/0047-a-holdings-row-with-values-must-name-its-stock.md)
 const rowStock = Effect.fnUntraced(function* (
   rowNumber: number,
   cells: Row,

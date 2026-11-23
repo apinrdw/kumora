@@ -53,7 +53,7 @@ const RECORDED_CODE_LIST: string = JSON.parse(
  */
 export const wibToday = () => wibDate(marketNow())
 
-// Decision: a run's workers share today's trading-day object and ask for
+// A run's workers share today's trading-day object and ask for
 // fresh numbers and codes at the same instant, so the clock alone repeats
 // them, and a trade whose number another test sent first is dropped as held.
 // Each is claimed with a mkdir, which one process of the run wins; Playwright
@@ -181,7 +181,7 @@ const SOCKET_OPTIONS: WebSocket.ClientOptions & { closeTimeout: number } = {
 
 // The ingest socket, open; `closed` settles with its close code.
 const dial = async () => {
-  // Decision: `ws`, not Node's built-in WebSocket, which reports `close` only
+  // `ws`, not Node's built-in WebSocket, which reports `close` only
   // once workerd tears down TCP, 20 to 30 s or more after the close frame.
   // `ws` answers the close frame, then destroys the socket after
   // `closeTimeout`, so `closed` settles within it.

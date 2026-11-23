@@ -21,11 +21,8 @@ export interface ListedObject {
 // adds ~24 files a month (docs/research/idx-kepemilikan-listing.md), so
 // reports/ grows ~50 objects a month; runs/ is read 30 days at a time
 // (history.ts).
-// Decision: 10,000, about sixteen years of reports/ at that rate. A listing
-// is held whole in a Worker's 128 MB, a few MB at the cap, and only for the
-// step that lists it: no step result carries it (MAX_LISTED_REPORTS bounds
-// those, listing.ts). Failing here says the layout needs rethinking before
-// memory gives out. See apinrdw/kumora#303.
+// Decision: each step lists reports/ itself, at most 10,000 keys
+// (apps/dashboard/docs/adr/0043-a-reports-listing-is-bounded-and-never-carried-between-steps.md)
 export const MAX_LISTED_OBJECTS = 10_000
 
 // Fails a listing of `prefix` that has passed MAX_LISTED_OBJECTS.

@@ -42,7 +42,7 @@ const stretchedFit =
 // change no gesture made, a refit or a resize, tells it nothing. The chart
 // itself must not reset its time axis on a double click (the chart saves and
 // shows its own default). Returns the detach.
-// Decision: the price axis keeps autoscale on. Lightweight Charts 5.2.1's
+// The price axis keeps autoscale on. Lightweight Charts 5.2.1's
 // price axis drag turns it off and freezes the range; once the drag is over,
 // the range it left, as a stretch of the fit it started from, goes into the
 // autoscale and autoscale comes back on, so the axis follows the price again.

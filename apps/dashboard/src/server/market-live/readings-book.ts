@@ -18,7 +18,7 @@ export const makeReadingsBook = (options: { readonly date: WibDate }) =>
     const latest = new Map<StockCode, BookReadings>()
 
     // The readings of `books`, the ones that changed, kept and returned.
-    // Decision: readings are taken only in Sessions 1 and 2, by the market
+    // Readings are taken only in Sessions 1 and 2, by the market
     // phase; in any other phase each code keeps its last ones and none goes
     // out, so the page greys them and names the phase. See spec
     // apinrdw/kumora#517, "Data".

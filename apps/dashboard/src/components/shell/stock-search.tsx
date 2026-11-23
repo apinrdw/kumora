@@ -36,7 +36,7 @@ export function StockSearch() {
     if (open) input.current?.focus()
   }, [open])
 
-  // Decision: `/` is the stock search's on every page, Market Live included
+  // `/` is the stock search's on every page, Market Live included
   // (apinrdw/kumora#370: "`/` focuses the search from Market Live"); Market
   // Live's own code palette keeps Ctrl/⌘+K.
   useEffect(() => {

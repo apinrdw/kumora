@@ -27,7 +27,7 @@ type Answer = {
   readonly challenge?: boolean
 }
 
-// Decision: before the page made a REST call of its own, its API base is
+// Before the page made a REST call of its own, its API base is
 // taken as the PIN check's host, ht2.ajaib.co.id/api/; unconfirmed until the
 // owner checks a page call in DevTools.
 const AJAIB_API_BASE = "https://ht2.ajaib.co.id/api/"
@@ -144,7 +144,7 @@ const read = async (
   response.headers.get("cf-mitigated") === "challenge" || undefined,
 ]
 
-// Decision: Ajaib signs its API calls `authorization: jwt <token>`, not
+// Ajaib signs its API calls `authorization: jwt <token>`, not
 // Bearer, as captured on 2026-11-20; a token the relay supplies is sent the
 // same way. Matching only Bearer read no page token and sent the cookie's
 // token in a form Ajaib refused, which stalled the walk.
@@ -186,7 +186,7 @@ const answer = async (
     case "page-fetch": {
       const headers = pageHeaders(request.bearer, request.token)
       if (headers === undefined) return [0, ""]
-      // Decision: no cookies. Ajaib's REST API preflights with
+      // No cookies. Ajaib's REST API preflights with
       // `Access-Control-Allow-Origin: *`, which the browser refuses for a
       // credentialed request (seen 2026-11-11 on `v1/stock/data/list/`); the
       // bearer token in the headers is the session.

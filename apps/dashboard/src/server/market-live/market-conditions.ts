@@ -49,7 +49,7 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
   const stretches = yield* expectedStretches(date).pipe(
     Effect.catchTag("ScheduleYearMissing", () => Effect.succeed([]))
   )
-  // Decision: the record of feed up and down stretches starts at the day's
+  // The record of feed up and down stretches starts at the day's
   // midnight WIB. The trading day stores it with every flush, so an object
   // that restarts keeps the morning's record, and shows only the time from
   // its restart to the relay's next frame as down.
@@ -77,11 +77,8 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
     return market
   })
 
-  // Decision: a code's indicative price is served only while the auction of
-  // its time runs, by the clock here for every viewer: the prices are held all
-  // day, and the morning's would otherwise come back at 15:50. The page applies
-  // the same rule (`market-conditions.tsx`). Ajaib's price only while Stockbit
-  // isn't live. See apinrdw/kumora#157.
+  // Decision: an indicative price is served only while the auction of its time runs
+  // (apps/dashboard/docs/adr/0089-indicative-prices-are-served-only-during-their-auction.md)
   const indicativeOf = Effect.fnUntraced(function* (code: StockCode) {
     const running = yield* auctionAt(yield* DateTime.now)
     if (running === undefined) return undefined

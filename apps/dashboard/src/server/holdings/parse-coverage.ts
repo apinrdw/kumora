@@ -102,7 +102,7 @@ export const parseCoverage = Effect.fnUntraced(function* (
       { message, run: lastFinished.id },
     ])
   )
-  // Decision: a cell is a month, and each kind publishes at most one report
+  // A cell is a month, and each kind publishes at most one report
   // a month. Should two archived dates share one, the cell shows the later:
   // `newest` is oldest first, so the later date overwrites the earlier.
   const cells = new Map<string, ParseCoverageMonth>()

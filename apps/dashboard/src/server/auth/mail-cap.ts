@@ -3,10 +3,8 @@ import { Context, DateTime, Duration, Effect, Schema } from "effect"
 
 import { MAIL_CAP_MODEL } from "./options.ts"
 
-// Decision: at most 5 verification and reset mails per address per day,
-// counted in D1 beside Better Auth's per-IP limits. Those slow one client;
-// this keeps one inbox from being flooded from many IPs, and keeps the
-// sender's daily allowance. See apinrdw/kumora#71.
+// Decision: at most 5 verification and reset mails per address per day, in D1
+// (apps/dashboard/docs/adr/0036-at-most-5-auth-mails-per-address-per-day.md)
 const MAX_MAILS = 5
 const WINDOW_MS = Duration.toMillis(Duration.days(1))
 

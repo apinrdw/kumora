@@ -2,7 +2,7 @@
 // repo (they would fail lint), so each one gets a case directory of its own
 // in a temporary root, holding a copy of the config and the snippet at the
 // path under test. Several cases share a path, so one root can't hold them.
-// Decision: one oxlint run lints every case, each under its nearest config,
+// One oxlint run lints every case, each under its nearest config,
 // because starting oxlint once per case cost 32 s of the root tests in CI.
 // Each case's plugin is a symlink to scripts/oxlint-plugin.mts: oxlint
 // refuses a second copy of the `kumora` plugin, and dedupes one real path.

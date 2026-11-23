@@ -11,7 +11,7 @@ import { DateTime, Effect } from "effect"
 
 import { compact, plain } from "./format"
 
-// Decision: the first day the trading-day object records book events, named
+// The first day the trading-day object records book events, named
 // on an earlier day's readout. Its GET says whether a day kept them; this
 // date is only the copy, set to the day book events ship. See spec
 // apinrdw/kumora#517, "Book events".

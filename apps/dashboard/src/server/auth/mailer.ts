@@ -53,10 +53,8 @@ export class Mailer extends Context.Service<
             Effect.logError("Mail send failed", cause)
           )
         )
-        // Decision: the send is its own runtime boundary. It outlives the
-        // request's fiber, and Cloudflare's waitUntil keeps the isolate alive
-        // only for a Promise, so it runs with runPromiseWith on the request's
-        // context. CODING_STANDARDS.md lists it among the runtimes.
+        // Decision: the mail send runs as its own runtime boundary under waitUntil
+        // (apps/dashboard/docs/adr/0037-the-mail-send-is-its-own-runtime-boundary.md)
         const context = yield* Effect.context<never>()
         waitUntil(Effect.runPromiseWith(context)(delivery))
       })

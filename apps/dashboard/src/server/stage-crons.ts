@@ -9,40 +9,31 @@ import { ARCHIVE_CRON, PARSE_CRON } from "./shareholding/schedule.ts"
 import { SPECIAL_BOARD_CRON } from "./special-board/schedule.ts"
 
 export const stageCrons = (production: boolean) => [
-  // Decision: the broker totals reconcile runs on every stage: each stage
-  // builds into its own BrokerTotalsDb, and the extension's extra target
-  // feeds a second stage. It touches only the stage's own day index, D1 and
-  // trading days, so a dev or Preview run calls nothing outside. See spec
-  // apinrdw/kumora#437, "Dashboard: reconcile cron".
+  // Decision: crons that call outside sources run on Production only
+  // (apps/dashboard/docs/adr/0007-crons-that-read-outside-sources-run-on-production-only.md)
   RECONCILE_CRON,
-  // Decision: the archive cron is set by stage, on Production only, like
-  // Google sign-in: Alchemy's dev runtime fires a Worker's crons, so an
-  // ungated cron would make `pnpm dev`, and every Preview, call IDX. Other
-  // stages start a run with Run now only. See apinrdw/kumora#308.
+  // Decision: crons that call outside sources run on Production only
+  // (apps/dashboard/docs/adr/0007-crons-that-read-outside-sources-run-on-production-only.md)
   ...(production
     ? [
         ARCHIVE_CRON,
-        // Decision: the KSEI archive cron is gated the same way, so only
-        // Production calls ksei.co.id on a schedule. See apinrdw/kumora#326.
+        // Decision: crons that call outside sources run on Production only
+        // (apps/dashboard/docs/adr/0007-crons-that-read-outside-sources-run-on-production-only.md)
         KSEI_CRON,
-        // Decision: the KSEI parse cron too, so only Production's
-        // HoldingsDb fills on a schedule, from the only bucket that holds
-        // reports. See apinrdw/kumora#359.
+        // Decision: crons that call outside sources run on Production only
+        // (apps/dashboard/docs/adr/0007-crons-that-read-outside-sources-run-on-production-only.md)
         KSEI_PARSE_CRON,
-        // Decision: the shareholding parse cron too, for the KSEI parse
-        // cron's reason. See apinrdw/kumora#397.
+        // Decision: crons that call outside sources run on Production only
+        // (apps/dashboard/docs/adr/0007-crons-that-read-outside-sources-run-on-production-only.md)
         PARSE_CRON,
-        // Decision: the sector cron too, so only Production reads IDX's
-        // company profiles on a schedule; another stage fills stock_sector
-        // with the Sectors card's Run now on /admin/shareholding. See
-        // apinrdw/kumora#427.
+        // Decision: crons that call outside sources run on Production only
+        // (apps/dashboard/docs/adr/0007-crons-that-read-outside-sources-run-on-production-only.md)
         SECTOR_CRON,
-        // Decision: the logo sync too, so only Production copies
-        // Stockbit's logos. See apinrdw/kumora#432.
+        // Decision: crons that call outside sources run on Production only
+        // (apps/dashboard/docs/adr/0007-crons-that-read-outside-sources-run-on-production-only.md)
         LOGO_CRON,
-        // Decision: the Special Monitoring Board cron too, so only
-        // Production reads IDX's special notations on a schedule; another
-        // stage's special_board stays empty. See apinrdw/kumora#521.
+        // Decision: crons that call outside sources run on Production only
+        // (apps/dashboard/docs/adr/0007-crons-that-read-outside-sources-run-on-production-only.md)
         SPECIAL_BOARD_CRON,
       ]
     : []),

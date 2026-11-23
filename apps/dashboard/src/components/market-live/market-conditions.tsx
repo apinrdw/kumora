@@ -45,7 +45,7 @@ const byCode = (prices: ReadonlyArray<IndicativePrice>) =>
   Effect.succeed(prices.map((price) => [price.code, price] as const))
 
 // The view after one viewer message. A snapshot starts over.
-// Decision: a delta's indicative prices are every code's that changed, and all
+// A delta's indicative prices are every code's that changed, and all
 // are kept, so a code added to the watchlist mid-auction shows its price on the
 // next change; the map is bounded by the listed codes. See apinrdw/kumora#157.
 export const applyConditions = Effect.fnUntraced(function* (
@@ -101,7 +101,7 @@ export function useRelayGaps(): ReadonlyArray<RelayGap> {
   return useMarketConditions().conditions?.gaps ?? []
 }
 
-// Decision: the merged views (tape, candles, watchlist, order book panel) are
+// The merged views (tape, candles, watchlist, order book panel) are
 // stale only when neither feed is arriving, or while the page's own socket
 // reconnects. A delayed feed counts as arriving: its frames still come, and
 // its pill already says DELAYED. One feed stale or unavailable leaves them

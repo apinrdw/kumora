@@ -339,11 +339,8 @@ const flakySql = (sql: Sql, failing: ReadonlyArray<number>): Sql => {
 const range = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, index) => from + index)
 
-// Decision: a restarted object may keep at most 32 MiB (33.6 MB) of a full
-// day on the heap, about a quarter of the Durable Object's 128 MB memory
-// limit (https://developers.cloudflare.com/durable-objects/platform/limits/,
-// read 2026-11-10): the whole day's candles kept as objects take about
-// 180 MiB (measured 2026-11-10).
+// Decision: a restart reads only last-frame tables; at most 32 MiB on the heap
+// (apps/dashboard/docs/adr/0109-a-restarted-day-keeps-a-bounded-share-of-the-day-in-memory.md)
 const RESTART_HEAP_LIMIT = 32 * 2 ** 20
 
 describe("a restarted trading day", () => {

@@ -74,7 +74,7 @@ export type RecordedResource =
   // day only.
   | { readonly _tag: "Bubbles" }
 
-// Decision: a cursor without `before` writes the query a page has always
+// A cursor without `before` writes the query a page has always
 // asked, not an empty `before=`, so a sealed answer the browser cached by its
 // whole URL is still reused. See ticket apinrdw/kumora#511.
 const cursorQuery = Effect.fnUntraced(function* (cursor: TapeCursor) {
@@ -92,11 +92,8 @@ export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
         return `${base}/trades?${yield* cursorQuery(resource)}`
       case "BrokerCodes":
         return `${base}/broker-codes?${yield* cursorQuery(resource)}`
-      // Decision: the path carries the viewer protocol's version: the browser
-      // caches a sealed answer for a year by its whole URL, so one cached
-      // before footprints rode with the candles is never reused. The query is
-      // ignored when read, so an older build's tab still loads. See ticket
-      // apinrdw/kumora#270.
+      // Decision: a recorded day's path carries the viewer protocol version
+      // (packages/relay/docs/adr/0021-the-recorded-day-path-carries-the-viewer-protocol-version.md)
       case "Candles":
         return `${base}/candles/${resource.code}?v=${ViewerProtocolVersion}`
       case "Sweeps":
@@ -313,11 +310,8 @@ const SweepBrokerFields = Schema.Struct({
   minorTypeLots: Schema.optionalKey(Schema.Finite),
 })
 
-// Decision: sweep brokers travel, and are stored, as tuples: an entry [first
-// trade, pieces], a piece [sweep tuple, aggressor side, other side], a broker
-// [code, investor type, lots, minor type's lots only when nonzero], not keyed
-// objects: a busy code's 10–18 K sweeps a day answered 1–2 MB as tuples when
-// an entry was [first trade, aggressor, other]. See apinrdw/kumora#343, #349.
+// Decision: sweep brokers travel and are stored as tuples, not keyed objects
+// (packages/relay/docs/adr/0022-sweep-brokers-travel-and-are-stored-as-tuples.md)
 //
 // The stored rows decode only in these tuples' order, so a change to it, or
 // to the sweep tuple's, needs a new SWEEP_BROKERS_SHAPE (dashboard
@@ -402,10 +396,8 @@ const SweepPieceFields = Schema.Struct({
   orders: Schema.optionalKey(Schema.toType(SweepOrders)),
 })
 
-// Decision: an order run's orders ride as an optional fourth element, after
-// the sides, and a per-broker piece has none, so a row stored before them
-// decodes as it is and SWEEP_BROKERS_SHAPE stays: no old day rebuilds. See
-// spec apinrdw/kumora#627, "Slice 2".
+// Decision: an order run's orders ride as an optional fourth element
+// (packages/relay/docs/adr/0023-an-order-run-s-orders-ride-as-an-optional-fourth-element.md)
 const SweepPiece = Schema.Tuple([
   Sweep,
   Schema.Array(SweepBroker),
@@ -457,9 +449,8 @@ const RecordedSweepBrokers = Schema.Struct({
   code: StockCode,
   sweeps: Schema.Array(SweepBrokers),
   complete: Schema.Boolean,
-  // Decision: optional, read as false when absent: only a move stored an
-  // answer without it, of a day that took no more codes, and a cold day's
-  // answer is kept for good. See PR #632.
+  // Decision: a day takes broker codes until its move starts; answers say so
+  // (packages/relay/docs/adr/0001-a-day-takes-broker-codes-until-its-cold-move-starts.md)
   takesCodes: Schema.optionalKey(Schema.Boolean),
 })
 export type RecordedSweepBrokers = typeof RecordedSweepBrokers.Type
@@ -485,10 +476,8 @@ const RecordedCandles = Schema.Struct({
   code: StockCode,
   previousClose: Schema.optionalKey(Schema.Finite),
   candles: Schema.Array(Candle),
-  // Decision: optional, read as none when absent. A sealed day's answer is
-  // cached immutable for a year (SEALED_CACHE), so a browser can still hold
-  // one sent before footprints were, and it must keep decoding. See spec
-  // apinrdw/kumora#263.
+  // Decision: footprints are optional in a recorded answer, read as none
+  // (packages/relay/docs/adr/0024-footprints-are-optional-in-a-recorded-answer.md)
   footprints: Schema.optionalKey(Schema.Array(Footprint)),
 })
 export type RecordedCandles = typeof RecordedCandles.Type
@@ -547,11 +536,8 @@ export const BUBBLE_MINUTES = 61
 
 // The Worker's flush, which also builds the bubbles answer (trading-day.ts
 // `armFlush`).
-// Decision: the day's state is written to the day store once a minute, 5 s
-// past it, so each flush closes the minute's book chunks and 5 s merge
-// windows; only the relay going offline (`ingestClosed`) flushes at once. A
-// failed flush's payload rides the next, so a candle is never stored without
-// its trades. See apinrdw/kumora#138 and apinrdw/kumora#157.
+// Decision: the day's state flushes once a minute, 5 s past it
+// (packages/relay/docs/adr/0025-the-day-flushes-to-the-day-store-once-a-minute.md)
 export const FLUSH_PAST_MINUTE = 5_000
 
 export const encodeRecordedBubbles = Schema.encodeEffect(
@@ -573,17 +559,13 @@ export const decodeRecordedGaps = Schema.decodeUnknownEffect(
 // One served order book frame after the one before it: when the trading-day
 // Durable Object served it, the book's as-of, and the other parts that
 // changed. The first frame of a code's day carries every part.
-// Decision: the served instant is the replay's timeline, not the as-of: a
-// served book can be older than the one before it (Ajaib's when Stockbit goes
-// stale), and a replay cursor is an instant on the viewers' clock.
-// See apinrdw/kumora#157.
+// Decision: a book frame is placed by the instant it was served, not its as-of
+// (packages/relay/docs/adr/0009-book-frames-follow-the-viewers-served-timeline-not-the-as-of.md)
 const BookDelta = Schema.Struct({
   servedAt: Schema.DateTimeUtcFromMillis,
   at: Schema.DateTimeUtcFromMillis,
-  // Decision: a frame carries all its book's per-side times and sequence
-  // numbers, changed or not, and replay replaces them as one group, so a book
-  // without one (Ajaib's sequences) never inherits the frame before's. An
-  // older chunk has none and replays unchanged. See apinrdw/kumora#517.
+  // Decision: each book side keeps its own time and sequence, replaced as a group
+  // (packages/relay/docs/adr/0008-a-book-side-keeps-its-own-time-and-sequence-replayed-as-a-group.md)
   ...BookSideFields,
   provenance: Schema.optionalKey(Schema.Literals(["Stockbit", "Ajaib"])),
   bids: Schema.optionalKey(Schema.Array(BookLevel)),

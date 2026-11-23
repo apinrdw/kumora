@@ -12,19 +12,16 @@ import {
 } from "@/lib/order-book-radar"
 import { makeSchemaStoredValue } from "@/lib/stored-value"
 
-// Decision: like the watchlist (use-watchlist.ts), each browser keeps its
-// own value floor, filters and Rank by in localStorage. See spec
-// apinrdw/kumora#517, "The scanner".
+// Decision: each browser keeps its own settings in localStorage
+// (apps/dashboard/docs/adr/0021-each-browser-keeps-its-own-settings-in-localstorage.md)
 const KEY = "kumora:order-book-radar:settings"
 
 const Price = Schema.UndefinedOr(Schema.Finite.check(Schema.isGreaterThan(0)))
 
 const RANK_KEYS = RANK_CHOICES.map((choice) => choice.value)
 
-// Decision: a Rank by this browser stored that the scanner no longer offers
-// (Near depth bid or offer, under either stored name, Empty ticks, Spread %)
-// reads as Imbalance, keeping the browser's other settings; the next change
-// stores that. See apinrdw/kumora#601.
+// Decision: an option the scanner dropped reads as its default, keeping the rest
+// (apps/dashboard/docs/adr/0022-radar-settings-stored-under-an-older-shape-read-as-defaults.md)
 const REMOVED_RANK_KEYS = [
   "bidDepth",
   "offerDepth",
@@ -46,8 +43,8 @@ const RankBy = Schema.Literals([...RANK_KEYS, ...REMOVED_RANK_KEYS]).pipe(
   })
 )
 
-// Decision: settings this browser stored before the Heavy side filter read
-// as Any, keeping the rest. See apinrdw/kumora#601.
+// Decision: an option the scanner dropped reads as its default, keeping the rest
+// (apps/dashboard/docs/adr/0022-radar-settings-stored-under-an-older-shape-read-as-defaults.md)
 const HeavySide = Schema.Literals(HEAVY_SIDE_FILTERS).pipe(
   Schema.withDecodingDefaultKey(Effect.succeed("any" as const))
 )

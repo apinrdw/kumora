@@ -11,7 +11,7 @@ import { eventKey } from "@/lib/book-events"
 import type { MarketEvent } from "@/lib/order-flow-events"
 import { RECENT_EVENTS_MS, type CodeEvents } from "@/lib/order-book-radar"
 
-// Decision: the scanner keeps every book and order flow event of the last
+// The scanner keeps every book and order flow event of the last
 // 5 minutes, for Events in 5 minutes, and at least the newest 200, for the
 // feed; each code's newest stays for Last event however old. A busy open can
 // find a few hundred a minute. See spec apinrdw/kumora#517 and

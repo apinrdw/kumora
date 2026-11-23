@@ -64,7 +64,7 @@ export const rangeStart = Effect.fnUntraced(function* (
   }
 })
 
-// Decision: a Custom range is at most 2 years, so the read stays about
+// A Custom range is at most 2 years, so the read stays about
 // 80 K rows for a liquid code; a From further back is moved up to 2 years
 // before To. See spec apinrdw/kumora#437, "Range".
 export const customFrom = Effect.fnUntraced(function* (
@@ -194,7 +194,7 @@ export interface SelectionSummary {
 const average = (value: number, lots: number) =>
   Effect.succeed(lots === 0 ? undefined : value / (lots * SHARES_PER_LOT))
 
-// Decision: Freq is the trades on the side a broker leans: its buy trades
+// Freq is the trades on the side a broker leans: its buy trades
 // when its net lots are 0 or more, its sell trades otherwise, whatever the
 // measure shown. Owner's rule, apinrdw/kumora#465.
 // The net is compared in whole shares, so sums that cancel read as 0.
@@ -295,7 +295,7 @@ export const brokerSummary = Effect.fnUntraced(function* (
   return summary
 })
 
-// Decision: lots traded counts each lot once under All, as the day's
+// Lots traded counts each lot once under All, as the day's
 // volume does: every lot has a buy side and a sell side, so each side is
 // half a lot. Under a filter, a trade with one side of that type counts
 // half. See spec apinrdw/kumora#437, "Broker summary".

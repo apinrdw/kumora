@@ -32,14 +32,14 @@ import type { PostOutcome } from "./poster.ts"
 import { halt, haltOnRefusal, settle, type WalkResult } from "./run-queue.ts"
 import type { StatusOutcome } from "./status.ts"
 
-// Decision: 100 rows a call, Stockbit's most, with `date` and no `symbols`
+// 100 rows a call, Stockbit's most, with `date` and no `symbols`
 // or `market_board`, so every board comes back; a batch every 10 calls,
 // ~1,000 trades. A whole day 1..1,102,785 took 64 min at 3 calls/s. See
 // apinrdw/kumora#127.
 const PAGE = 100
 const CALLS_PER_BATCH = 10
 
-// Decision: the walk starts once Stockbit answers `is_open_market: false`
+// The walk starts once Stockbit answers `is_open_market: false`
 // (about 16:58 on 2026-11-11), polling one newest-first call a minute until
 // then. A failed call is asked again in place every 10 s while the tab stays
 // attached; the pacer has already stopped the site on a throttle. See
@@ -160,7 +160,7 @@ const resumeFrom = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
 // list cut short at MISSING_RANGES may end before it, so the top is the
 // trade past the last range listed, a trade held, and the walk walks the
 // rest again.
-// Decision: the walk resumes a page (100) below that top, as the gap walk
+// The walk resumes a page (100) below that top, as the gap walk
 // pages from below a range: a codes-only row posted last before a cut can
 // lift the top above trades never seen, and Stockbit sends a second's trades
 // out of number order. A page walked again costs one call; a trade skipped
@@ -227,7 +227,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
     return held.value
   })
 
-  // Decision: on a 401, or cookies with no token, the walk waits in place
+  // On a 401, or cookies with no token, the walk waits in place
   // until either of the tab's credential cookies changes; the extension never
   // signs in itself. The wait shows as "Stockbit signed out" until it ends.
   // See apinrdw/kumora#244, "A 401", and apinrdw/kumora#591.
@@ -362,10 +362,8 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
     return walked
   })
 
-  // Decision: a forward walk that reached an empty page ends once one
-  // newest-first call shows no trade past it, and posts `end` with the
-  // highest number it saw. A tape that grew past the walk is walked on.
-  // See apinrdw/kumora#244, "Stockbit `end`".
+  // Decision: a forward walk ends once a newest-first call shows nothing past it
+  // (apps/extension/docs/adr/0008-a-forward-stockbit-walk-ends-on-a-newest-first-check.md)
   const finish = Effect.fnUntraced(function* (day: WibDate, from: Walked) {
     let walked = from
     while (true) {
@@ -424,7 +422,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
         const low = BigInt(from)
         const high = BigInt(to)
         const seen = new Set<bigint>()
-        // Decision: a range's walk pages after the trade a page (100) below
+        // A range's walk pages after the trade a page (100) below
         // it, not the one just below: within a second Stockbit sends trades
         // out of number order, so a range's first trade can come before the
         // one below it. A trade seen without codes counts as seen, since it
@@ -435,7 +433,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
           below > 0n
             ? Option.some(TradeNumber.make(below.toString()))
             : Option.none(),
-          // Decision: a range's walk also ends on a page whose every trade
+          // A range's walk also ends on a page whose every trade
           // is past the range: a trade Stockbit's tape lacks never comes,
           // and waiting for it walked the day to its end on every run
           // (2026-11-18, 4 trades missing paged 1,559,660).
@@ -481,7 +479,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   }
 })
 
-// Decision: the extra target's Stockbit catch-up (extra-target.ts) is the
+// The extra target's Stockbit catch-up (extra-target.ts) is the
 // gap walk over the extra target's own status, so it fills the holes inside
 // the day too, not just the tail. A status the extra target didn't give
 // stops the walk as an unset token would, which ends only the catch-up. See

@@ -55,7 +55,7 @@ const splitAlertEvent = (event: AlertEvent) => {
   }
 }
 
-// Decision: a rule's optional minimum level or wall value: any, Rp1 B, Rp5 B
+// A rule's optional minimum level or wall value: any, Rp1 B, Rp5 B
 // or Rp20 B. See spec apinrdw/kumora#517, "Alerts".
 export const MIN_VALUES = [0, 1e9, 5e9, 20e9] as const
 export type MinValue = (typeof MIN_VALUES)[number]
@@ -281,7 +281,7 @@ export const heavySideChanges = Effect.fnUntraced(function* (
   return { tags: next as HeavySideTags, changes }
 })
 
-// Decision: the same code and kind alert at most once in 2 minutes, and at
+// The same code and kind alert at most once in 2 minutes, and at
 // most 6 alerts a minute; the rest of that minute fold into one count. See
 // spec apinrdw/kumora#517, "Alerts".
 const COOLDOWN_MS = 120_000
@@ -365,7 +365,7 @@ export interface AlertHistory {
   readonly alerts: ReadonlyArray<Alert>
 }
 
-// Decision: the bell keeps today's newest 200 alerts and clears each
+// The bell keeps today's newest 200 alerts and clears each
 // trading day. See spec apinrdw/kumora#517, "Alerts".
 const HISTORY_CAP = 200
 

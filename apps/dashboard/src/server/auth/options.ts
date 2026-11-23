@@ -58,9 +58,8 @@ export interface AuthOptionsInput {
   readonly secret: string
   // Introspects the database on every request, so the Worker passes false.
   readonly validateSchema: boolean
-  // Decision: the Worker passes none and hashes with Better Auth's scrypt.
-  // The test seam passes a fast stand-in, since scrypt costs about 57 ms per
-  // sign-up (apinrdw/kumora#171); handler.test.ts keeps one test on scrypt.
+  // Decision: the Worker hashes with scrypt; the test seam passes a fast stand-in
+  // (apps/dashboard/docs/adr/0038-the-worker-hashes-passwords-with-better-auth-s-scrypt.md)
   readonly password?: NonNullable<
     BetterAuthOptions["emailAndPassword"]
   >["password"]
@@ -126,11 +125,8 @@ export interface WrittenUser {
 
 type HookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0]
 
-// Decision: Better Auth's hooks must return a Promise, so each runs its Effect
-// here with a bare runPromise and no services, which rejects with the APIError
-// or a dying call's error unchanged, as Better Auth expects of a throw. Not
-// makeCallbackRunner (callbacks.ts): it needs @workspace/server, which the
-// migration script can't load. See apinrdw/kumora#159.
+// Decision: Better Auth's entry points stay plain Promise code, not Effects
+// (apps/dashboard/docs/adr/0034-better-auth-s-callbacks-hooks-and-options-stay-promise-code.md)
 const runHook = <A>(effect: Effect.Effect<A, APIError>): Promise<A> =>
   Effect.runPromise(effect)
 
@@ -187,7 +183,7 @@ const voidAccess = Effect.fnUntraced(function* (
 // the 422 would stay on a plain body. A verified account's address gets no
 // mail and loses nothing. The set-password mail is sent as Better Auth's
 // sign-up mail is, so over the mail cap the answer stays the same.
-// Decision: an unverified account is nobody's yet, so this sign-up voids its
+// An unverified account is nobody's yet, so this sign-up voids its
 // password and sessions now, not when the link is opened, and mails a
 // set-password link; an earlier verify link then leaves the squatter nothing.
 // Anyone can void a never-verified password this way, bounded by the sign-up
@@ -396,17 +392,14 @@ const beforeHook = Effect.fnUntraced(function* (
   )
 })
 
-// Decision: `before` and `after` stay plain functions, not Effects: they build
+// `before` and `after` stay plain functions, not Effects: they build
 // Better Auth's hook middleware for authOptions, which is plain (see its
 // Decision) and so can't yield them.
 const before = (input: AuthOptionsInput) =>
   createAuthMiddleware((ctx) => runHook(beforeHook(ctx, input)))
 
-// Decision: live pages close from the session table's delete hook, not a table
-// of routes: every route that ends a session deletes its row through it, after
-// its transaction. It sends the sessions still held, read after the delete, so
-// a failed route ends nothing. A session that expires unread deletes no row, so
-// gate.ts and trading-day.ts close that one. See apinrdw/kumora#157.
+// Decision: live pages close from the session table's delete hook, not per route
+// (apps/dashboard/docs/adr/0039-live-pages-close-from-the-session-delete-hook.md)
 const endLiveSessions = Effect.fnUntraced(function* (
   input: AuthOptionsInput,
   ended: { readonly userId: string },
@@ -495,9 +488,8 @@ const mailCapTable = {
   },
 } satisfies BetterAuthPlugin
 
-// Decision: authOptions stays a plain function, not an Effect: Better Auth,
-// the test seam and the migration script take the options object as is.
-// CODING_STANDARDS.md lists such config builders among the exceptions.
+// Decision: Better Auth's entry points stay plain Promise code, not Effects
+// (apps/dashboard/docs/adr/0034-better-auth-s-callbacks-hooks-and-options-stay-promise-code.md)
 export function authOptions(input: AuthOptionsInput) {
   const grantAdmin = (user: WrittenUser | null) =>
     runHook(grantAdminOf(input, user))

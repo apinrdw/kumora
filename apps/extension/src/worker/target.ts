@@ -23,10 +23,8 @@ import * as Socket from "effect/socket/Socket"
 
 import type { DashboardOrigin, TargetState } from "./settings.ts"
 
-// Decision: backoff starts at 1 s, doubles, and caps at 30 s; it resets once a
-// socket opens, so a deploy during streaming hours costs one quick reconnect.
-// 4403 and 4426 stop retrying until the target's settings change. See
-// apinrdw/kumora#45.
+// Decision: 4403 refuses the token, 4426 a protocol; both stop ingest retries
+// (packages/relay/docs/adr/0003-ingest-socket-closes-4403-and-4426-stop-retries.md)
 export const FIRST_RETRY = Duration.seconds(1)
 export const LAST_RETRY = Duration.seconds(30)
 
@@ -46,10 +44,8 @@ export const runTarget = Effect.fnUntraced(function* (options: {
   readonly token: string
   readonly envelopes: PubSub.PubSub<EncodedIngestUp>
   // Today's WIB date on the relay's schedule clock.
-  // Decision: the socket reopens as soon as the date changes, since the
-  // dashboard picks the trading-day object by WIB date at the handshake. Its
-  // day is read before it dials: read after, a date that moved mid-handshake
-  // would keep a socket on the old day's object a day. See apinrdw/kumora#157.
+  // Decision: the ingest socket reopens when the WIB date changes, read first
+  // (apps/extension/docs/adr/0023-the-ingest-socket-reopens-on-a-new-wib-date.md)
   readonly day: SubscriptionRef.SubscriptionRef<WibDate>
   // What every fresh socket is sent after the token: the socket's day's code
   // list, which a target that was down for the daily fetch would otherwise

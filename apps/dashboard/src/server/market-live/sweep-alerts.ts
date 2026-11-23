@@ -8,18 +8,15 @@
 import type { AlertSide, StockCode, Sweep, TradeNumber } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-// Decision: a side alerts nothing until it holds 100 sweeps, and the cutoff
-// is the ⌈n/100⌉-th largest of its n earlier sweeps, as `sweepThreshold`
-// (lib/sweeps.ts) takes the top N% at N = 1. Under 100 that is the largest
-// so far, so every new high would sound. See apinrdw/kumora#501.
+// Decision: a side alerts nothing until it holds 100 sweeps, then its top 1%
+// (apps/dashboard/docs/adr/0097-a-side-alerts-nothing-until-it-holds-100-sweeps.md)
 //
 // apps/e2e/tests/market-live-sweep-alerts.spec.ts repeats the 100 (`WARM_UP`).
 const WARM_UP = 100
 const TOP_PERCENT = 1
 
-// Decision: a sweep whose second closed more than 10 s before the decision
-// stays silent but still ranks: catch-up after a relay gap or a lagged feed
-// isn't news. See apinrdw/kumora#502.
+// Decision: a sweep closed over 10 s before the decision ranks but stays silent
+// (apps/dashboard/docs/adr/0098-a-sweep-closed-over-10-s-ago-ranks-but-stays-silent.md)
 //
 // tests/server/market-live/candles.test.ts repeats the 10 s (`reference`).
 const MAX_AGE = 10_000
@@ -28,7 +25,7 @@ const SECOND = 1000
 
 // One side's sweeps by lots: the distinct lots, largest first, and beside
 // each how many sweeps have it.
-// Decision: two arrays side by side, not a Map from lots to count. At the
+// Two arrays side by side, not a Map from lots to count. At the
 // worst day, 665,760 sweeps each of its own lots, the Map and a sorted
 // array retained 38.6 MiB, past the spec's "under ~30 MB at worst"; the two
 // arrays retain 12.0 MiB (sweep-alerts-memory.test.ts). See spec
@@ -90,7 +87,7 @@ const byTrade = (ranked: ReadonlyArray<PlacedSweep>) =>
 // under its side and second, so a late trade grew or split that sweep. A
 // sweep with no such trade is new, wherever its trade numbers fall among the
 // ranked sweeps'.
-// Decision: a ranked sweep is known by its trades, not by the trade numbers
+// A ranked sweep is known by its trades, not by the trade numbers
 // from its first to the next sweep's. That range takes in numbers the sweep
 // never held, and a new sweep of late trades numbered there never alerted
 // (both review rounds of spec apinrdw/kumora#510 found one).
@@ -178,7 +175,7 @@ export const makeSweepAlerts = Effect.sync(() => {
   // first regroup of one until the book let it go and none of its sweeps
   // waits. A minute it doesn't keep is ranked as the store holds it, so the
   // kept ones are as few as the book's candles plus the latest second's.
-  // Decision: the rule keeps them, not the book's candle. A flush lets a
+  // The rule keeps them, not the book's candle. A flush lets a
   // candle go while its newest sweep still waits for a later trade, and the
   // reopened candle took that sweep from the store for ranked. See spec
   // apinrdw/kumora#510.

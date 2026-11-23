@@ -21,9 +21,8 @@ import type { ReplayCursor } from "./replay-cursor"
 import { TopNControl } from "./sweep-log"
 import type { SweepStore } from "./sweep-store"
 
-// Decision: Lightweight Charts runs only in the browser, in its own chunk:
-// the Worker's server render never imports it, and other pages never load it
-// (spec apinrdw/kumora#138, "Chart").
+// Decision: Lightweight Charts runs only in the browser, in its own chunk
+// (apps/dashboard/docs/adr/0025-lightweight-charts-runs-only-in-the-browser.md)
 const ChartCanvas = lazy(() => import("./chart-canvas"))
 
 const CHART_HEIGHT = "h-[420px] lg:h-auto lg:min-h-[420px] lg:flex-1"

@@ -9,9 +9,8 @@
 //                                                          (parse-runs.ts)
 //
 // Nothing under reports/ is ever overwritten or deleted.
-// Decision: one exception, by hand. The owner chose on 2026-11-15 to start
-// the archive at FIRST_MONTH (coverage.ts), and Production's reports before
-// it were deleted once by hand. The code still deletes nothing.
+// Decision: the KSEI archive keeps November 2018 onward only
+// (apps/dashboard/docs/adr/0049-the-ksei-archive-starts-at-november-2018.md)
 import { Effect } from "effect"
 
 import { recordName } from "../archive/record-key.ts"
@@ -39,10 +38,8 @@ interface Seen {
 
 // `fetchedAt` is an ISO instant; the key drops its colons and keeps it
 // sortable.
-// Decision: the key ends in a digest of the (filename, ETag) pair, as the
-// shareholding archive's ends in its listing's: two pairs of the same bytes
-// recorded in the same millisecond would otherwise share the spec's
-// `<sha256>.<fetched-at>.json`. See apinrdw/kumora#307 and #327.
+// Decision: a record key ends in a digest of its listing
+// (apps/dashboard/docs/adr/0050-an-archive-record-key-ends-in-a-digest-of-its-listing.md)
 export const recordKey = Effect.fnUntraced(function* (
   kind: KseiReportKind,
   periodEnd: string,

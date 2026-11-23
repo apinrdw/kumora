@@ -13,7 +13,7 @@ import { DateTime, Effect, Record as Records } from "effect"
 
 import { percentile, type TimedTrade } from "./feed-lag.ts"
 
-// Decision: a feed is stale after 15 s of silence and unavailable after 60 s,
+// A feed is stale after 15 s of silence and unavailable after 60 s,
 // counted only inside stretches that expect trades, so the break and the
 // auctions before their match never go stale. Ajaib's on-demand frames are no
 // sign of life: they answer a subscription, not its tape (market-conditions.ts
@@ -21,18 +21,18 @@ import { percentile, type TimedTrade } from "./feed-lag.ts"
 const STALE_AFTER = 15_000
 const UNAVAILABLE_AFTER = 60_000
 
-// Decision: a feed is delayed while the median feed lag of its trades that
+// A feed is delayed while the median feed lag of its trades that
 // arrived in the last 10 s is over 5 s, and live again once it is under 2 s.
 // Stale and unavailable outrank it, and it opens no relay gap: frames still
 // arrive. See apinrdw/kumora#235.
 const LAG_WINDOW = 10_000
 const DELAYED_OVER = 5_000
 const LIVE_UNDER = 2_000
-// Decision: a window needs 3 trades before its median can turn a feed
+// A window needs 3 trades before its median can turn a feed
 // delayed, so one slow batch after a quiet stretch doesn't (story 8). Clearing
 // takes any reading. See apinrdw/kumora#235.
 const DELAYED_MIN_TRADES = 3
-// Decision: the lag viewers are told is rounded to whole seconds, so a lag
+// The lag viewers are told is rounded to whole seconds, so a lag
 // moving by milliseconds doesn't resend the market conditions in every delta.
 // The thresholds judge the unrounded median. See apinrdw/kumora#235.
 const LAG_SHOWN_IN = 1_000
@@ -71,7 +71,7 @@ const newTrack = Effect.sync((): Track => ({
   delayedBy: undefined,
 }))
 
-// Decision: a lag window with no trades has no reading and keeps a feed's
+// A lag window with no trades has no reading and keeps a feed's
 // state, so a delayed feed that goes silent stays delayed, with its last lag,
 // until stale takes over (stories 5 and 9). See apinrdw/kumora#235.
 //

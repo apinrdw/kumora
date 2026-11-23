@@ -48,7 +48,7 @@ import { useMarketPhase } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
 import { loadedOrSignIn } from "./sign-in-again"
 
-// Decision: the ladder marks a level's book events for 2 minutes. See spec
+// The ladder marks a level's book events for 2 minutes. See spec
 // apinrdw/kumora#517, "Book events".
 const MARK_MS = 120_000
 

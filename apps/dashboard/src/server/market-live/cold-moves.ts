@@ -6,13 +6,13 @@
 import type { RecordedDay, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
-// Decision: the newest 15 recorded days still hot, the window and the 5
+// The newest 15 recorded days still hot, the window and the 5
 // that left it last, so a day whose seal's ask or start failed moves within
 // days. Older hot days, recorded before cold days, are asked a few a night
 // (MOVES_PER_NIGHT). See spec apinrdw/kumora#556, "The move".
 const BACKSTOP_DAYS = 15
 
-// Decision: the older days start 3 moves a night, oldest first. A busy day
+// The older days start 3 moves a night, oldest first. A busy day
 // recorded before trade chunks reads about 1.85 M rows to move (385 K on
 // chunks, plus its 1.46 M trade rows), so about 5.6 M rows a night and the
 // ~30 old days in ten nights. A day already moving counts: it reads tonight.

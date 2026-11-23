@@ -18,43 +18,42 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-// Decision: absorbed needs trades of at least 1 × the lots the level showed
+// Absorbed needs trades of at least 1 × the lots the level showed
 // at the window's start: below 1 it hasn't turned over once, and at 1.5 mid
 // and quiet codes show almost none. See apinrdw/kumora#508.
 const ABSORBED_MULTIPLE = 1
 
-// Decision: absorbed and reloaded need Rp100 M traded, eaten a peak of Rp100
-// M shown: at Rp250 M mid codes at the open drop from 0.48 to 0.20 events a
-// minute. See apinrdw/kumora#508.
+// Decision: absorbed, reloaded and eaten need Rp100 M at the level
+// (apps/dashboard/docs/adr/0088-book-events-and-order-flow-rules-need-rp100-m-at-a-level.md)
 export const LEVEL_FLOOR = 100_000_000
 
-// Decision: a wall holds at least 5 × its side's median lots: at 3 almost
+// A wall holds at least 5 × its side's median lots: at 3 almost
 // every side always has one. See apinrdw/kumora#508.
 const WALL_MULTIPLE = 5
 
-// Decision: a wall is worth at least Rp500 M: Rp1 B misses the day's
+// A wall is worth at least Rp500 M: Rp1 B misses the day's
 // clearest walls, FOLK's 50K-lot bids of about Rp500 M each. See
 // apinrdw/kumora#508.
 const WALL_FLOOR = 500_000_000
 
-// Decision: a level is eaten when the window's trades at it are at least 0.6
+// A level is eaten when the window's trades at it are at least 0.6
 // of its peak: departures fall in two groups, and 0.5–0.75 picks the same
 // events. See apinrdw/kumora#508.
 const EATEN_SHARE = 0.6
 
-// Decision: a wall is pulled when trades explain less than 0.25 of what it
+// A wall is pulled when trades explain less than 0.25 of what it
 // lost: 8 of 14 pulls had no trades, and 0.1–0.5 picks the same events but
 // one. See apinrdw/kumora#508.
 const PULLED_SHARE = 0.25
 
-// Decision: a wall moved when, within 2 frames, lots within ±20% of what
+// A wall moved when, within 2 frames, lots within ±20% of what
 // left it arrived at another price with the same change in orders: the
 // owner's amended rule compares the change, not the whole level. See
 // apinrdw/kumora#508.
 const MOVED_TOLERANCE = 0.2
 const MOVED_FRAMES = 2
 
-// Decision: "as price approached" is a pull within 3 ticks of the best price,
+// "as price approached" is a pull within 3 ticks of the best price,
 // closer than when the wall formed: pulls happened 0–1 ticks away, too few to
 // tighten it. See apinrdw/kumora#508.
 const APPROACH_TICKS = 3
@@ -66,7 +65,7 @@ const VIEW_LEVELS = 20
 // The same kind at the same side and price fires at most once a window, as
 // in the replay.
 const REPEAT_MS = WINDOW_MS
-// Decision: a trade is kept while a read can reach it: two windows behind
+// A trade is kept while a read can reach it: two windows behind
 // the newest trade, and past that while a pull still to be read has a wall
 // it reads from, as sparse frames delay that read by minutes. A side without
 // one holds none back, and none is kept past 10 min, which bounds the trades
@@ -125,7 +124,7 @@ interface Reading {
   readonly trades: ReadonlyArray<Trade>
 }
 
-// Decision: the ledger's helpers stay plain closures inside its Effects: they
+// The ledger's helpers stay plain closures inside its Effects: they
 // run for every price of every side frame, inside the delta tick. On node,
 // replaying fixtures/book-events-2026-11-17.json's 949 side frames took 7.7
 // ms plain and 21 ms with every helper an Effect, medians of 100 alternating
@@ -238,7 +237,7 @@ export const makeLevelLedger = Effect.sync(() => {
       held.bid.frames.length === 0 &&
       held.offer.frames.length === 0
     if (unread) held.provenance = book.provenance
-    // Decision: a switch between Stockbit and Ajaib resets the code's ledger:
+    // A switch between Stockbit and Ajaib resets the code's ledger:
     // the other feed's book is rebuilt, not a change of this one. See spec
     // apinrdw/kumora#517, "Book events".
     if (held !== undefined && held.provenance === book.provenance) return held
@@ -443,7 +442,7 @@ export const makeLevelLedger = Effect.sync(() => {
   // The wall at `p` in frame `j`, if it was pulled or moved by frame `i`:
   // it lost half its lots while in view, with no trade beyond it and trades
   // explaining little of the loss.
-  // Decision: a pull or move reads the trades between the wall's frame and
+  // A pull or move reads the trades between the wall's frame and
   // frame `i`, even from before the window: they are what took the wall, and
   // dropping them reads a traded wall as pulled. Every other kind reads only
   // the window's trades. See apinrdw/kumora#526.
@@ -626,7 +625,7 @@ export const makeLevelLedger = Effect.sync(() => {
     return events
   })
 
-  // Decision: a market phase change and a relay gap reset every code's
+  // A market phase change and a relay gap reset every code's
   // ledger: the frames and trades before them say nothing of the book after.
   // See spec apinrdw/kumora#517, "Book events".
   const reset = Effect.sync(() => codes.clear())

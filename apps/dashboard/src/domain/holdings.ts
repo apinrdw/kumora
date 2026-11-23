@@ -51,7 +51,7 @@ export const KSEI_TYPE_LABELS: Record<KseiType, string> = {
 // with its label, its header label as both classification report layouts
 // print it (once lowercased and with any `Local_`/`Foreign_` prefix dropped),
 // and its KSEI investor type.
-// Decision: the owner's fixed 39 → 9 mapping, from the prototype; it never
+// The owner's fixed 39 → 9 mapping, from the prototype; it never
 // reconciles with KSEI's own type totals. See apinrdw/kumora#354.
 export const CLASSIFICATIONS = {
   bank: {

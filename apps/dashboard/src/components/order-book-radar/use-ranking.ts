@@ -8,7 +8,7 @@ import { scan, type RadarSettings, type Scan } from "@/lib/order-book-radar"
 import type { FiguresStore } from "./figures-store"
 import type { RadarEventsStore } from "./radar-events-store"
 
-// Decision: the order re-sorts every 5 s and holds while the pointer is on
+// The order re-sorts every 5 s and holds while the pointer is on
 // the halves; readings show live in between. The user's own changes
 // (settings, watchlist) re-sort at once, as does each second with nothing
 // ranked; the board list landing waits. See spec apinrdw/kumora#517, "The

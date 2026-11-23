@@ -12,10 +12,8 @@ import { jsonText, makeStoredValue } from "@/lib/stored-value"
 
 import type { SweepStore } from "./sweep-store"
 
-// Decision: like the watchlist (use-watchlist.ts), each browser keeps its
-// own chart settings in localStorage under one key (spec apinrdw/kumora#263,
-// "Settings"). The e2e reloads to read them back
-// (apps/e2e/tests/market-live-footprint-controls.spec.ts).
+// Decision: each browser keeps its own settings in localStorage
+// (apps/dashboard/docs/adr/0021-each-browser-keeps-its-own-settings-in-localstorage.md)
 const KEY = "kumora:market-live:charts"
 
 // Storage blocked reads as nothing stored: the defaults.

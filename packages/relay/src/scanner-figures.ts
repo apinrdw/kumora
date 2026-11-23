@@ -19,10 +19,8 @@ const ScannerFiguresFields = Schema.Struct({
   value: Schema.Finite,
 })
 
-// Decision: a code's figures travel as a tuple, [code, last, previous close,
-// previous value, value today], none as null: a snapshot carries one for
-// every code with readings, about 900 on a busy day. Both values are rounded
-// to the rupiah.
+// Decision: a code's scanner figures travel as a tuple, none as null
+// (packages/relay/docs/adr/0026-scanner-figures-travel-as-a-tuple.md)
 export const ScannerFigures = Schema.Tuple([
   StockCode,
   Schema.NullOr(Schema.Finite),

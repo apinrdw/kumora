@@ -6,7 +6,7 @@ import { TickMarkType, type Time, type UTCTimestamp } from "lightweight-charts"
 
 import { wibClock } from "@/lib/format"
 
-// Decision: both charts' price scales are at least this wide, so their plots
+// Both charts' price scales are at least this wide, so their plots
 // share one width and a minute sits at the same x in each (spec
 // apinrdw/kumora#263, "Layout, settings, indices and phone").
 export const CHART_SCALE_WIDTH = 72

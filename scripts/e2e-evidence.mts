@@ -132,7 +132,7 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
   const { specs: named, pr: prArg, dryRun } = yield* parseArgs(args)
 
   const found = yield* findPr(root, prArg)
-  // Decision: changed specs are diffed from the merge base with the PR's base
+  // Changed specs are diffed from the merge base with the PR's base
   // as last fetched, without deleted files, which no longer run a test
   // (apinrdw/kumora#202).
   const changed =
@@ -169,7 +169,7 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
   const results = path.join(root, "apps/e2e/test-results")
   const reportFile = path.join(results, "e2e-evidence-report.json")
   yield* fs.remove(reportFile, { force: true })
-  // Decision: about a quarter of the cores, since the trace of every test is
+  // About a quarter of the cores, since the trace of every test is
   // the run's load, not the picked specs' video: on 16 cores, 8 workers timed
   // out account.spec.ts in 2 of 3 runs (one during a DNS outage) with no video
   // on it and finished no sooner than 4, which passed (apinrdw/kumora#210).

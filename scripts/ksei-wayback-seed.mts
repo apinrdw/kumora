@@ -28,7 +28,7 @@ const KSEI_FILENAME =
 // A CDX answer with `output=json`: a header row, then one row per capture.
 const CdxRows = Schema.Array(Schema.Array(Schema.String))
 
-// Decision: a revisit (statuscode `-`) counts as a capture: Wayback records
+// A revisit (statuscode `-`) counts as a capture: Wayback records
 // one when the bytes matched an earlier capture, so the file was there. Of
 // 2026-11-14's 140 report rows, the 23 revisits name no file a 200 doesn't,
 // so this decides nothing today. A 3xx or 4xx capture saw no file and is

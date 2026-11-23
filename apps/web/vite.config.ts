@@ -10,11 +10,8 @@ const config = defineConfig({
     devtools(),
     tailwindcss(),
     tanstackStart({
-      // Decision: keep prerendering `/` under alchemy, whose prerender server
-      // runs the SSR bundle in Bun without bindings. So no module prerender
-      // reaches may import `cloudflare:workers` at top level; the bridge in
-      // packages/server reaches it per request. Fallback: alchemy's runtime
-      // plugin in this file, for preview only. See apinrdw/kumora#23.
+      // Decision: only the bridge and workflow.ts import cloudflare:workers
+      // (packages/server/docs/adr/0001-only-the-bridge-and-the-workflow-runner-import-cloudflare-workers.md)
       prerender: {
         enabled: true,
         crawlLinks: true,

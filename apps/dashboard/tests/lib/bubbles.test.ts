@@ -927,7 +927,7 @@ describe("an end at a let-go minute", () => {
 })
 
 describe("recompute time", () => {
-  // Decision: the spec's 2 ms holds on the dev machine (about 1.4 ms); CI's
+  // The spec's 2 ms holds on the dev machine (about 1.4 ms); CI's
   // two shared cores, running every suite at once, read 4.75 ms on PR #436.
   // CI keeps a looser bound that still fails a gross regression, as
   // vitest.timeout.mts doubles the timeout there.

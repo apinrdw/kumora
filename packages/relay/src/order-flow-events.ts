@@ -64,7 +64,7 @@ export const OrderFlowEvent = Schema.Union([
 export type OrderFlowEvent = typeof OrderFlowEvent.Type
 export type OrderFlowEventKind = OrderFlowEvent["kind"]
 
-// Decision: a snapshot carries the day's newest 100 order flow events
+// A snapshot carries the day's newest 100 order flow events
 // across every code and the selected code's up to 2,500, as for book events.
 // The whole market finds about 1.8 a minute in the open and 0.5 after it. See
 // spec apinrdw/kumora#605, "Order flow events: data".

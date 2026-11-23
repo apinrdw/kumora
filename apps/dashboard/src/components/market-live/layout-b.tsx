@@ -74,7 +74,7 @@ export function LayoutB({
   const panels = PANELS.filter((name) => content[name] !== undefined)
   const shown =
     picked !== undefined && panels.includes(picked) ? picked : panels[0]
-  // Decision: a hidden tab's panel stays mounted (hidden by CSS), so the
+  // A hidden tab's panel stays mounted (hidden by CSS), so the
   // tape keeps its socket and every panel its state across tab switches.
   const panel = (name: Panel, className?: string) =>
     content[name] !== undefined && (
@@ -92,7 +92,7 @@ export function LayoutB({
       ref={layout}
       className={cn(
         "grid gap-4 lg:min-h-(--fill)",
-        // Decision: the log is 340 px live. On a recorded day it flexes from
+        // The log is 340 px live. On a recorded day it flexes from
         // 340 to 530 px and gives way first: the charts keep 480 px, or what
         // a 340 px log, the 400 px column and two 16 px gaps (772 px) leave.
         // A narrower log scrolls its broker columns. See spec

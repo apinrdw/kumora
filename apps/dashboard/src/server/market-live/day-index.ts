@@ -14,7 +14,7 @@ import { DateTime, Effect } from "effect"
 
 import type { Sql } from "./day-store.ts"
 
-// Decision: the strip is cached in the browser until a minute after the next
+// The strip is cached in the browser until a minute after the next
 // 17:00 WIB, when the next day seals and its row lands; a retried row can
 // land later and shows on the next day's load.
 const stripExpiresAfter = Effect.fnUntraced(function* (now: DateTime.Utc) {
@@ -31,10 +31,8 @@ export const makeDayIndex = (sql: Sql) =>
     sql.exec(
       "CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, row TEXT NOT NULL) WITHOUT ROWID"
     )
-    // Decision: the cold days in a table of their own, not a field of the
-    // seal's row, so a retried seal that replaces the row keeps the flag,
-    // and the days table needs no new column. See spec apinrdw/kumora#556,
-    // "Routing and caching".
+    // Decision: cold days live in a table of their own, not a field of the seal row
+    // (apps/dashboard/docs/adr/0075-cold-days-live-in-a-table-of-their-own.md)
     sql.exec(
       "CREATE TABLE IF NOT EXISTS cold_days (day TEXT PRIMARY KEY) WITHOUT ROWID"
     )

@@ -42,7 +42,7 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
   const base = freshTradeNumbers()
   // A code of its own: today's object keeps every code's sweeps.
   const code = freshCode("SW")
-  // Decision: the sweeps are over a minute old, so the relay gap that ends
+  // The sweeps are over a minute old, so the relay gap that ends
   // when this relay opens always draws a minute after theirs. 30 seconds
   // back drew one only when a minute turned in between, 4 runs in 25.
   const start = marketNow() - 90_000
@@ -141,7 +141,7 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
   )
   // The row moves the footprint chart to the 10 minutes around the big buy's:
   // its minute is the 5th column, whose ladder names it.
-  // Decision: the spec finds the minute by hovering, not by its bar index.
+  // The spec finds the minute by hovering, not by its bar index.
   // Relay gaps' minutes are drawn after the code's own as well as before
   // them, so no data-from or data-to tells which bar the newest sweep's is.
   await expect.poll(async () => (await range()).from).not.toBe(opened.from)
@@ -249,7 +249,7 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   const base = earlier + 1_000
   const code = freshCode("SB")
   const day = WibDate.make(wibToday())
-  // Decision: the sweeps are stamped now, not a minute back as the first
+  // The sweeps are stamped now, not a minute back as the first
   // test's. A codes batch reads their minute through the day store's search
   // on trade numbers (`highestWithin`, tape.ts), which takes numbers
   // to run in time order: stamped back, they lost their brokers once it
@@ -755,7 +755,7 @@ test("a recorded day's Auction row shows its lead buyer and seller, and a broker
   const earlier = freshTradeNumbers()
   const base = earlier + 1_000
   const code = freshCode("SA")
-  // Decision: the auction match is stamped in pre-opening, which makes its
+  // The auction match is stamped in pre-opening, which makes its
   // prints sideless, but not at 08:58, where market-live.spec.ts counts the
   // opening match's fold. It is numbered below every other spec's trades,
   // all stamped later, so the day store's search on trade numbers

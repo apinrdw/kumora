@@ -22,11 +22,8 @@ export interface HeldRecords {
 
 // The ETags and hashes the records of each held file hold, by identity,
 // leaving out those `run` wrote.
-// Decision: `plan`, `head` and `summary` each list reports/ with custom
-// metadata, not `plan` alone as the spec says: carried between steps, it
-// would outgrow a step result. ~150 files and records on 2026-11-14, ~50
-// more a month. A per-URL lookup costs a request per listed report. See
-// apinrdw/kumora#303 and #305.
+// Decision: each step lists reports/ itself, at most 10,000 keys
+// (apps/dashboard/docs/adr/0043-a-reports-listing-is-bounded-and-never-carried-between-steps.md)
 export const heldRecords = Effect.fnUntraced(function* (
   identity: string,
   run?: RunId

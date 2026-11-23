@@ -10,7 +10,7 @@ import {
 import type { DayStore } from "./day-store.ts"
 import { makeEventLog } from "./event-log.ts"
 
-// Decision: while flushes keep failing, memory holds at most 10,000 events
+// While flushes keep failing, memory holds at most 10,000 events
 // not stored yet (about 2 MB on node) and drops the oldest past that: the
 // store misses them, a snapshot's newest don't. A busy code finds 1.74 a
 // minute at the open (docs/research/book-event-thresholds.md), so even 900

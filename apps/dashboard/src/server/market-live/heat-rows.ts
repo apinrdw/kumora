@@ -106,11 +106,8 @@ export interface HeatRow {
 
 // Each row's slices, ascending by minute, and over the minutes with no row
 // after it the book it ended with, up to the next row and `through` at most.
-// Decision: the answer works those slices out from each row's stored chunk,
-// one read a stretch with no frame, with the page's own weighting
-// (`heatSlices`); a minute with no frame stores no row. A sealed day of 209
-// stretches answered in 59 ms, one with none in 56 ms (median of 7, Node 26,
-// 2 cores, measured 2026-11-14). See apinrdw/kumora#279.
+// Decision: a day stores no heatmap row; a GET works it out from book chunks
+// (apps/dashboard/docs/adr/0086-heatmaps-are-worked-out-on-read-from-book-chunks.md)
 const withFramelessMinutes = Effect.fnUntraced(function* (
   rows: ReadonlyArray<HeatRow>,
   through: number

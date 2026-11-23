@@ -9,11 +9,8 @@ import { Effect } from "effect"
 import { BROKER_TOTALS_VERSION } from "./version.ts"
 import { readBuiltDays } from "./db.ts"
 
-// Decision: at most this many accepted pokes a run, newest first, so a
-// build version bump or a backlog re-derives history at about 20 days a
-// day and never bursts D1's writes. A day that answers it won't build (an
-// unbuildable day, 204) or whose poke fails takes no slot, so days that
-// never become buildable cannot starve older ones. See apinrdw/kumora#420.
+// Decision: each built day records its build version; a bump rebuilds older days
+// (apps/dashboard/docs/adr/0020-built-days-record-their-build-version.md)
 const POKES_PER_RUN = 20
 
 export const reconcileBrokerTotals = Effect.fnUntraced(function* <E, R>(
