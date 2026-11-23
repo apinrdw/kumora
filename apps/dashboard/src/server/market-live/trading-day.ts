@@ -1239,6 +1239,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
                 )
               )
             else yield* feedLags.logEnded
+          })
+        )
+      ),
+      // Decision: the flush and the bubbles build each take the turn on
+      // their own, with a yield to the event loop between, so relay messages
+      // that came during the flush run before the build. One turn held both
+      // up to 3.8 s at 13:31:05, and the relay's ingest socket closed 1006
+      // inside it on 2026-11-16 to 11-19. See apinrdw/kumora#603.
+      Effect.andThen(Effect.yieldNow),
+      Effect.andThen(
+        turn.withPermit(
+          Effect.gen(function* () {
+            if (sealed) return
             yield* buildBubbles.pipe(
               Effect.catchCause((cause) =>
                 Effect.logError("Bubbles not built", cause)
