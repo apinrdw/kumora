@@ -435,7 +435,7 @@ describe("starting a run by hand", () => {
                     seedRun(
                       archive.db,
                       SHAREHOLDING_ARCHIVE,
-                      {
+                      ArchiveRunResult.make({
                         id,
                         trigger: "cron",
                         startedAt: new Date(
@@ -449,7 +449,7 @@ describe("starting a run by hand", () => {
                         notStored: [],
                         other: [],
                         error: null,
-                      } satisfies ArchiveRunResult,
+                      }),
                       { latest: true }
                     )
                     archive.workflow.instances.set(id, {

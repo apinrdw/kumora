@@ -4,26 +4,32 @@
 import { Layer } from "effect"
 
 import type { RunBase } from "@/server/archive/run"
+import type { ArchiveRunKind } from "@/server/archive/run-rows"
 
 import { fakeWorkflow } from "./fake-workflow.ts"
 import { memoryArchiveDb, type MemoryArchiveDb } from "./memory-archive-db.ts"
 import { memoryBucket } from "./memory-bucket.ts"
 
-export interface RunKind {
-  readonly archive: "ksei" | "shareholding"
-  readonly runKind: string
-}
-
-export const SHAREHOLDING_ARCHIVE: RunKind = {
+export const SHAREHOLDING_ARCHIVE: ArchiveRunKind = {
   archive: "shareholding",
   runKind: "archive",
 }
-export const KSEI_ARCHIVE: RunKind = { archive: "ksei", runKind: "archive" }
-export const KSEI_PARSE: RunKind = {
+export const KSEI_ARCHIVE: ArchiveRunKind = {
+  archive: "ksei",
+  runKind: "archive",
+}
+export const KSEI_PARSE: ArchiveRunKind = {
   archive: "ksei",
   runKind: "parse-securities-holdings",
 }
-export const shareholdingParse = (kind: string): RunKind => ({
+export type ShareholdingParseKind =
+  | "investor-classification"
+  | "investor-type"
+  | "above-1"
+
+export const shareholdingParse = (
+  kind: ShareholdingParseKind
+): ArchiveRunKind => ({
   archive: "shareholding",
   runKind: `parse-${kind}`,
 })
@@ -45,7 +51,7 @@ export const runStores = (db: MemoryArchiveDb = memoryArchiveDb()) => {
 // `latest`, and marks the kind imported, as on a stage past the cutover.
 export const seedRun = (
   db: MemoryArchiveDb,
-  kind: RunKind,
+  kind: ArchiveRunKind,
   record: RunBase,
   { latest = false }: { readonly latest?: boolean } = {}
 ) => {
@@ -72,7 +78,7 @@ export const seedRun = (
     )
 }
 
-const markImported = (db: MemoryArchiveDb, kind: RunKind) =>
+const markImported = (db: MemoryArchiveDb, kind: ArchiveRunKind) =>
   db.database
     .prepare(
       "INSERT OR IGNORE INTO run_import (archive, run_kind) VALUES (?, ?)"
@@ -82,7 +88,7 @@ const markImported = (db: MemoryArchiveDb, kind: RunKind) =>
 // The record of `kind`'s run `id`, parsed: undefined without a row.
 export const storedRun = (
   db: MemoryArchiveDb,
-  kind: RunKind,
+  kind: ArchiveRunKind,
   id: string
 ): Record<string, unknown> | undefined => {
   const row = db.database
@@ -94,7 +100,7 @@ export const storedRun = (
 }
 
 // The id of `kind`'s run its last start claimed.
-export const latestRunId = (db: MemoryArchiveDb, kind: RunKind) =>
+export const latestRunId = (db: MemoryArchiveDb, kind: ArchiveRunKind) =>
   (
     db.database
       .prepare(
@@ -104,7 +110,7 @@ export const latestRunId = (db: MemoryArchiveDb, kind: RunKind) =>
   )?.id
 
 // How many rows of `kind`'s runs ArchiveDb holds.
-export const runCount = (db: MemoryArchiveDb, kind: RunKind) =>
+export const runCount = (db: MemoryArchiveDb, kind: ArchiveRunKind) =>
   (
     db.database
       .prepare(

@@ -148,6 +148,16 @@ export interface RunBase extends RunSummaryBase {
 // (report-index.ts): each has its own bucket and run machinery.
 export type RunArchive = "ksei" | "shareholding"
 
+// Which of an archive's runs: its archive run, or one of its parse runs
+// (../holdings/parse-runs.ts). One run of each kind is in progress at a
+// time.
+export type RunKind =
+  | "archive"
+  | "parse-investor-classification"
+  | "parse-investor-type"
+  | "parse-above-1"
+  | "parse-securities-holdings"
+
 // The newest run of `trigger` that `accept` takes, however old, which a
 // reader finds (latestRunWhereRead, runs.ts).
 export interface LatestWhere<Trigger extends string, RunRecord> {
@@ -166,9 +176,7 @@ export interface ArchiveSource<
   // How a log line names one of its runs, as "Archive run".
   readonly runName: string
   readonly archive: RunArchive
-  // Which of the archive's runs, as "archive": one run of each kind is in
-  // progress at a time.
-  readonly runKind: string
+  readonly runKind: RunKind
   // Where its run records and latest pointer lived in the bucket, as
   // RUNS_PREFIX, for the cutover import.
   readonly runsPrefix: string

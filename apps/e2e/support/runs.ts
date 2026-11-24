@@ -2,6 +2,11 @@
 // archive-migrations/0002_runs.sql's columns, as a start and its run's steps
 // would write them. Each seed marks its run kind imported, so the cutover
 // import never reads the bucket's old run records over it.
+import type {
+  RunArchive,
+  RunKind,
+} from "../../dashboard/src/server/archive/run.ts"
+
 import { writeTo } from "./local-d1"
 
 interface SeededRunRecord {
@@ -17,8 +22,8 @@ interface SeededRunRecord {
  * that claim it for their own run.
  */
 export function seedRunRow(
-  archive: "ksei" | "shareholding",
-  runKind: string,
+  archive: RunArchive,
+  runKind: RunKind,
   run: SeededRunRecord,
   { latest }: { readonly latest: boolean }
 ) {

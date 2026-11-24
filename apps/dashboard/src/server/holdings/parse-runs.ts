@@ -19,6 +19,7 @@ import {
   type Run,
   type RunArchive,
   type RunId,
+  type RunKind,
   runError,
 } from "../archive/run.ts"
 import type { PageRead, Rows } from "../archive/page-read.ts"
@@ -68,8 +69,7 @@ export const parseRunsOf = <Self>(kind: {
   // How a log line names one of its runs, as "KSEI parse run".
   readonly runName: string
   readonly archive: RunArchive
-  // Its run kind in ArchiveDb, as "parse-investor-type".
-  readonly runKind: string
+  readonly runKind: RunKind
   // Where its run records and latest pointer lived in its archive's bucket,
   // for the cutover import.
   readonly runsPrefix: string

@@ -19,7 +19,13 @@ import {
   type RunSummaryBase,
   runKey,
 } from "./run.ts"
-import { RUN_COLUMNS, runRow, type RunKind } from "./run-rows.ts"
+import {
+  type ArchiveRunKind,
+  kindParams,
+  OF_KIND,
+  RUN_COLUMNS,
+  runRow,
+} from "./run-rows.ts"
 
 // The most records the import holds at once: it reads this many from R2
 // at a time and writes them to ArchiveDb in one batch before reading more.
@@ -27,13 +33,12 @@ import { RUN_COLUMNS, runRow, type RunKind } from "./run-rows.ts"
 // the import holds at most 10 MiB of records at once.
 export const RECORDS_AT_ONCE = 10
 
-const importedStatement = (kind: RunKind): Statement => ({
-  sql: "SELECT 1 AS imported FROM run_import WHERE archive = ? AND run_kind = ?",
-  params: [kind.archive, kind.runKind],
+const importedStatement = (kind: ArchiveRunKind): Statement => ({
+  sql: `SELECT 1 AS imported FROM run_import WHERE ${OF_KIND}`,
+  params: kindParams(kind),
 })
 
-const NOT_IMPORTED =
-  "NOT EXISTS (SELECT 1 FROM run_import WHERE archive = ?1 AND run_kind = ?2)"
+const NOT_IMPORTED = `NOT EXISTS (SELECT 1 FROM run_import WHERE ${OF_KIND})`
 
 // What the import reads from the kind's R2 store and writes to ArchiveDb,
 // the ids it has written, and the `kept` readers that take one of them.
@@ -101,7 +106,7 @@ const importer = <
               sql:
                 `INSERT OR IGNORE INTO run (archive, run_kind, ${RUN_COLUMNS}) ` +
                 `SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ${NOT_IMPORTED}`,
-              params: [source.archive, source.runKind, ...runRow(run)],
+              params: [...kindParams(source), ...runRow(run)],
             }))
           )
           for (const run of known) {
@@ -207,7 +212,7 @@ const importRuns = <
     const latestId = yield* importLatest(source, runs)
     for (const reader of source.kept) yield* importKept(source, runs, reader)
 
-    const kind = [source.archive, source.runKind] as const
+    const kind = kindParams(source)
     // The run the pointer names holds the claim, unless a start has claimed
     // since.
     // Decision: the latest run row is the one claim on a run
@@ -218,17 +223,16 @@ const importRuns = <
         : [
             {
               sql:
-                "UPDATE run SET latest = 1 WHERE archive = ?1 AND " +
-                `run_kind = ?2 AND id = ?3 AND ${NOT_IMPORTED} AND NOT ` +
-                "EXISTS (SELECT 1 FROM run WHERE archive = ?1 AND " +
-                "run_kind = ?2 AND latest = 1)",
+                `UPDATE run SET latest = 1 WHERE ${OF_KIND} AND id = ?3 ` +
+                `AND ${NOT_IMPORTED} AND NOT EXISTS (SELECT 1 FROM run ` +
+                `WHERE ${OF_KIND} AND latest = 1)`,
               params: [...kind, latestId],
             },
           ]
     yield* (yield* ArchiveDb).batch([
       ...claim,
       {
-        sql: "INSERT OR IGNORE INTO run_import (archive, run_kind) VALUES (?, ?)",
+        sql: "INSERT OR IGNORE INTO run_import (archive, run_kind) VALUES (?1, ?2)",
         params: kind,
       },
     ])
@@ -239,7 +243,7 @@ const importRuns = <
 
 // A run kind, with its cutover import: what a read of its rows imports
 // first, when ArchiveDb hasn't.
-export interface ImportedKind<E, R> extends RunKind {
+export interface ImportedKind<E, R> extends ArchiveRunKind {
   readonly importRuns: Effect.Effect<void, E, R>
 }
 

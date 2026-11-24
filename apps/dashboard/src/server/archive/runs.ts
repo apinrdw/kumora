@@ -21,12 +21,14 @@ import {
 import type { Rows } from "./page-read.ts"
 import { importedKind, importedRuns } from "./run-import.ts"
 import {
+  type ArchiveRunKind,
   decodeRun,
   decodeRuns,
+  kindParams,
   lastRunStatement,
+  OF_KIND,
   RUN_COLUMNS,
   runRow,
-  type RunKind,
   runStatement,
   triggerRunsStatement,
   writeRunRow,
@@ -104,8 +106,11 @@ export const lastRunRead = <
 // Rows read at a time while looking for the newest run `accept` takes.
 const PAGE_ROWS = 20
 
-const triggerPage = (kind: RunKind, trigger: string, offset: number) =>
-  triggerRunsStatement(kind, trigger, { offset, limit: PAGE_ROWS })
+const triggerPage = <Trigger extends string>(
+  source: ArchiveRunKind & { readonly triggers: ReadonlyArray<Trigger> },
+  trigger: NoInfer<Trigger>,
+  offset: number
+) => triggerRunsStatement(source, trigger, { offset, limit: PAGE_ROWS })
 
 // The newest run of `where.trigger` that `where.accept` takes, however old:
 // undefined when none does. It reads the trigger's rows newest first, a page
@@ -181,7 +186,7 @@ const claim = <
     const latest = yield* judgeLatest(source, holder)
     if (latest?.inProgress)
       return yield* new RunInProgress({ id: latest.result.id })
-    const kind = [source.archive, source.runKind] as const
+    const kind = kindParams(source)
     // Hands the claim on from the holder this start judged ended, in the
     // same transaction as the insert, and only while the id is free, so a
     // refused insert never leaves the kind without a claim.
@@ -191,10 +196,9 @@ const claim = <
         : [
             {
               sql:
-                "UPDATE run SET latest = NULL WHERE archive = ?1 AND " +
-                "run_kind = ?2 AND id = ?3 AND latest = 1 AND NOT EXISTS " +
-                "(SELECT 1 FROM run WHERE archive = ?1 AND run_kind = ?2 " +
-                "AND id = ?4)",
+                `UPDATE run SET latest = NULL WHERE ${OF_KIND} AND id = ?3 ` +
+                `AND latest = 1 AND NOT EXISTS (SELECT 1 FROM run WHERE ` +
+                `${OF_KIND} AND id = ?4)`,
               params: [...kind, latest.result.id, running.id],
             },
           ]

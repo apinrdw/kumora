@@ -7,27 +7,30 @@ import { Effect, Option, Schema } from "effect"
 
 import type { Statement } from "../d1.ts"
 import { ArchiveDb } from "./archive-db.ts"
-import type { ArchiveSource, RunBase, RunSummaryBase } from "./run.ts"
+import type { RunArchive, RunBase, RunKind } from "./run.ts"
 
 // The archive and run kind whose rows a statement reads.
-export type RunKind = Pick<
-  ArchiveSource<string, RunSummaryBase, RunBase>,
-  "archive" | "runKind"
->
+export interface ArchiveRunKind {
+  readonly archive: RunArchive
+  readonly runKind: RunKind
+}
 
-const OF_KIND = "archive = ? AND run_kind = ?"
+// The kind's rows, with kindParams as ?1 and ?2. A later `?` takes the
+// next number, ?3 on.
+export const OF_KIND = "archive = ?1 AND run_kind = ?2"
 
-const kindParams = (kind: RunKind) => [kind.archive, kind.runKind] as const
+export const kindParams = (kind: ArchiveRunKind) =>
+  [kind.archive, kind.runKind] as const
 
 // The run the kind's last start claimed: no row before any run.
-export const lastRunStatement = (kind: RunKind): Statement => ({
+export const lastRunStatement = (kind: ArchiveRunKind): Statement => ({
   sql: `SELECT record FROM run WHERE ${OF_KIND} AND latest = 1`,
   params: kindParams(kind),
 })
 
 // The runs started at `sinceMs` or later, newest first.
 export const recentRunsStatement = (
-  kind: RunKind,
+  kind: ArchiveRunKind,
   sinceMs: number
 ): Statement => ({
   sql:
@@ -37,9 +40,9 @@ export const recentRunsStatement = (
 })
 
 // A page of `trigger`'s runs, newest first.
-export const triggerRunsStatement = (
-  kind: RunKind,
-  trigger: string,
+export const triggerRunsStatement = <Trigger extends string>(
+  kind: ArchiveRunKind & { readonly triggers: ReadonlyArray<Trigger> },
+  trigger: NoInfer<Trigger>,
   page: { readonly offset: number; readonly limit: number }
 ): Statement => ({
   sql:
@@ -49,7 +52,7 @@ export const triggerRunsStatement = (
 })
 
 // The run with `id`: no row while it has none.
-export const runStatement = (kind: RunKind, id: string): Statement => ({
+export const runStatement = (kind: ArchiveRunKind, id: string): Statement => ({
   sql: `SELECT record FROM run WHERE ${OF_KIND} AND id = ?`,
   params: [...kindParams(kind), id],
 })
@@ -71,7 +74,7 @@ export const RUN_COLUMNS = "id, trigger, started_at, outcome, record"
 // Decision: ArchiveDb is the source of truth for runs
 // (apps/dashboard/docs/adr/0128-archivedb-is-the-source-of-truth-for-runs.md)
 export const writeRunRow = Effect.fnUntraced(function* (
-  kind: RunKind,
+  kind: ArchiveRunKind,
   record: RunBase
 ) {
   yield* (yield* ArchiveDb).batch([

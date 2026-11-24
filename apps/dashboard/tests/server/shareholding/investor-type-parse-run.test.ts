@@ -27,7 +27,12 @@ import {
   investorTypeItems,
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
-import { archiveDbOf, shareholdingParse, storedRun } from "../archive/runs.ts"
+import {
+  archiveDbOf,
+  shareholdingParse,
+  type ShareholdingParseKind,
+  storedRun,
+} from "../archive/runs.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import {
   type MemoryHoldingsDb,
@@ -109,7 +114,11 @@ const republish = (
 }
 
 // A parse run's record as the admin page reads it.
-const runRecord = ({ bucket }: World, kind: string, id: string) =>
+const runRecord = (
+  { bucket }: World,
+  kind: ShareholdingParseKind,
+  id: string
+) =>
   Schema.decodeUnknownSync(ParseRunResult)(
     storedRun(archiveDbOf(bucket), shareholdingParse(kind), id)
   )
