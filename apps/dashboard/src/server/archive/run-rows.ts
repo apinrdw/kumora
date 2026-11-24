@@ -68,6 +68,8 @@ export const RUN_COLUMNS = "id, trigger, started_at, outcome, record"
 
 // Writes `record` as its run's row, the claim it holds kept. Only a start
 // inserts a run's row; this rewrites it as the run goes on.
+// Decision: ArchiveDb is the source of truth for runs
+// (apps/dashboard/docs/adr/0128-archivedb-is-the-source-of-truth-for-runs.md)
 export const writeRunRow = Effect.fnUntraced(function* (
   kind: RunKind,
   record: RunBase

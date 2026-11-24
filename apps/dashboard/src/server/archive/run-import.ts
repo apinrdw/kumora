@@ -192,6 +192,8 @@ const importKept = Effect.fnUntraced(function* <
 // each of its `kept` readers finds. Every statement does nothing once an
 // import has marked the kind, so an import racing another, or a start's,
 // adds no row after the first finishes.
+// Decision: ArchiveDb is the source of truth for runs
+// (apps/dashboard/docs/adr/0128-archivedb-is-the-source-of-truth-for-runs.md)
 const importRuns = <
   Trigger extends string,
   Summary extends RunSummaryBase,
@@ -208,6 +210,8 @@ const importRuns = <
     const kind = [source.archive, source.runKind] as const
     // The run the pointer names holds the claim, unless a start has claimed
     // since.
+    // Decision: the latest run row is the one claim on a run
+    // (apps/dashboard/docs/adr/0127-the-latest-run-row-is-the-one-claim-on-a-run.md)
     const claim: ReadonlyArray<Statement> =
       latestId === undefined
         ? []
