@@ -6,6 +6,7 @@
 // its own ArchiveWorkflow.
 import { DateTime, Effect, Schema } from "effect"
 
+import type { Statement } from "../d1.ts"
 import type { ArchiveDbError } from "./archive-db.ts"
 import { ArchiveDb } from "./archive-db.ts"
 import type { ArchiveBucket, BucketError } from "./bucket.ts"
@@ -133,11 +134,17 @@ export const latestRunWhereRead = <
     }),
 })
 
+// Claims lost to other starts before a start gives up. Each loss is to a
+// start that claimed after this one judged the holder, so losing again
+// means that start's run ended before this one judged it in turn.
+const CLAIM_ATTEMPTS = 3
+
 // Claims the start of `running`'s run by inserting its row as the one the
 // kind's last start claimed, unless the run that holds the claim is in
 // progress or `running`'s id ran before. Of two starts that judged the same
 // holder, the unique index lets one insert; the other judges again against
-// the winner.
+// the winner, up to CLAIM_ATTEMPTS times. Only a uniqueness conflict counts
+// as a lost claim: any other refusal of the row fails the start.
 // Decision: the latest run row is the one claim on a run
 // (apps/dashboard/docs/adr/0127-the-latest-run-row-is-the-one-claim-on-a-run.md)
 const claim = <
@@ -146,7 +153,8 @@ const claim = <
   RunRecord extends RunBase & Summary,
 >(
   source: ArchiveSource<Trigger, Summary, RunRecord>,
-  running: RunRecord
+  running: RunRecord,
+  attempt = 1
 ): Effect.Effect<
   void,
   | RunInProgress
@@ -171,7 +179,7 @@ const claim = <
     // Hands the claim on from the holder this start judged ended, in the
     // same transaction as the insert, and only while the id is free, so a
     // refused insert never leaves the kind without a claim.
-    const release: ReadonlyArray<{ sql: string; params: Array<string> }> =
+    const release: ReadonlyArray<Statement> =
       latest === undefined
         ? []
         : [
@@ -188,13 +196,20 @@ const claim = <
       ...release,
       {
         sql:
-          `INSERT OR IGNORE INTO run (archive, run_kind, ${RUN_COLUMNS}, ` +
-          "latest) VALUES (?, ?, ?, ?, ?, ?, ?, 1) RETURNING id",
+          `INSERT INTO run (archive, run_kind, ${RUN_COLUMNS}, latest) ` +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, 1) ON CONFLICT DO NOTHING RETURNING id",
         params: [...kind, ...runRow(running)],
       },
+      lastRunStatement(source),
     ])
-    if ((results.at(-1) ?? []).length === 0)
-      return yield* claim(source, running)
+    if ((results.at(-2) ?? []).length > 0) return
+    if (attempt < CLAIM_ATTEMPTS)
+      return yield* claim(source, running, attempt + 1)
+    // The row that won the last claim, or, with none, the id ran first.
+    const winner = yield* decodeRun(source.result, results.at(-1) ?? [])
+    return yield* winner === undefined
+      ? new DuplicateRunId({ id: running.id })
+      : new RunInProgress({ id: winner.id })
   })
 
 // Claims the start, with the run's `running` record, then creates the run's

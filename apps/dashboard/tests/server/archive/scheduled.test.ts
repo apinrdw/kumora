@@ -438,7 +438,9 @@ describe("starting a run by hand", () => {
                       {
                         id,
                         trigger: "cron",
-                        startedAt: new Date(AFTERNOON + rivals * 1000).toISOString(),
+                        startedAt: new Date(
+                          AFTERNOON + rivals * 1000
+                        ).toISOString(),
                         finishedAt: null,
                         outcome: "running",
                         reportsAdded: 0,
