@@ -5,6 +5,7 @@ import { Effect, Layer } from "effect"
 import { FetchHttpClient } from "effect/http"
 
 import { Auth } from "@/server/auth/auth"
+import { timePart } from "@/server/admin/part-timing"
 import { holdingsDbD1 } from "@/server/holdings/db"
 
 import { runSectorSyncNow, sectorTable } from "./sectors.ts"
@@ -13,7 +14,10 @@ const services = Layer.mergeAll(Auth.layer, holdingsDbD1, FetchHttpClient.layer)
 
 export const sectorTableFn = createServerFn({ method: "GET" }).handler(() =>
   runServerEffect(
-    sectorTable(getRequest().headers).pipe(Effect.provide(services))
+    sectorTable(getRequest().headers).pipe(
+      timePart("shareholding", "sectors"),
+      Effect.provide(services)
+    )
   )
 )
 
