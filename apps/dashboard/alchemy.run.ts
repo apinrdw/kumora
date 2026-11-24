@@ -73,9 +73,10 @@ const AuthDb = apacDatabase("AuthDb", "./migrations")
 // Production's fills, since only Production's buckets hold reports.
 // Decision: a data set gets a D1 of its own, read replication off
 // (apps/dashboard/docs/adr/0001-each-data-set-gets-its-own-d1-with-read-replication-off.md)
-const HoldingsDb = Cloudflare.D1.Database("HoldingsDb", {
-  migrations: "./holdings-migrations",
-})
+//
+// Decision: every D1 is recreated in apac by cloning the one it replaces
+// (apps/dashboard/docs/adr/0124-every-d1-is-recreated-in-apac-by-cloning-the-one-it-replaces.md)
+const HoldingsDb = apacDatabase("HoldingsDb", "./holdings-migrations")
 
 // Each buildable day's broker totals and candles: every stage's trading-day
 // objects write their own stage's, and its stock page reads them by range.
