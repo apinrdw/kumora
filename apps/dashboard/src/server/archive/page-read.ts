@@ -39,6 +39,48 @@ type Timed = (
   part: string
 ) => <A, E, R>(self: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
 
+// One part of `parts`, whose value is each part's, in order, read at once.
+export const allReads = <A, E, R>(
+  parts: ReadonlyArray<PageRead<A, E, R>>
+): PageRead<ReadonlyArray<A>, E, R> => ({
+  kinds: parts.flatMap((part) => part.kinds),
+  statements: parts.flatMap((part) => part.statements),
+  read: (rows) =>
+    Effect.forEach(
+      parts,
+      (part, index) => {
+        const offset = parts
+          .slice(0, index)
+          .reduce((sum, { statements }) => sum + statements.length, 0)
+        return part.read(rows.slice(offset, offset + part.statements.length))
+      },
+      { concurrency: "unbounded" }
+    ),
+})
+
+// One part of `first` and `second`, whose value is both of theirs.
+export const bothReads = <A, B, E1, R1, E2, R2>(
+  first: PageRead<A, E1, R1>,
+  second: PageRead<B, E2, R2>
+): PageRead<readonly [A, B], E1 | E2, R1 | R2> => ({
+  kinds: [...first.kinds, ...second.kinds],
+  statements: [...first.statements, ...second.statements],
+  read: (rows) =>
+    Effect.all([
+      first.read(rows.slice(0, first.statements.length)),
+      second.read(rows.slice(first.statements.length)),
+    ]),
+})
+
+// `part`, its value turned by `f`.
+export const mapRead = <A, B, E1, R1, E2, R2>(
+  part: PageRead<A, E1, R1>,
+  f: (value: A) => Effect.Effect<B, E2, R2>
+): PageRead<B, E1 | E2, R1 | R2> => ({
+  ...part,
+  read: (rows) => Effect.flatMap(part.read(rows), f),
+})
+
 // Every part's value, keyed as `parts` is: their statements in one
 // ArchiveDb batch, timed as `archiveDb`, then each part's read, timed by
 // its key. Only the first load after a kind's cutover sends more batches.
@@ -48,32 +90,23 @@ export const readPage = <const P extends Record<string, AnyRead>>(
 ) =>
   Effect.gen(function* () {
     const entries = Object.entries(parts)
-    const kinds = new Map<string, ImportedKind<unknown, unknown>>()
-    for (const [, part] of entries)
-      for (const kind of part.kinds)
-        kinds.set(`${kind.archive}/${kind.runKind}`, kind)
-    const rows = yield* readRuns(
-      [...kinds.values()],
-      entries.flatMap(([, part]) => part.statements)
-    ).pipe(timed("archiveDb"))
-    let offset = 0
-    const reads = entries.map(([key, part]) => {
-      const own = rows.slice(offset, offset + part.statements.length)
-      offset += part.statements.length
-      return [key, part.read(own).pipe(timed(key))] as const
-    })
-    return yield* Effect.all(Object.fromEntries(reads), {
-      concurrency: "unbounded",
-    })
+    const page = allReads(
+      entries.map(([key, part]) => ({
+        ...part,
+        read: (rows: ReadonlyArray<Rows>) => part.read(rows).pipe(timed(key)),
+      }))
+    )
+    const rows = yield* readRuns(page.kinds, page.statements).pipe(
+      timed("archiveDb")
+    )
+    const values = yield* page.read(rows)
+    // Object.fromEntries keeps no key's own type, so the page's value is
+    // typed from `parts` below.
+    return Object.fromEntries(
+      entries.map(([key], index) => [key, values[index]])
+    )
   }) as Effect.Effect<
     { readonly [K in keyof P]: ValueOf<P[K]> },
     ErrorOf<P[keyof P]>,
     ServicesOf<P[keyof P]>
   >
-
-// `part`'s value, read in a batch of its own.
-export const readAlone = <P extends AnyRead>(part: P) =>
-  Effect.flatMap(
-    readRuns(part.kinds, part.statements),
-    part.read
-  ) as Effect.Effect<ValueOf<P>, ErrorOf<P>, ServicesOf<P>>

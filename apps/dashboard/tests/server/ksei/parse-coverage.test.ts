@@ -5,7 +5,6 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
-import { readAlone } from "@/server/archive/page-read"
 import { type RunBase, RunId } from "@/server/archive/run"
 import { KSEI_PARSER_VERSION } from "@/server/holdings/ksei"
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
@@ -27,6 +26,7 @@ import {
   holdingsKsei,
   holdingsUrl,
 } from "./fake-ksei.ts"
+import { readAlone } from "../archive/read-alone.ts"
 
 interface World {
   readonly ksei: FakeKsei

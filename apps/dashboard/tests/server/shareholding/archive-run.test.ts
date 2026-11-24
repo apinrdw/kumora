@@ -5,7 +5,6 @@ import { Effect, Layer, Schema } from "effect"
 import { archiveRun, MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
 import type { ArchiveDb } from "@/server/archive/archive-db"
 import { MAX_ETAG_BYTES } from "@/server/archive/head"
-import { readAlone } from "@/server/archive/page-read"
 import { RunId, MAX_RUN_ERROR_LENGTH } from "@/server/archive/run"
 import { RunSummary } from "@/server/shareholding/run-result"
 import { archiveTotals } from "@/server/shareholding/totals"
@@ -37,6 +36,7 @@ import {
   SHAREHOLDING_ARCHIVE,
   storedRun,
 } from "../archive/runs.ts"
+import { readAlone } from "../archive/read-alone.ts"
 
 const run = (
   idx: FakeIdx,

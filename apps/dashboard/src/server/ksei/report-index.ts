@@ -3,7 +3,7 @@
 // admin page for the totals, the coverage and the parse coverage.
 import { Effect, Schema } from "effect"
 
-import type { PageRead } from "../archive/page-read.ts"
+import { bothReads, mapRead, type PageRead } from "../archive/page-read.ts"
 import { reportIndexOf } from "../archive/report-index.ts"
 import { decodeRows } from "../d1.ts"
 import { reportKey } from "./keys.ts"
@@ -21,11 +21,10 @@ const HeldMonthRow = Schema.Struct({
   month: Schema.String,
 })
 
-// Each kind's totals and the months it holds (YYYY-MM).
-export const kseiReportIndex = {
+// The months each kind holds (YYYY-MM).
+const monthsHeld = {
   kinds: [],
   statements: [
-    ...kseiIndex.kindTotals.statements,
     {
       sql:
         "SELECT DISTINCT kind, substr(report_date, 1, 7) AS month " +
@@ -33,21 +32,22 @@ export const kseiReportIndex = {
       params: [kseiIndex.name],
     },
   ],
-  read: ([totalsRows = [], monthRows = []]) =>
-    Effect.gen(function* () {
-      const months = yield* decodeRows(HeldMonthRow)(monthRows)
+  read: ([rows = []]) =>
+    Effect.map(decodeRows(HeldMonthRow)(rows), (months) => {
       const held = (kind: KseiReportKind) =>
         new Set(
           months.filter((row) => row.kind === kind).map(({ month }) => month)
         )
       return {
-        totals: yield* kseiTotals(
-          yield* kseiIndex.kindTotals.read([totalsRows])
-        ),
-        monthsHeld: {
-          "securities-statistics": held("securities-statistics"),
-          "securities-holdings": held("securities-holdings"),
-        },
+        "securities-statistics": held("securities-statistics"),
+        "securities-holdings": held("securities-holdings"),
       }
     }),
 } satisfies PageRead<unknown>
+
+// Each kind's totals and the months it holds.
+export const kseiReportIndex = mapRead(
+  bothReads(kseiIndex.kindTotals, monthsHeld),
+  ([indexed, held]) =>
+    Effect.map(kseiTotals(indexed), (totals) => ({ totals, monthsHeld: held }))
+)

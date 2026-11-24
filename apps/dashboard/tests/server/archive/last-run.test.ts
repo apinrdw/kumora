@@ -5,7 +5,6 @@ import { TestClock } from "effect/testing"
 
 import { ArchiveDb } from "@/server/archive/archive-db"
 import { ArchiveBucket } from "@/server/archive/bucket"
-import { readAlone } from "@/server/archive/page-read"
 import { RECORDS_AT_ONCE } from "@/server/archive/run-import"
 import { RunId } from "@/server/archive/run"
 import type { ArchiveRunResult } from "@/server/shareholding/run-result"
@@ -25,6 +24,7 @@ import {
   SHAREHOLDING_ARCHIVE,
   seedRun,
 } from "./runs.ts"
+import { readAlone } from "./read-alone.ts"
 
 const lastRun = readAlone(lastRunRead)
 

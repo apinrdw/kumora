@@ -22,8 +22,13 @@ import {
   type RunKind,
   runError,
 } from "../archive/run.ts"
-import type { PageRead, Rows } from "../archive/page-read.ts"
-import { importedKind } from "../archive/run-import.ts"
+import {
+  allReads,
+  bothReads,
+  mapRead,
+  type PageRead,
+  type Rows,
+} from "../archive/page-read.ts"
 import {
   lastRunRead,
   latestRunWhereRead,
@@ -146,18 +151,13 @@ export const parseRunsOf = <Self>(kind: {
     // versions, and its last finished run, of either trigger, whose parse
     // failures mark months failed. A run in progress is passed over for the
     // one before it.
-    parseCoverage: {
-      kinds: [importedKind(source)],
-      statements: [
-        ...kind.newestVersions.statements,
-        ...finished.flatMap((read) => read.statements),
-      ],
-      read: ([newestRows = [], ...finishedRows]: ReadonlyArray<Rows>) =>
-        Effect.gen(function* () {
-          const runs = yield* Effect.forEach(finished, (read, index) =>
-            read.read([finishedRows[index] ?? []])
-          )
-          const lastFinished = runs.reduce<ParseRunResult | undefined>(
+    parseCoverage: mapRead(
+      bothReads(kind.newestVersions, allReads(finished)),
+      ([newestVersions, runs]) =>
+        parseCoverage(
+          kind.months,
+          newestVersions,
+          runs.reduce<ParseRunResult | undefined>(
             (latest, run) =>
               run !== undefined &&
               (latest === undefined || run.startedAt > latest.startedAt)
@@ -165,13 +165,8 @@ export const parseRunsOf = <Self>(kind: {
                 : latest,
             undefined
           )
-          return yield* parseCoverage(
-            kind.months,
-            yield* kind.newestVersions.read([newestRows]),
-            lastFinished
-          )
-        }),
-    },
+        )
+    ),
     // The run its Workflow runs.
     run: Effect.fn(kind.runName)(function* (
       steps: WorkflowSteps<ArchiveBucket | ArchiveDb | HoldingsDb>,

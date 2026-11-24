@@ -3,7 +3,6 @@ import type { StepConfig } from "@workspace/server"
 import { Duration, Effect, Layer, Schema } from "effect"
 
 import type { ArchiveDb } from "@/server/archive/archive-db"
-import { readAlone } from "@/server/archive/page-read"
 import { RunId } from "@/server/archive/run"
 import {
   kseiArchiveRun,
@@ -37,6 +36,7 @@ import {
   RECORDED,
   zipBody,
 } from "./fake-ksei.ts"
+import { readAlone } from "../archive/read-alone.ts"
 
 const run = (
   ksei: FakeKsei,

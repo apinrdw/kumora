@@ -5,7 +5,6 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
-import { readAlone } from "@/server/archive/page-read"
 import { RunId } from "@/server/archive/run"
 import { archiveRun } from "@/server/shareholding/archive-run"
 import { classificationParseRuns } from "@/server/shareholding/classification-parse"
@@ -31,6 +30,7 @@ import {
   type MemoryHoldingsDb,
   memoryHoldingsDb,
 } from "../holdings/memory-holdings-db.ts"
+import { readAlone } from "../archive/read-alone.ts"
 
 interface World {
   readonly idx: FakeIdx

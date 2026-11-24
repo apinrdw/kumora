@@ -3,7 +3,6 @@ import { Effect, Layer, Option } from "effect"
 import { TestClock } from "effect/testing"
 
 import { ArchiveDb } from "@/server/archive/archive-db"
-import { readAlone } from "@/server/archive/page-read"
 import { type ArchiveSource, RUNS_PREFIX, RunId } from "@/server/archive/run"
 import { startRunOf } from "@/server/archive/runs"
 import {
@@ -28,6 +27,7 @@ import {
   seedRun,
   storedRun,
 } from "./runs.ts"
+import { readAlone } from "./read-alone.ts"
 
 // 13:00 WIB on 14 November 2026.
 const AFTERNOON = Date.parse("2026-11-14T06:00:00Z")

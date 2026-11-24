@@ -263,9 +263,14 @@ export const importedKind = <
 // whether each of `kinds` has been imported. Should any not have been, it
 // imports those, then reads the statements again in a second batch.
 export const readRuns = Effect.fnUntraced(function* <E, R>(
-  kinds: ReadonlyArray<ImportedKind<E, R>>,
+  given: ReadonlyArray<ImportedKind<E, R>>,
   statements: ReadonlyArray<Statement>
 ) {
+  const kinds = [
+    ...new Map(
+      given.map((kind) => [`${kind.archive}/${kind.runKind}`, kind])
+    ).values(),
+  ]
   const db = yield* ArchiveDb
   const rows = yield* db.batch([...kinds.map(importedStatement), ...statements])
   const missing = kinds.filter((_, index) => (rows[index] ?? []).length === 0)
