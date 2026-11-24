@@ -103,6 +103,16 @@ export const latestRunId = (db: MemoryArchiveDb, kind: RunKind) =>
       .get(kind.archive, kind.runKind) as { id: string } | undefined
   )?.id
 
+// How many rows of `kind`'s runs ArchiveDb holds.
+export const runCount = (db: MemoryArchiveDb, kind: RunKind) =>
+  (
+    db.database
+      .prepare(
+        "SELECT COUNT(*) AS runs FROM run WHERE archive = ? AND run_kind = ?"
+      )
+      .get(kind.archive, kind.runKind) as { runs: number }
+  ).runs
+
 const databases = new WeakMap<object, MemoryArchiveDb>()
 
 // The ArchiveDb that goes with `bucket`, one per bucket, for tests that run

@@ -12,7 +12,15 @@ import {
 } from "@/server/shareholding/runs"
 
 import type { FakeInstance, FakeWorkflow } from "./fake-workflow.ts"
-import { runStores, SHAREHOLDING_ARCHIVE, seedRun } from "./runs.ts"
+import { everySplit } from "../../interleaved"
+
+import {
+  latestRunId,
+  runCount,
+  runStores,
+  SHAREHOLDING_ARCHIVE,
+  seedRun,
+} from "./runs.ts"
 
 const lastRun = readAlone(lastRunRead)
 
@@ -271,6 +279,78 @@ describe("the cutover import", () => {
         )
       }).pipe(provide(archive))
     }
+  )
+
+  it.effect(
+    "imports again on the next load after an import that failed halfway",
+    () => {
+      const archive = runStores()
+      for (const run of [old, recent, COMPLETE]) inR2(archive, run)
+      putJson(archive, "runs/latest.json", { id: COMPLETE.id })
+      // The batch that marks the kind imported fails, after its rows went in.
+      archive.db.failBatch = (sql) =>
+        sql.some((each) => each.includes("INTO run_import"))
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(NOW)
+        const failed = yield* Effect.flip(lastRun)
+        assert.strictEqual(failed._tag, "ArchiveDbError")
+
+        archive.db.failBatch = undefined
+        assert.deepStrictEqual((yield* lastRun)?.result, COMPLETE)
+        assert.deepStrictEqual(
+          (yield* recentRuns).map(({ id }) => id),
+          [COMPLETE.id, recent.id]
+        )
+        assert.strictEqual(
+          latestRunId(archive.db, SHAREHOLDING_ARCHIVE),
+          COMPLETE.id
+        )
+      }).pipe(provide(archive))
+    }
+  )
+
+  it.effect(
+    "imports once when two first loads race",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(NOW)
+        const operations = yield* everySplit({
+          setup: Effect.sync(() => {
+            const archive = runStores()
+            for (const run of [old, recent, COMPLETE]) inR2(archive, run)
+            putJson(archive, "runs/latest.json", { id: COMPLETE.id })
+            return { archive, seen: [] as Array<unknown> }
+          }),
+          first: ({ archive, seen }) =>
+            Effect.map(lastRun, (view) => seen.push(view?.result.id)).pipe(
+              provide(archive)
+            ),
+          second: ({ archive, seen }) =>
+            Effect.map(recentRuns, (runs) =>
+              seen.push(runs.map(({ id }) => id))
+            ).pipe(provide(archive)),
+          check: ({ archive, seen }, at) =>
+            Effect.sync(() => {
+              assert.sameDeepMembers(
+                seen,
+                [COMPLETE.id, [COMPLETE.id, recent.id]],
+                `split at ${at}`
+              )
+              assert.strictEqual(
+                latestRunId(archive.db, SHAREHOLDING_ARCHIVE),
+                COMPLETE.id,
+                `split at ${at}`
+              )
+              assert.strictEqual(
+                runCount(archive.db, SHAREHOLDING_ARCHIVE),
+                2,
+                `split at ${at}`
+              )
+            }),
+        })
+        assert.isAbove(operations, 0)
+      }),
+    20_000
   )
 
   it.effect("imports nothing on a fresh stage, and only once", () => {
