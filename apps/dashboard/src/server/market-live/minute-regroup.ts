@@ -1,6 +1,6 @@
 // One stored minute regrouped by stock code (spec apinrdw/kumora#263, "One-off
 // build of sealed days", and spec apinrdw/kumora#343, "The TradingDay sweep
-// brokers table"): the trades table has no code index, so both the order-flow
+// brokers table"): the tape has no code index, so both the order-flow
 // build and the sweep brokers recompute read the whole market's minute and
 // split it by code here, each code's sweeps grouped as its footprint row's.
 import {

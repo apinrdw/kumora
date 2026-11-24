@@ -2,7 +2,7 @@
 // sweep brokers table"): the buyer and seller brokers of each whole sweep,
 // one row per stock code and minute with sweeps, worked out again whenever a
 // broker codes batch lands. A stored sweep keeps only its first trade and a
-// count, and the trades table has no code index, so the recompute reads each
+// count, and the tape has no code index, so the recompute reads each
 // touched minute of the whole market and regroups it as the footprint rows
 // do (minute-regroup.ts). No other recorded day answer reads the table.
 import { gunzipSync, gzipSync } from "node:zlib"
@@ -322,9 +322,9 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // One minute's rows worked out again from the codes and order numbers
   // `held` reads, metering the rows it read: for each code, its whole
   // sweeps' and auction matches' text, or none when none is whole.
-  // A row whose text is already stored is left out, and so is a delete of a row never stored, so a batch writes only
-  // the rows it changes, not every code's row of each minute it touches. See
-  // apinrdw/kumora#348.
+  // A row whose text is already stored is left out, and so is a delete of a
+  // row never stored, so a batch writes only the rows it changes, not every
+  // code's row of each minute it touches. See apinrdw/kumora#348.
   const minuteRows = (minute: number, held: HeldReads) =>
     store.sweepBrokerMinute(
       Effect.gen(function* () {

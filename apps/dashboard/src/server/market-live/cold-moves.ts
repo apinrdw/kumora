@@ -12,11 +12,10 @@ import { Effect } from "effect"
 // (MOVES_PER_NIGHT). See spec apinrdw/kumora#556, "The move".
 const BACKSTOP_DAYS = 15
 
-// The older days start 3 moves a night, oldest first. A busy day
-// recorded before trade chunks reads about 1.85 M rows to move (385 K on
-// chunks, plus its 1.46 M trade rows), so about 5.6 M rows a night and the
-// ~30 old days in ten nights. A day already moving counts: it reads tonight.
-// See spec apinrdw/kumora#556, "The move".
+// The older days start 3 moves a night, oldest first. A busy day reads
+// about 385 K rows to move; the backfill was sized on days recorded before
+// trade chunks, about 1.85 M each, so about 5.6 M rows a night. A day already
+// moving counts: it reads tonight. See spec apinrdw/kumora#556, "The move".
 const MOVES_PER_NIGHT = 3
 
 // Where the cron's moves are asked from: the day index's rows, and the ask

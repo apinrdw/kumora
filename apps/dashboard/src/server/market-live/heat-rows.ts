@@ -73,8 +73,8 @@ export const chunkSlices = Effect.fnUntraced(function* (
   return yield* heatSlices(yield* changesOf(chunk), chunk.minute, end)
 })
 
-// One minute's slices, as stored or still held, and the book its chunk
-// ended with, read only when the minute after it has no row.
+// One minute's slices, from its stored or still-held chunk, and the book
+// that chunk ended with, read only when the minute after it has no row.
 export interface HeatRow {
   readonly minute: number
   readonly slices: ReadonlyArray<HeatSlice>

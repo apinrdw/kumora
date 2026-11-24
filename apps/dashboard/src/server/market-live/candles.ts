@@ -422,8 +422,8 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // inside the merge window when `withOpen`. A trade numbered at or below
   // the stored sweeps' last can split one, so the minute's stored trades are
   // read back once and the sweeps grouped whole from then on.
-  // The book reads a minute's trades back only for such a late
-  // trade. The trades table has no code index, so that read scans the whole
+  // The book reads a minute's trades back only for such a late trade. The
+  // tape has no code index (tape-chunks.ts), so that read takes the whole
   // market's minute; a trade numbered above the stored sweeps carries them
   // on instead, and the minute a flush let go of reopens from its row. See
   // spec apinrdw/kumora#263.

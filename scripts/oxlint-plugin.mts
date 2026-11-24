@@ -1,8 +1,9 @@
 // The local oxlint JS plugin, loaded per override through `jsPlugins` in
 // .oxlintrc.json. `kumora/restricted-syntax` works like ESLint's
 // no-restricted-syntax, which oxlint lacks: each option is an esquery selector
-// and the message that names the fix. `kumora/effect-functions` fails a function declared at a module's top level
-// that doesn't return an Effect by its shape: CODING_STANDARDS.md's "Every
+// and the message that names the fix. `kumora/effect-functions` fails a
+// function declared at a module's top level that doesn't return an Effect by
+// its shape: CODING_STANDARDS.md's "Every
 // non-component function returns an Effect", for folders where none of that
 // rule's exceptions occur. The JS plugin API is alpha in oxlint
 // 1.90, so an oxlint bump re-runs scripts/lint-bans.test.mts.
