@@ -64,11 +64,11 @@ type StepServices = ArchiveBucket | ArchiveDb | HttpClient.HttpClient
 
 // A step that asks KSEI times out when the requests it waits on in turn
 // should all have answered. `plan` (both listings at once) and each
-// `report:` (one file) wait on one KSEI request, and get its 2 minutes
-// (KSEI_REQUEST_TIMEOUT, http.ts), which as a step also bound reading the
-// body, plus their calls in turn to the archive's stores at their slowest
-// (../archive/run.ts): 2.5 minutes for `plan`, 2.1 for a `report:`. `seed`,
-// `summary` and `failed` ask KSEI nothing and keep the runtime's 10
+// `report:` (one file) wait on one KSEI request, and get its
+// KSEI_REQUEST_TIMEOUT (http.ts), which as a step also bounds reading the
+// body, plus STORE_SLOWEST_ANSWER for each of their calls in turn to the
+// archive's stores (PLAN_STORE_CALLS, REPORT_STORE_CALLS, ../archive/run.ts).
+// `seed`, `summary` and `failed` ask KSEI nothing and keep the runtime's 10
 // minutes.
 const kseiStep = (storeCalls: number) =>
   Effect.sync((): StepConfig => ({
