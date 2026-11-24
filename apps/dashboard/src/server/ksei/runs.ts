@@ -1,7 +1,7 @@
 // The KSEI archive's runs on the shared run machinery (src/server/archive/):
-// its runs in ArchiveDb, starts, and the last run, recent runs and
-// latest deep run its admin page reads in one ArchiveDb batch. Spec apinrdw/kumora#327,
-// "Starting a run".
+// its runs in ArchiveDb, starts, and the last run, recent runs and latest
+// deep run its admin page reads in one ArchiveDb batch. Spec
+// apinrdw/kumora#327, "Starting a run".
 import { type DateTime, Effect } from "effect"
 
 import { recentRunsRead } from "../archive/history.ts"
@@ -17,8 +17,8 @@ import {
   latestRunWhereRead,
   scheduledRun,
   startRunOf,
-  writeRunRecord,
 } from "../archive/runs.ts"
+import { writeRunRow } from "../archive/run-rows.ts"
 import {
   KseiRunResult,
   KseiRunSummary,
@@ -41,12 +41,12 @@ const KSEI_RUNS = {
   runIdAt: dailyRunIdAt,
   result: KseiRunResult,
   summary: KseiRunSummary,
-  kept: [DEEP_RUN],
+  readersPastRetention: [DEEP_RUN],
   running: runningKseiResult,
 } satisfies ArchiveSource<KseiTrigger, KseiRunSummary, KseiRunResult>
 
-export const putKseiRunRecord = (result: KseiRunResult) =>
-  writeRunRecord(KSEI_RUNS, result)
+export const writeKseiRun = (result: KseiRunResult) =>
+  writeRunRow(KSEI_RUNS, result)
 
 // The last run, for the admin page: undefined before any run.
 export const lastKseiRun = lastRunRead(KSEI_RUNS)

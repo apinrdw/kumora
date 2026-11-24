@@ -1,11 +1,12 @@
 // One kind of parse run on the shared run machinery (../archive/): its run
 // itself, `reconcile`, one `parse:<date>` step per month to parse
-// (parse-steps.ts), then `summary`; its runs in ArchiveDb; its starts and its last run. Each kind has its own
-// Workflow, which it names by its own service and the machinery uses as its
-// ArchiveWorkflow, so one layer can hold an archive's run Workflow and its
-// parse runs' Workflows. Each kind's runs are apart from another's: their
-// own records and their own one run in progress. Spec apinrdw/kumora#363,
-// "KSEI parse run", and #402, "Parse runs".
+// (parse-steps.ts), then `summary`; its runs in ArchiveDb; its starts and
+// its last run. Each kind has its own Workflow, which it names by its own
+// service and the machinery uses as its ArchiveWorkflow, so one layer can
+// hold an archive's run Workflow and its parse runs' Workflows. Each kind's
+// runs are apart from another's: their own records and their own one run in
+// progress. Spec apinrdw/kumora#363, "KSEI parse run", and #402, "Parse
+// runs".
 import type { StepFailed, WorkflowSteps } from "@workspace/server"
 import { type Context, DateTime, Effect } from "effect"
 
@@ -34,8 +35,8 @@ import {
   latestRunWhereRead,
   scheduledRun,
   startRunOf,
-  writeRunRecord,
 } from "../archive/runs.ts"
+import { writeRunRow } from "../archive/run-rows.ts"
 import type { NewestVersion } from "../archive/report-index.ts"
 import { ArchiveWorkflow } from "../archive/workflow.ts"
 import type { HoldingsDb } from "./db.ts"
@@ -94,7 +95,7 @@ export const parseRunsOf = <Self>(kind: {
     runIdAt: dailyRunIdAt,
     result: ParseRunResult,
     summary: ParseRunSummary,
-    kept: FINISHED,
+    readersPastRetention: FINISHED,
     running: runningParseResult,
   } satisfies ArchiveSource<ParseTrigger, ParseRunSummary, ParseRunResult>
 
@@ -122,7 +123,7 @@ export const parseRunsOf = <Self>(kind: {
       monthsParsed,
       parseFailures,
     })
-    yield* writeRunRecord(source, result)
+    yield* writeRunRow(source, result)
     return result
   })
 
@@ -137,7 +138,7 @@ export const parseRunsOf = <Self>(kind: {
       outcome: "failed",
       error: yield* runError(error),
     })
-    yield* writeRunRecord(source, result)
+    yield* writeRunRow(source, result)
     return result
   })
 

@@ -41,7 +41,8 @@ const importedStatement = (kind: ArchiveRunKind): Statement => ({
 const NOT_IMPORTED = `NOT EXISTS (SELECT 1 FROM run_import WHERE ${OF_KIND})`
 
 // What the import reads from the kind's R2 store and writes to ArchiveDb,
-// the ids it has written, and the `kept` readers that take one of them.
+// the ids it has written, and the readers past retention that take one of
+// them.
 // Each record goes to ArchiveDb as soon as it is read, so the import never
 // holds more than RECORDS_AT_ONCE.
 interface Importer<Trigger extends string, RunRecord> {
@@ -111,7 +112,7 @@ const importer = <
           )
           for (const run of known) {
             imported.add(run.id)
-            for (const reader of source.kept)
+            for (const reader of source.readersPastRetention)
               if (run.trigger === reader.trigger && reader.accept(run))
                 found.add(reader)
           }
@@ -194,7 +195,7 @@ const importKept = Effect.fnUntraced(function* <
 
 // Copies the kind's R2 runs into ArchiveDb and marks it imported: the runs
 // of the past 30 days, the run its latest pointer names, and the newest run
-// each of its `kept` readers finds. Every statement does nothing once an
+// each of its readers past retention finds. Every statement does nothing once an
 // import has marked the kind, so an import racing another, or a start's,
 // adds no row after the first finishes.
 // Decision: ArchiveDb is the source of truth for runs
@@ -210,7 +211,8 @@ const importRuns = <
     const runs = yield* importer(source)
     yield* importRecent(source, runs)
     const latestId = yield* importLatest(source, runs)
-    for (const reader of source.kept) yield* importKept(source, runs, reader)
+    for (const reader of source.readersPastRetention)
+      yield* importKept(source, runs, reader)
 
     const kind = kindParams(source)
     // The run the pointer names holds the claim, unless a start has claimed
@@ -282,8 +284,8 @@ export const readRuns = Effect.fnUntraced(function* <E, R>(
   return statements.length === 0 ? [] : yield* db.batch(statements)
 })
 
-// The kind's cutover import, when it hasn't had one.
-export const importedRuns = <
+// Runs the kind's cutover import, unless it has had one.
+export const importOnce = <
   Trigger extends string,
   Summary extends RunSummaryBase,
   RunRecord extends RunBase & Summary,

@@ -394,7 +394,7 @@ describe("starting a run by hand", () => {
           runIdAt,
           result: ArchiveRunResult,
           summary: RunSummary,
-          kept: [],
+          readersPastRetention: [],
           running: (run) =>
             Effect.map(runningResult(run), (record) => ({
               ...record,

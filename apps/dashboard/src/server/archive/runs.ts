@@ -19,7 +19,7 @@ import {
   type RunSummaryBase,
 } from "./run.ts"
 import type { Rows } from "./page-read.ts"
-import { importedKind, importedRuns } from "./run-import.ts"
+import { importedKind, importOnce } from "./run-import.ts"
 import {
   type ArchiveRunKind,
   decodeRun,
@@ -45,16 +45,6 @@ class RunInProgress extends Schema.TaggedError<RunInProgress>()(
   "RunInProgress",
   { id: RunId }
 ) {}
-
-// Writes `result` as its run's row.
-export const writeRunRecord = <
-  Trigger extends string,
-  Summary extends RunSummaryBase,
-  RunRecord extends RunBase & Summary,
->(
-  source: ArchiveSource<Trigger, Summary, RunRecord>,
-  result: RunRecord
-) => writeRunRow(source, result)
 
 // The run the kind's last start claimed, judged against its instance's
 // status whatever its record says, as a start must: a run's summary step
@@ -236,7 +226,7 @@ export const startRunOf = <
   trigger: Trigger
 ) =>
   Effect.gen(function* () {
-    yield* importedRuns(source)
+    yield* importOnce(source)
     const record = yield* source.running({
       id,
       trigger,
@@ -255,7 +245,7 @@ export const startRunOf = <
                   "The archive Workflow refused a run",
                   error
                 )
-                yield* writeRunRecord(source, {
+                yield* writeRunRow(source, {
                   ...record,
                   finishedAt: DateTime.formatIso(yield* DateTime.now),
                   outcome: "failed",

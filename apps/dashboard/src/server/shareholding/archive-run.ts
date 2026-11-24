@@ -38,7 +38,7 @@ import {
   type ArchiveTrigger,
   runningResult,
 } from "./run-result.ts"
-import { putRunRecord } from "./runs.ts"
+import { writeArchiveRun } from "./runs.ts"
 
 type IdxRun = Run<ArchiveTrigger>
 
@@ -100,7 +100,7 @@ const plan = Effect.fnUntraced(function* (
   yield* shareholdingIndex.heal(objects)
   const listed = yield* fetchListing
   const held = yield* heldIn(objects, SOURCE_URL)
-  yield* putRunRecord(yield* runningResult(run))
+  yield* writeArchiveRun(yield* runningResult(run))
   return {
     fresh: listed.filter((report) => !held.has(report.sourceUrl)),
     held: listed.filter((report) => held.has(report.sourceUrl)),
@@ -261,7 +261,7 @@ const summary = Effect.fnUntraced(function* (
       .filter(({ kind }) => kind === "other")
       .map(({ sourceUrl, description }) => ({ sourceUrl, description })),
   })
-  yield* putRunRecord(result)
+  yield* writeArchiveRun(result)
   return result
 })
 
@@ -275,7 +275,7 @@ const recordPlanFailure = Effect.fnUntraced(function* (
     outcome: "failed",
     error: yield* runError(error),
   })
-  yield* putRunRecord(result)
+  yield* writeArchiveRun(result)
   return result
 })
 

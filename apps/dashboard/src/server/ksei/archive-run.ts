@@ -56,7 +56,7 @@ import {
   ListingFailure,
   runningKseiResult,
 } from "./run-result.ts"
-import { putKseiRunRecord } from "./runs.ts"
+import { writeKseiRun } from "./runs.ts"
 
 type KseiRun = Run<KseiTrigger>
 
@@ -159,7 +159,7 @@ const plan = Effect.fnUntraced(function* (
     ({ periodEnd }) => inArchive(periodEnd)
   )
   const held = yield* heldIn(objects, FILENAME)
-  yield* putKseiRunRecord(yield* runningKseiResult(run))
+  yield* writeKseiRun(yield* runningKseiResult(run))
   return {
     fresh: listed.filter((report) => !held.has(report.filename)),
     held: listed.filter((report) => held.has(report.filename)),
@@ -451,7 +451,7 @@ const summary = Effect.fnUntraced(function* (
     notStored,
     deep,
   })
-  yield* putKseiRunRecord(result)
+  yield* writeKseiRun(result)
   return result
 })
 
@@ -465,7 +465,7 @@ const recordPlanFailure = Effect.fnUntraced(function* (
     outcome: "failed",
     error: yield* runError(error),
   })
-  yield* putKseiRunRecord(result)
+  yield* writeKseiRun(result)
   return result
 })
 
