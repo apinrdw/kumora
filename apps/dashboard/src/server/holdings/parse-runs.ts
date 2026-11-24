@@ -10,6 +10,7 @@
 import type { StepFailed, WorkflowSteps } from "@workspace/server"
 import { type Context, DateTime, Effect } from "effect"
 
+import type { ArchiveDb, ArchiveDbError } from "../archive/archive-db.ts"
 import type { ArchiveBucket } from "../archive/bucket.ts"
 import { failingRun } from "../archive/failing-run.ts"
 import {
@@ -26,6 +27,7 @@ import {
   startRunOf,
   writeRunRecord,
 } from "../archive/runs.ts"
+import type { NewestVersion } from "../archive/report-index.ts"
 import { ArchiveWorkflow } from "../archive/workflow.ts"
 import type { HoldingsDb } from "./db.ts"
 import { parseCoverage } from "./parse-coverage.ts"
@@ -57,6 +59,14 @@ export const parseRunsOf = <Self>(kind: {
   // Where its run records and latest pointer live in its archive's bucket.
   readonly runsPrefix: string
   readonly months: MonthSource
+  // Each archived date, oldest first, with its newest version's SHA-256,
+  // from the report index: what the parse coverage reads in place of a
+  // listing of the months' prefix.
+  readonly newestVersions: Effect.Effect<
+    ReadonlyArray<NewestVersion>,
+    ArchiveDbError,
+    ArchiveDb
+  >
   readonly workflow: ParseWorkflow<Self>
 }) => {
   const source = {
@@ -131,8 +141,9 @@ export const parseRunsOf = <Self>(kind: {
 
   return {
     // The kind's parse coverage, for the admin page.
-    parseCoverage: Effect.flatMap(lastFinished, (run) =>
-      parseCoverage(kind.months, run)
+    parseCoverage: Effect.flatMap(
+      Effect.all([kind.newestVersions, lastFinished]),
+      ([newest, run]) => parseCoverage(kind.months, newest, run)
     ),
     // The run its Workflow runs.
     run: Effect.fn(kind.runName)(function* (

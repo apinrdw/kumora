@@ -32,10 +32,7 @@ import {
   ListedReport,
   type ListingUnreadable,
 } from "./listing.ts"
-import {
-  healShareholdingIndex,
-  indexShareholdingReport,
-} from "./report-index.ts"
+import { shareholdingIndex } from "./report-index.ts"
 import {
   ArchiveRunResult,
   type ArchiveTrigger,
@@ -93,7 +90,7 @@ const plan = Effect.fnUntraced(function* (
   const objects = yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
   // Decision: the report index is a copy of R2 that each archive run heals
   // (apps/dashboard/docs/adr/0125-the-report-index-is-a-copy-of-r2-that-each-archive-run-heals.md)
-  yield* healShareholdingIndex(objects)
+  yield* shareholdingIndex.heal(objects)
   const listed = yield* fetchListing
   const held = yield* heldIn(objects, SOURCE_URL)
   yield* putRunRecord(yield* runningResult(run))
@@ -212,10 +209,7 @@ const archiveReport = Effect.fnUntraced(function* (
   })
   // Decision: the report index is a copy of R2 that each archive run heals
   // (apps/dashboard/docs/adr/0125-the-report-index-is-a-copy-of-r2-that-each-archive-run-heals.md)
-  yield* indexShareholdingReport(key, {
-    fileBytes: bytes.length,
-    recordBytes: new TextEncoder().encode(record).length,
-  })
+  yield* shareholdingIndex.indexRecord(key, bytes.length, record)
   return {
     sourceUrl: report.sourceUrl,
     description: report.description,

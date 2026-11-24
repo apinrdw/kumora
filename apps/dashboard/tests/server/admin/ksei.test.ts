@@ -16,7 +16,7 @@ import { ArchiveWorkflow } from "@/server/archive/workflow"
 import { recordKey, reportKey } from "@/server/ksei/keys"
 import type { KseiReportKind } from "@/server/ksei/kind"
 import { KseiParseWorkflow } from "@/server/ksei/parse-runs"
-import { healKseiIndex } from "@/server/ksei/report-index"
+import { kseiIndex } from "@/server/ksei/report-index"
 import { KseiRunMetadata, type KseiRunResult } from "@/server/ksei/run-result"
 
 import {
@@ -121,7 +121,7 @@ const archive = () => {
     // The report index gains what the bucket holds, as the next KSEI
     // archive run's `plan` would index it.
     indexed: Effect.gen(function* () {
-      yield* healKseiIndex(yield* (yield* ArchiveBucket).list("reports/"))
+      yield* kseiIndex.heal(yield* (yield* ArchiveBucket).list("reports/"))
     }).pipe(Effect.provide(Layer.merge(bucket.layer, db.layer))),
     layer: Layer.mergeAll(
       auth.layer,

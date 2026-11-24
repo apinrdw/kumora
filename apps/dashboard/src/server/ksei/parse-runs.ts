@@ -14,7 +14,7 @@ import {
 } from "../holdings/ksei.ts"
 import { parseRunsOf } from "../holdings/parse-runs.ts"
 import { kindPrefix, reportKey } from "./keys.ts"
-import { kseiNewestVersions } from "./report-index.ts"
+import { kseiIndex } from "./report-index.ts"
 
 const KIND = "securities-holdings"
 
@@ -29,11 +29,11 @@ export const kseiParseRuns = parseRunsOf({
   runsPrefix: "parse-runs/",
   months: {
     prefix: kindPrefix(KIND),
-    indexed: kseiNewestVersions(KIND),
     reportKey: (periodEnd, sha256) => reportKey(KIND, periodEnd, sha256),
     tables: KSEI_TABLES,
     parserVersion: KSEI_PARSER_VERSION,
     parse: parseKseiMonth,
   },
+  newestVersions: kseiIndex.newestVersions(KIND),
   workflow: KseiParseWorkflow,
 })

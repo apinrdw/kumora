@@ -22,7 +22,7 @@ import {
   headHeld,
   MAX_ETAG_BYTES,
 } from "../archive/head.ts"
-import { ETAG, RUN, SHA256 } from "../archive/held.ts"
+import { ETAG, heldIn, RUN, SHA256 } from "../archive/held.ts"
 import { md5Hex } from "../archive/md5.ts"
 import { failingRun } from "../archive/failing-run.ts"
 import {
@@ -40,12 +40,12 @@ import {
   type Probed,
   seed,
 } from "./deep.ts"
-import { FILENAME, recordsByFilename, recordsIn } from "./held.ts"
+import { FILENAME, recordsByFilename } from "./held.ts"
 import { KSEI_REQUEST_TIMEOUT, KSEI_SLOWEST_ANSWER } from "./http.ts"
 import { recordKey, reportKey } from "./keys.ts"
 import { KseiReportKind } from "./kind.ts"
 import { fetchListing, KseiFilename, ListedKseiReport } from "./listing.ts"
-import { healKseiIndex, indexKseiReport } from "./report-index.ts"
+import { kseiIndex } from "./report-index.ts"
 import {
   type DeepFinds,
   KseiRunResult,
@@ -130,7 +130,7 @@ const plan = Effect.fnUntraced(function* (
   const objects = yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
   // Decision: the report index is a copy of R2 that each archive run heals
   // (apps/dashboard/docs/adr/0125-the-report-index-is-a-copy-of-r2-that-each-archive-run-heals.md)
-  yield* healKseiIndex(objects)
+  yield* kseiIndex.heal(objects)
   const listings = yield* Effect.forEach(
     KseiReportKind.literals,
     (kind) => Effect.result(fetchListing(kind)),
@@ -148,7 +148,7 @@ const plan = Effect.fnUntraced(function* (
     listings.filter(Result.isSuccess).flatMap(({ success }) => success),
     ({ periodEnd }) => inArchive(periodEnd)
   )
-  const held = yield* recordsIn(objects)
+  const held = yield* heldIn(objects, FILENAME)
   yield* putKseiRunRecord(yield* runningKseiResult(run))
   return {
     fresh: listed.filter((report) => !held.has(report.filename)),
@@ -279,10 +279,7 @@ const archiveReport = Effect.fnUntraced(function* (
   })
   // Decision: the report index is a copy of R2 that each archive run heals
   // (apps/dashboard/docs/adr/0125-the-report-index-is-a-copy-of-r2-that-each-archive-run-heals.md)
-  yield* indexKseiReport(key, {
-    fileBytes: bytes.length,
-    recordBytes: new TextEncoder().encode(record).length,
-  })
+  yield* kseiIndex.indexRecord(key, bytes.length, record)
   return {
     filename: report.filename,
     kind: report.kind,

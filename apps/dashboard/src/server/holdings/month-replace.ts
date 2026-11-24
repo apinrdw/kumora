@@ -5,12 +5,7 @@
 // rows. Spec apinrdw/kumora#363, "Month replace".
 import { Effect } from "effect"
 
-import {
-  CHUNK_BYTES,
-  CHUNK_ROWS,
-  type SqlValue,
-  type Statement,
-} from "../d1.ts"
+import { jsonChunker, type SqlValue, type Statement } from "../d1.ts"
 import { HoldingsDb } from "./db.ts"
 
 // Decision: a report's parse is bounded to fit 48 MiB of the Worker's heap
@@ -41,44 +36,28 @@ export interface MonthReplace {
   }
 }
 
-// Decision: D1 inserts go in json_each chunks under D1's statement limits
-// (apps/dashboard/docs/adr/0018-d1-inserts-go-in-json-each-chunks-under-statement-limits.md)
-const encoder = new TextEncoder()
-
 // Gathers a table's rows as a parse reads them, each chunk of them turned
 // into one JSON array as soon as it is full.
 // A parse holds its month as JSON text, about 35 bytes a row,
 // not as an array a row, about 100: a classification report's 234,000
 // holdings took 8 MiB as JSON and 22 MiB as arrays.
-export const monthRows = (table: string, columns: ReadonlyArray<string>) =>
-  Effect.sync(() => {
-    const chunks: Array<string> = []
-    let rows: Array<string> = []
-    // The bytes of `rows` as one JSON array.
-    let bytes = 2
-    return {
-      add: (row: ReadonlyArray<SqlValue>) =>
-        Effect.sync(() => {
-          const json = JSON.stringify(row)
-          const rowBytes = encoder.encode(json).length + 1
-          const full =
-            rows.length === CHUNK_ROWS || bytes + rowBytes > CHUNK_BYTES
-          if (full && rows.length > 0) {
-            chunks.push(`[${rows.join(",")}]`)
-            rows = []
-            bytes = 2
-          }
-          rows.push(json)
-          bytes += rowBytes
-        }),
-      // The rows added so far.
-      gathered: Effect.sync((): MonthRows => ({
-        table,
-        columns,
-        chunks: rows.length === 0 ? chunks : [...chunks, `[${rows.join(",")}]`],
-      })),
-    }
-  })
+// Decision: D1 inserts go in json_each chunks under D1's statement limits
+// (apps/dashboard/docs/adr/0018-d1-inserts-go-in-json-each-chunks-under-statement-limits.md)
+export const monthRows = Effect.fnUntraced(function* (
+  table: string,
+  columns: ReadonlyArray<string>
+) {
+  const chunker = yield* jsonChunker()
+  return {
+    add: chunker.add,
+    // The rows added so far.
+    gathered: Effect.map(chunker.chunks, (chunks): MonthRows => ({
+      table,
+      columns,
+      chunks,
+    })),
+  }
+})
 
 const inserts = (dateColumn: string, date: string, rows: MonthRows) =>
   Effect.sync(() => {

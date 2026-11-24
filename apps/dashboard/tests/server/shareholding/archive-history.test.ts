@@ -4,7 +4,7 @@ import { TestClock } from "effect/testing"
 
 import { ArchiveBucket, MAX_LISTED_OBJECTS } from "@/server/archive/bucket"
 import { RunId } from "@/server/archive/run"
-import { healShareholdingIndex } from "@/server/shareholding/report-index"
+import { shareholdingIndex } from "@/server/shareholding/report-index"
 import { recentRuns } from "@/server/shareholding/runs"
 import { archiveTotals } from "@/server/shareholding/totals"
 import {
@@ -284,7 +284,9 @@ const report = (
 const indexedTotals = (bucket: MemoryBucket) => {
   const db = memoryArchiveDb()
   return Effect.gen(function* () {
-    yield* healShareholdingIndex(yield* (yield* ArchiveBucket).list("reports/"))
+    yield* shareholdingIndex.heal(
+      yield* (yield* ArchiveBucket).list("reports/")
+    )
     return yield* archiveTotals
   }).pipe(Effect.provide(Layer.merge(bucket.layer, db.layer)))
 }
