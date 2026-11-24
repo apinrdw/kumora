@@ -266,6 +266,33 @@ describe("the cutover import", () => {
   )
 
   it.effect(
+    "shows a latest run that started in the cutoff's hour, before the past 30 days",
+    () => {
+      const archive = runStores()
+      // The load at 14:30 puts the cutoff at 14:30, 30 days before. The
+      // hourly cron's run of that hour started at 14:00, and its key is the
+      // first the import lists.
+      const atCutoff = {
+        ...COMPLETE,
+        id: RunId.make("cron-2026-10-15T14"),
+        startedAt: "2026-10-15T14:00:00.000Z",
+        finishedAt: "2026-10-15T14:01:12.000Z",
+      }
+      inR2(archive, atCutoff)
+      putJson(archive, "runs/latest.json", { id: atCutoff.id })
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-14T14:30:00.000Z"))
+        assert.deepStrictEqual((yield* lastRun)?.result, atCutoff)
+        assert.strictEqual(
+          latestRunId(archive.db, SHAREHOLDING_ARCHIVE),
+          atCutoff.id
+        )
+        assert.deepStrictEqual(yield* recentRuns, [])
+      }).pipe(provide(archive))
+    }
+  )
+
+  it.effect(
     "is done before a start claims, so a run in progress in R2 refuses it",
     () => {
       const archive = runStores()
