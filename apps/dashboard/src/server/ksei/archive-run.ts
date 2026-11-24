@@ -206,11 +206,7 @@ const archiveReport = Effect.fnUntraced(function* (
   headEtag: string | null
 ): Effect.fn.Return<
   ArchivedReport,
-  | HttpClientError.HttpClientError
-  | NotOnKsei
-  | NonRetryable
-  | BucketError
-  | ArchiveDbError,
+  HttpClientError.HttpClientError | NotOnKsei | NonRetryable | BucketError,
   StepServices
 > {
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)

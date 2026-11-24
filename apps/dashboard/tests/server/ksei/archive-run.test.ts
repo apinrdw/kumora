@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import type { StepConfig } from "@workspace/server"
 import { Duration, Effect, Layer, Schema } from "effect"
 
+import type { ArchiveDb } from "@/server/archive/archive-db"
 import { RunId } from "@/server/archive/run"
 import {
   kseiArchiveRun,
@@ -18,6 +19,7 @@ import { KseiRunMetadata } from "@/server/ksei/run-result"
 
 import { localSteps } from "../archive/local-steps.ts"
 import {
+  failingFirstReportInsert,
   type MemoryArchiveDb,
   memoryArchiveDb,
 } from "../archive/memory-archive-db.ts"
@@ -39,7 +41,7 @@ const run = (
   bucket: MemoryBucket,
   id: string,
   startedAt = new Date("2026-11-14T03:00:00Z"),
-  db: MemoryArchiveDb = memoryArchiveDb()
+  db: { readonly layer: Layer.Layer<ArchiveDb> } = memoryArchiveDb()
 ) =>
   kseiArchiveRun(
     localSteps(Layer.mergeAll(ksei.layer, bucket.layer, db.layer)),
@@ -736,30 +738,37 @@ describe("a KSEI archive run's report index", () => {
     })
   )
 
-  it.effect("adds no second row when a report's step is retried", () =>
+  it.effect("writes no second record when a report's index insert fails", () =>
     Effect.gen(function* () {
       const ksei = fakeKsei()
       const bucket = memoryBucket()
       const db = memoryArchiveDb()
-      // The first index insert of a report fails after its record is
-      // written, so the step's retry writes the record again.
-      let failed = false
-      db.failBatch = (sql) => {
-        const insert = sql.some((each) => each.includes("INSERT"))
-        if (!insert || failed || sql.length !== 1) return false
-        failed = true
-        return true
-      }
-      yield* run(ksei, bucket, "cron-2026-11-14", undefined, db)
+      const failing = failingFirstReportInsert(db)
+      const result = yield* run(
+        ksei,
+        bucket,
+        "cron-2026-11-14",
+        undefined,
+        failing
+      )
       db.failBatch = undefined
-      assert.isTrue(failed)
+      assert.isTrue(failing.failed())
 
-      const { totals } = yield* indexed(db)
-      assert.deepStrictEqual(
-        totals.kinds.map(({ versions }) => versions),
-        [36, 36]
+      assert.deepInclude(result, { outcome: "complete", reportsAdded: 72 })
+      assert.strictEqual(recordCount(bucket), 72)
+      // The next run's heal indexes the record the failed insert left out.
+      yield* run(
+        ksei,
+        bucket,
+        "cron-2026-11-15",
+        new Date("2026-11-15T03:00:00Z"),
+        db
       )
       assert.strictEqual(recordCount(bucket), 72)
+      assert.deepStrictEqual(
+        (yield* indexed(db)).totals.kinds.map(({ versions }) => versions),
+        [36, 36]
+      )
     })
   )
 

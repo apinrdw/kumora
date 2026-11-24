@@ -3,6 +3,7 @@ import { StepFailed } from "@workspace/server"
 import { Effect, Layer, Schema } from "effect"
 
 import { archiveRun, MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
+import type { ArchiveDb } from "@/server/archive/archive-db"
 import { MAX_ETAG_BYTES } from "@/server/archive/head"
 import { RunId, MAX_RUN_ERROR_LENGTH } from "@/server/archive/run"
 import { RunMetadata } from "@/server/shareholding/run-result"
@@ -25,6 +26,7 @@ import {
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
 import {
+  failingFirstReportInsert,
   type MemoryArchiveDb,
   memoryArchiveDb,
 } from "../archive/memory-archive-db.ts"
@@ -35,7 +37,7 @@ const run = (
   bucket: MemoryBucket,
   id: string,
   startedAt = new Date("2026-11-14T13:00:00Z"),
-  db: MemoryArchiveDb = memoryArchiveDb()
+  db: { readonly layer: Layer.Layer<ArchiveDb> } = memoryArchiveDb()
 ) =>
   archiveRun(localSteps(Layer.mergeAll(idx.layer, bucket.layer, db.layer)), {
     id: RunId.make(id),
@@ -1035,24 +1037,27 @@ describe("an archive run's report index", () => {
     })
   )
 
-  it.effect("adds no second row when a report's step is retried", () =>
+  it.effect("writes no second record when a report's index insert fails", () =>
     Effect.gen(function* () {
       const idx = fakeIdx()
       const bucket = memoryBucket()
       const db = memoryArchiveDb()
-      // The first index insert of a report fails after its record is
-      // written, so the step's retry writes the record again.
-      let failed = false
-      db.failBatch = (sql) => {
-        const insert = sql.some((each) => each.includes("INSERT"))
-        if (!insert || failed || sql.length !== 1) return false
-        failed = true
-        return true
-      }
-      yield* run(idx, bucket, "cron-2026-11-14T13", undefined, db)
+      const failing = failingFirstReportInsert(db)
+      const result = yield* run(
+        idx,
+        bucket,
+        "cron-2026-11-14T13",
+        undefined,
+        failing
+      )
       db.failBatch = undefined
-      assert.isTrue(failed)
+      assert.isTrue(failing.failed())
 
+      assert.deepInclude(result, { outcome: "complete", reportsAdded: 145 })
+      assert.strictEqual(recordCount(bucket), 145)
+      // The next run's heal indexes the record the failed insert left out.
+      yield* run(idx, bucket, "cron-2026-11-15T06", undefined, db)
+      assert.strictEqual(recordCount(bucket), 145)
       assert.deepStrictEqual(yield* indexed(db), listedTotals(bucket))
       assert.strictEqual(rowsHeld(db), recordCount(bucket))
     })

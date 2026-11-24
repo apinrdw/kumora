@@ -8,8 +8,7 @@ import type { ListedObject } from "../archive/bucket.ts"
 import {
   healIndex,
   type IndexedArchive,
-  indexedReport,
-  indexReports,
+  indexStoredRecord,
   newestIndexedVersions,
 } from "../archive/report-index.ts"
 import { reportKey } from "./keys.ts"
@@ -23,14 +22,11 @@ const SHAREHOLDING: IndexedArchive = {
     isKind(kind) ? reportKey(kind, dataDate, sha256) : Effect.undefined,
 }
 
-// Indexes the record a `report:` step just wrote, unless the index has it.
-export const indexShareholdingReport = Effect.fnUntraced(function* (
+// Indexes the record a `report:` step just wrote; never fails.
+export const indexShareholdingReport = (
   recordKey: string,
   sizes: { readonly fileBytes: number; readonly recordBytes: number }
-) {
-  const report = yield* indexedReport(SHAREHOLDING, recordKey, sizes)
-  if (report !== undefined) yield* indexReports(SHAREHOLDING.archive, [report])
-})
+) => indexStoredRecord(SHAREHOLDING, recordKey, sizes)
 
 // Indexes every record in `objects`, a listing of reports/, the index lacks.
 export const healShareholdingIndex = (objects: ReadonlyArray<ListedObject>) =>

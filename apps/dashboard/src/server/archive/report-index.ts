@@ -30,7 +30,7 @@ export interface IndexedArchive {
   ) => Effect.Effect<string | undefined>
 }
 
-export interface IndexedReport {
+interface IndexedReport {
   readonly recordKey: string
   readonly kind: string
   // YYYY-MM-DD.
@@ -45,7 +45,7 @@ export interface IndexedReport {
 
 // The row of the record at `recordKey`, from its key alone and the two
 // sizes; undefined for a key that isn't a record of `archive`.
-export const indexedReport = Effect.fnUntraced(function* (
+const indexedReport = Effect.fnUntraced(function* (
   archive: IndexedArchive,
   recordKey: string,
   sizes: { readonly fileBytes: number; readonly recordBytes: number }
@@ -87,7 +87,7 @@ const STATEMENTS_A_BATCH = 10
 // Inserts each report's row unless the index has it.
 // Decision: D1 inserts go in json_each chunks under D1's statement limits
 // (apps/dashboard/docs/adr/0018-d1-inserts-go-in-json-each-chunks-under-statement-limits.md)
-export const indexReports = Effect.fnUntraced(function* (
+const indexReports = Effect.fnUntraced(function* (
   archive: IndexedArchiveName,
   reports: ReadonlyArray<IndexedReport>
 ) {
@@ -137,6 +137,27 @@ export const healIndex = Effect.fnUntraced(function* (
       reports.push({ ...report, fileBytes })
   }
   yield* indexReports(archive.archive, reports)
+})
+
+// Indexes the record a `report:` step just wrote, unless the index has it.
+// A failed insert is logged and never fails the step: its retry would fetch
+// the report again and write a second record, under a new fetched-at. The
+// next run's heal indexes the record instead.
+export const indexStoredRecord = Effect.fnUntraced(function* (
+  archive: IndexedArchive,
+  recordKey: string,
+  sizes: { readonly fileBytes: number; readonly recordBytes: number }
+) {
+  const report = yield* indexedReport(archive, recordKey, sizes)
+  if (report === undefined) return
+  yield* indexReports(archive.archive, [report]).pipe(
+    Effect.catchTag("ArchiveDbError", (error) =>
+      Effect.logWarning(
+        `Report index lacks ${recordKey} until the next run heals it`,
+        error
+      )
+    )
+  )
 })
 
 const NewestVersionRow = Schema.Struct({

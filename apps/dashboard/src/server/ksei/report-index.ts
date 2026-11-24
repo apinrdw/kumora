@@ -8,8 +8,7 @@ import type { ListedObject } from "../archive/bucket.ts"
 import {
   healIndex,
   type IndexedArchive,
-  indexedReport,
-  indexReports,
+  indexStoredRecord,
   newestIndexedVersions,
 } from "../archive/report-index.ts"
 import { reportKey } from "./keys.ts"
@@ -24,14 +23,11 @@ const KSEI: IndexedArchive = {
     isKind(kind) ? reportKey(kind, periodEnd, sha256) : Effect.undefined,
 }
 
-// Indexes the record a `report:` step just wrote, unless the index has it.
-export const indexKseiReport = Effect.fnUntraced(function* (
+// Indexes the record a `report:` step just wrote; never fails.
+export const indexKseiReport = (
   recordKey: string,
   sizes: { readonly fileBytes: number; readonly recordBytes: number }
-) {
-  const report = yield* indexedReport(KSEI, recordKey, sizes)
-  if (report !== undefined) yield* indexReports(KSEI.archive, [report])
-})
+) => indexStoredRecord(KSEI, recordKey, sizes)
 
 // Indexes every record in `objects`, a listing of reports/, the index lacks.
 export const healKseiIndex = (objects: ReadonlyArray<ListedObject>) =>
