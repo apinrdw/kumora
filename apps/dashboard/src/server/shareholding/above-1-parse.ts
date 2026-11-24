@@ -12,6 +12,7 @@ import {
 } from "../holdings/above-1.ts"
 import { parseRunsOf } from "../holdings/parse-runs.ts"
 import { kindPrefix, reportKey } from "./keys.ts"
+import { shareholdingNewestVersions } from "./report-index.ts"
 
 const KIND = "above-1"
 
@@ -27,6 +28,7 @@ export const above1ParseRuns = parseRunsOf({
   runsPrefix: `parse-runs/${KIND}/`,
   months: {
     prefix: kindPrefix(KIND),
+    indexed: shareholdingNewestVersions(KIND),
     reportKey: (dataDate, sha256) => reportKey(KIND, dataDate, sha256),
     tables: ABOVE_1_TABLES,
     parserVersion: ABOVE_1_PARSER_VERSION,

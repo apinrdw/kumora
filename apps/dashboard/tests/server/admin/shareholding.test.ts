@@ -293,16 +293,9 @@ describe("the shareholding archive page", () => {
   })
 
   it.effect("shows each parsed kind's months' parse coverage", () => {
-    const { layer, mails, bucket } = archive()
-    const record = (kind: string, date: string) =>
-      bucket.objects.set(
-        `reports/${kind}/${date}/${"a".repeat(64)}.2026-11-14T130000.000Z.0123456789abcdef.json`,
-        { body: "{}", contentType: "application/json", customMetadata: {} }
-      )
-    record("investor-classification", "2026-10-30")
-    record("investor-type", "2026-09-30")
-    // Holders above 1% have no parser: not in either parse coverage.
-    record("above-1", "2026-08-31")
+    const { layer, mails, bucket, indexed } = archive()
+    const store = (kind: ReportKind, date: string) =>
+      storeReport(bucket, kind, date, "a".repeat(64), "xlsx")
     // Twelve cells of 2026, with `state` in `month` (1-based) only.
     const only = (month: number, date: string) => [
       {
@@ -322,6 +315,11 @@ describe("the shareholding archive page", () => {
       },
     ]
     return Effect.gen(function* () {
+      yield* store("investor-classification", "2026-10-30")
+      yield* store("investor-type", "2026-09-30")
+      // Holders above 1% have no parser: not in either parse coverage.
+      yield* store("above-1", "2026-08-31")
+      yield* indexed
       yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
       const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
       const page = yield* shareholdingArchivePage(headers(cookie))

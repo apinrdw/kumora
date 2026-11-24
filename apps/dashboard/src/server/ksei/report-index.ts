@@ -1,6 +1,6 @@
 // The KSEI archive's rows in the report index (../archive/report-index.ts):
 // written by its run's `report:` steps, healed by its `plan`, read by the
-// admin page for the totals and the coverage.
+// admin page for the totals, the coverage and the parse coverage.
 import { Effect, Schema } from "effect"
 
 import { ArchiveDb } from "../archive/archive-db.ts"
@@ -10,6 +10,7 @@ import {
   type IndexedArchive,
   indexedReport,
   indexReports,
+  newestIndexedVersions,
 } from "../archive/report-index.ts"
 import { reportKey } from "./keys.ts"
 import { KseiReportKind } from "./kind.ts"
@@ -35,6 +36,11 @@ export const indexKseiReport = Effect.fnUntraced(function* (
 // Indexes every record in `objects`, a listing of reports/, the index lacks.
 export const healKseiIndex = (objects: ReadonlyArray<ListedObject>) =>
   healIndex(KSEI, objects)
+
+// Each archived date of `kind`, oldest first, with its newest version's
+// SHA-256.
+export const kseiNewestVersions = (kind: KseiReportKind) =>
+  newestIndexedVersions(KSEI.archive, kind)
 
 const KindTotalsRow = Schema.Struct({
   kind: KseiReportKind,

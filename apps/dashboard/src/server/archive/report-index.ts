@@ -6,7 +6,7 @@
 // two writes, or every record of a stage whose bucket filled first.
 // Decision: the report index is a copy of R2 that each archive run heals
 // (apps/dashboard/docs/adr/0125-the-report-index-is-a-copy-of-r2-that-each-archive-run-heals.md)
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 
 import type { SqlValue, Statement } from "../d1.ts"
 import { jsonChunks } from "../d1.ts"
@@ -137,4 +137,34 @@ export const healIndex = Effect.fnUntraced(function* (
       reports.push({ ...report, fileBytes })
   }
   yield* indexReports(archive.archive, reports)
+})
+
+const NewestVersionRow = Schema.Struct({
+  date: Schema.String,
+  sha256: Schema.String,
+})
+
+// Each date of `kind` indexed in `archive`, oldest first, with the SHA-256 of
+// its newest version by fetched-at: what the parse coverage
+// (../holdings/parse-coverage.ts) reads. A parse run picks its months the
+// same way from a listing (newestVersions, ../holdings/months-to-parse.ts),
+// and of two versions fetched at once, keeps the one listed first: the
+// lower SHA-256.
+export const newestIndexedVersions = Effect.fnUntraced(function* (
+  archive: IndexedArchiveName,
+  kind: string
+) {
+  const [rows = []] = yield* (yield* ArchiveDb).batch([
+    {
+      sql:
+        "SELECT report_date AS date, sha256 FROM (SELECT report_date, sha256, " +
+        "ROW_NUMBER() OVER (PARTITION BY report_date " +
+        "ORDER BY fetched_at DESC, sha256) AS rank FROM archived_report " +
+        "WHERE archive = ? AND kind = ?) WHERE rank = 1 ORDER BY report_date",
+      params: [archive, kind],
+    },
+  ])
+  return yield* Schema.decodeUnknownEffect(Schema.Array(NewestVersionRow))(
+    rows
+  ).pipe(Effect.orDie)
 })

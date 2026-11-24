@@ -8,12 +8,7 @@ import { DateTime, Effect, Schema } from "effect"
 
 import { monthGrid } from "../archive/month-grid.ts"
 import { RunId } from "../archive/run.ts"
-import {
-  newestVersions,
-  ParsedMonth,
-  parsedMonths,
-  staleCauses,
-} from "./months-to-parse.ts"
+import { ParsedMonth, parsedMonths, staleCauses } from "./months-to-parse.ts"
 import type { ParseRunResult } from "./parse-run-result.ts"
 import type { MonthSource } from "./parse-steps.ts"
 
@@ -94,7 +89,7 @@ export const parseCoverage = Effect.fnUntraced(function* (
   source: MonthSource,
   lastFinished: ParseRunResult | undefined
 ) {
-  const newest = yield* newestVersions(yield* source.prefix)
+  const newest = yield* source.indexed
   const parsed = yield* parsedMonths(source.tables)
   const failures = new Map(
     lastFinished?.parseFailures.map(({ date, message }) => [

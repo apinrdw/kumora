@@ -212,19 +212,25 @@ describe("the KSEI archive page", () => {
   })
 
   it.effect("shows the Securities holdings months' parse coverage", () => {
-    const { layer, mails, bucket } = archive()
-    seedObject(
-      bucket,
-      `reports/securities-holdings/2026-10-30/${"a".repeat(64)}.2026-11-14T030000.000Z.0123456789abcdef.json`,
-      "{}"
-    )
-    // A Securities statistics report has no parser: not in the parse coverage.
-    seedObject(
-      bucket,
-      `reports/securities-statistics/2025-01-31/${"b".repeat(64)}.2026-11-14T030000.000Z.0123456789abcdef.json`,
-      "{}"
-    )
+    const { layer, mails, bucket, indexed } = archive()
     return Effect.gen(function* () {
+      yield* storeReport(
+        bucket,
+        "securities-holdings",
+        "2026-10-30",
+        "a".repeat(64),
+        "zip"
+      )
+      // A Securities statistics report has no parser: not in the parse
+      // coverage.
+      yield* storeReport(
+        bucket,
+        "securities-statistics",
+        "2025-01-31",
+        "b".repeat(64),
+        "zip"
+      )
+      yield* indexed
       yield* TestClock.setTime(Date.parse("2026-11-14T04:00:00.000Z"))
       const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
       const { parseCoverage } = yield* kseiArchivePage(headers(cookie))

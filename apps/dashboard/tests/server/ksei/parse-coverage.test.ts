@@ -11,7 +11,10 @@ import { kseiArchiveRun } from "@/server/ksei/archive-run"
 import { kseiParseRuns } from "@/server/ksei/parse-runs"
 
 import { localSteps } from "../archive/local-steps.ts"
-import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
+import {
+  type MemoryArchiveDb,
+  memoryArchiveDb,
+} from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import {
   type MemoryHoldingsDb,
@@ -30,24 +33,24 @@ interface World {
   readonly ksei: FakeKsei
   readonly bucket: MemoryBucket
   readonly holdings: MemoryHoldingsDb
+  readonly index: MemoryArchiveDb
 }
 
 const world = (): World => ({
   ksei: holdingsKsei(),
   bucket: memoryBucket(),
   holdings: memoryHoldingsDb(),
+  index: memoryArchiveDb(),
 })
 
 // Today, so the grid ends in 2026.
 const start = TestClock.setTime(Date.parse("2026-11-17T03:00:00Z"))
 
-const archive = ({ ksei, bucket }: World, id: string) =>
+const archive = ({ ksei, bucket, index }: World, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
       kseiArchiveRun(
-        localSteps(
-          Layer.mergeAll(ksei.layer, bucket.layer, memoryArchiveDb().layer)
-        ),
+        localSteps(Layer.mergeAll(ksei.layer, bucket.layer, index.layer)),
         {
           id: RunId.make(id),
           trigger: "cron",
@@ -85,9 +88,13 @@ const bumpParser = ({ holdings }: World, periodEnd: string) => {
 
 // The parse coverage as each year's twelve cells, a cell its state or "" when
 // blank.
-const parseCoverage = ({ bucket, holdings }: World) =>
+const coverage = ({ bucket, holdings, index }: World) =>
   kseiParseRuns.parseCoverage.pipe(
-    Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
+    Effect.provide(Layer.mergeAll(bucket.layer, holdings.layer, index.layer))
+  )
+
+const parseCoverage = (w: World) =>
+  coverage(w).pipe(
     Effect.map((years) =>
       Object.fromEntries(
         years.map(({ year, months }) => [
@@ -99,9 +106,8 @@ const parseCoverage = ({ bucket, holdings }: World) =>
   )
 
 // 2026's cell for the month at `index`, January being 0.
-const cell = ({ bucket, holdings }: World, index: number) =>
-  kseiParseRuns.parseCoverage.pipe(
-    Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
+const cell = (w: World, index: number) =>
+  coverage(w).pipe(
     Effect.map(
       (years) => years.find(({ year }) => year === 2026)?.months[index]
     )
@@ -355,16 +361,41 @@ describe("the KSEI parse coverage", () => {
       const w = world()
       yield* archive(w, "cron-2026-11-14")
       yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
-      // A record of a report dated 2026-10-31, never parsed.
+      // A report dated 2026-10-31, never parsed, indexed by the next run.
+      w.bucket.objects.set(
+        `reports/securities-holdings/2026-10-31/${"a".repeat(64)}.zip`,
+        { body: "zip", contentType: "application/zip", customMetadata: {} }
+      )
       w.bucket.objects.set(
         `reports/securities-holdings/2026-10-31/${"a".repeat(64)}.2026-11-17T050000.000Z.0123456789abcdef.json`,
         { body: "{}", contentType: "application/json", customMetadata: {} }
       )
-      const years = yield* kseiParseRuns.parseCoverage.pipe(
-        Effect.provide(Layer.merge(w.bucket.layer, w.holdings.layer))
-      )
+      yield* archive(w, "cron-2026-11-15")
+      const years = yield* coverage(w)
       assert.strictEqual(years[0]?.months[9]?.date, "2026-10-31")
       assert.strictEqual(years[0]?.months[9]?.state, "not-parsed")
+    })
+  )
+
+  it.effect("takes each month's newest version from the report index", () =>
+    Effect.gen(function* () {
+      yield* start
+      const w = world()
+      yield* archive(w, "cron-2026-11-14")
+      yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
+      w.ksei.files.set(
+        holdingsUrl("BalanceposEfek20261030.zip"),
+        fileOf(holdingsFixture("BalanceposEfek20260930.zip"))
+      )
+      yield* archive(w, "cron-2026-11-15")
+      // The index alone holds what was archived: the bucket's reports are
+      // gone.
+      for (const key of w.bucket.objects.keys())
+        if (key.startsWith("reports/")) w.bucket.objects.delete(key)
+      assert.deepStrictEqual(
+        yield* parseCoverage(w),
+        may2026("parsed", "parsed", "parsed", "stale")
+      )
     })
   )
 })
