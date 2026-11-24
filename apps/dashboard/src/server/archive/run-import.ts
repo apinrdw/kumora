@@ -1,19 +1,19 @@
 // The cutover import: the first time a run kind is read or claimed while
 // ArchiveDb hasn't imported it, its runs are copied from the R2 run records
-// written before ArchiveDb held runs: the run its latest pointer names, the
-// runs of the past 30 days, and the newest run each of its `kept` readers
-// finds. ArchiveDb then marks the kind imported, so a later read imports
-// nothing. The R2 records and pointer stay in place and are no longer
-// written. Spec apinrdw/kumora#659, "Cutover import".
+// written before ArchiveDb held runs. ArchiveDb then marks the kind
+// imported, so a later read imports nothing. The R2 records and pointer stay
+// in place and are no longer written. Spec apinrdw/kumora#659, "Cutover
+// import".
 import { Clock, Effect, Option, Schema } from "effect"
 
 import type { Statement } from "../d1.ts"
-import { ArchiveDb } from "./archive-db.ts"
-import { ArchiveBucket } from "./bucket.ts"
+import { ArchiveDb, type ArchiveDbError } from "./archive-db.ts"
+import { ArchiveBucket, type BucketError } from "./bucket.ts"
 import { RETENTION_MS } from "./retention.ts"
 import {
   type ArchiveSource,
   LatestRun,
+  type LatestWhere,
   latestRunKey,
   type RunBase,
   type RunSummaryBase,
@@ -21,8 +21,11 @@ import {
 } from "./run.ts"
 import { RUN_COLUMNS, runRow, type RunKind } from "./run-rows.ts"
 
-// Reads at once when the import gets the records it lists.
-const GETS_AT_ONCE = 10
+// The most records the import holds at once: it reads this many from R2
+// at a time and writes them to ArchiveDb in one batch before reading more.
+// A record is at most STEP_RESULT_BYTES, which its summary step returns, so
+// the import holds at most 10 MiB of records at once.
+export const RECORDS_AT_ONCE = 10
 
 const importedStatement = (kind: RunKind): Statement => ({
   sql: "SELECT 1 AS imported FROM run_import WHERE archive = ? AND run_kind = ?",
@@ -32,92 +35,163 @@ const importedStatement = (kind: RunKind): Statement => ({
 const NOT_IMPORTED =
   "NOT EXISTS (SELECT 1 FROM run_import WHERE archive = ?1 AND run_kind = ?2)"
 
-// The records the kind's R2 store holds that the import copies, keyed by
-// id, and the id its latest pointer names.
-const recordsInR2 = <
+// What the import reads from the kind's R2 store and writes to ArchiveDb,
+// the ids it has written, and the `kept` readers that take one of them.
+// Each record goes to ArchiveDb as soon as it is read, so the import never
+// holds more than RECORDS_AT_ONCE.
+interface Importer<Trigger extends string, RunRecord> {
+  readonly imported: ReadonlySet<string>
+  readonly found: ReadonlySet<LatestWhere<Trigger, RunRecord>>
+  readonly read: (
+    key: string
+  ) => Effect.Effect<RunRecord | undefined, BucketError>
+  // The keys of `trigger`'s records, after `startAfter`, oldest first.
+  readonly list: (
+    trigger: Trigger,
+    startAfter?: string
+  ) => Effect.Effect<ReadonlyArray<string>, BucketError>
+  readonly write: (
+    runs: ReadonlyArray<RunRecord | undefined>
+  ) => Effect.Effect<void, ArchiveDbError>
+}
+
+const importer = <
   Trigger extends string,
   Summary extends RunSummaryBase,
   RunRecord extends RunBase & Summary,
 >(
   source: ArchiveSource<Trigger, Summary, RunRecord>
 ) =>
-  Effect.gen(function* () {
+  Effect.gen(function* (): Effect.fn.Return<
+    Importer<Trigger, RunRecord>,
+    never,
+    ArchiveBucket | ArchiveDb
+  > {
     const bucket = yield* ArchiveBucket
+    const db = yield* ArchiveDb
     const decode = Schema.decodeUnknownOption(
       Schema.fromJsonString(source.result)
     )
-    const records = new Map<string, RunRecord>()
-    const read = (key: string) =>
-      Effect.map(bucket.get(key), (object) =>
-        object === undefined
-          ? undefined
-          : Option.getOrUndefined(decode(object.body))
-      )
-    const keep = (run: RunRecord | undefined) => {
-      if (run !== undefined) records.set(run.id, run)
-      return run
-    }
-
-    const pointer = yield* bucket.get(yield* latestRunKey(source.runsPrefix))
-    const latest =
-      pointer === undefined
-        ? undefined
-        : Option.getOrUndefined(
-            Schema.decodeUnknownOption(Schema.fromJsonString(LatestRun))(
-              pointer.body
-            )
+    const imported = new Set<string>()
+    const found = new Set<LatestWhere<Trigger, RunRecord>>()
+    return {
+      imported,
+      found,
+      read: (key: string) =>
+        Effect.map(bucket.get(key), (object) =>
+          object === undefined
+            ? undefined
+            : Option.getOrUndefined(decode(object.body))
+        ),
+      list: (trigger: Trigger, startAfter?: string) =>
+        Effect.map(
+          bucket.list(
+            `${source.runsPrefix}${trigger}-`,
+            startAfter === undefined ? {} : { startAfter }
+          ),
+          (listed) =>
+            listed.map(({ key }) => key).filter((key) => key.endsWith(".json"))
+        ),
+      write: (runs: ReadonlyArray<RunRecord | undefined>) =>
+        Effect.gen(function* () {
+          const known = runs.filter((run) => run !== undefined)
+          if (known.length === 0) return
+          yield* db.batch(
+            known.map((run): Statement => ({
+              sql:
+                `INSERT OR IGNORE INTO run (archive, run_kind, ${RUN_COLUMNS}) ` +
+                `SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ${NOT_IMPORTED}`,
+              params: [source.archive, source.runKind, ...runRow(run)],
+            }))
           )
-    if (latest !== undefined)
-      keep(yield* read(yield* runKey(latest.id, source.runsPrefix)))
-
-    // Each trigger's runs of the past 30 days, from the key of a run it
-    // would have started 30 days ago on: ids of one trigger sort as their
-    // starts do.
-    const since = (yield* Clock.currentTimeMillis) - RETENTION_MS
-    const recentKeys = yield* Effect.forEach(source.triggers, (trigger) =>
-      Effect.gen(function* () {
-        const oldest = yield* source.runIdAt(trigger, since)
-        const listed = yield* bucket.list(`${source.runsPrefix}${trigger}-`, {
-          // runs/<id> sorts just before runs/<id>.json, so that run is listed.
-          startAfter: `${source.runsPrefix}${oldest}`,
-        })
-        return listed.map(({ key }) => key)
-      })
-    )
-    yield* Effect.forEach(
-      recentKeys.flat().filter((key) => key.endsWith(".json")),
-      (key) =>
-        Effect.map(read(key), (run) => {
-          if (run !== undefined && Date.parse(run.startedAt) >= since) keep(run)
+          for (const run of known) {
+            imported.add(run.id)
+            for (const reader of source.kept)
+              if (run.trigger === reader.trigger && reader.accept(run))
+                found.add(reader)
+          }
         }),
-      { concurrency: GETS_AT_ONCE, discard: true }
-    )
-
-    // The newest run each kept reader finds, however old.
-    for (const { trigger, accept } of source.kept) {
-      const keys = (yield* bucket.list(`${source.runsPrefix}${trigger}-`))
-        .map(({ key }) => key)
-        .filter((key) => key.endsWith(".json"))
-        .reverse()
-      for (const key of keys) {
-        const known = records.get(key.slice(source.runsPrefix.length, -5))
-        const run = known ?? (yield* read(key))
-        if (run !== undefined && accept(run)) {
-          keep(run)
-          break
-        }
-      }
     }
-    return { records: [...records.values()], latestId: latest?.id }
   })
 
-// Rows inserted a batch. A row holds a whole record, which a partial run's
-// URLs can grow large, so each is its own statement, as a run writes it.
-const ROWS_A_BATCH = 20
+// Each trigger's runs of the past 30 days, from the key of a run it would
+// have started 30 days ago on: ids of one trigger sort as their starts do.
+const importRecent = Effect.fnUntraced(function* <
+  Trigger extends string,
+  Summary extends RunSummaryBase,
+  RunRecord extends RunBase & Summary,
+>(
+  source: ArchiveSource<Trigger, Summary, RunRecord>,
+  runs: Importer<Trigger, RunRecord>
+) {
+  const since = (yield* Clock.currentTimeMillis) - RETENTION_MS
+  const keys = yield* Effect.forEach(source.triggers, (trigger) =>
+    Effect.flatMap(source.runIdAt(trigger, since), (oldest) =>
+      // runs/<id> sorts just before runs/<id>.json, so that run is listed.
+      runs.list(trigger, `${source.runsPrefix}${oldest}`)
+    )
+  )
+  const recent = keys.flat()
+  for (let start = 0; start < recent.length; start += RECORDS_AT_ONCE) {
+    const read = yield* Effect.forEach(
+      recent.slice(start, start + RECORDS_AT_ONCE),
+      runs.read,
+      { concurrency: "unbounded" }
+    )
+    yield* runs.write(
+      read.filter((run) => run && Date.parse(run.startedAt) >= since)
+    )
+  }
+})
 
-// Copies the kind's R2 runs into ArchiveDb and marks it imported. Every
-// statement does nothing once an import has marked the kind, so an import
-// racing another, or a start's, adds no row after the first finishes.
+// The id the kind's latest pointer names, and its run, unless written.
+const importLatest = Effect.fnUntraced(function* <
+  Trigger extends string,
+  Summary extends RunSummaryBase,
+  RunRecord extends RunBase & Summary,
+>(
+  source: ArchiveSource<Trigger, Summary, RunRecord>,
+  runs: Importer<Trigger, RunRecord>
+) {
+  const pointer = yield* (yield* ArchiveBucket).get(
+    yield* latestRunKey(source.runsPrefix)
+  )
+  if (pointer === undefined) return undefined
+  const latest = Option.getOrUndefined(
+    Schema.decodeUnknownOption(Schema.fromJsonString(LatestRun))(pointer.body)
+  )
+  if (latest === undefined || runs.imported.has(latest.id)) return latest?.id
+  yield* runs.write([
+    yield* runs.read(yield* runKey(latest.id, source.runsPrefix)),
+  ])
+  return latest.id
+})
+
+// The newest run `reader` finds, however old, unless a run written already
+// is one it takes: older runs hold no newer one. Read one at a time, newest
+// first.
+const importKept = Effect.fnUntraced(function* <
+  Trigger extends string,
+  Summary extends RunSummaryBase,
+  RunRecord extends RunBase & Summary,
+>(
+  source: ArchiveSource<Trigger, Summary, RunRecord>,
+  runs: Importer<Trigger, RunRecord>,
+  reader: LatestWhere<Trigger, RunRecord>
+) {
+  if (runs.found.has(reader)) return
+  for (const key of [...(yield* runs.list(reader.trigger))].reverse()) {
+    const id = key.slice(source.runsPrefix.length, -".json".length)
+    const run = runs.imported.has(id) ? undefined : yield* runs.read(key)
+    if (run !== undefined && reader.accept(run)) return yield* runs.write([run])
+  }
+})
+
+// Copies the kind's R2 runs into ArchiveDb and marks it imported: the runs
+// of the past 30 days, the run its latest pointer names, and the newest run
+// each of its `kept` readers finds. Every statement does nothing once an
+// import has marked the kind, so an import racing another, or a start's,
+// adds no row after the first finishes.
 const importRuns = <
   Trigger extends string,
   Summary extends RunSummaryBase,
@@ -126,36 +200,36 @@ const importRuns = <
   source: ArchiveSource<Trigger, Summary, RunRecord>
 ) =>
   Effect.gen(function* () {
-    const { records, latestId } = yield* recordsInR2(source)
+    const runs = yield* importer(source)
+    yield* importRecent(source, runs)
+    const latestId = yield* importLatest(source, runs)
+    for (const reader of source.kept) yield* importKept(source, runs, reader)
+
     const kind = [source.archive, source.runKind] as const
-    const inserts = records.map((record): Statement => ({
-      sql:
-        `INSERT OR IGNORE INTO run (archive, run_kind, ${RUN_COLUMNS}) ` +
-        `SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ${NOT_IMPORTED}`,
-      params: [...kind, ...runRow(record)],
-    }))
     // The run the pointer names holds the claim, unless a start has claimed
     // since.
-    const marks: Array<Statement> = [
+    const claim: ReadonlyArray<Statement> =
+      latestId === undefined
+        ? []
+        : [
+            {
+              sql:
+                "UPDATE run SET latest = 1 WHERE archive = ?1 AND " +
+                `run_kind = ?2 AND id = ?3 AND ${NOT_IMPORTED} AND NOT ` +
+                "EXISTS (SELECT 1 FROM run WHERE archive = ?1 AND " +
+                "run_kind = ?2 AND latest = 1)",
+              params: [...kind, latestId],
+            },
+          ]
+    yield* (yield* ArchiveDb).batch([
+      ...claim,
       {
         sql: "INSERT OR IGNORE INTO run_import (archive, run_kind) VALUES (?, ?)",
         params: kind,
       },
-    ]
-    if (latestId !== undefined)
-      marks.unshift({
-        sql:
-          "UPDATE run SET latest = 1 WHERE archive = ?1 AND run_kind = ?2 " +
-          `AND id = ?3 AND ${NOT_IMPORTED} AND NOT EXISTS (SELECT 1 FROM run ` +
-          "WHERE archive = ?1 AND run_kind = ?2 AND latest = 1)",
-        params: [...kind, latestId],
-      })
-    const db = yield* ArchiveDb
-    for (let start = 0; start < inserts.length; start += ROWS_A_BATCH)
-      yield* db.batch(inserts.slice(start, start + ROWS_A_BATCH))
-    yield* db.batch(marks)
+    ])
     yield* Effect.logInfo(
-      `${source.runName}s imported from R2: ${records.length}`
+      `${source.runName}s imported from R2: ${runs.imported.size}`
     )
   })
 

@@ -34,6 +34,7 @@ import {
   archiveDbOf,
   KSEI_ARCHIVE,
   KSEI_PARSE,
+  runCount,
   seedRun as seedRunRow,
 } from "../archive/runs.ts"
 import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
@@ -642,6 +643,48 @@ describe("the KSEI archive page after the cutover", () => {
           bucket.gets.filter((key) => key.includes("runs/")),
           []
         )
+      }).pipe(Effect.provide(layer))
+    }
+  )
+})
+
+describe("the KSEI cutover import's deep run", () => {
+  it.effect(
+    "stops at a deep run of the past 30 days, reading no older one",
+    () => {
+      const { layer, mails, bucket } = archive()
+      const deepAt = (startedAt: string): KseiRunResult => ({
+        ...RUNNING,
+        id: RunId.make(`deep-${Date.parse(startedAt)}`),
+        trigger: "deep",
+        startedAt,
+        finishedAt: startedAt,
+        outcome: "complete",
+        deep: {
+          foundFromSeed: [],
+          foundByProbing: [],
+          monthsNotFound: {
+            "securities-statistics": [],
+            "securities-holdings": [],
+          },
+          probeFailures: [],
+        },
+      })
+      const older = deepAt("2025-06-15T15:06:40.000Z")
+      const recent = deepAt("2026-11-10T15:06:40.000Z")
+      for (const run of [older, recent])
+        bucket.objects.set(`runs/${run.id}.json`, {
+          body: JSON.stringify(run),
+          contentType: "application/json",
+          customMetadata: {},
+        })
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        const page = yield* kseiArchivePage(headers(cookie))
+        assert.strictEqual(page.lastDeepRun?.id, recent.id)
+        assert.notInclude(bucket.gets, `runs/${older.id}.json`)
+        assert.strictEqual(runCount(archiveDbOf(bucket), KSEI_ARCHIVE), 1)
       }).pipe(Effect.provide(layer))
     }
   )
