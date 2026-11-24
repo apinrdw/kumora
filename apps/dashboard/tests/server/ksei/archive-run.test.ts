@@ -698,6 +698,16 @@ const rowsWritten = (db: MemoryArchiveDb) =>
     ).changes
   )
 
+// Every object stored under reports/, zips and records.
+const reportBytes = (bucket: MemoryBucket) =>
+  [...bucket.objects]
+    .filter(([key]) => key.startsWith("reports/"))
+    .reduce(
+      (sum, [, { body, bytes }]) =>
+        sum + (bytes?.length ?? new TextEncoder().encode(body).length),
+      0
+    )
+
 const recordCount = (bucket: MemoryBucket) =>
   keysUnder(bucket, "reports/").filter((key) => key.endsWith(".json")).length
 
@@ -721,21 +731,47 @@ describe("a KSEI archive run's report index", () => {
           { kind: "securities-holdings", reports: 36, versions: 36 },
         ]
       )
-      // Every object the run stored under reports/, zips and records.
-      assert.strictEqual(
-        totals.bytes,
-        [...bucket.objects]
-          .filter(([key]) => key.startsWith("reports/"))
-          .reduce(
-            (sum, [, { body, bytes }]) =>
-              sum + (bytes?.length ?? new TextEncoder().encode(body).length),
-            0
-          )
-      )
+      assert.strictEqual(totals.bytes, reportBytes(bucket))
       assert.isTrue(monthsHeld["securities-statistics"].has("2026-10"))
       assert.isTrue(monthsHeld["securities-holdings"].has("2026-09"))
       assert.isFalse(monthsHeld["securities-holdings"].has("2018-10"))
     })
+  )
+
+  it.effect(
+    "counts a file with several records once, and each of its records",
+    () =>
+      Effect.gen(function* () {
+        const ksei = fakeKsei()
+        const bucket = memoryBucket()
+        const db = memoryArchiveDb()
+        yield* run(ksei, bucket, "cron-2026-11-14", undefined, db)
+        // A new ETag serving the bytes held: a second record of one file.
+        const body = zipBody(`text of ${STATIS_OCT}`)
+        ksei.files.set(STATIS_OCT_URL, { ...fileOf(body), etag: '"new"' })
+        yield* run(
+          ksei,
+          bucket,
+          "cron-2026-11-15",
+          new Date("2026-11-15T03:00:00Z"),
+          db
+        )
+        assert.strictEqual(recordsOf(bucket, STATIS_OCT).length, 2)
+
+        const { totals } = yield* indexed(db)
+        assert.deepStrictEqual(
+          totals.kinds.map(({ kind, reports, versions }) => ({
+            kind,
+            reports,
+            versions,
+          })),
+          [
+            { kind: "securities-statistics", reports: 36, versions: 36 },
+            { kind: "securities-holdings", reports: 36, versions: 36 },
+          ]
+        )
+        assert.strictEqual(totals.bytes, reportBytes(bucket))
+      })
   )
 
   it.effect("writes no second record when a report's index insert fails", () =>

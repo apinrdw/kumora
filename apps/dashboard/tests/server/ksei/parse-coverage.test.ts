@@ -398,4 +398,52 @@ describe("the KSEI parse coverage", () => {
       )
     })
   )
+
+  it.effect(
+    "takes the version a parse run reads when two were fetched at once",
+    () =>
+      Effect.gen(function* () {
+        yield* start
+        const w = world()
+        yield* archive(w, "cron-2026-11-14")
+        w.ksei.files.set(
+          holdingsUrl("BalanceposEfek20261030.zip"),
+          fileOf(holdingsFixture("BalanceposEfek20260930.zip"))
+        )
+        // A second run at the same instant: October's two versions share
+        // their fetched-at.
+        yield* kseiArchiveRun(
+          localSteps(
+            Layer.mergeAll(w.ksei.layer, w.bucket.layer, w.index.layer)
+          ),
+          {
+            id: RunId.make("admin-2026-11-14"),
+            trigger: "admin",
+            startedAt: new Date("2026-11-14T03:00:00Z"),
+          }
+        )
+        const fetchedAts = w.index.database
+          .prepare(
+            "SELECT DISTINCT fetched_at FROM archived_report " +
+              "WHERE report_date = '2026-10-30' AND kind = 'securities-holdings'"
+          )
+          .all()
+        assert.strictEqual(fetchedAts.length, 1)
+        assert.strictEqual(
+          w.index.database
+            .prepare(
+              "SELECT COUNT(*) AS count FROM archived_report " +
+                "WHERE report_date = '2026-10-30' AND kind = 'securities-holdings'"
+            )
+            .get()?.count,
+          2
+        )
+
+        yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
+        assert.deepStrictEqual(
+          yield* parseCoverage(w),
+          may2026("parsed", "parsed", "parsed", "parsed")
+        )
+      })
+  )
 })
