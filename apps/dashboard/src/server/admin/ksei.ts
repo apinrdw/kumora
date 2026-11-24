@@ -7,7 +7,10 @@ import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 
 import type { FileRoutesByFullPath } from "@/routeTree.gen"
-import { authorizeArchive } from "@/server/admin/archive-access"
+import {
+  authorizeArchive,
+  importingAsConflict,
+} from "@/server/admin/archive-access"
 import { readPage } from "@/server/archive/page-read"
 import { dailyRunIdAt } from "@/server/archive/run"
 import type { Action } from "@/server/auth/policy"
@@ -51,7 +54,7 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
       parseCoverage: kseiParseRuns.parseCoverage,
     },
     timed
-  ).pipe(timed("reads"))
+  ).pipe(timed("reads"), importingAsConflict)
   const deep = read.lastDeepRun
   return {
     lastRun: read.lastRun,

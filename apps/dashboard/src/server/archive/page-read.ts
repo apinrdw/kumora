@@ -9,7 +9,11 @@ import { Effect } from "effect"
 
 import type { Statement } from "../d1.ts"
 import type { ArchiveDb, ArchiveDbError } from "./archive-db.ts"
-import { type ImportedKind, readRuns } from "./run-import.ts"
+import {
+  type ImportedKind,
+  readRuns,
+  type RunsImporting,
+} from "./run-import.ts"
 
 export type Rows = ReadonlyArray<Record<string, unknown>>
 
@@ -31,6 +35,7 @@ type ErrorOf<P extends AnyRead> =
   | Effect.Error<ReturnType<P["read"]>>
   | Effect.Error<P["kinds"][number]["importRuns"]>
   | ArchiveDbError
+  | RunsImporting
 
 type ServicesOf<P extends AnyRead> =
   | Effect.Services<ReturnType<P["read"]>>
@@ -86,7 +91,8 @@ export const mapRead = <A, B, E1, R1, E2, R2>(
 
 // Every part's value, keyed as `parts` is: their statements in one
 // ArchiveDb batch, timed as `archiveDb`, then each part's read, timed by
-// its key. Only the first load after a kind's cutover sends more batches.
+// its key. Only the first load after a kind's cutover sends more batches,
+// and fails with RunsImporting while its import is unfinished.
 export const readPage = <const P extends Record<string, AnyRead>>(
   parts: P,
   timed: Timed

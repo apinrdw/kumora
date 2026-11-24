@@ -195,7 +195,8 @@ export interface ArchiveSource<
     readonly fields: Schema.Struct.Fields
   }
   // The runs older than 30 days a reader still finds: the cutover import
-  // brings the newest of each along.
+  // brings the newest of each along. At most one per trigger: an unfinished
+  // import records the readers it has found by trigger.
   readonly readersPastRetention: ReadonlyArray<LatestWhere<Trigger, RunRecord>>
   // A run's record from its start until it ends.
   readonly running: (run: Run<Trigger>) => Effect.Effect<RunRecord>

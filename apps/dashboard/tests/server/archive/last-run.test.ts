@@ -424,7 +424,13 @@ describe("the cutover import", () => {
       ).pipe(Layer.provide(archive.db.layer))
       return Effect.gen(function* () {
         yield* TestClock.setTime(NOW)
-        assert.strictEqual((yield* lastRun)?.result.id, "cron-2026-11-14T14")
+        // Each load imports up to IMPORT_BATCHES of RECORDS_AT_ONCE.
+        let shown = yield* Effect.result(lastRun)
+        while (shown._tag === "Failure") {
+          assert.strictEqual(shown.failure._tag, "RunsImporting")
+          shown = yield* Effect.result(lastRun)
+        }
+        assert.strictEqual(shown.success?.result.id, "cron-2026-11-14T14")
         assert.strictEqual(
           runCount(archive.db, SHAREHOLDING_ARCHIVE),
           30 * 24 + 1
@@ -472,17 +478,27 @@ describe("the cutover import", () => {
       const limits = invocationLimits(archive)
       return Effect.gen(function* () {
         yield* TestClock.setTime(NOW)
+        const invocation = Layer.merge(limits.layer, archive.workflow.layer)
         let loads = 0
         let shown: string | undefined
         while (shown === undefined && limits.exceeded.length === 0) {
           loads += 1
           assert.isAtMost(loads, 200, "the import never finished")
-          const load = yield* Effect.exit(
-            lastRun.pipe(
-              Effect.provide(Layer.merge(limits.layer, archive.workflow.layer))
+          const load = yield* Effect.result(
+            lastRun.pipe(Effect.provide(invocation))
+          )
+          if (load._tag === "Success") shown = load.success?.result.id
+          else assert.strictEqual(load.failure._tag, "RunsImporting")
+          if (loads !== 1) continue
+          // A start before the import finishes claims nothing.
+          const start = yield* Effect.flip(
+            startRun(RunId.make("admin-1763128800000"), "admin").pipe(
+              Effect.provide(invocation)
             )
           )
-          if (load._tag === "Success") shown = load.value?.result.id
+          assert.strictEqual(start._tag, "RunsImporting")
+          assert.deepStrictEqual([...archive.workflow.instances.keys()], [])
+          assert.isUndefined(latestRunId(archive.db, SHAREHOLDING_ARCHIVE))
         }
         assert.deepStrictEqual(limits.exceeded, [])
         assert.isAbove(loads, 1)

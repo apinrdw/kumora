@@ -12,6 +12,7 @@ import {
 import type { Mail } from "@/server/auth/mailer"
 import { ArchiveBucket } from "@/server/archive/bucket"
 import { RunId } from "@/server/archive/run"
+import { IMPORT_BATCHES, RECORDS_AT_ONCE } from "@/server/archive/run-import"
 import { ArchiveWorkflow } from "@/server/archive/workflow"
 import { recordKey, reportKey } from "@/server/ksei/keys"
 import type { KseiReportKind } from "@/server/ksei/kind"
@@ -685,6 +686,76 @@ describe("the KSEI cutover import's deep run", () => {
         assert.strictEqual(page.lastDeepRun?.id, recent.id)
         assert.notInclude(bucket.gets, `runs/${older.id}.json`)
         assert.strictEqual(runCount(archiveDbOf(bucket), KSEI_ARCHIVE), 1)
+      }).pipe(Effect.provide(layer))
+    }
+  )
+  it.effect(
+    "keeps the deep run it found when the import spans loads, reading no older one, and answers a Conflict until then",
+    () => {
+      const { layer, mails, bucket } = archive()
+      const put = (run: KseiRunResult) =>
+        bucket.objects.set(`runs/${run.id}.json`, {
+          body: JSON.stringify(run),
+          contentType: "application/json",
+          customMetadata: {},
+        })
+      const deepAt = (startedAt: string): KseiRunResult => ({
+        ...RUNNING,
+        id: RunId.make(`deep-${Date.parse(startedAt)}`),
+        trigger: "deep",
+        startedAt,
+        finishedAt: startedAt,
+        outcome: "complete",
+        deep: {
+          foundFromSeed: [],
+          foundByProbing: [],
+          monthsNotFound: {
+            "securities-statistics": [],
+            "securities-holdings": [],
+          },
+          probeFailures: [],
+        },
+      })
+      const older = deepAt("2025-06-15T15:06:40.000Z")
+      const recent = deepAt("2026-11-10T15:06:40.000Z")
+      put(older)
+      put(recent)
+      // Run nows that fill the first load's batches with the deep run
+      // last, so the pointer's run waits for the second load.
+      for (let run = 1; run < IMPORT_BATCHES * RECORDS_AT_ONCE; run++) {
+        const at = Date.parse("2026-11-01T00:00:00.000Z") + run * 60_000
+        put({
+          ...RUNNING,
+          id: RunId.make(`admin-${at}`),
+          trigger: "admin",
+          startedAt: new Date(at).toISOString(),
+          finishedAt: new Date(at).toISOString(),
+          outcome: "complete",
+        })
+      }
+      const pointed: KseiRunResult = {
+        ...RUNNING,
+        id: RunId.make("cron-2026-09-01"),
+        trigger: "cron",
+        startedAt: "2026-09-01T03:00:00.000Z",
+        finishedAt: "2026-09-01T03:05:00.000Z",
+        outcome: "complete",
+      }
+      put(pointed)
+      bucket.objects.set("runs/latest.json", {
+        body: JSON.stringify({ id: pointed.id }),
+        contentType: "application/json",
+        customMetadata: {},
+      })
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        const importing = yield* Effect.flip(kseiArchivePage(headers(cookie)))
+        assert.instanceOf(importing, Conflict)
+        const page = yield* kseiArchivePage(headers(cookie))
+        assert.strictEqual(page.lastRun?.result.id, pointed.id)
+        assert.strictEqual(page.lastDeepRun?.id, recent.id)
+        assert.notInclude(bucket.gets, `runs/${older.id}.json`)
       }).pipe(Effect.provide(layer))
     }
   )

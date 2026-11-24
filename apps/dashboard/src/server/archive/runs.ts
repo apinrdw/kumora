@@ -301,6 +301,12 @@ export const scheduledRun = <
         // A second firing for the same scheduled time (a retried invocation).
         DuplicateRunId: () =>
           Effect.logInfo(`${source.runName} ${id} already started`),
+        // This firing imported what one invocation can; the next load or
+        // start imports more.
+        RunsImporting: () =>
+          Effect.logWarning(
+            `${source.runName} ${id} skipped: its runs are still importing from R2`
+          ),
       })
     )
   })

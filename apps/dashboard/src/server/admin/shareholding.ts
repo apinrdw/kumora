@@ -7,7 +7,10 @@ import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 
 import type { FileRoutesByFullPath } from "@/routeTree.gen"
-import { authorizeArchive } from "@/server/admin/archive-access"
+import {
+  authorizeArchive,
+  importingAsConflict,
+} from "@/server/admin/archive-access"
 import { parseNow } from "@/server/admin/parse-now"
 import { timePart } from "@/server/admin/part-timing"
 import { readPage } from "@/server/archive/page-read"
@@ -51,7 +54,7 @@ export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
         investorTypeParseCoverage: investorTypeParseRuns.parseCoverage,
       },
       timed
-    ).pipe(timed("reads"))
+    ).pipe(timed("reads"), importingAsConflict)
     return {
       lastRun: read.lastRun,
       nextRun: (yield* nextScheduledRun(DateTime.toDateUtc(now))).toISOString(),

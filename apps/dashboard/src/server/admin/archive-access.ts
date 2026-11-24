@@ -1,7 +1,9 @@
 // Who may see an archive's admin page and start its runs: an admin, read past
 // the cookie cache. Anyone else gets the refusal for `path`.
+import { Conflict } from "@workspace/server"
 import { Effect } from "effect"
 
+import type { RunsImporting } from "@/server/archive/run-import"
 import { Auth } from "@/server/auth/auth"
 import { decide, type Action } from "@/server/auth/policy"
 import { refusal } from "@/server/auth/refusal"
@@ -25,3 +27,18 @@ export const authorizeArchive = Effect.fnUntraced(function* (
   })
   if (decision._tag === "Deny") return yield* refusal(decision.reason, path)
 })
+
+// An admin page whose runs are still importing from R2 (RunsImporting,
+// ../archive/run-import.ts) answers a Conflict that says so, not a page
+// showing some of its runs: each load imports more, until one shows it.
+export const importingAsConflict = <A, E, R>(
+  self: Effect.Effect<A, E | RunsImporting, R>
+) =>
+  Effect.catchTag(self, "RunsImporting", () =>
+    Effect.fail(
+      new Conflict({
+        message:
+          "This archive's run history is still being copied from R2. Reload to continue.",
+      })
+    )
+  )
