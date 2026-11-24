@@ -26,10 +26,13 @@ import { ETAG, heldIn, RUN, SHA256 } from "../archive/held.ts"
 import { md5Hex } from "../archive/md5.ts"
 import { failingRun } from "../archive/failing-run.ts"
 import {
+  PLAN_STORE_CALLS,
+  REPORT_STORE_CALLS,
   type Run,
   type RunId,
   runError,
   REPORTS_PREFIX,
+  STORE_SLOWEST_ANSWER,
   storedReports,
 } from "../archive/run.ts"
 import { inArchive } from "./coverage.ts"
@@ -61,11 +64,18 @@ type StepServices = ArchiveBucket | ArchiveDb | HttpClient.HttpClient
 
 // A step that asks KSEI times out when the requests it waits on in turn
 // should all have answered. `plan` (both listings at once) and each
-// `report:` (one file) wait on one request, and get its 2 minutes
+// `report:` (one file) wait on one KSEI request, and get its 2 minutes
 // (KSEI_REQUEST_TIMEOUT, http.ts), which as a step also bound reading the
-// body. `seed`, `summary` and `failed` ask KSEI nothing and keep the
-// runtime's 10 minutes.
-const KSEI_STEP: StepConfig = { timeout: KSEI_REQUEST_TIMEOUT }
+// body, plus their calls in turn to the archive's stores at their slowest
+// (../archive/run.ts): 2.5 minutes for `plan`, 2.1 for a `report:`. `seed`,
+// `summary` and `failed` ask KSEI nothing and keep the runtime's 10
+// minutes.
+const kseiStep = (storeCalls: number) =>
+  Effect.sync((): StepConfig => ({
+    timeout:
+      Duration.toMillis(KSEI_REQUEST_TIMEOUT) +
+      storeCalls * Duration.toMillis(STORE_SLOWEST_ANSWER),
+  }))
 
 // `head` and `probe:` get their longest run of HEADs in turn at
 // KSEI's slowest answer, plus one stuck request: 4.4 minutes for 72 held
@@ -318,9 +328,10 @@ const storeFinds = Effect.fnUntraced(function* (
   run: KseiRun,
   finds: ReadonlyArray<ListedKseiReport>
 ) {
+  const reportStep = yield* kseiStep(REPORT_STORE_CALLS)
   const stored = yield* Effect.forEach(finds, (report) =>
     steps
-      .do(`report:${report.filename}`, archiveFind(run.id, report), KSEI_STEP)
+      .do(`report:${report.filename}`, archiveFind(run.id, report), reportStep)
       .pipe(
         Effect.mapError(() => report.filename),
         Effect.result
@@ -464,7 +475,7 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
 ): Effect.fn.Return<KseiRunResult, StepFailed> {
   const planned = yield* failingRun(
     steps,
-    steps.do("plan", plan(run), KSEI_STEP),
+    steps.do("plan", plan(run), yield* kseiStep(PLAN_STORE_CALLS)),
     (message) => recordPlanFailure(run, message)
   )
   const checked = yield* steps.do(
@@ -482,6 +493,7 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
       return report === undefined ? [] : [{ report, etag }]
     }),
   ]
+  const reportStep = yield* kseiStep(REPORT_STORE_CALLS)
   // A file that still fails after its step's retries isn't held at that
   // ETag, so the next run retries it; this one carries on. A filename names
   // one step: KseiFilename keeps it short and fit for a step name.
@@ -490,7 +502,7 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
       .do(
         `report:${report.filename}`,
         archiveListed(run.id, report, etag),
-        KSEI_STEP
+        reportStep
       )
       .pipe(
         Effect.mapError(() => report.filename),

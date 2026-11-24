@@ -87,6 +87,22 @@ export interface RunParams<Trigger extends string = string> {
 // keys.ts).
 export const REPORTS_PREFIX = "reports/"
 
+// The slowest a healthy call to an archive's own stores answers: a page of a
+// bucket listing, a put, an ArchiveDb batch. The admin pages' slowest such
+// call took 1.5 s, a listing of reports/ across an ocean (apinrdw/kumora#657,
+// 2026-11-24). A step's timeout adds this for each call it makes in turn.
+export const STORE_SLOWEST_ANSWER = "2 seconds"
+
+// The calls in turn a run's `plan` makes to its stores at the largest
+// listing: 10 pages of reports/ at MAX_LISTED_OBJECTS (bucket.ts), 3
+// ArchiveDb batches to heal the report index from it (23 chunks at that
+// size, report-index.test.ts), and its run record.
+export const PLAN_STORE_CALLS = 14
+
+// The calls in turn a `report:` step makes to its stores: whether its file is
+// held, the file, its record, and the record's row in the report index.
+export const REPORT_STORE_CALLS = 4
+
 // Where an archive run's records live. A run that isn't an archive run, such
 // as the KSEI parse run, keeps its own under another prefix in the same
 // bucket (`ArchiveSource.runsPrefix`).
