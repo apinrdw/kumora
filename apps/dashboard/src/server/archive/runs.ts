@@ -55,26 +55,23 @@ export const writeRunRecord = <
 ) => writeRunRow(source, result)
 
 // The run the kind's last start claimed, judged against its instance's
-// status: undefined before any run.
+// status whatever its record says, as a start must: a run's summary step
+// rewrites its record before its instance has ended. Undefined before any
+// run.
 const judgeLatest = <
   Trigger extends string,
   Summary extends RunSummaryBase,
   RunRecord extends RunBase & Summary,
 >(
   source: ArchiveSource<Trigger, Summary, RunRecord>,
-  rows: ReadonlyArray<Record<string, unknown>>
+  rows: Rows
 ) =>
   Effect.gen(function* () {
     const result = yield* decodeRun(source.result, rows)
     if (result === undefined) return undefined
     const instance = yield* (yield* ArchiveWorkflow).status(result.id)
     const now = DateTime.toEpochMillis(yield* DateTime.now)
-    return {
-      result,
-      instance,
-      now,
-      inProgress: yield* isInProgress(result, instance, now),
-    }
+    return { result, inProgress: yield* isInProgress(result, instance, now) }
   })
 
 // The last run, for the admin page: undefined before any run.
@@ -89,9 +86,18 @@ export const lastRunRead = <
   statements: [lastRunStatement(source)],
   read: ([rows = []]: ReadonlyArray<Rows>) =>
     Effect.gen(function* () {
-      const latest = yield* judgeLatest(source, rows)
-      if (latest === undefined) return undefined
-      return yield* viewRun(latest.result, latest.instance, latest.now)
+      const result = yield* decodeRun(source.result, rows)
+      if (result === undefined) return undefined
+      // Only a record that still says running needs its instance's status.
+      const instance =
+        result.outcome === "running"
+          ? yield* (yield* ArchiveWorkflow).status(result.id)
+          : undefined
+      return yield* viewRun(
+        result,
+        instance,
+        DateTime.toEpochMillis(yield* DateTime.now)
+      )
     }),
 })
 
