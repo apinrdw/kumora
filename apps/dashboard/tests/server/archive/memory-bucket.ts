@@ -1,6 +1,5 @@
 // An in-memory archive bucket. `puts` logs every write in order,
-// so a test can tell a rewrite from an untouched object. An object's ETag is
-// its body, so, as R2's MD5, it changes with the content. `failPut`, when
+// so a test can tell a rewrite from an untouched object. `failPut`, when
 // set, fails the next `put` of a key it matches, once, as a transient R2
 // error. `listed` logs every key a listing returned, `gets` every key read.
 import { Clock, Effect, Layer } from "effect"
@@ -91,7 +90,6 @@ export const memoryBucket = (): MemoryBucket => {
               ? undefined
               : {
                   body: object.body,
-                  etag: object.body,
                   uploaded: new Date(object.uploaded ?? now),
                 }
           }),
@@ -117,14 +115,6 @@ export const memoryBucket = (): MemoryBucket => {
             }
             write(key, body, options, now)
             return Effect.void
-          }),
-        // The check and the write in one operation, so no fiber runs
-        // between them.
-        putIfUnchanged: (key, body, options, etag) =>
-          Effect.map(Clock.currentTimeMillis, (now) => {
-            if (objects.get(key)?.body !== etag) return false
-            write(key, body, options, now)
-            return true
           }),
       })
     ),
