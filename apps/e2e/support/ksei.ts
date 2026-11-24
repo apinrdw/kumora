@@ -10,7 +10,7 @@ import { recordKey, reportKey } from "../../dashboard/src/server/ksei/keys.ts"
 import type { KseiRunResult } from "../../dashboard/src/server/ksei/run-result.ts"
 import { KseiRunMetadata } from "../../dashboard/src/server/ksei/run-result.ts"
 import { putObject } from "./archive-bucket"
-import { writeTo } from "./local-d1"
+import { indexRecord } from "./report-index"
 
 const put = (
   key: string,
@@ -45,10 +45,11 @@ export async function seedLatestKseiRun(run: SeededKseiRun) {
   )
 }
 
-// Indexes a stored record in the KSEI rows of ArchiveDb's report index, in
-// archive-migrations/0001_report_index.sql's columns, as the run's `report:`
-// step would.
-function indexRecord(report: {
+// When the KSEI seeds' records were fetched, as their keys say.
+const FETCHED_AT = "2026-11-14T03:00:00.000Z"
+
+// Indexes a stored record in the KSEI rows of ArchiveDb's report index.
+const indexKseiRecord = (report: {
   readonly recordKey: string
   readonly kind: string
   readonly periodEnd: string
@@ -56,24 +57,12 @@ function indexRecord(report: {
   readonly fileKey: string
   readonly fileBytes: number
   readonly record: string
-}) {
-  writeTo("ArchiveDb", (db) => {
-    db.prepare(
-      "INSERT OR IGNORE INTO archived_report (archive, record_key, kind, " +
-        "report_date, sha256, fetched_at, file_key, file_bytes, record_bytes) " +
-        "VALUES ('ksei', ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(
-      report.recordKey,
-      report.kind,
-      report.periodEnd,
-      report.sha256,
-      "2026-11-14T03:00:00.000Z",
-      report.fileKey,
-      report.fileBytes,
-      new TextEncoder().encode(report.record).length
-    )
+}) =>
+  indexRecord("ksei", {
+    ...report,
+    reportDate: report.periodEnd,
+    fetchedAt: FETCHED_AT,
   })
-}
 
 /**
  * Stores a KSEI report under `reports/<kind>/<period end>/` as a run would:
@@ -90,7 +79,7 @@ export async function seedKseiReport(
   await put(fileKey, "x".repeat(bytes), "application/zip")
   await put(key, record, "application/json")
   const [kind = "", periodEnd = ""] = prefix.split("/")
-  indexRecord({
+  indexKseiRecord({
     recordKey: key,
     kind,
     periodEnd,
@@ -128,7 +117,7 @@ export async function seedKseiHoldingsFixture(filename: string) {
           "securities-holdings",
           periodEnd,
           sha256,
-          "2026-11-14T03:00:00.000Z",
+          FETCHED_AT,
           { filename, etag: null }
         ),
       }
@@ -137,7 +126,7 @@ export async function seedKseiHoldingsFixture(filename: string) {
   const record = JSON.stringify({ filename, sha256: keys.sha256 })
   await put(keys.report, bytes, "application/zip")
   await put(keys.record, record, "application/json")
-  indexRecord({
+  indexKseiRecord({
     recordKey: keys.record,
     kind: "securities-holdings",
     periodEnd,

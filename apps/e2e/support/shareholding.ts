@@ -1,4 +1,5 @@
-// Seeds the Test stage's shareholding archive bucket (archive-bucket.ts).
+// Seeds the Test stage's shareholding archive bucket (archive-bucket.ts), and
+// the report index in its ArchiveDb, as an archive run would.
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { readFileSync } from "node:fs"
@@ -7,6 +8,7 @@ import { sha256Hex } from "../../dashboard/src/server/archive/hash.ts"
 import { recordName } from "../../dashboard/src/server/archive/record-key.ts"
 import { RunMetadata } from "../../dashboard/src/server/shareholding/run-result.ts"
 import { putObject } from "./archive-bucket"
+import { indexRecord } from "./report-index"
 
 const put = (
   key: string,
@@ -68,15 +70,30 @@ export async function seedLatestRun(run: SeededRun) {
  * would: `bytes` bytes of file, then its listing record.
  */
 export async function seedReport(prefix: string, hash: string, bytes: number) {
+  const fileKey = `reports/${prefix}/${hash}.xlsx`
+  const key = `reports/${prefix}/${hash}.20261114T060000000Z.0000.json`
+  const record = JSON.stringify({ sha256: hash })
   await put(
-    `reports/${prefix}/${hash}.xlsx`,
+    fileKey,
     "x".repeat(bytes),
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   )
-  await putJson(`reports/${prefix}/${hash}.20261114T060000000Z.0000.json`, {
+  await put(key, record, "application/json")
+  const [kind = "", dataDate = ""] = prefix.split("/")
+  indexRecord("shareholding", {
+    recordKey: key,
+    kind,
+    reportDate: dataDate,
     sha256: hash,
+    fetchedAt: "2026-11-14T06:00:00.000Z",
+    fileKey,
+    fileBytes: bytes,
+    record,
   })
 }
+
+// When seedReportFixture's records were fetched, as their keys say.
+const FIXTURE_FETCHED_AT = "2026-11-14T13:00:00.000Z"
 
 /**
  * Stores one of the dashboard's trimmed report fixtures
@@ -110,16 +127,27 @@ export async function seedReportFixture(
         record: `${prefix}${yield* recordName(
           dataDate,
           sha256,
-          "2026-11-14T13:00:00.000Z",
+          FIXTURE_FETCHED_AT,
           `https://www.idx.co.id/Media/${filename}\n`
         )}`,
       }
     })
   )
+  const record = JSON.stringify({ dataDate, sha256: keys.sha256 })
   await put(
     keys.report,
     bytes,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   )
-  await putJson(keys.record, { dataDate, sha256: keys.sha256 })
+  await put(keys.record, record, "application/json")
+  indexRecord("shareholding", {
+    recordKey: keys.record,
+    kind,
+    reportDate: dataDate,
+    sha256: keys.sha256,
+    fetchedAt: FIXTURE_FETCHED_AT,
+    fileKey: keys.report,
+    fileBytes: bytes.length,
+    record,
+  })
 }
