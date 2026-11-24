@@ -24,6 +24,7 @@ import {
   SHAREHOLDING_ARCHIVE,
   seedRun,
 } from "./runs.ts"
+import { invocationLimits } from "./invocation-limits.ts"
 import { readAlone } from "./read-alone.ts"
 
 const lastRun = readAlone(lastRunRead)
@@ -434,6 +435,74 @@ describe("the cutover import", () => {
       )
     },
     60_000
+  )
+
+  it.effect(
+    "finishes across loads within one Worker invocation's limits, reading each R2 record once, at more runs than one invocation can import",
+    () => {
+      const archive = runStores()
+      // 30 days of hourly cron runs and a Run now every 273 seconds, as many
+      // as one listing holds: written RECORDS_AT_ONCE a batch, more batches
+      // than D1's 1,000 queries an invocation. Two of the Run nows' records
+      // no longer decode.
+      const HOUR = 3_600_000
+      const since = NOW - 30 * DAY
+      const ids: Array<string> = []
+      for (let hour = 0; hour < 30 * 24; hour++) {
+        const startedAt = new Date(NOW - hour * HOUR).toISOString()
+        const id = `cron-${startedAt.slice(0, 13)}`
+        ids.push(id)
+        inR2(archive, { ...COMPLETE, id: RunId.make(id), startedAt })
+      }
+      for (let at = since + 60_000; at < NOW; at += 273_000) {
+        const id = `admin-${at}`
+        ids.push(id)
+        inR2(archive, {
+          ...COMPLETE,
+          id: RunId.make(id),
+          trigger: "admin",
+          startedAt: new Date(at).toISOString(),
+        })
+      }
+      const undecodable = ids.slice(-2)
+      for (const id of undecodable)
+        putJson(archive, `runs/${id}.json`, { id, trigger: "admin" })
+      const newest = ids.at(-3) ?? ""
+      putJson(archive, "runs/latest.json", { id: newest })
+      const limits = invocationLimits(archive)
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(NOW)
+        let loads = 0
+        let shown: string | undefined
+        while (shown === undefined && limits.exceeded.length === 0) {
+          loads += 1
+          assert.isAtMost(loads, 200, "the import never finished")
+          const load = yield* Effect.exit(
+            lastRun.pipe(
+              Effect.provide(Layer.merge(limits.layer, archive.workflow.layer))
+            )
+          )
+          if (load._tag === "Success") shown = load.value?.result.id
+        }
+        assert.deepStrictEqual(limits.exceeded, [])
+        assert.isAbove(loads, 1)
+        assert.strictEqual(shown, newest)
+        assert.strictEqual(
+          runCount(archive.db, SHAREHOLDING_ARCHIVE),
+          ids.length - undecodable.length
+        )
+        const reads = new Map<string, number>()
+        for (const key of archive.bucket.gets)
+          reads.set(key, (reads.get(key) ?? 0) + 1)
+        reads.delete("runs/latest.json")
+        assert.deepStrictEqual(
+          [...reads].filter(([, count]) => count > 1),
+          []
+        )
+        assert.strictEqual(reads.size, ids.length)
+      })
+    },
+    120_000
   )
 
   it.effect("imports nothing on a fresh stage, and only once", () => {
