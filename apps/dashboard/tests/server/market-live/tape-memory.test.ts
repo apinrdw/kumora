@@ -69,7 +69,7 @@ describe("the trade chunks at the sparsest tape", () => {
     () =>
       Effect.gen(function* () {
         const { sql, peakOf } = sampled(memorySql())
-        const store = yield* makeDayStore(sql, { today: true })
+        const store = yield* makeDayStore(sql)
         const end = DateTime.makeUnsafe(MINUTE + MINUTE_MS - 1)
 
         const write = yield* peakOf(

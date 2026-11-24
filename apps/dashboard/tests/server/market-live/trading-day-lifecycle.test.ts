@@ -31,7 +31,7 @@ import { TestClock } from "effect/testing"
 import { readBrokerTotals } from "@/server/broker-totals/db"
 import { MISSING_ALLOWANCE } from "@/server/market-live/broker-codes"
 import type { Sql } from "@/server/market-live/day-store"
-import { makeTape } from "@/server/market-live/tape"
+import { makeTape } from "@/server/market-live/tape-chunks"
 import {
   makeTradingDay,
   type Peer,

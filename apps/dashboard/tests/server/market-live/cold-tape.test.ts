@@ -1,7 +1,6 @@
 // Spec apinrdw/kumora#556, ticket #578: a cold day's Tape and BrokerCodes
 // answers come from 1,000-trade blocks in R2, read by range behind the day's
-// tape index, and equal the object's answers before the move, on either
-// trade shape.
+// tape index, and equal the object's answers before the move.
 import { assert, describe, it } from "@effect/vitest"
 import { TradeNumber, WibDate, type RecordedResource } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
@@ -13,7 +12,7 @@ import { makeDayIndex } from "@/server/market-live/day-index"
 
 import { stockbitTrade, tradingDay } from "./day-harness"
 import { memoryDayBucket } from "./memory-day-bucket"
-import { memorySql, rowShapedSql } from "./sql"
+import { memorySql } from "./sql"
 
 const DAY = WibDate.make("2026-11-09")
 const SEALED = "private, max-age=31536000, immutable"
@@ -130,50 +129,41 @@ const answered = Effect.fnUntraced(function* (response: Response) {
 })
 
 describe("a cold day's tape and broker codes", () => {
-  for (const [shape, sql] of [
-    ["trade chunks", memorySql],
-    ["a row per trade", rowShapedSql],
-  ] as const)
-    it.effect(
-      `answer from R2 as the object did, on ${shape}, reading the index once and at most two blocks`,
-      () =>
-        Effect.gen(function* () {
-          const sealed = yield* sealedDay(sql())
-          const hot: Array<string> = []
-          for (const resource of RESOURCES)
-            hot.push(yield* answered(yield* sealed.day.recorded(resource)))
-          assert.include(hot.at(-4), '"tradeNumber":"10400"')
-          assert.include(hot.at(-3), '"buyer":"AK"')
+  it.effect(
+    "answer from R2 as the object did, reading the index once and at most two blocks",
+    () =>
+      Effect.gen(function* () {
+        const sealed = yield* sealedDay(memorySql())
+        const hot: Array<string> = []
+        for (const resource of RESOURCES)
+          hot.push(yield* answered(yield* sealed.day.recorded(resource)))
+        assert.include(hot.at(-4), '"tradeNumber":"10400"')
+        assert.include(hot.at(-3), '"buyer":"AK"')
 
-          assert.isTrue(yield* sealed.day.movedToR2)
+        assert.isTrue(yield* sealed.day.movedToR2)
 
-          const blockReads: Array<number> = []
-          const cold: Array<string> = []
-          for (const resource of RESOURCES) {
-            const before = sealed.days.reads.length
-            const response = yield* coldAnswer(
-              sealed.days.bucket,
-              DAY,
-              resource
-            )
-            assert.isDefined(response)
-            assert.strictEqual(response!.headers.get("Cache-Control"), SEALED)
-            cold.push(yield* answered(response!))
-            blockReads.push(
-              sealed.days.reads
-                .slice(before)
-                .filter((read) => read.includes("+")).length
-            )
-          }
-          assert.deepStrictEqual(cold, hot)
-          assert.strictEqual(
-            sealed.days.reads.filter((read) => !read.includes("+")).length,
-            1
+        const blockReads: Array<number> = []
+        const cold: Array<string> = []
+        for (const resource of RESOURCES) {
+          const before = sealed.days.reads.length
+          const response = yield* coldAnswer(sealed.days.bucket, DAY, resource)
+          assert.isDefined(response)
+          assert.strictEqual(response!.headers.get("Cache-Control"), SEALED)
+          cold.push(yield* answered(response!))
+          blockReads.push(
+            sealed.days.reads.slice(before).filter((read) => read.includes("+"))
+              .length
           )
-          assert.isAtMost(Math.max(...blockReads), 2)
-        }),
-      60_000
-    )
+        }
+        assert.deepStrictEqual(cold, hot)
+        assert.strictEqual(
+          sealed.days.reads.filter((read) => !read.includes("+")).length,
+          1
+        )
+        assert.isAtMost(Math.max(...blockReads), 2)
+      }),
+    60_000
+  )
 })
 
 // Ten cold days' tape indexes, each with no block, as a day of no trades

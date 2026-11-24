@@ -74,7 +74,7 @@ describe("the candle book over a full day", () => {
     "holds no more than the minute being traded, serves every candle, and adds a late trade to a stored one",
     () =>
       Effect.gen(function* () {
-        const store = yield* makeDayStore(memorySql(), { today: true })
+        const store = yield* makeDayStore(memorySql())
         const book = yield* makeCandleBook(store, () => {})
         const first = wib("08:58:00")
         let number = 0
@@ -160,7 +160,7 @@ describe("a candle's buy value and sell value", () => {
     "sum the minute's trades by aggressor side, with no-side trades in value only; an index's are 0",
     () =>
       Effect.gen(function* () {
-        const store = yield* makeDayStore(memorySql(), { today: true })
+        const store = yield* makeDayStore(memorySql())
         const book = yield* makeCandleBook(store, () => {})
         const minute = wib("09:00:00")
         yield* TestClock.setTime(DateTime.toEpochMillis(minute) + 10_000)
@@ -249,7 +249,7 @@ describe("the candle book's sweep alerts", () => {
   // A day store, and a book over it: opening a second one is a restart.
   // `alerts` hears `trades` at `time` and gives the next delta's alerts.
   const day = Effect.gen(function* () {
-    const store = yield* makeDayStore(memorySql(), { today: true })
+    const store = yield* makeDayStore(memorySql())
     const open = Effect.gen(function* () {
       const book = yield* makeCandleBook(store, () => {})
       const alerts = Effect.fnUntraced(function* (
@@ -694,7 +694,7 @@ describe("the candle book's sweep alerts", () => {
         for (let seed = 1; seed <= 60; seed++) {
           const next = random(seed)
           const pick = (below: number) => Math.floor(next() * below)
-          const store = yield* makeDayStore(memorySql(), { today: true })
+          const store = yield* makeDayStore(memorySql())
           yield* storeWarm(store)
           let book = yield* makeCandleBook(store, () => {})
           yield* book.rankStored

@@ -188,8 +188,7 @@ const fold = (a: CandleFigures, b: CandleFigures): CandleFigures => {
 const add = (figures: CandleFigures | undefined, print: Print) =>
   figures === undefined ? single(print) : fold(figures, single(print))
 
-// A trade's value by side; tape.ts `REBUILD_CANDLE_SIDES` repeats this
-// rule in SQL.
+// A trade's value by side.
 const printOf = (trade: RunningTrade): Print => {
   const value = trade.price * trade.lots * SHARES_PER_LOT
   return {
@@ -243,8 +242,7 @@ export const minuteOf = (time: DateTime.Utc) =>
     Math.floor(DateTime.toEpochMillis(time) / MINUTE_MS) * MINUTE_MS
   )
 
-// Whether a trade counts toward its candle; tape.ts
-// `REBUILD_CANDLE_SIDES` repeats this filter in SQL.
+// Whether a trade counts toward its candle.
 const counts = (trade: RunningTrade) => Effect.succeed(trade.board === "RG")
 
 // Whether two copies of a trade give its candle, footprint and sweeps the

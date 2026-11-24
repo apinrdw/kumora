@@ -51,7 +51,7 @@ const EVENTS: ReadonlyArray<OrderFlowEvent> = [
 describe("the day store's order flow events", () => {
   it.effect("each kind reads back as it was flushed", () =>
     Effect.gen(function* () {
-      const store = yield* makeDayStore(memorySql(), { today: true })
+      const store = yield* makeDayStore(memorySql())
       yield* store.write({
         trades: [],
         footprints: [],

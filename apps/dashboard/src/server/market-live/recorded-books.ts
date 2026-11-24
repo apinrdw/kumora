@@ -15,13 +15,10 @@ const decodeCodes = Schema.decodeUnknownEffect(RecordedCodes)
 // (apps/dashboard/docs/adr/0095-only-listed-codes-join-the-recorded-books-set.md)
 const UNLISTED_LIMIT = 4_000
 
-// Decision: a row-per-trade day records every code's books and writes no set
-// (apps/dashboard/docs/adr/0096-a-row-tape-day-records-every-code-s-books.md)
 export const makeRecordedBooks = Effect.fnUntraced(function* (
   store: Effect.Success<ReturnType<typeof makeDayStore>>
 ) {
-  const everyCode = store.tapeShape === "rows"
-  const stored = everyCode ? undefined : yield* store.fact(Fact.recordedBooks)
+  const stored = yield* store.fact(Fact.recordedBooks)
   const codes = new Set<StockCode>(
     stored === undefined ? [] : yield* decodeCodes(stored)
   )
@@ -31,7 +28,7 @@ export const makeRecordedBooks = Effect.fnUntraced(function* (
   // Whether `code` joined just now, given the codes the day's list names.
   const join = (code: StockCode, listed: ReadonlySet<StockCode> | undefined) =>
     Effect.sync(() => {
-      if (everyCode || codes.has(code)) return false
+      if (codes.has(code)) return false
       if (
         listed === undefined ? codes.size >= UNLISTED_LIMIT : !listed.has(code)
       )
@@ -40,20 +37,16 @@ export const makeRecordedBooks = Effect.fnUntraced(function* (
       return true
     })
 
-  const has = (code: StockCode) =>
-    Effect.sync(() => everyCode || codes.has(code))
+  const has = (code: StockCode) => Effect.sync(() => codes.has(code))
 
   // Whether the day answers `code`'s book as not recorded.
-  const notRecorded = (code: StockCode) =>
-    Effect.sync(() => !everyCode && !codes.has(code))
+  const notRecorded = (code: StockCode) => Effect.sync(() => !codes.has(code))
 
   // The set's text when the store lacks it.
   const unwrittenText = Effect.suspend(() =>
-    everyCode
-      ? Effect.succeed(undefined)
-      : Effect.map(encodeCodes([...codes].sort()), (current) =>
-          current === written ? undefined : current
-        )
+    Effect.map(encodeCodes([...codes].sort()), (current) =>
+      current === written ? undefined : current
+    )
   )
 
   // The facts the next flush writes: the set, unless the store holds it.

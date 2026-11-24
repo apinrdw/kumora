@@ -1,7 +1,7 @@
 // The older days' moves (spec apinrdw/kumora#556, "The move"): the
 // reconcile cron moves the days recorded before cold days a few a night,
-// oldest first, each on whichever trade shape and heatmap form it holds, and
-// every answer it serves from R2 is the one its object served.
+// oldest first, and every answer it serves from R2 is the one its object
+// served.
 import { gunzipSync } from "node:zlib"
 
 import { assert, describe, it } from "@effect/vitest"
@@ -18,17 +18,11 @@ import { TestClock } from "effect/testing"
 import { coldAnswer } from "@/server/market-live/cold-days"
 import { askOlderMoves } from "@/server/market-live/cold-moves"
 import { makeDayIndex } from "@/server/market-live/day-index"
-import type { Sql } from "@/server/market-live/day-store"
 
-import {
-  heatmapRowsBeforeOnRead,
-  stockbitBook,
-  stockbitTrade,
-  tradingDay,
-} from "./day-harness"
+import { stockbitBook, stockbitTrade, tradingDay } from "./day-harness"
 import { memoryDayBucket } from "./memory-day-bucket"
 import { asMoved } from "./moved-answer"
-import { memorySql, rowShapedSql } from "./sql"
+import { memorySql } from "./sql"
 
 // The harness records every day on 2026-11-09; the index lists each under
 // its own date.
@@ -66,20 +60,17 @@ const answered = Effect.fnUntraced(function* (response: Response) {
   return `${response.status} ${new TextDecoder().decode(body)}`
 })
 
-// A day recorded before cold days, on `sql`: a code list naming UNTR and
-// BBCA, UNTR's book a viewer had recorded, a few trades, one walked code,
-// sealed at 17:00; a heatmap row beside each book chunk when `heatRows`.
-// It moves to its own bucket in memory and is marked cold in `index` as
-// `date`.
+// A day recorded before cold days: a code list naming UNTR and BBCA, UNTR's
+// book a viewer had recorded, a few trades, one walked code, sealed at
+// 17:00. It moves to its own bucket in memory and is marked cold in `index`
+// as `date`.
 const oldDay = Effect.fnUntraced(function* (
   index: Effect.Success<ReturnType<typeof makeDayIndex>>,
-  date: WibDate,
-  sql: Sql,
-  heatRows: boolean
+  date: WibDate
 ) {
   yield* at("09:01:10")
   const days = memoryDayBucket()
-  const day = yield* tradingDay(sql, [], undefined, {
+  const day = yield* tradingDay(memorySql(), [], undefined, {
     bucket: Effect.succeed(days.bucket),
     markCold: index.markCold(date),
   })
@@ -114,7 +105,6 @@ const oldDay = Effect.fnUntraced(function* (
       side: "sell",
     }),
   ])
-  if (heatRows) yield* heatmapRowsBeforeOnRead(sql)
   yield* at("17:00:00")
   yield* day.alarm
   yield* day.brokerCodes("Ajaib", [[2, "AK F BK D"]], 3)
@@ -139,25 +129,15 @@ const chain = Effect.fnUntraced(function* (old: OldDay) {
 
 describe("the older days' moves", () => {
   it.effect(
-    "moves a few old days of either shape a night, oldest first, each answering from R2 as its object did",
+    "moves a few old days a night, oldest first, each answering from R2 as its object did",
     () =>
       Effect.gen(function* () {
         const index = yield* makeDayIndex(memorySql())
         const olds = [
-          yield* oldDay(
-            index,
-            WibDate.make("2026-10-01"),
-            rowShapedSql(),
-            true
-          ),
-          yield* oldDay(index, WibDate.make("2026-10-02"), memorySql(), false),
-          yield* oldDay(
-            index,
-            WibDate.make("2026-10-05"),
-            rowShapedSql(),
-            false
-          ),
-          yield* oldDay(index, WibDate.make("2026-10-06"), memorySql(), true),
+          yield* oldDay(index, WibDate.make("2026-10-01")),
+          yield* oldDay(index, WibDate.make("2026-10-02")),
+          yield* oldDay(index, WibDate.make("2026-10-05")),
+          yield* oldDay(index, WibDate.make("2026-10-06")),
         ]
         // The newest 15 days, the backstop's, are never asked here.
         for (let day = 7; day <= 21; day++)

@@ -1,5 +1,5 @@
-// What a day's tape offers (tape.ts), which both of its backings implement:
-// a row per trade (tape.ts) and 1,000-number trade chunks (tape-chunks.ts).
+// What a day's tape offers (tape-chunks.ts), and the time arithmetic its
+// reads share with the cold tape (cold-tape.ts).
 import {
   MINUTE_MS,
   type RunningTrade,
@@ -31,15 +31,11 @@ interface MinuteSpan {
 // Decision: code run inside a synchronous transaction stays plain, not an Effect
 // (apps/dashboard/docs/adr/0076-methods-called-inside-a-synchronous-transaction-stay-plain.md)
 export interface Tape {
-  // Which backing holds the day's trades (tape.ts, `makeTape`).
-  readonly shape: "rows" | "chunks"
   // The trades, inside a transaction. A number is written once.
   readonly write: (trades: ReadonlyArray<RunningTrade>) => void
   readonly highestNumber: () => number | undefined
   // The numbers held from `low` to `high`, ascending.
   readonly numbersBetween: (low: number, high: number) => Array<number>
-  // Each stored candle's buy and sell value from the stored trades.
-  readonly rebuildCandleSides: () => void
   readonly has: (tradeNumber: TradeNumber) => Effect.Effect<boolean>
   // How many trades the day stored so far.
   readonly count: Effect.Effect<number>

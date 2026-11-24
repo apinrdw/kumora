@@ -40,8 +40,7 @@ import {
 import type { StoredAjaibBook } from "./order-books.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 import { sweepsFromText, sweepsText } from "./sweep-rows.ts"
-import { TRADE_CODES_FACT } from "./tape-chunks.ts"
-import { makeTape } from "./tape.ts"
+import { TRADE_CODES_FACT, makeTape } from "./tape-chunks.ts"
 
 export type SqlValue = string | number | null | Uint8Array
 
@@ -239,10 +238,6 @@ const SCHEMA = [
   ) WITHOUT ROWID`,
 ]
 
-// Decision: an old day store gains buy and sell value last; sealed days keep 0
-// (apps/dashboard/docs/adr/0080-old-day-stores-gain-candle-buy-and-sell-value-columns-last.md)
-const ADDED_CANDLE_COLUMNS = ["buy_value", "sell_value"]
-
 // The keys of the facts table.
 export const Fact = {
   sealed: "sealed",
@@ -407,28 +402,10 @@ const livePriceOf = (frame: SqlValue | undefined) =>
 const chunkOf = (blob: SqlValue | undefined) =>
   Effect.sync(() => new TextDecoder().decode(gunzipSync(blob as Uint8Array)))
 
-// `today` when the store holds today's WIB date.
-export const makeDayStore = (
-  sql: Sql,
-  { today }: { readonly today: boolean }
-) =>
+export const makeDayStore = (sql: Sql) =>
   Effect.gen(function* () {
     for (const statement of SCHEMA) sql.exec(statement)
     const tape = makeTape(sql)
-    const columns = new Set(
-      sql.exec("PRAGMA table_info(candles)").map((row) => String(row.name))
-    )
-    const added = ADDED_CANDLE_COLUMNS.filter((column) => !columns.has(column))
-    const sealed =
-      sql.exec("SELECT 1 FROM facts WHERE key = ?", Fact.sealed).length > 0
-    if (added.length > 0)
-      sql.transaction(() => {
-        for (const column of added)
-          sql.exec(
-            `ALTER TABLE candles ADD COLUMN ${column} REAL NOT NULL DEFAULT 0`
-          )
-        if (today || !sealed) tape.rebuildCandleSides()
-      })
 
     let meter = yield* emptyMeter
     // Runs `work`, adding the rows the database counted meanwhile to the
@@ -860,7 +837,7 @@ export const makeDayStore = (
     })
 
     // One stock's regular-board trades in one minute, ascending by trade
-    // number. The tape has no code index (tape.ts, tape-chunks.ts), so this
+    // number. The tape has no code index (tape-chunks.ts), so this
     // reads the whole market's minute; the book asks only when a late trade
     // lands in a stored minute (candles.ts, `slotSweeps`).
     const storedMinuteTrades = Effect.fnUntraced(function* (
@@ -1224,7 +1201,6 @@ export const makeDayStore = (
       takeMeter,
       takeUsage,
       orderFlowStorage,
-      tapeShape: tape.shape,
       hasTrade: tape.has,
       highestTrade,
       // How many trades the day stored so far.

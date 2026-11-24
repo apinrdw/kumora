@@ -51,7 +51,7 @@ describe("the heatmap read at the busiest recorded book", () => {
     "keeps each minute's ending book, not its frames",
     () =>
       Effect.gen(function* () {
-        const store = yield* makeDayStore(memorySql(), { today: true })
+        const store = yield* makeDayStore(memorySql())
         for (let index = 0; index < MINUTES; index++) {
           const minute = FIRST + index * MINUTE_MS
           yield* store.write({
