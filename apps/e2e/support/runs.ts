@@ -5,16 +5,14 @@
 import type {
   RunArchive,
   RunKind,
+  RunSummaryBase,
 } from "../../dashboard/src/server/archive/run.ts"
 
 import { writeTo } from "./local-d1"
 
-interface SeededRunRecord {
-  readonly id: string
-  readonly trigger: string
-  readonly startedAt: string
-  readonly outcome: string
-}
+// A run's summary fields as a seed writes them: its id unbranded, as the
+// seeds' records are written in their encoded form.
+type SeededRun = Omit<RunSummaryBase, "id"> & { readonly id: string }
 
 /**
  * Writes the run's row: as the run its kind's last start claimed when
@@ -24,7 +22,7 @@ interface SeededRunRecord {
 export function seedRunRow(
   archive: RunArchive,
   runKind: RunKind,
-  run: SeededRunRecord,
+  run: SeededRun,
   { latest }: { readonly latest: boolean }
 ) {
   writeTo("ArchiveDb", (db) => {

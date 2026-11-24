@@ -3,7 +3,10 @@
 // and the last run the page shows. Spec apinrdw/kumora#303, "Starting a
 // run", and #659. Each archive passes its ArchiveSource (run.ts) and
 // provides its own ArchiveBucket, for the cutover import (run-import.ts), and
-// its own ArchiveWorkflow.
+// its own ArchiveWorkflow. Its page parts (`lastRunRead`, `latestRunWhereRead`)
+// and their statements are plain functions, not Effects, as reportIndexOf
+// (report-index.ts) is: each archive builds them once at module load, and
+// they only return a part (page-read.ts), whose `read` is the Effect.
 import { DateTime, Effect, Schema } from "effect"
 
 import type { Statement } from "../d1.ts"

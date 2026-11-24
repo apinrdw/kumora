@@ -2,7 +2,10 @@
 // run of either archive, with the whole run record as JSON beside the
 // columns its reads filter and sort on. The statements here read one kind's
 // rows, so an admin page can put several in one ArchiveDb batch
-// (`readPage`, page-read.ts).
+// (`readPage`, page-read.ts). Its statements and a row's values are plain
+// functions, not Effects, as reportIndexOf (report-index.ts) is: a page part
+// holds its statements as data, built at module load, and they only build
+// that data, doing no work and never failing.
 import { Effect, Option, Schema } from "effect"
 
 import type { Statement } from "../d1.ts"

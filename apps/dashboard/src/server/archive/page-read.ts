@@ -1,7 +1,10 @@
 // An admin page's archive metadata in one ArchiveDb batch: each part of the
 // page (its last run, recent runs, totals, …) gives its statements and how
 // to read their rows, and `readPage` sends every part's statements at once.
-// Spec apinrdw/kumora#659, "The page read".
+// Spec apinrdw/kumora#659, "The page read". `allReads`, `bothReads` and
+// `mapRead` are plain functions, not Effects, as reportIndexOf
+// (report-index.ts) is: each archive combines its parts once at module
+// load, and they only return a part, whose `read` is the Effect.
 import { Effect } from "effect"
 
 import type { Statement } from "../d1.ts"

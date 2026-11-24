@@ -8,6 +8,8 @@
 //   runs/latest.json                                       { id } of the last run
 import { Effect, Result, Schema } from "effect"
 
+import type { IndexedArchiveName } from "./indexed-archive.ts"
+
 // A run's id, which is also its Workflow instance's: `<trigger>-<when>`, as
 // the archive's `runIdAt` names it.
 export const RunId = Schema.NonEmptyString.pipe(Schema.brand("RunId"))
@@ -146,10 +148,10 @@ export interface RunBase extends RunSummaryBase {
 
 // Which archive a run is of, as the report index names it
 // (report-index.ts): each has its own bucket and run machinery.
-export type RunArchive = "ksei" | "shareholding"
+export type RunArchive = IndexedArchiveName
 
-// Which of an archive's runs: its archive run, or one of its parse runs
-// (../holdings/parse-runs.ts). One run of each kind is in progress at a
+// Which of an archive's runs: its archive run (IDX's) or KSEI archive run,
+// or one of its parse runs (../holdings/parse-runs.ts). One run of each kind is in progress at a
 // time.
 export type RunKind =
   | "archive"

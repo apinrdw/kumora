@@ -3,7 +3,9 @@
 // written before ArchiveDb held runs. ArchiveDb then marks the kind
 // imported, so a later read imports nothing. The R2 records and pointer stay
 // in place and are no longer written. Spec apinrdw/kumora#659, "Cutover
-// import".
+// import". `importedKind` and its statement are plain functions, not
+// Effects, as reportIndexOf (report-index.ts) is: they only build a page
+// part's kinds (page-read.ts), whose `importRuns` is the Effect.
 import { Clock, Effect, Option, Schema } from "effect"
 
 import type { Statement } from "../d1.ts"

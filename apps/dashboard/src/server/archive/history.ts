@@ -1,5 +1,7 @@
 // An admin page's view of an archive's runs over time: the runs of the past
-// 30 days (spec apinrdw/kumora#303, "The admin page").
+// 30 days (spec apinrdw/kumora#303, "The admin page"). `recentRunsRead` is
+// a plain function, not an Effect, as reportIndexOf (report-index.ts) is: it
+// only returns a page part (page-read.ts), whose `read` is the Effect.
 import { DateTime, Effect } from "effect"
 
 import { RETENTION_MS } from "./retention.ts"
