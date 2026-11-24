@@ -153,7 +153,7 @@ test.describe("a member", () => {
 })
 
 // Serial, since these tests share the Test stage's KSEI bucket.
-// Each last-run test points its one runs/latest.json at its own run, the
+// Each last-run test makes its own run the last one, the
 // totals count all of reports/, and the coverage reads all of reports/ and
 // the newest deep run with finds. So the totals and the coverage before any
 // deep backfill come first, DEEP and the coverage's own deep run after.
@@ -465,7 +465,7 @@ test.describe.serial("an admin's KSEI archive", () => {
   })
 })
 
-// These seed runs/ records without touching runs/latest.json, and
+// These seed runs without changing the last run, and
 // no deep finds, so they run beside the serial tests above.
 test.describe("an admin's KSEI archive history", () => {
   test.use({ storageState: ADMIN.storageState })
