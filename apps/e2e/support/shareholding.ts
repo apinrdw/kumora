@@ -8,7 +8,7 @@ import { sha256Hex } from "../../dashboard/src/server/archive/hash.ts"
 import { recordName } from "../../dashboard/src/server/archive/record-key.ts"
 import { RunMetadata } from "../../dashboard/src/server/shareholding/run-result.ts"
 import { putObject } from "./archive-bucket"
-import { indexRecord } from "./report-index"
+import { seedSizedReport, storeIndexedReport } from "./report-index"
 
 const put = (
   key: string,
@@ -65,30 +65,21 @@ export async function seedLatestRun(run: SeededRun) {
   await putJson("runs/latest.json", { id: run.id })
 }
 
+// The spreadsheet type the archive stores its files as.
+const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
 /**
  * Stores a report under `reports/<kind>/<data date>/` as an archive run
  * would: `bytes` bytes of file, then its listing record.
  */
 export async function seedReport(prefix: string, hash: string, bytes: number) {
-  const fileKey = `reports/${prefix}/${hash}.xlsx`
-  const key = `reports/${prefix}/${hash}.20261114T060000000Z.0000.json`
-  const record = JSON.stringify({ sha256: hash })
-  await put(
-    fileKey,
-    "x".repeat(bytes),
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  )
-  await put(key, record, "application/json")
-  const [kind = "", dataDate = ""] = prefix.split("/")
-  indexRecord("shareholding", {
-    recordKey: key,
-    kind,
-    reportDate: dataDate,
-    sha256: hash,
+  await seedSizedReport("shareholding", {
+    prefix,
+    hash,
+    bytes,
+    extension: "xlsx",
+    contentType: XLSX,
     fetchedAt: "2026-11-14T06:00:00.000Z",
-    fileKey,
-    fileBytes: bytes,
-    record,
   })
 }
 
@@ -133,21 +124,15 @@ export async function seedReportFixture(
       }
     })
   )
-  const record = JSON.stringify({ dataDate, sha256: keys.sha256 })
-  await put(
-    keys.report,
-    bytes,
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  )
-  await put(keys.record, record, "application/json")
-  indexRecord("shareholding", {
-    recordKey: keys.record,
+  await storeIndexedReport("shareholding", {
     kind,
     reportDate: dataDate,
     sha256: keys.sha256,
     fetchedAt: FIXTURE_FETCHED_AT,
     fileKey: keys.report,
-    fileBytes: bytes.length,
-    record,
+    file: bytes,
+    contentType: XLSX,
+    recordKey: keys.record,
+    record: JSON.stringify({ dataDate, sha256: keys.sha256 }),
   })
 }
