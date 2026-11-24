@@ -3,9 +3,9 @@ import { STEP_RESULT_BYTES } from "@workspace/server"
 import { DateTime, Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
-import { ArchiveDb } from "@/server/archive/archive-db"
+import { ArchiveDb, ArchiveDbError } from "@/server/archive/archive-db"
 import { ArchiveBucket } from "@/server/archive/bucket"
-import { RECORDS_AT_ONCE } from "@/server/archive/run-import"
+import { IMPORT_BATCHES, RECORDS_AT_ONCE } from "@/server/archive/run-import"
 import { RunId } from "@/server/archive/run"
 import type { ArchiveRunResult } from "@/server/shareholding/run-result"
 import {
@@ -546,6 +546,76 @@ describe("the cutover import", () => {
       })
     },
     120_000
+  )
+
+  it.effect(
+    "moves no scan back when a slower load writes after a faster one",
+    () => {
+      const archive = runStores()
+      // Run nows of the past 30 days, more than two loads' imports read.
+      const runs = 2 * IMPORT_BATCHES * RECORDS_AT_ONCE + 50
+      for (let run = 0; run < runs; run++) {
+        const at = NOW - DAY + run * 60_000
+        inR2(archive, {
+          ...COMPLETE,
+          id: RunId.make(`admin-${at}`),
+          trigger: "admin",
+          startedAt: new Date(at).toISOString(),
+        })
+      }
+      // A load whose first write of its import waits for a whole other
+      // load, and which is cut off before its second.
+      let wrote = false
+      const slow = Layer.effect(
+        ArchiveDb,
+        Effect.gen(function* () {
+          const inner = yield* ArchiveDb
+          return ArchiveDb.of({
+            batch: (statements) => {
+              if (!statements.some(({ sql }) => sql.includes("INTO run (")))
+                return inner.batch(statements)
+              if (wrote)
+                return Effect.fail(
+                  new ArchiveDbError({ cause: new Error("cut off") })
+                )
+              wrote = true
+              return Effect.flatMap(
+                Effect.exit(lastRun.pipe(provide(archive))),
+                () => inner.batch(statements)
+              )
+            },
+          })
+        })
+      ).pipe(Layer.provide(archive.db.layer))
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(NOW)
+        const cutOff = yield* Effect.flip(
+          lastRun.pipe(
+            Effect.provide(
+              Layer.mergeAll(slow, archive.bucket.layer, archive.workflow.layer)
+            )
+          )
+        )
+        assert.strictEqual(cutOff._tag, "ArchiveDbError")
+        let shown = yield* Effect.result(lastRun)
+        while (shown._tag === "Failure") {
+          assert.strictEqual(shown.failure._tag, "RunsImporting")
+          shown = yield* Effect.result(lastRun)
+        }
+        assert.strictEqual(runCount(archive.db, SHAREHOLDING_ARCHIVE), runs)
+        const reads = new Map<string, number>()
+        for (const key of archive.bucket.gets)
+          reads.set(key, (reads.get(key) ?? 0) + 1)
+        reads.delete("runs/latest.json")
+        // Only what the slower load read was read twice, by it and by the
+        // faster load: the batch it wrote, and the next, read before it was
+        // cut off.
+        assert.strictEqual(
+          [...reads].filter(([, count]) => count > 1).length,
+          2 * RECORDS_AT_ONCE
+        )
+      }).pipe(provide(archive))
+    }
   )
 
   it.effect("imports nothing on a fresh stage, and only once", () => {

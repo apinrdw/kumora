@@ -798,6 +798,64 @@ describe("the KSEI cutover import's deep run", () => {
       }).pipe(Effect.provide(layer))
     }
   )
+  it.effect(
+    "shows a last run that its trigger's reader passes over, and the older run the reader takes",
+    () => {
+      const { layer, mails, bucket } = archive()
+      // The pointer names a deep run that failed before its finds, older
+      // than 30 days: only the latest scan keeps it.
+      const pointed: KseiRunResult = {
+        ...deepAt("2026-09-01T03:00:00.000Z"),
+        outcome: "failed",
+        error: "KSEI answered 503",
+        deep: null,
+      }
+      const withFinds = deepAt("2025-06-15T15:06:40.000Z")
+      inR2(bucket, pointed)
+      inR2(bucket, withFinds)
+      putJson(bucket, "runs/latest.json", { id: pointed.id })
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        const page = yield* kseiArchivePage(headers(cookie))
+        assert.deepStrictEqual(page.lastRun?.result, pointed)
+        assert.strictEqual(page.lastDeepRun?.id, withFinds.id)
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect(
+    "resumes a reader's scan on the next load, reading no record twice",
+    () => {
+      const { layer, mails, bucket } = archive()
+      // More deep runs without finds, all older than 30 days, than one
+      // load's import reads, and behind them the one with finds.
+      const withFinds = deepAt("2025-06-15T15:06:40.000Z")
+      inR2(bucket, withFinds)
+      const without = IMPORT_BATCHES * RECORDS_AT_ONCE + 50
+      for (let run = 0; run < without; run++)
+        inR2(bucket, {
+          ...deepAt(
+            new Date(
+              Date.parse("2026-01-01T00:00:00.000Z") + run * 3_600_000
+            ).toISOString()
+          ),
+          deep: null,
+        })
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        const importing = yield* Effect.flip(kseiArchivePage(headers(cookie)))
+        assert.instanceOf(importing, Conflict)
+        const page = yield* kseiArchivePage(headers(cookie))
+        assert.strictEqual(page.lastDeepRun?.id, withFinds.id)
+        const reads = bucket.gets.filter((key) => key.startsWith("runs/deep-"))
+        assert.strictEqual(reads.length, without + 1)
+        assert.strictEqual(new Set(reads).size, without + 1)
+        assert.strictEqual(runCount(archiveDbOf(bucket), KSEI_ARCHIVE), 1)
+      }).pipe(Effect.provide(layer))
+    }
+  )
 })
 
 describe("the KSEI cutover import's parse runs", () => {
