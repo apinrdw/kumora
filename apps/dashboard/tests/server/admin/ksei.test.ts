@@ -83,6 +83,61 @@ const seedObject = (bucket: MemoryBucket, key: string, body: string) =>
     customMetadata: {},
   })
 
+// A stage whose KSEI runs were only in R2 when ArchiveDb began to hold them.
+const inR2 = (
+  bucket: MemoryBucket,
+  run: KseiRunResult | ParseRunResult,
+  prefix = "runs/"
+) => putJson(bucket, `${prefix}${run.id}.json`, run)
+
+const putJson = (bucket: MemoryBucket, key: string, value: unknown) =>
+  bucket.objects.set(key, {
+    body: JSON.stringify(value),
+    contentType: "application/json",
+    customMetadata: {},
+  })
+
+// A deep run that started at `startedAt` and ended with its finds.
+const deepRunAt = (startedAt: string): KseiRunResult => ({
+  ...RUNNING,
+  id: RunId.make(`deep-${Date.parse(startedAt)}`),
+  trigger: "deep",
+  startedAt,
+  finishedAt: startedAt,
+  outcome: "complete",
+  deep: {
+    foundFromSeed: [],
+    foundByProbing: [],
+    monthsNotFound: {
+      "securities-statistics": [],
+      "securities-holdings": [],
+    },
+    probeFailures: [],
+  },
+})
+
+// A Run now that started and ended at `at`.
+const adminAt = (at: number): KseiRunResult => ({
+  ...RUNNING,
+  id: RunId.make(`admin-${at}`),
+  trigger: "admin",
+  startedAt: new Date(at).toISOString(),
+  finishedAt: new Date(at).toISOString(),
+  outcome: "complete",
+})
+
+// Run nows a minute apart from `from`, one fewer than a load's import reads.
+const fillALoad = (bucket: MemoryBucket, from: string) => {
+  for (let run = 1; run < IMPORT_BATCHES * RECORDS_AT_ONCE; run++)
+    inR2(bucket, adminAt(Date.parse(from) + run * 60_000))
+}
+
+// What a page or a start answers while its runs are still importing.
+const IMPORTING = new Conflict({
+  message:
+    "This archive's runs are still being copied into ArchiveDb. Try again to continue.",
+})
+
 // A version of a KSEI report as a run stores it: its file, then its record.
 const storeReport = (
   bucket: MemoryBucket,
@@ -443,6 +498,28 @@ describe("KSEI's Run now", () => {
       assert.deepStrictEqual(createdIds(workflow), [])
     }).pipe(Effect.provide(layer))
   })
+  it.effect(
+    "refuses Run now and Deep backfill while the archive's runs are still importing, and starts once they are in",
+    () => {
+      const { layer, mails, workflow, bucket } = archive()
+      // More Run nows of the past 30 days than two starts' imports read.
+      for (const from of ["2026-11-01", "2026-11-05", "2026-11-09"])
+        fillALoad(bucket, `${from}T00:00:00.000Z`)
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        for (const start of [runKseiNow, deepBackfillKsei])
+          assert.deepStrictEqual(
+            yield* Effect.flip(start(headers(cookie))),
+            IMPORTING
+          )
+        assert.deepStrictEqual(createdIds(workflow), [])
+        assert.deepStrictEqual(yield* runKseiNow(headers(cookie)), {
+          id: "admin-1763128800000",
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
 })
 
 describe("KSEI's Parse now", () => {
@@ -492,6 +569,40 @@ describe("KSEI's Parse now", () => {
         yield* TestClock.adjust("1 second")
         assert.deepStrictEqual(yield* parseKseiNow(headers(cookie)), {
           id: "admin-1763125034000",
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect(
+    "refuses Parse now while the parse run's runs are still importing, and starts once they are in",
+    () => {
+      const { layer, mails, parseWorkflow, bucket } = archive()
+      // More parse runs of the past 30 days than one start's import reads.
+      for (let run = 0; run < IMPORT_BATCHES * RECORDS_AT_ONCE + 50; run++) {
+        const at = Date.parse("2026-11-01T00:00:00.000Z") + run * 60_000
+        const parsed: ParseRunResult = {
+          id: RunId.make(`admin-${at}`),
+          trigger: "admin",
+          startedAt: new Date(at).toISOString(),
+          finishedAt: new Date(at).toISOString(),
+          outcome: "complete",
+          monthsParsed: 0,
+          parseFailures: [],
+          error: null,
+        }
+        inR2(bucket, parsed, "parse-runs/")
+      }
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        assert.deepStrictEqual(
+          yield* Effect.flip(parseKseiNow(headers(cookie))),
+          IMPORTING
+        )
+        assert.deepStrictEqual(createdIds(parseWorkflow), [])
+        assert.deepStrictEqual(yield* parseKseiNow(headers(cookie)), {
+          id: "admin-1763128800000",
         })
       }).pipe(Effect.provide(layer))
     }
@@ -649,62 +760,13 @@ describe("the KSEI archive page after the cutover", () => {
   )
 })
 
-// A stage whose KSEI runs were only in R2 when ArchiveDb began to hold them.
-const inR2 = (
-  bucket: MemoryBucket,
-  run: KseiRunResult | ParseRunResult,
-  prefix = "runs/"
-) => putJson(bucket, `${prefix}${run.id}.json`, run)
-
-const putJson = (bucket: MemoryBucket, key: string, value: unknown) =>
-  bucket.objects.set(key, {
-    body: JSON.stringify(value),
-    contentType: "application/json",
-    customMetadata: {},
-  })
-
-// A deep run that started at `startedAt` and ended with its finds.
-const deepAt = (startedAt: string): KseiRunResult => ({
-  ...RUNNING,
-  id: RunId.make(`deep-${Date.parse(startedAt)}`),
-  trigger: "deep",
-  startedAt,
-  finishedAt: startedAt,
-  outcome: "complete",
-  deep: {
-    foundFromSeed: [],
-    foundByProbing: [],
-    monthsNotFound: {
-      "securities-statistics": [],
-      "securities-holdings": [],
-    },
-    probeFailures: [],
-  },
-})
-
-// A Run now that started and ended at `at`.
-const adminAt = (at: number): KseiRunResult => ({
-  ...RUNNING,
-  id: RunId.make(`admin-${at}`),
-  trigger: "admin",
-  startedAt: new Date(at).toISOString(),
-  finishedAt: new Date(at).toISOString(),
-  outcome: "complete",
-})
-
-// Run nows a minute apart from `from`, one fewer than a load's import reads.
-const fillALoad = (bucket: MemoryBucket, from: string) => {
-  for (let run = 1; run < IMPORT_BATCHES * RECORDS_AT_ONCE; run++)
-    inR2(bucket, adminAt(Date.parse(from) + run * 60_000))
-}
-
 describe("the KSEI cutover import's deep run", () => {
   it.effect(
     "stops at a deep run of the past 30 days, reading no older one",
     () => {
       const { layer, mails, bucket } = archive()
-      const older = deepAt("2025-06-15T15:06:40.000Z")
-      const recent = deepAt("2026-11-10T15:06:40.000Z")
+      const older = deepRunAt("2025-06-15T15:06:40.000Z")
+      const recent = deepRunAt("2026-11-10T15:06:40.000Z")
       for (const run of [older, recent]) inR2(bucket, run)
       return Effect.gen(function* () {
         yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
@@ -721,8 +783,8 @@ describe("the KSEI cutover import's deep run", () => {
     "keeps the deep run it found when the import spans loads, reading no older one, and answers a Conflict until then",
     () => {
       const { layer, mails, bucket } = archive()
-      const older = deepAt("2025-06-15T15:06:40.000Z")
-      const recent = deepAt("2026-11-10T15:06:40.000Z")
+      const older = deepRunAt("2025-06-15T15:06:40.000Z")
+      const recent = deepRunAt("2026-11-10T15:06:40.000Z")
       inR2(bucket, older)
       inR2(bucket, recent)
       // With the deep run they fill the first load's import, so the
@@ -742,7 +804,7 @@ describe("the KSEI cutover import's deep run", () => {
         yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
         const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
         const importing = yield* Effect.flip(kseiArchivePage(headers(cookie)))
-        assert.instanceOf(importing, Conflict)
+        assert.deepStrictEqual(importing, IMPORTING)
         const page = yield* kseiArchivePage(headers(cookie))
         assert.strictEqual(page.lastRun?.result.id, pointed.id)
         assert.strictEqual(page.lastDeepRun?.id, recent.id)
@@ -760,10 +822,10 @@ describe("the KSEI cutover import's deep run", () => {
       // dates its start by its own, here a quarter second behind.
       const cutoff = Date.parse("2026-10-15T14:30:00.000Z")
       const atCutoff: KseiRunResult = {
-        ...deepAt(new Date(cutoff - 250).toISOString()),
+        ...deepRunAt(new Date(cutoff - 250).toISOString()),
         id: RunId.make(`deep-${cutoff}`),
       }
-      inR2(bucket, deepAt("2025-06-15T15:06:40.000Z"))
+      inR2(bucket, deepRunAt("2025-06-15T15:06:40.000Z"))
       inR2(bucket, atCutoff)
       return Effect.gen(function* () {
         yield* TestClock.setTime(Date.parse("2026-11-14T14:30:00.000Z"))
@@ -781,8 +843,8 @@ describe("the KSEI cutover import's deep run", () => {
       const { layer, mails, bucket } = archive()
       // Both started just inside the first load's 30 days. The Run nows
       // fill that load's import, which reads the first of the two at most.
-      const first = deepAt("2026-10-15T14:01:00.000Z")
-      const newest = deepAt("2026-10-15T14:02:00.000Z")
+      const first = deepRunAt("2026-10-15T14:01:00.000Z")
+      const newest = deepRunAt("2026-10-15T14:02:00.000Z")
       inR2(bucket, first)
       inR2(bucket, newest)
       fillALoad(bucket, "2026-11-01T00:00:00.000Z")
@@ -805,12 +867,12 @@ describe("the KSEI cutover import's deep run", () => {
       // The pointer names a deep run that failed before its finds, older
       // than 30 days: only the latest scan keeps it.
       const pointed: KseiRunResult = {
-        ...deepAt("2026-09-01T03:00:00.000Z"),
+        ...deepRunAt("2026-09-01T03:00:00.000Z"),
         outcome: "failed",
         error: "KSEI answered 503",
         deep: null,
       }
-      const withFinds = deepAt("2025-06-15T15:06:40.000Z")
+      const withFinds = deepRunAt("2025-06-15T15:06:40.000Z")
       inR2(bucket, pointed)
       inR2(bucket, withFinds)
       putJson(bucket, "runs/latest.json", { id: pointed.id })
@@ -830,12 +892,12 @@ describe("the KSEI cutover import's deep run", () => {
       const { layer, mails, bucket } = archive()
       // More deep runs without finds, all older than 30 days, than one
       // load's import reads, and behind them the one with finds.
-      const withFinds = deepAt("2025-06-15T15:06:40.000Z")
+      const withFinds = deepRunAt("2025-06-15T15:06:40.000Z")
       inR2(bucket, withFinds)
       const without = IMPORT_BATCHES * RECORDS_AT_ONCE + 50
       for (let run = 0; run < without; run++)
         inR2(bucket, {
-          ...deepAt(
+          ...deepRunAt(
             new Date(
               Date.parse("2026-01-01T00:00:00.000Z") + run * 3_600_000
             ).toISOString()

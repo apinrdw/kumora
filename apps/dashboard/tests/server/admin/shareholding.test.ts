@@ -667,6 +667,50 @@ describe("Run now", () => {
       }).pipe(Effect.provide(layer))
     })
 
+  it.effect(
+    "is refused while the archive's runs are still importing, and starts once they are in",
+    () => {
+      const { layer, mails, workflow, bucket } = archive()
+      // More Run nows of the past 30 days than one start's import reads.
+      for (let run = 0; run < 250; run++) {
+        const at = Date.parse("2026-11-01T00:00:00.000Z") + run * 60_000
+        const record: ArchiveRunResult = {
+          id: RunId.make(`admin-${at}`),
+          trigger: "admin",
+          startedAt: new Date(at).toISOString(),
+          finishedAt: new Date(at).toISOString(),
+          outcome: "complete",
+          reportsAdded: 0,
+          newVersions: 0,
+          reportsChecked: 0,
+          notStored: [],
+          other: [],
+          error: null,
+        }
+        bucket.objects.set(`runs/${record.id}.json`, {
+          body: JSON.stringify(record),
+          contentType: "application/json",
+          customMetadata: {},
+        })
+      }
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        assert.deepStrictEqual(
+          yield* Effect.flip(runArchiveNow(headers(cookie))),
+          new Conflict({
+            message:
+              "This archive's runs are still being copied into ArchiveDb. Try again to continue.",
+          })
+        )
+        assert.deepStrictEqual(createdIds(workflow), [])
+        assert.deepStrictEqual(yield* runArchiveNow(headers(cookie)), {
+          id: "admin-1763128800000",
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
   it.effect("starts a run once the running one's Workflow errored", () => {
     const { layer, mails, workflow, db } = archive()
     seedLatest(db, RUNNING)
