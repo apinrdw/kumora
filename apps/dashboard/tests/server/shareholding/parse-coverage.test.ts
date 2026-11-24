@@ -23,6 +23,7 @@ import {
   type ListingItem,
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
+import { archiveDbOf } from "../archive/runs.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import {
   type MemoryHoldingsDb,
@@ -57,11 +58,16 @@ const world = (): World => ({
 const archive = ({ idx, bucket }: World, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      archiveRun(localSteps(Layer.merge(idx.layer, bucket.layer)), {
-        id: RunId.make(id),
-        trigger: "cron",
-        startedAt: new Date("2026-11-14T13:00:00Z"),
-      })
+      archiveRun(
+        localSteps(
+          Layer.mergeAll(idx.layer, bucket.layer, archiveDbOf(bucket).layer)
+        ),
+        {
+          id: RunId.make(id),
+          trigger: "cron",
+          startedAt: new Date("2026-11-14T13:00:00Z"),
+        }
+      )
     )
   )
 
@@ -133,18 +139,29 @@ const INVESTOR_TYPE: Kind = {
 const parse = ({ bucket, holdings }: World, { runs }: Kind, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      runs.run(localSteps(Layer.merge(bucket.layer, holdings.layer)), {
-        id: RunId.make(id),
-        trigger: "cron",
-        startedAt: new Date("2026-11-14T14:00:00Z"),
-      })
+      runs.run(
+        localSteps(
+          Layer.mergeAll(
+            bucket.layer,
+            holdings.layer,
+            archiveDbOf(bucket).layer
+          )
+        ),
+        {
+          id: RunId.make(id),
+          trigger: "cron",
+          startedAt: new Date("2026-11-14T14:00:00Z"),
+        }
+      )
     )
   )
 
 // The kind's parse coverage as each shown cell's state by its date.
 const parseCoverage = ({ bucket, holdings }: World, { runs }: Kind) =>
   runs.parseCoverage.pipe(
-    Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
+    Effect.provide(
+      Layer.mergeAll(bucket.layer, holdings.layer, archiveDbOf(bucket).layer)
+    ),
     Effect.map((years) =>
       Object.fromEntries(
         years.flatMap(({ months }) =>

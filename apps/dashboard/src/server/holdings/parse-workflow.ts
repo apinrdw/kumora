@@ -5,6 +5,7 @@ import type { WorkerEnv } from "@workspace/server"
 import { makeWorkflow, type WorkflowRun } from "@workspace/server/workflow"
 import { Layer } from "effect"
 
+import { archiveDbD1 } from "../archive/archive-db.ts"
 import type { ArchiveBucket } from "../archive/bucket.ts"
 import { RunId } from "../archive/run.ts"
 import { holdingsDbD1 } from "./db.ts"
@@ -16,7 +17,7 @@ export const parseWorkflowOf = <Self>(
   bucket: Layer.Layer<ArchiveBucket, never, WorkerEnv>
 ) =>
   makeWorkflow(
-    Layer.merge(bucket, holdingsDbD1),
+    Layer.mergeAll(bucket, archiveDbD1, holdingsDbD1),
     ({ id, startedAt, params }: WorkflowRun<ParseParams>, steps) =>
       runs.run(steps, {
         id: RunId.make(id),

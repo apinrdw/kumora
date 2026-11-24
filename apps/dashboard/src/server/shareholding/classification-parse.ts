@@ -25,6 +25,8 @@ export class ClassificationParseWorkflow extends Context.Service<
 export const classificationParseRuns = parseRunsOf({
   runName: "Classification parse run",
   // parse-runs/<kind>/, as keys.ts lays out.
+  archive: "shareholding",
+  runKind: `parse-${KIND}`,
   runsPrefix: `parse-runs/${KIND}/`,
   months: {
     prefix: kindPrefix(KIND),

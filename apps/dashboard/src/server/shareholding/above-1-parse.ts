@@ -24,6 +24,8 @@ export class Above1ParseWorkflow extends Context.Service<
 export const above1ParseRuns = parseRunsOf({
   runName: "Above-1% parse run",
   // parse-runs/<kind>/, as keys.ts lays out.
+  archive: "shareholding",
+  runKind: `parse-${KIND}`,
   runsPrefix: `parse-runs/${KIND}/`,
   months: {
     prefix: kindPrefix(KIND),

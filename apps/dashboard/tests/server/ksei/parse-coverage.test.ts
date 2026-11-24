@@ -5,12 +5,13 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
-import { RunId } from "@/server/archive/run"
+import { type RunBase, RunId } from "@/server/archive/run"
 import { KSEI_PARSER_VERSION } from "@/server/holdings/ksei"
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
 import { kseiParseRuns } from "@/server/ksei/parse-runs"
 
 import { localSteps } from "../archive/local-steps.ts"
+import { archiveDbOf, KSEI_PARSE, seedRun } from "../archive/runs.ts"
 import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import {
@@ -60,11 +61,20 @@ const archive = ({ ksei, bucket }: World, id: string) =>
 const parse = ({ bucket, holdings }: World, id: string, startedAt: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      kseiParseRuns.run(localSteps(Layer.merge(bucket.layer, holdings.layer)), {
-        id: RunId.make(id),
-        trigger: id.startsWith("admin") ? "admin" : "cron",
-        startedAt: new Date(startedAt),
-      })
+      kseiParseRuns.run(
+        localSteps(
+          Layer.mergeAll(
+            bucket.layer,
+            holdings.layer,
+            archiveDbOf(bucket).layer
+          )
+        ),
+        {
+          id: RunId.make(id),
+          trigger: id.startsWith("admin") ? "admin" : "cron",
+          startedAt: new Date(startedAt),
+        }
+      )
     )
   )
 
@@ -87,7 +97,9 @@ const bumpParser = ({ holdings }: World, periodEnd: string) => {
 // blank.
 const parseCoverage = ({ bucket, holdings }: World) =>
   kseiParseRuns.parseCoverage.pipe(
-    Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
+    Effect.provide(
+      Layer.mergeAll(bucket.layer, holdings.layer, archiveDbOf(bucket).layer)
+    ),
     Effect.map((years) =>
       Object.fromEntries(
         years.map(({ year, months }) => [
@@ -101,7 +113,9 @@ const parseCoverage = ({ bucket, holdings }: World) =>
 // 2026's cell for the month at `index`, January being 0.
 const cell = ({ bucket, holdings }: World, index: number) =>
   kseiParseRuns.parseCoverage.pipe(
-    Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
+    Effect.provide(
+      Layer.mergeAll(bucket.layer, holdings.layer, archiveDbOf(bucket).layer)
+    ),
     Effect.map(
       (years) => years.find(({ year }) => year === 2026)?.months[index]
     )
@@ -225,20 +239,16 @@ describe("the KSEI parse coverage", () => {
         yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
         // An admin run started later is still running: its record has no
         // failures yet.
-        w.bucket.objects.set("parse-runs/admin-1763434800000.json", {
-          body: JSON.stringify({
-            id: "admin-1763434800000",
-            trigger: "admin",
-            startedAt: "2026-11-15T03:00:00.000Z",
-            finishedAt: null,
-            outcome: "running",
-            monthsParsed: 0,
-            parseFailures: [],
-            error: null,
-          }),
-          contentType: "application/json",
-          customMetadata: {},
-        })
+        seedRun(archiveDbOf(w.bucket), KSEI_PARSE, {
+          id: RunId.make("admin-1763434800000"),
+          trigger: "admin",
+          startedAt: "2026-11-15T03:00:00.000Z",
+          finishedAt: null,
+          outcome: "running",
+          monthsParsed: 0,
+          parseFailures: [],
+          error: null,
+        } as RunBase)
         assert.deepStrictEqual(
           yield* parseCoverage(w),
           may2026("parsed", "parsed", "parsed", "failed")
@@ -361,7 +371,13 @@ describe("the KSEI parse coverage", () => {
         { body: "{}", contentType: "application/json", customMetadata: {} }
       )
       const years = yield* kseiParseRuns.parseCoverage.pipe(
-        Effect.provide(Layer.merge(w.bucket.layer, w.holdings.layer))
+        Effect.provide(
+          Layer.mergeAll(
+            w.bucket.layer,
+            w.holdings.layer,
+            archiveDbOf(w.bucket).layer
+          )
+        )
       )
       assert.strictEqual(years[0]?.months[9]?.date, "2026-10-31")
       assert.strictEqual(years[0]?.months[9]?.state, "not-parsed")

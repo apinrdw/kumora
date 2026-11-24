@@ -12,6 +12,7 @@ import {
 import { DateTime, Effect, Schema } from "effect"
 import { HttpClient, type HttpClientError } from "effect/http"
 
+import type { ArchiveDb, ArchiveDbError } from "../archive/archive-db.ts"
 import { ArchiveBucket, type BucketError } from "../archive/bucket.ts"
 import { readCapped } from "../archive/capped-body.ts"
 import { sha256Hex } from "../archive/hash.ts"
@@ -39,7 +40,7 @@ import { putRunRecord } from "./runs.ts"
 
 type IdxRun = Run<ArchiveTrigger>
 
-type StepServices = ArchiveBucket | HttpClient.HttpClient
+type StepServices = ArchiveBucket | ArchiveDb | HttpClient.HttpClient
 
 // Each step result holds at most one ListedReport, or less, per listed
 // report, which MAX_LISTED_REPORTS (listing.ts) bounds. The ETags and hashes
@@ -74,13 +75,13 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
 const recordsByUrl = (run?: RunId) => heldRecords(SOURCE_URL, run)
 
 // The listing, split by whether the archive holds each URL, and the run's
-// `running` record. runs/latest.json already names the run: its start
-// claimed it (../archive/runs.ts).
+// `running` record. Its row already holds the claim: its start inserted it
+// (../archive/runs.ts).
 const plan = Effect.fnUntraced(function* (
   run: IdxRun
 ): Effect.fn.Return<
   Plan,
-  ListingUnreadable | NonRetryable | BucketError,
+  ListingUnreadable | NonRetryable | BucketError | ArchiveDbError,
   StepServices
 > {
   const listed = yield* fetchListing

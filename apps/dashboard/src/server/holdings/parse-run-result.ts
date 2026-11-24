@@ -34,15 +34,10 @@ export const ParseRunResult = Schema.Struct({
 })
 export type ParseRunResult = typeof ParseRunResult.Type
 
-const ParseRunSummary = ParseRunResult.mapFields(
+export const ParseRunSummary = ParseRunResult.mapFields(
   Struct.pick(["id", "trigger", "startedAt", "outcome", "monthsParsed"])
 )
 export type ParseRunSummary = typeof ParseRunSummary.Type
-
-// The custom metadata of a parse run's record: its summary.
-export const ParseRunMetadata = Schema.Struct({
-  run: Schema.fromJsonString(ParseRunSummary),
-})
 
 export const runningParseResult = Effect.fnUntraced(function* (
   run: Run<ParseTrigger>

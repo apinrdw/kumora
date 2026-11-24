@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Conflict, Unauthorized } from "@workspace/server"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
@@ -18,7 +18,6 @@ import { ClassificationParseWorkflow } from "@/server/shareholding/classificatio
 import { InvestorTypeParseWorkflow } from "@/server/shareholding/investor-type-parse"
 import {
   type ArchiveRunResult,
-  RunMetadata,
   RunSummary,
 } from "@/server/shareholding/run-result"
 
@@ -31,7 +30,12 @@ import {
   send,
 } from "../auth/seam.ts"
 import { fakeWorkflow, type FakeWorkflow } from "../archive/fake-workflow.ts"
-import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
+import {
+  type MemoryArchiveDb,
+  memoryArchiveDb,
+} from "../archive/memory-archive-db.ts"
+import { memoryBucket } from "../archive/memory-bucket.ts"
+import { latestRunId, SHAREHOLDING_ARCHIVE, seedRun } from "../archive/runs.ts"
 import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
 
 const headers = (cookie?: string) =>
@@ -62,22 +66,13 @@ const RUNNING: ArchiveRunResult = {
   error: null,
 }
 
-const seedLatest = (bucket: MemoryBucket, run: ArchiveRunResult) => {
-  bucket.objects.set(`runs/${run.id}.json`, {
-    body: JSON.stringify(run),
-    contentType: "application/json",
-    customMetadata: Schema.encodeSync(RunMetadata)({ run }),
-  })
-  bucket.objects.set("runs/latest.json", {
-    body: JSON.stringify({ id: run.id }),
-    contentType: "application/json",
-    customMetadata: {},
-  })
-}
+const seedLatest = (db: MemoryArchiveDb, run: ArchiveRunResult) =>
+  seedRun(db, SHAREHOLDING_ARCHIVE, run, { latest: true })
 
 const archive = () => {
   const auth = seam()
   const bucket = memoryBucket()
+  const db = memoryArchiveDb()
   const workflow = fakeWorkflow()
   // Each parse run's own Workflow.
   const classificationWorkflow = fakeWorkflow()
@@ -86,6 +81,7 @@ const archive = () => {
   return {
     ...auth,
     bucket,
+    db,
     workflow,
     classificationWorkflow,
     investorTypeWorkflow,
@@ -93,6 +89,7 @@ const archive = () => {
     layer: Layer.mergeAll(
       auth.layer,
       bucket.layer,
+      db.layer,
       memoryHoldingsDb().layer,
       workflow.layer,
       Layer.effect(
@@ -185,14 +182,14 @@ describe("the shareholding archive page", () => {
   })
 
   it.effect("shows an admin the recent runs and the archive totals", () => {
-    const { layer, mails, bucket } = archive()
+    const { layer, mails, bucket, db } = archive()
     const finished: ArchiveRunResult = {
       ...RUNNING,
       finishedAt: "2026-11-14T13:01:12.000Z",
       outcome: "complete",
       reportsAdded: 1,
     }
-    seedLatest(bucket, finished)
+    seedLatest(db, finished)
     bucket.objects.set("reports/above-1/2026-10-31/aa.xlsx", {
       body: "xlsx",
       contentType: "application/octet-stream",
@@ -219,6 +216,47 @@ describe("the shareholding archive page", () => {
       assert.strictEqual(page.totals.bytes, 4)
     }).pipe(Effect.provide(layer))
   })
+
+  it.effect(
+    "shows the runs a stage held only in R2 on first load, and reads R2 for none on the second",
+    () => {
+      const { layer, mails, bucket } = archive()
+      const finished: ArchiveRunResult = {
+        ...RUNNING,
+        finishedAt: "2026-11-14T13:01:12.000Z",
+        outcome: "complete",
+        reportsAdded: 1,
+      }
+      for (const [key, value] of [
+        [`runs/${finished.id}.json`, finished],
+        ["runs/latest.json", { id: finished.id }],
+      ] as const)
+        bucket.objects.set(key, {
+          body: JSON.stringify(value),
+          contentType: "application/json",
+          customMetadata: {},
+        })
+      const runReads = () =>
+        bucket.gets.filter((key) => !key.startsWith("reports/"))
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        const first = yield* shareholdingArchivePage(headers(cookie))
+        assert.deepStrictEqual(first.lastRun?.result, finished)
+        assert.deepStrictEqual(
+          first.recentRuns.map(({ id }) => id),
+          [finished.id]
+        )
+        assert.isNotEmpty(runReads())
+
+        bucket.gets.length = 0
+        const second = yield* shareholdingArchivePage(headers(cookie))
+        assert.deepStrictEqual(second.lastRun, first.lastRun)
+        assert.deepStrictEqual(second.recentRuns, first.recentRuns)
+        assert.deepStrictEqual(runReads(), [])
+      }).pipe(Effect.provide(layer))
+    }
+  )
 
   it.effect("shows each parsed kind's months' parse coverage", () => {
     const { layer, mails, bucket } = archive()
@@ -267,7 +305,7 @@ describe("the shareholding archive page", () => {
 
 describe("Run now", () => {
   it.effect("starts an admin run named by the time", () => {
-    const { layer, mails, workflow, bucket } = archive()
+    const { layer, mails, workflow, bucket, db } = archive()
     return Effect.gen(function* () {
       const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
       yield* TestClock.setTime(1_763_125_032_000)
@@ -292,16 +330,21 @@ describe("Run now", () => {
       assert.strictEqual(again._tag, "Conflict")
       assert.deepStrictEqual(createdIds(workflow), ["admin-1763125032000"])
       assert.strictEqual(
-        bucket.objects.get("runs/latest.json")?.body,
-        JSON.stringify({ id: "admin-1763125032000" })
+        latestRunId(db, SHAREHOLDING_ARCHIVE),
+        "admin-1763125032000"
+      )
+      // No run is written to R2 any more.
+      assert.deepStrictEqual(
+        bucket.puts.filter((key) => !key.startsWith("reports/")),
+        []
       )
     }).pipe(Effect.provide(layer))
   })
 
   for (const status of ["running", "waitingForPause", "paused"] as const)
     it.effect(`is refused while the latest run is ${status}`, () => {
-      const { layer, mails, workflow, bucket } = archive()
-      seedLatest(bucket, RUNNING)
+      const { layer, mails, workflow, db } = archive()
+      seedLatest(db, RUNNING)
       runningInstance(workflow, RUNNING.id)
       const previous = workflow.instances.get(RUNNING.id)
       if (previous !== undefined) previous.status = status
@@ -326,8 +369,8 @@ describe("Run now", () => {
     })
 
   it.effect("starts a run once the running one's Workflow errored", () => {
-    const { layer, mails, workflow, bucket } = archive()
-    seedLatest(bucket, RUNNING)
+    const { layer, mails, workflow, db } = archive()
+    seedLatest(db, RUNNING)
     runningInstance(workflow, RUNNING.id)
     const previous = workflow.instances.get(RUNNING.id)
     if (previous !== undefined) previous.status = "errored"

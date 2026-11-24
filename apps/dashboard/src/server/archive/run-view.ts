@@ -32,9 +32,9 @@ const ENDED_UNSUMMARIZED: Partial<Record<RunStatus, string>> = {
   terminated: "The archive run's Workflow was terminated.",
 }
 
-// How long a start may take between claiming runs/latest.json and its
-// `create` returning: two R2 writes and the call to Workflows.
-export const START_WINDOW_MS = 5 * 60 * 1000
+// How long a start may take between claiming its run's row and its
+// `create` returning: the call to Workflows.
+const START_WINDOW_MS = 5 * 60 * 1000
 
 // In progress until its instance has ended. With no
 // instance, a record still running is a start not yet through `create`, for

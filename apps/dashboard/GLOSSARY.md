@@ -398,7 +398,7 @@ One row per archived version of a report, in either archive, kept in ArchiveDb s
 _Avoid_: Report table, manifest, catalog
 
 **ArchiveDb**:
-The database, near where the admin pages are served, that holds the report index of both archives. The reports themselves stay in the archives.
+The database, near where the admin pages are served, that holds the report index of both archives and every run. The reports themselves stay in the archives. Runs recorded before ArchiveDb held them were copied in once, the first time each kind of run was read or started there.
 _Avoid_: Archive database for the archives themselves, which are buckets of reports
 
 **Deep backfill**:
@@ -406,7 +406,7 @@ A KSEI archive run an admin starts that also looks for KSEI reports older than K
 _Avoid_: History run, full sync
 
 **Run**:
-One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run, an investor-type parse run, an above-1% parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run.
+One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run, an investor-type parse run, an above-1% parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run. Every run is recorded in ArchiveDb, and starting one claims it there: of two starts of one kind at once, one starts the run and the other is refused.
 _Avoid_: Archive run for both, which is IDX's; job
 
 ### Holdings

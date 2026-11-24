@@ -1,23 +1,24 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Layer, Schema } from "effect"
+import { Effect } from "effect"
 import { TestClock } from "effect/testing"
 
 import { MAX_LISTED_OBJECTS } from "@/server/archive/bucket"
 import { RunId } from "@/server/archive/run"
 import { recentRuns } from "@/server/shareholding/runs"
 import { archiveTotals } from "@/server/shareholding/totals"
-import {
-  type ArchiveRunResult,
-  RunMetadata,
-  type RunSummary,
+import type {
+  ArchiveRunResult,
+  RunSummary,
 } from "@/server/shareholding/run-result"
 
-import { fakeWorkflow, type FakeWorkflow } from "../archive/fake-workflow.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
+import { runStores, SHAREHOLDING_ARCHIVE, seedRun } from "../archive/runs.ts"
 
 const NOW = Date.parse("2026-11-14T14:00:00.000Z")
 const HOUR = 3_600_000
 const DAY = 24 * HOUR
+
+type Stores = ReturnType<typeof runStores>
 
 const run = (
   id: string,
@@ -43,24 +44,17 @@ const put = (
   bucket: MemoryBucket,
   key: string,
   body: string,
-  uploaded?: number,
-  customMetadata: Readonly<Record<string, string>> = {}
+  uploaded?: number
 ) =>
   bucket.objects.set(key, {
     body,
     contentType: "application/json",
-    customMetadata,
+    customMetadata: {},
     uploaded,
   })
 
-const seedRun = (bucket: MemoryBucket, result: ArchiveRunResult) =>
-  put(
-    bucket,
-    `runs/${result.id}.json`,
-    JSON.stringify(result),
-    Date.parse(result.finishedAt ?? result.startedAt),
-    Schema.encodeSync(RunMetadata)({ run: result })
-  )
+const seed = ({ db }: Stores, result: ArchiveRunResult) =>
+  seedRun(db, SHAREHOLDING_ARCHIVE, result)
 
 const summary = (result: ArchiveRunResult): RunSummary => ({
   id: result.id,
@@ -71,24 +65,22 @@ const summary = (result: ArchiveRunResult): RunSummary => ({
   newVersions: result.newVersions,
 })
 
-const provide = (
-  bucket: MemoryBucket,
-  workflow: FakeWorkflow = fakeWorkflow()
-) => Effect.provide(Layer.merge(bucket.layer, workflow.layer))
+const provideRuns = ({ layer }: Stores) => Effect.provide(layer)
+
+const provide = (bucket: MemoryBucket) => Effect.provide(bucket.layer)
 
 describe("the recent archive runs", () => {
   it.effect(
     "show a run whose Workflow errored before its summary as failed",
     () => {
-      const bucket = memoryBucket()
-      const workflow = fakeWorkflow()
+      const archive = runStores()
       const crashed = run(
         "cron-2026-11-14T06",
         "2026-11-14T06:00:00.000Z",
         "running"
       )
-      seedRun(bucket, crashed)
-      workflow.instances.set(crashed.id, {
+      seed(archive, crashed)
+      archive.workflow.instances.set(crashed.id, {
         options: {
           id: crashed.id,
           params: { trigger: "cron" },
@@ -102,20 +94,20 @@ describe("the recent archive runs", () => {
         assert.deepStrictEqual(yield* recentRuns, [
           { ...summary(crashed), outcome: "failed" },
         ])
-      }).pipe(provide(bucket, workflow))
+      }).pipe(provideRuns(archive))
     }
   )
 
   it.effect("are none before any run", () => {
-    const bucket = memoryBucket()
+    const archive = runStores()
     return Effect.gen(function* () {
       yield* TestClock.setTime(NOW)
       assert.deepStrictEqual(yield* recentRuns, [])
-    }).pipe(provide(bucket))
+    }).pipe(provideRuns(archive))
   })
 
   it.effect("are the past 30 days of runs, newest first", () => {
-    const bucket = memoryBucket()
+    const archive = runStores()
     const newest = run("cron-2026-11-14T13", "2026-11-14T13:00:00.000Z")
     const failed = run(
       "cron-2026-11-13T06",
@@ -133,128 +125,72 @@ describe("the recent archive runs", () => {
     )
     const old = run("cron-2026-10-15T06", "2026-10-15T06:00:00.000Z")
     for (const result of [old, failed, newest, edge, admin])
-      seedRun(bucket, result)
-    put(bucket, "runs/latest.json", JSON.stringify({ id: newest.id }), NOW)
+      seed(archive, result)
     return Effect.gen(function* () {
       yield* TestClock.setTime(NOW)
       assert.deepStrictEqual(
         yield* recentRuns,
         [newest, admin, failed, edge].map(summary)
       )
-    }).pipe(provide(bucket))
-  })
-
-  it.effect("list only the runs of the past 30 days", () => {
-    const bucket = memoryBucket()
-    // Two cron runs and an admin run a day since 2025.
-    const recent: Array<ArchiveRunResult> = []
-    for (let day = Date.parse("2025-01-01"); day < NOW; day += DAY)
-      for (const [id, startedAt] of [
-        [`cron-${new Date(day).toISOString().slice(0, 10)}T06`, day + 6 * HOUR],
-        [`admin-${day + 9 * HOUR}`, day + 9 * HOUR],
-        [
-          `cron-${new Date(day).toISOString().slice(0, 10)}T13`,
-          day + 13 * HOUR,
-        ],
-      ] as const) {
-        if (startedAt > NOW) continue
-        const result = run(id, new Date(startedAt).toISOString())
-        seedRun(bucket, result)
-        if (startedAt >= NOW - 30 * DAY) recent.unshift(result)
-      }
-    return Effect.gen(function* () {
-      yield* TestClock.setTime(NOW)
-      assert.deepStrictEqual(yield* recentRuns, recent.map(summary))
-      // At most a key per trigger past the 30 days, where a listing starts.
-      assert.isAtMost(bucket.listed.length, recent.length + 2)
-    }).pipe(provide(bucket))
+    }).pipe(provideRuns(archive))
   })
 
   it.effect(
-    "read no record at the most runs the listings of runs/ hold",
+    "list only the runs of the past 30 days, however many came before",
     () => {
-      const bucket = memoryBucket()
-      // Each listing's cap of admin runs and an hourly cron run, all in the
-      // past 30 days, each a partial run whose record lists URLs it couldn't
-      // store.
-      const seeded: Array<ArchiveRunResult> = []
-      for (let index = 0; index < MAX_LISTED_OBJECTS; index++) {
-        const startedAt = NOW - 1000 - index * 250_000
-        seeded.push(
-          run(
-            `admin-${startedAt}`,
-            new Date(startedAt).toISOString(),
-            "partial"
-          )
-        )
-      }
-      for (let hour = 0; hour < 30 * 24; hour++) {
-        const startedAt = new Date(NOW - hour * HOUR).toISOString()
-        seeded.push(run(`cron-${startedAt.slice(0, 13)}`, startedAt, "partial"))
-      }
-      for (const result of seeded)
-        seedRun(bucket, {
-          ...result,
-          notStored: Array.from(
-            { length: 20 },
-            (_, index) => `https://www.idx.id/${result.id}/${index}.xlsx`
-          ),
-        })
+      const archive = runStores()
+      // Two cron runs and an admin run a day since 2025.
+      const recent: Array<ArchiveRunResult> = []
+      for (let day = Date.parse("2025-01-01"); day < NOW; day += DAY)
+        for (const [id, startedAt] of [
+          [
+            `cron-${new Date(day).toISOString().slice(0, 10)}T06`,
+            day + 6 * HOUR,
+          ],
+          [`admin-${day + 9 * HOUR}`, day + 9 * HOUR],
+          [
+            `cron-${new Date(day).toISOString().slice(0, 10)}T13`,
+            day + 13 * HOUR,
+          ],
+        ] as const) {
+          if (startedAt > NOW) continue
+          const result = run(id, new Date(startedAt).toISOString())
+          seed(archive, result)
+          if (startedAt >= NOW - 30 * DAY) recent.unshift(result)
+        }
       return Effect.gen(function* () {
         yield* TestClock.setTime(NOW)
-        const runs = yield* recentRuns
-        assert.strictEqual(bucket.gets.length, 0, "record bodies read")
-        assert.deepStrictEqual(
-          runs,
-          [...seeded]
-            .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))
-            .map(summary)
-        )
-      }).pipe(provide(bucket))
-    },
-    30_000
+        assert.deepStrictEqual(yield* recentRuns, recent.map(summary))
+      }).pipe(provideRuns(archive))
+    }
   )
 
-  it.effect("leave out a record without its summary as metadata", () => {
-    const bucket = memoryBucket()
-    const bare = run("cron-2026-11-14T06", "2026-11-14T06:00:00.000Z")
-    const summarized = run("cron-2026-11-14T13", "2026-11-14T13:00:00.000Z")
-    put(bucket, `runs/${bare.id}.json`, JSON.stringify(bare), NOW)
-    seedRun(bucket, summarized)
+  it.effect("pass over a record that no longer decodes", () => {
+    const archive = runStores()
+    const kept = run("cron-2026-11-14T13", "2026-11-14T13:00:00.000Z")
+    seed(archive, kept)
+    seed(archive, {
+      ...run("cron-2026-11-14T06", "2026-11-14T06:00:00.000Z"),
+      reportsAdded: "many" as unknown as number,
+    })
     return Effect.gen(function* () {
       yield* TestClock.setTime(NOW)
-      assert.deepStrictEqual(yield* recentRuns, [summary(summarized)])
-    }).pipe(provide(bucket))
-  })
-
-  it("carry a summary that fits R2's 2 KB of custom metadata", () => {
-    const metadata = Schema.encodeSync(RunMetadata)({
-      run: {
-        ...run(`admin-${8_640_000_000_000_000}`, new Date(0).toISOString()),
-        reportsAdded: Number.MAX_SAFE_INTEGER,
-        newVersions: Number.MAX_SAFE_INTEGER,
-      },
-    })
-    const bytes = Object.entries(metadata).reduce(
-      (sum, [name, value]) =>
-        sum + new TextEncoder().encode(name + value).length,
-      0
-    )
-    assert.isBelow(bytes, 2048)
+      assert.deepStrictEqual(yield* recentRuns, [summary(kept)])
+    }).pipe(provideRuns(archive))
   })
 
   it.effect("include a run that's still running", () => {
-    const bucket = memoryBucket()
+    const archive = runStores()
     const running = run(
       "admin-1794664632000",
       "2026-11-14T13:57:12.000Z",
       "running"
     )
-    seedRun(bucket, running)
+    seed(archive, running)
     return Effect.gen(function* () {
       yield* TestClock.setTime(NOW)
       assert.deepStrictEqual(yield* recentRuns, [summary(running)])
-    }).pipe(provide(bucket))
+    }).pipe(provideRuns(archive))
   })
 })
 
