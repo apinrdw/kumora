@@ -393,6 +393,14 @@ _Avoid_: KSEI mirror, shareholding archive
 One pass that compares KSEI's lists of reports with the KSEI archive and stores any report, or new version of one, that the archive lacks. The schedule starts one each day, and an admin can start one when no KSEI archive run is in progress. It ends **complete**, **partial** (a list or some reports could not be read or stored, and wait for the next run) or **failed** (neither list could be read).
 _Avoid_: Archive run, which is IDX's; sync, scrape
 
+**Report index**:
+One row per archived version of a report, in either archive, kept in ArchiveDb so the admin pages read the totals and coverage without listing the archive. The archive stays the truth: the index is rebuilt from it, and each archive run first adds any version the index lacks.
+_Avoid_: Report table, manifest, catalog
+
+**ArchiveDb**:
+The database, near where the admin pages are served, that holds the report index of both archives. The reports themselves stay in the archives.
+_Avoid_: Archive database for the archives themselves, which are buckets of reports
+
 **Deep backfill**:
 A KSEI archive run an admin starts that also looks for KSEI reports older than KSEI's lists, by filenames known from elsewhere and by guessing each month's period end. Scheduled runs never do this.
 _Avoid_: History run, full sync
