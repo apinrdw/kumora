@@ -12,6 +12,7 @@ import { stackOptions, stackStage, websiteProps } from "@workspace/deploy/stack"
 import * as Alchemy from "alchemy"
 import * as RemovalPolicy from "alchemy/RemovalPolicy"
 import { Stack } from "alchemy/Stack"
+import { isResourceState, State } from "alchemy/State"
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
@@ -20,10 +21,52 @@ import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 import type { RunParams } from "./src/server/archive/run.ts"
 import { stageCrons } from "./src/server/stage-crons.ts"
 
+// The database the stage's last deploy left under this id, read from
+// Alchemy's state: a generated D1 name ends in a random suffix, so the state
+// row is the one place that names it. Undefined only on a stage's first
+// deploy. A row mid-replacement has no attributes yet; its old generation
+// holds the data. A row without a database id dies, so a deploy never
+// replaces a database without copying it.
+const previousDatabaseId = Effect.fn("previousDatabaseId")(function* (
+  id: string
+) {
+  const { name, stage } = yield* Stack
+  const row = yield* (yield* yield* State)
+    .get({ stack: name, stage, fqn: id })
+    .pipe(Effect.orDie)
+  if (row === undefined) return undefined
+  const attr = isResourceState(row)
+    ? (row.attr ?? ("old" in row ? row.old.attr : undefined))
+    : undefined
+  const databaseId: unknown = attr?.databaseId
+  if (typeof databaseId === "string") return databaseId
+  return yield* Effect.die(
+    new Error(`${id}'s state row names no database to clone from`)
+  )
+})
+
+// A changed location hint replaces the database: Alchemy creates the new one,
+// copies the old one into it (clone runs only on a creation), repoints the
+// Worker and then deletes the old one. A later deploy finds its database in
+// place and ignores clone.
+const apacDatabase = Effect.fn("apacDatabase")(function* (
+  id: string,
+  migrations: string
+) {
+  const previous = yield* previousDatabaseId(id)
+  return yield* Cloudflare.D1.Database(id, {
+    migrations,
+    primaryLocationHint: "apac",
+    clone: previous === undefined ? undefined : { databaseId: previous },
+  })
+})
+
 // scripts/auth-schema.ts replays the same directory for the drift check and
 // the handler test seam. apps/e2e/reset-test-stage.ts reads this resource's
 // state file, AuthDb.json, by this id.
-const AuthDb = Cloudflare.D1.Database("AuthDb", { migrations: "./migrations" })
+// Decision: every D1 is recreated in apac by cloning the one it replaces
+// (apps/dashboard/docs/adr/0124-every-d1-is-recreated-in-apac-by-cloning-the-one-it-replaces.md)
+const AuthDb = apacDatabase("AuthDb", "./migrations")
 
 // Parsed holdings: the parse runs parse reports into it, the stock page
 // reads it. Bound on every stage like the archive buckets; only
