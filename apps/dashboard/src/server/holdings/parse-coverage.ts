@@ -7,13 +7,9 @@ import { wibDateAt } from "@workspace/relay"
 import { DateTime, Effect, Schema } from "effect"
 
 import { monthGrid } from "../archive/month-grid.ts"
+import type { NewestVersion } from "../archive/report-index.ts"
 import { RunId } from "../archive/run.ts"
-import {
-  newestVersions,
-  ParsedMonth,
-  parsedMonths,
-  staleCauses,
-} from "./months-to-parse.ts"
+import { ParsedMonth, parsedMonths, staleCauses } from "./months-to-parse.ts"
 import type { ParseRunResult } from "./parse-run-result.ts"
 import type { MonthSource } from "./parse-steps.ts"
 
@@ -88,13 +84,14 @@ const parseCoverageMonth = Effect.fnUntraced(function* (
 
 // `source`'s parse coverage, from its first archived month's year to the
 // current one in WIB (or its last archived month's, if later); empty before
-// any month is archived. `lastFinished` is the kind's last finished parse
-// run, whose parse failures mark months failed.
+// any month is archived. `newest` is each archived date's newest version,
+// oldest first. `lastFinished` is the kind's last finished parse run, whose
+// parse failures mark months failed.
 export const parseCoverage = Effect.fnUntraced(function* (
   source: MonthSource,
+  newest: ReadonlyArray<NewestVersion>,
   lastFinished: ParseRunResult | undefined
 ) {
-  const newest = yield* newestVersions(yield* source.prefix)
   const parsed = yield* parsedMonths(source.tables)
   const failures = new Map(
     lastFinished?.parseFailures.map(({ date, message }) => [

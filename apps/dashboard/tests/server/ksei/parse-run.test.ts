@@ -12,6 +12,8 @@ import { kseiArchiveRun } from "@/server/ksei/archive-run"
 import { kseiParseRuns } from "@/server/ksei/parse-runs"
 
 import { localSteps } from "../archive/local-steps.ts"
+import { archiveDbOf, KSEI_PARSE, storedRun } from "../archive/runs.ts"
+import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import {
   type MemoryHoldingsDb,
@@ -43,22 +45,36 @@ const world = (): World => ({
 const archive = ({ ksei, bucket }: World, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      kseiArchiveRun(localSteps(Layer.merge(ksei.layer, bucket.layer)), {
-        id: RunId.make(id),
-        trigger: "cron",
-        startedAt: new Date("2026-11-14T03:00:00Z"),
-      })
+      kseiArchiveRun(
+        localSteps(
+          Layer.mergeAll(ksei.layer, bucket.layer, memoryArchiveDb().layer)
+        ),
+        {
+          id: RunId.make(id),
+          trigger: "cron",
+          startedAt: new Date("2026-11-14T03:00:00Z"),
+        }
+      )
     )
   )
 
 const parse = ({ bucket, holdings }: World, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      kseiParseRuns.run(localSteps(Layer.merge(bucket.layer, holdings.layer)), {
-        id: RunId.make(id),
-        trigger: "cron",
-        startedAt: new Date("2026-11-14T04:00:00Z"),
-      })
+      kseiParseRuns.run(
+        localSteps(
+          Layer.mergeAll(
+            bucket.layer,
+            holdings.layer,
+            archiveDbOf(bucket).layer
+          )
+        ),
+        {
+          id: RunId.make(id),
+          trigger: "cron",
+          startedAt: new Date("2026-11-14T04:00:00Z"),
+        }
+      )
     )
   )
 
@@ -240,11 +256,13 @@ describe("a KSEI parse run", () => {
         sql.some((statement) => statement.includes("FROM ksei_month"))
       const error = yield* Effect.flip(parse(w, "cron-2026-11-14"))
       assert.strictEqual(error._tag, "StepFailed")
-      const record = JSON.parse(
-        w.bucket.objects.get("parse-runs/cron-2026-11-14.json")?.body ?? "null"
+      const record = storedRun(
+        archiveDbOf(w.bucket),
+        KSEI_PARSE,
+        "cron-2026-11-14"
       )
       assert.deepInclude(record, { outcome: "failed", monthsParsed: 0 })
-      assert.isNotNull(record.finishedAt)
+      assert.isString(record?.["finishedAt"])
     })
   )
 })

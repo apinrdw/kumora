@@ -12,6 +12,7 @@ import {
 import { DateTime, Duration, Effect, Result, Schema } from "effect"
 import { HttpClient, type HttpClientError } from "effect/http"
 
+import type { ArchiveDb, ArchiveDbError } from "../archive/archive-db.ts"
 import { ArchiveBucket, type BucketError } from "../archive/bucket.ts"
 import { readCapped } from "../archive/capped-body.ts"
 import { sha256Hex } from "../archive/hash.ts"
@@ -21,13 +22,17 @@ import {
   headHeld,
   MAX_ETAG_BYTES,
 } from "../archive/head.ts"
-import { ETAG, RUN, SHA256 } from "../archive/held.ts"
+import { ETAG, heldIn, RUN, SHA256 } from "../archive/held.ts"
 import { md5Hex } from "../archive/md5.ts"
 import { failingRun } from "../archive/failing-run.ts"
 import {
+  PLAN_STORE_CALLS,
+  REPORT_STORE_CALLS,
   type Run,
   type RunId,
   runError,
+  REPORTS_PREFIX,
+  STORE_SLOWEST_ANSWER,
   storedReports,
 } from "../archive/run.ts"
 import { inArchive } from "./coverage.ts"
@@ -43,6 +48,7 @@ import { KSEI_REQUEST_TIMEOUT, KSEI_SLOWEST_ANSWER } from "./http.ts"
 import { recordKey, reportKey } from "./keys.ts"
 import { KseiReportKind } from "./kind.ts"
 import { fetchListing, KseiFilename, ListedKseiReport } from "./listing.ts"
+import { kseiIndex } from "./report-index.ts"
 import {
   type DeepFinds,
   KseiRunResult,
@@ -50,19 +56,26 @@ import {
   ListingFailure,
   runningKseiResult,
 } from "./run-result.ts"
-import { putKseiRunRecord } from "./runs.ts"
+import { writeKseiRun } from "./runs.ts"
 
 type KseiRun = Run<KseiTrigger>
 
-type StepServices = ArchiveBucket | HttpClient.HttpClient
+type StepServices = ArchiveBucket | ArchiveDb | HttpClient.HttpClient
 
 // A step that asks KSEI times out when the requests it waits on in turn
 // should all have answered. `plan` (both listings at once) and each
-// `report:` (one file) wait on one request, and get its 2 minutes
-// (KSEI_REQUEST_TIMEOUT, http.ts), which as a step also bound reading the
-// body. `seed`, `summary` and `failed` ask KSEI nothing and keep the
-// runtime's 10 minutes.
-const KSEI_STEP: StepConfig = { timeout: KSEI_REQUEST_TIMEOUT }
+// `report:` (one file) wait on one KSEI request, and get its
+// KSEI_REQUEST_TIMEOUT (http.ts), which as a step also bounds reading the
+// body, plus STORE_SLOWEST_ANSWER for each of their calls in turn to the
+// archive's stores (PLAN_STORE_CALLS, REPORT_STORE_CALLS, ../archive/run.ts).
+// `seed`, `summary` and `failed` ask KSEI nothing and keep the runtime's 10
+// minutes.
+const kseiStep = (storeCalls: number) =>
+  Effect.sync((): StepConfig => ({
+    timeout:
+      Duration.toMillis(KSEI_REQUEST_TIMEOUT) +
+      storeCalls * Duration.toMillis(STORE_SLOWEST_ANSWER),
+  }))
 
 // `head` and `probe:` get their longest run of HEADs in turn at
 // KSEI's slowest answer, plus one stuck request: 4.4 minutes for 72 held
@@ -114,11 +127,20 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
 
 // Both listings, split by whether the archive holds each filename, and the
 // run's `running` record. A listing that can't be read skips its kind; with
-// neither, the run fails. runs/latest.json already names the run: its start
-// claimed it (../archive/runs.ts).
+// neither, the run fails. Its row already holds the claim: its start
+// inserted it (../archive/runs.ts). First, the report index gains every
+// record of reports/ it lacks.
 const plan = Effect.fnUntraced(function* (
   run: KseiRun
-): Effect.fn.Return<Plan, NoListingReadable | BucketError, StepServices> {
+): Effect.fn.Return<
+  Plan,
+  NoListingReadable | BucketError | ArchiveDbError,
+  StepServices
+> {
+  const objects = yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
+  // Decision: the report index is a copy of R2 that each archive run heals
+  // (apps/dashboard/docs/adr/0125-the-report-index-is-a-copy-of-r2-that-each-archive-run-heals.md)
+  yield* kseiIndex.heal(objects)
   const listings = yield* Effect.forEach(
     KseiReportKind.literals,
     (kind) => Effect.result(fetchListing(kind)),
@@ -136,8 +158,8 @@ const plan = Effect.fnUntraced(function* (
     listings.filter(Result.isSuccess).flatMap(({ success }) => success),
     ({ periodEnd }) => inArchive(periodEnd)
   )
-  const held = yield* recordsByFilename()
-  yield* putKseiRunRecord(yield* runningKseiResult(run))
+  const held = yield* heldIn(objects, FILENAME)
+  yield* writeKseiRun(yield* runningKseiResult(run))
   return {
     fresh: listed.filter((report) => !held.has(report.filename)),
     held: listed.filter((report) => held.has(report.filename)),
@@ -242,32 +264,32 @@ const archiveReport = Effect.fnUntraced(function* (
     fetchedAt,
     { filename: report.filename, etag }
   )
-  yield* bucket.put(
-    key,
-    JSON.stringify({
-      kind: report.kind,
-      periodEnd: report.periodEnd,
-      filename: report.filename,
-      url: report.url,
-      listing: report.listing,
-      etag,
-      md5,
-      lastModified: response.headers["last-modified"] ?? null,
-      contentLength: contentLength === undefined ? null : Number(contentLength),
-      fetchedAt,
-      sha256,
-      ...(md5Mismatch ? { md5Mismatch } : {}),
-    }),
-    {
-      contentType: "application/json",
-      customMetadata: {
-        [FILENAME]: report.filename,
-        [SHA256]: sha256,
-        [RUN]: run,
-        ...(etag === null ? {} : { [ETAG]: etag }),
-      },
-    }
-  )
+  const record = JSON.stringify({
+    kind: report.kind,
+    periodEnd: report.periodEnd,
+    filename: report.filename,
+    url: report.url,
+    listing: report.listing,
+    etag,
+    md5,
+    lastModified: response.headers["last-modified"] ?? null,
+    contentLength: contentLength === undefined ? null : Number(contentLength),
+    fetchedAt,
+    sha256,
+    ...(md5Mismatch ? { md5Mismatch } : {}),
+  })
+  yield* bucket.put(key, record, {
+    contentType: "application/json",
+    customMetadata: {
+      [FILENAME]: report.filename,
+      [SHA256]: sha256,
+      [RUN]: run,
+      ...(etag === null ? {} : { [ETAG]: etag }),
+    },
+  })
+  // Decision: the report index is a copy of R2 that each archive run heals
+  // (apps/dashboard/docs/adr/0125-the-report-index-is-a-copy-of-r2-that-each-archive-run-heals.md)
+  yield* kseiIndex.indexRecord(key, bytes.length, record)
   return {
     filename: report.filename,
     kind: report.kind,
@@ -306,9 +328,10 @@ const storeFinds = Effect.fnUntraced(function* (
   run: KseiRun,
   finds: ReadonlyArray<ListedKseiReport>
 ) {
+  const reportStep = yield* kseiStep(REPORT_STORE_CALLS)
   const stored = yield* Effect.forEach(finds, (report) =>
     steps
-      .do(`report:${report.filename}`, archiveFind(run.id, report), KSEI_STEP)
+      .do(`report:${report.filename}`, archiveFind(run.id, report), reportStep)
       .pipe(
         Effect.mapError(() => report.filename),
         Effect.result
@@ -428,7 +451,7 @@ const summary = Effect.fnUntraced(function* (
     notStored,
     deep,
   })
-  yield* putKseiRunRecord(result)
+  yield* writeKseiRun(result)
   return result
 })
 
@@ -442,7 +465,7 @@ const recordPlanFailure = Effect.fnUntraced(function* (
     outcome: "failed",
     error: yield* runError(error),
   })
-  yield* putKseiRunRecord(result)
+  yield* writeKseiRun(result)
   return result
 })
 
@@ -452,7 +475,7 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
 ): Effect.fn.Return<KseiRunResult, StepFailed> {
   const planned = yield* failingRun(
     steps,
-    steps.do("plan", plan(run), KSEI_STEP),
+    steps.do("plan", plan(run), yield* kseiStep(PLAN_STORE_CALLS)),
     (message) => recordPlanFailure(run, message)
   )
   const checked = yield* steps.do(
@@ -470,6 +493,7 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
       return report === undefined ? [] : [{ report, etag }]
     }),
   ]
+  const reportStep = yield* kseiStep(REPORT_STORE_CALLS)
   // A file that still fails after its step's retries isn't held at that
   // ETag, so the next run retries it; this one carries on. A filename names
   // one step: KseiFilename keeps it short and fit for a step name.
@@ -478,7 +502,7 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
       .do(
         `report:${report.filename}`,
         archiveListed(run.id, report, etag),
-        KSEI_STEP
+        reportStep
       )
       .pipe(
         Effect.mapError(() => report.filename),

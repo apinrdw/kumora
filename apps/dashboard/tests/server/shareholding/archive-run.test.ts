@@ -3,14 +3,17 @@ import { StepFailed } from "@workspace/server"
 import { Effect, Layer, Schema } from "effect"
 
 import { archiveRun, MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
+import type { ArchiveDb } from "@/server/archive/archive-db"
 import { MAX_ETAG_BYTES } from "@/server/archive/head"
 import { RunId, MAX_RUN_ERROR_LENGTH } from "@/server/archive/run"
-import { RunMetadata } from "@/server/shareholding/run-result"
+import { RunSummary } from "@/server/shareholding/run-result"
+import { archiveTotals } from "@/server/shareholding/totals"
 import {
   LISTING_URL,
   MAX_LISTED_REPORT_BYTES,
   MAX_LISTED_REPORTS,
   MAX_LISTING_BYTES,
+  ReportKind,
 } from "@/server/shareholding/listing"
 
 import {
@@ -22,15 +25,27 @@ import {
   idxIdUrl,
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
+import {
+  failingFirstReportInsert,
+  type MemoryArchiveDb,
+  memoryArchiveDb,
+} from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
+import {
+  archiveDbOf,
+  SHAREHOLDING_ARCHIVE,
+  storedRun,
+} from "../archive/runs.ts"
+import { readAlone } from "../archive/read-alone.ts"
 
 const run = (
   idx: FakeIdx,
   bucket: MemoryBucket,
   id: string,
-  startedAt = new Date("2026-11-14T13:00:00Z")
+  startedAt = new Date("2026-11-14T13:00:00Z"),
+  db: { readonly layer: Layer.Layer<ArchiveDb> } = archiveDbOf(bucket)
 ) =>
-  archiveRun(localSteps(Layer.merge(idx.layer, bucket.layer)), {
+  archiveRun(localSteps(Layer.mergeAll(idx.layer, bucket.layer, db.layer)), {
     id: RunId.make(id),
     trigger: "cron",
     startedAt,
@@ -64,10 +79,13 @@ const sha256 = (body: string | Uint8Array<ArrayBuffer>) =>
 const json = (bucket: MemoryBucket, key: string) =>
   JSON.parse(bucket.objects.get(key)?.body ?? "null")
 
-// The summary a run record carries as custom metadata.
-const summaryOf = (bucket: MemoryBucket, key: string) =>
-  Schema.decodeUnknownSync(RunMetadata)(bucket.objects.get(key)?.customMetadata)
-    .run
+// The run record of `id`, as its row holds it.
+const record = (bucket: MemoryBucket, id: string) =>
+  storedRun(archiveDbOf(bucket), SHAREHOLDING_ARCHIVE, id) ?? {}
+
+// The summary the recent runs table shows of `id`.
+const summaryOf = (bucket: MemoryBucket, id: string) =>
+  Schema.decodeUnknownSync(RunSummary)(record(bucket, id))
 
 // Every key under reports/ written at most once, across all runs so far.
 const assertNothingOverwritten = (bucket: MemoryBucket) => {
@@ -175,23 +193,17 @@ describe("an archive run", () => {
         other: [],
         error: null,
       })
-      assert.deepStrictEqual(
-        json(bucket, "runs/cron-2026-11-14T13.json"),
-        result
-      )
-      assert.deepStrictEqual(
-        summaryOf(bucket, "runs/cron-2026-11-14T13.json"),
-        {
-          id: result.id,
-          trigger: "cron",
-          startedAt: "2026-11-14T13:00:00.000Z",
-          outcome: "complete",
-          reportsAdded: 145,
-          newVersions: 0,
-        }
-      )
-      // The run's start points runs/latest.json at it, never the run.
-      assert.notInclude(bucket.puts, "runs/latest.json")
+      assert.deepStrictEqual(record(bucket, "cron-2026-11-14T13"), result)
+      assert.deepStrictEqual(summaryOf(bucket, "cron-2026-11-14T13"), {
+        id: result.id,
+        trigger: "cron",
+        startedAt: "2026-11-14T13:00:00.000Z",
+        outcome: "complete",
+        reportsAdded: 145,
+        newVersions: 0,
+      })
+      // No run writes its record or the latest pointer to R2.
+      assert.deepStrictEqual(keysUnder(bucket, "runs/"), [])
     })
   )
 
@@ -230,7 +242,7 @@ describe("an archive run", () => {
         reportsChecked: 145,
       })
       assert.strictEqual(
-        json(bucket, "runs/cron-2026-11-14T06.json").outcome,
+        record(bucket, "cron-2026-11-14T06").outcome,
         "complete"
       )
     })
@@ -519,10 +531,7 @@ describe("an archive run", () => {
           notStored: [gone.Prospectus],
           error: null,
         })
-        assert.deepStrictEqual(
-          json(bucket, "runs/cron-2026-11-14T06.json"),
-          result
-        )
+        assert.deepStrictEqual(record(bucket, "cron-2026-11-14T06"), result)
 
         idx.files.set(goneUrl, file)
         const next = yield* run(idx, bucket, "cron-2026-11-14T13")
@@ -565,10 +574,7 @@ describe("an archive run", () => {
           reportsChecked: 144,
           notStored: [unanswered.Prospectus],
         })
-        assert.deepStrictEqual(
-          json(bucket, "runs/cron-2026-11-14T13.json"),
-          result
-        )
+        assert.deepStrictEqual(record(bucket, "cron-2026-11-14T13"), result)
 
         idx.files.set(unansweredUrl, unansweredFile)
         const next = yield* run(idx, bucket, "cron-2026-11-15T06")
@@ -657,10 +663,7 @@ describe("an archive run", () => {
         // A classification parse run parses, not the archive run.
         assert.notProperty(result, "monthsParsed")
         assert.notProperty(result, "parseFailures")
-        assert.deepStrictEqual(
-          json(bucket, "runs/cron-2026-11-14T13.json"),
-          result
-        )
+        assert.deepStrictEqual(record(bucket, "cron-2026-11-14T13"), result)
       })
   )
 
@@ -673,18 +676,18 @@ describe("an archive run", () => {
       const failure = yield* runFailure(idx, bucket, "cron-2026-11-14T06")
 
       assert.include(failure.message, "403")
-      assert.deepInclude(json(bucket, "runs/cron-2026-11-14T06.json"), {
+      assert.deepInclude(record(bucket, "cron-2026-11-14T06"), {
         id: "cron-2026-11-14T06",
         outcome: "failed",
         error: failure.message,
         notStored: [],
       })
-      assert.isNotNull(json(bucket, "runs/cron-2026-11-14T06.json").finishedAt)
+      assert.isNotNull(record(bucket, "cron-2026-11-14T06").finishedAt)
       assert.strictEqual(
-        summaryOf(bucket, "runs/cron-2026-11-14T06.json").outcome,
+        summaryOf(bucket, "cron-2026-11-14T06").outcome,
         "failed"
       )
-      assert.notInclude(bucket.puts, "runs/latest.json")
+      assert.deepStrictEqual(keysUnder(bucket, "runs/"), [])
       assert.deepStrictEqual(keysUnder(bucket, "reports/"), [])
     })
   )
@@ -702,7 +705,7 @@ describe("an archive run", () => {
 
         assert.strictEqual(idx.requests.length, 1)
         assert.include(failure.message, "listing")
-        assert.deepInclude(json(bucket, "runs/cron-2026-11-14T06.json"), {
+        assert.deepInclude(record(bucket, "cron-2026-11-14T06"), {
           outcome: "failed",
           error: failure.message,
         })
@@ -714,7 +717,13 @@ describe("an archive run", () => {
     () =>
       Effect.gen(function* () {
         const bucket = memoryBucket()
-        const steps = localSteps(Layer.merge(fakeIdx().layer, bucket.layer))
+        const steps = localSteps(
+          Layer.mergeAll(
+            fakeIdx().layer,
+            bucket.layer,
+            archiveDbOf(bucket).layer
+          )
+        )
         // The runtime's message for a failed step, which it decides the size of.
         const message = `plan failed: ${"x".repeat(5 * MAX_RUN_ERROR_LENGTH)}`
 
@@ -735,7 +744,7 @@ describe("an archive run", () => {
         )
 
         assert.strictEqual(failure.message, message)
-        const { outcome, error } = json(bucket, "runs/cron-2026-11-14T06.json")
+        const { outcome, error } = record(bucket, "cron-2026-11-14T06")
         assert.strictEqual(outcome, "failed")
         assert.strictEqual(
           error,
@@ -832,7 +841,7 @@ describe("an archive run at the largest size it accepts", () => {
 
       assert.strictEqual(idx.requests.length, 1)
       assert.include(failure.message, `more than the ${MAX_LISTED_REPORTS}`)
-      assert.deepInclude(json(bucket, "runs/cron-2026-11-14T06.json"), {
+      assert.deepInclude(record(bucket, "cron-2026-11-14T06"), {
         outcome: "failed",
         error: failure.message,
       })
@@ -860,7 +869,7 @@ describe("an archive run at the largest size it accepts", () => {
       const failure = yield* runFailure(pastCap, bucket, "cron-2026-11-14T06")
       assert.strictEqual(pastCap.requests.length, 1)
       assert.include(failure.message, `over ${MAX_LISTING_BYTES} bytes`)
-      assert.deepInclude(json(bucket, "runs/cron-2026-11-14T06.json"), {
+      assert.deepInclude(record(bucket, "cron-2026-11-14T06"), {
         outcome: "failed",
         error: failure.message,
       })
@@ -879,7 +888,7 @@ describe("an archive run at the largest size it accepts", () => {
 
       assert.strictEqual(idx.requests.length, 1)
       assert.include(failure.message, "kelompok-1.xlsx")
-      assert.deepInclude(json(bucket, "runs/cron-2026-11-14T06.json"), {
+      assert.deepInclude(record(bucket, "cron-2026-11-14T06"), {
         outcome: "failed",
         error: failure.message,
       })
@@ -939,5 +948,170 @@ describe("an archive run at the largest size it accepts", () => {
       assert.strictEqual(recordsOf(bucket, atCap).length, 2)
       assert.strictEqual(recordsOf(bucket, pastCap).length, 1)
     })
+  )
+})
+
+// The archive totals the admin page reads from the report index.
+const indexed = (db: MemoryArchiveDb) =>
+  readAlone(archiveTotals).pipe(Effect.provide(db.layer))
+
+// The totals a listing of reports/ gives: each .xlsx per kind, and every
+// object's bytes.
+const listedTotals = (bucket: MemoryBucket) => {
+  const objects = [...bucket.objects].filter(([key]) =>
+    key.startsWith("reports/")
+  )
+  const files = objects.filter(([key]) => key.endsWith(".xlsx"))
+  return {
+    kinds: ReportKind.literals.map((kind) => ({
+      kind,
+      reports: files.filter(([key]) => key.startsWith(`reports/${kind}/`))
+        .length,
+    })),
+    reports: files.length,
+    bytes: objects.reduce(
+      (sum, [, { body, bytes }]) =>
+        sum + (bytes?.length ?? new TextEncoder().encode(body).length),
+      0
+    ),
+  }
+}
+
+// From now on, counts the report index rows `db` writes, leaving out the run
+// rows it also holds; returns the count so far.
+const indexWrites = (db: MemoryArchiveDb) => {
+  db.database.exec(`
+    CREATE TEMP TABLE index_writes (n INTEGER NOT NULL);
+    INSERT INTO index_writes VALUES (0);
+    CREATE TEMP TRIGGER index_insert AFTER INSERT ON archived_report
+      BEGIN UPDATE index_writes SET n = n + 1; END;
+    CREATE TEMP TRIGGER index_update AFTER UPDATE ON archived_report
+      BEGIN UPDATE index_writes SET n = n + 1; END;
+    CREATE TEMP TRIGGER index_delete AFTER DELETE ON archived_report
+      BEGIN UPDATE index_writes SET n = n + 1; END;
+  `)
+  return () =>
+    Number(
+      (
+        db.database.prepare("SELECT n FROM index_writes").get() as {
+          n: number
+        }
+      ).n
+    )
+}
+
+// The rows the index holds.
+const rowsHeld = (db: MemoryArchiveDb) =>
+  Number(
+    (
+      db.database
+        .prepare("SELECT COUNT(*) AS count FROM archived_report")
+        .get() as { count: number }
+    ).count
+  )
+
+const recordCount = (bucket: MemoryBucket) =>
+  keysUnder(bucket, "reports/").filter((key) => key.endsWith(".json")).length
+
+describe("an archive run's report index", () => {
+  it.effect("indexes each report it stores", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx()
+      const bucket = memoryBucket()
+      const db = memoryArchiveDb()
+      yield* run(idx, bucket, "cron-2026-11-14T13", undefined, db)
+
+      const totals = yield* indexed(db)
+      assert.strictEqual(totals.reports, 145)
+      assert.deepStrictEqual(totals, listedTotals(bucket))
+    })
+  )
+
+  it.effect("indexes a new version of a report it stores", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx()
+      const bucket = memoryBucket()
+      const db = memoryArchiveDb()
+      yield* run(idx, bucket, "cron-2026-11-14T06", undefined, db)
+
+      const daily = idx.listing[0]
+      idx.files.set(idxIdUrl(daily.Prospectus), {
+        body: `corrected xlsx bytes of ${daily.Prospectus}`,
+        etag: `"etag-0:1"`,
+        lastModified: "Sat, 14 Nov 2026 09:00:00 GMT",
+      })
+      yield* run(idx, bucket, "cron-2026-11-14T13", undefined, db)
+
+      const totals = yield* indexed(db)
+      assert.strictEqual(totals.reports, 146)
+      assert.deepStrictEqual(totals, listedTotals(bucket))
+    })
+  )
+
+  it.effect("writes no second record when a report's index insert fails", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx()
+      const bucket = memoryBucket()
+      const db = memoryArchiveDb()
+      const failing = failingFirstReportInsert(db)
+      const result = yield* run(
+        idx,
+        bucket,
+        "cron-2026-11-14T13",
+        undefined,
+        failing
+      )
+      db.failBatch = undefined
+      assert.isTrue(failing.failed())
+
+      assert.deepInclude(result, { outcome: "complete", reportsAdded: 145 })
+      assert.strictEqual(recordCount(bucket), 145)
+      // The next run's heal indexes the record the failed insert left out.
+      yield* run(idx, bucket, "cron-2026-11-15T06", undefined, db)
+      assert.strictEqual(recordCount(bucket), 145)
+      assert.deepStrictEqual(yield* indexed(db), listedTotals(bucket))
+      assert.strictEqual(rowsHeld(db), recordCount(bucket))
+    })
+  )
+
+  it.effect(
+    "indexes the records an earlier run stored before the index existed",
+    () =>
+      Effect.gen(function* () {
+        const idx = fakeIdx()
+        const bucket = memoryBucket()
+        yield* run(idx, bucket, "cron-2026-11-14T06")
+
+        // A stage whose bucket filled before ArchiveDb did.
+        const db = memoryArchiveDb()
+        const result = yield* run(
+          idx,
+          bucket,
+          "cron-2026-11-14T13",
+          undefined,
+          db
+        )
+
+        assert.deepInclude(result, { outcome: "complete", reportsAdded: 0 })
+        assert.deepStrictEqual(yield* indexed(db), listedTotals(bucket))
+      })
+  )
+
+  it.effect(
+    "writes a row per record it indexes, and none for those indexed",
+    () =>
+      Effect.gen(function* () {
+        const idx = fakeIdx()
+        const bucket = memoryBucket()
+        yield* run(idx, bucket, "cron-2026-11-14T06")
+        const db = memoryArchiveDb()
+        const rowsWritten = indexWrites(db)
+
+        yield* run(idx, bucket, "cron-2026-11-14T13", undefined, db)
+        assert.strictEqual(rowsWritten(), recordCount(bucket))
+
+        yield* run(idx, bucket, "cron-2026-11-15T06", undefined, db)
+        assert.strictEqual(rowsWritten(), recordCount(bucket))
+      })
   )
 })

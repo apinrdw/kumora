@@ -28,6 +28,7 @@ import {
   investorTypeItems,
 } from "../shareholding/fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
+import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { holdingsKsei } from "../ksei/fake-ksei.ts"
 import { memoryBucket } from "../archive/memory-bucket.ts"
 import { memoryHoldingsDb } from "./memory-holdings-db.ts"
@@ -48,26 +49,37 @@ const parsed = Effect.gen(function* () {
   const holdings = memoryHoldingsDb()
   const kseiBucket = memoryBucket()
   yield* kseiArchiveRun(
-    localSteps(Layer.merge(holdingsKsei().layer, kseiBucket.layer)),
+    localSteps(
+      Layer.mergeAll(
+        holdingsKsei().layer,
+        kseiBucket.layer,
+        memoryArchiveDb().layer
+      )
+    ),
     run("cron-2026-11-14T03", "2026-11-14T03:00:00Z")
   )
   yield* kseiParseRuns.run(
-    localSteps(Layer.merge(kseiBucket.layer, holdings.layer)),
+    localSteps(
+      Layer.mergeAll(kseiBucket.layer, holdings.layer, memoryArchiveDb().layer)
+    ),
     run("cron-2026-11-14T04", "2026-11-14T04:00:00Z")
   )
   const bucket = memoryBucket()
   yield* archiveRun(
     localSteps(
-      Layer.merge(
+      Layer.mergeAll(
         fakeIdx([...classificationIdx().listing, ...investorTypeItems()]).layer,
-        bucket.layer
+        bucket.layer,
+        memoryArchiveDb().layer
       )
     ),
     run("cron-2026-11-14T13", "2026-11-14T13:00:00Z")
   )
   for (const runs of [classificationParseRuns, investorTypeParseRuns])
     yield* runs.run(
-      localSteps(Layer.merge(bucket.layer, holdings.layer)),
+      localSteps(
+        Layer.mergeAll(bucket.layer, holdings.layer, memoryArchiveDb().layer)
+      ),
       run("cron-2026-11-14", "2026-11-14T14:00:00Z")
     )
   return holdings.layer

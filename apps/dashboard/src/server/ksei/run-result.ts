@@ -1,5 +1,5 @@
-// A KSEI archive run's result: written to runs/<id>.json while it runs and
-// when it ends, and returned as the Workflow instance's output. The admin
+// A KSEI archive run's result: written to its ArchiveDb row while it runs
+// and when it ends, and returned as the Workflow instance's output. The admin
 // page reads it back with this Schema (spec apinrdw/kumora#327, "Run result
 // shape").
 import { DateTime, Effect, Schema, Struct } from "effect"
@@ -71,7 +71,7 @@ export const KseiRunResult = Schema.Struct({
 export type KseiRunResult = typeof KseiRunResult.Type
 
 // A run as the recent runs table shows it.
-const KseiRunSummary = KseiRunResult.mapFields(
+export const KseiRunSummary = KseiRunResult.mapFields(
   Struct.pick([
     "id",
     "trigger",
@@ -82,12 +82,6 @@ const KseiRunSummary = KseiRunResult.mapFields(
   ])
 )
 export type KseiRunSummary = typeof KseiRunSummary.Type
-
-// The custom metadata of runs/<id>.json: its summary, ~150 bytes of R2's
-// 2 KB of custom metadata.
-export const KseiRunMetadata = Schema.Struct({
-  run: Schema.fromJsonString(KseiRunSummary),
-})
 
 export const runningKseiResult = Effect.fnUntraced(function* (
   run: Run<KseiTrigger>

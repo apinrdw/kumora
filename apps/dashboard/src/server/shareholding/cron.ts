@@ -4,6 +4,7 @@
 import { runServerEffectResult } from "@workspace/server"
 import { Effect, Layer } from "effect"
 
+import { archiveDbD1 } from "../archive/archive-db.ts"
 import {
   above1ParseWorkflowBinding,
   archiveBucketR2,
@@ -19,7 +20,9 @@ import { scheduledArchiveRun } from "./runs.ts"
 export const runArchiveCron = (scheduledTime: number) =>
   runServerEffectResult(
     scheduledArchiveRun(scheduledTime).pipe(
-      Effect.provide(Layer.merge(archiveBucketR2, archiveWorkflowBinding))
+      Effect.provide(
+        Layer.mergeAll(archiveBucketR2, archiveDbD1, archiveWorkflowBinding)
+      )
     )
   )
 
@@ -31,6 +34,7 @@ export const runParseCron = (scheduledTime: number) =>
       Effect.provide(
         Layer.mergeAll(
           archiveBucketR2,
+          archiveDbD1,
           classificationParseWorkflowBinding,
           investorTypeParseWorkflowBinding,
           above1ParseWorkflowBinding

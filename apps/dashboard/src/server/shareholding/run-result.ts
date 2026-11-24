@@ -1,5 +1,5 @@
-// An archive run's result: written to runs/<id>.json while it runs and when
-// it ends, and returned as the Workflow instance's output. The admin page
+// An archive run's result: written to its ArchiveDb row while it runs and
+// when it ends, and returned as the Workflow instance's output. The admin page
 // reads it back with this Schema.
 import { DateTime, Effect, Schema, Struct } from "effect"
 
@@ -71,14 +71,6 @@ export const RunSummary = ArchiveRunResult.mapFields(
   ])
 )
 export type RunSummary = typeof RunSummary.Type
-
-// The custom metadata of runs/<id>.json (`putRunRecord`): its summary, so
-// the recent runs table reads the listing of runs/ and no record, whose
-// URLs can take most of a MiB. A summary takes ~150 bytes of R2's 2 KB of
-// custom metadata. S3 lowercases metadata names, hence the lowercase name.
-export const RunMetadata = Schema.Struct({
-  run: Schema.fromJsonString(RunSummary),
-})
 
 export const runningResult = Effect.fnUntraced(function* (
   run: Run<ArchiveTrigger>

@@ -7,14 +7,18 @@ import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 
 import type { FileRoutesByFullPath } from "@/routeTree.gen"
-import { authorizeArchive } from "@/server/admin/archive-access"
-import { ArchiveBucket } from "@/server/archive/bucket"
-import { dailyRunIdAt, REPORTS_PREFIX } from "@/server/archive/run"
+import {
+  authorizeArchive,
+  importingAsConflict,
+} from "@/server/admin/archive-access"
+import { readPage } from "@/server/archive/page-read"
+import { dailyRunIdAt } from "@/server/archive/run"
 import type { Action } from "@/server/auth/policy"
 import { kseiCoverage } from "@/server/ksei/coverage"
 import { parseNow } from "@/server/admin/parse-now"
 import { timePart } from "@/server/admin/part-timing"
 import { kseiParseRuns } from "@/server/ksei/parse-runs"
+import { kseiReportIndex } from "@/server/ksei/report-index"
 import type { KseiTrigger } from "@/server/ksei/run-result"
 import {
   lastKseiDeepRun,
@@ -23,7 +27,6 @@ import {
   startKseiRun,
 } from "@/server/ksei/runs"
 import { nextKseiParseRun, nextKseiRun } from "@/server/ksei/schedule"
-import { kseiTotals } from "@/server/ksei/totals"
 
 const KSEI_PATH = "/admin/ksei" satisfies keyof FileRoutesByFullPath
 
@@ -40,45 +43,45 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
   headers: Headers
 ) {
   yield* authorize(headers, "admin.view-ksei-archive").pipe(timed("authorize"))
-  // One listing of reports/ gives the totals and the coverage: ~150 objects
-  // after the first run, ~1,000 after a deep backfill, far within
-  // MAX_LISTED_OBJECTS.
-  const reports = Effect.gen(function* () {
-    return yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
-  })
-  const [run, runs, objects, deep, parseRun, parseCoverage] = yield* Effect.all(
-    [
-      lastKseiRun.pipe(timed("lastRun")),
-      recentKseiRuns.pipe(timed("recentRuns")),
-      reports.pipe(timed("reports")),
-      lastKseiDeepRun.pipe(timed("lastDeepRun")),
-      kseiParseRuns.last.pipe(timed("lastParseRun")),
-      kseiParseRuns.parseCoverage.pipe(timed("parseCoverage")),
-    ],
-    { concurrency: "unbounded" }
-  ).pipe(timed("reads"))
   const now = yield* DateTime.now
+  const read = yield* readPage(
+    {
+      lastRun: lastKseiRun,
+      recentRuns: recentKseiRuns(now),
+      reportIndex: kseiReportIndex,
+      lastDeepRun: lastKseiDeepRun,
+      lastParseRun: kseiParseRuns.last,
+      parseCoverage: kseiParseRuns.parseCoverage,
+    },
+    timed
+  ).pipe(timed("reads"), importingAsConflict)
+  const deep = read.lastDeepRun
   return {
-    lastRun: run,
+    lastRun: read.lastRun,
     nextRun: (yield* nextKseiRun(DateTime.toDateUtc(now))).toISOString(),
-    lastParseRun: parseRun,
+    lastParseRun: read.lastParseRun,
     nextParseRun: (yield* nextKseiParseRun(
       DateTime.toDateUtc(now)
     )).toISOString(),
     now: DateTime.formatIso(now),
-    recentRuns: runs,
-    totals: yield* kseiTotals(objects),
+    recentRuns: read.recentRuns,
+    totals: read.reportIndex.totals,
     // The deep run the coverage's months not found come from.
     lastDeepRun:
       deep?.deep == null
         ? undefined
         : { id: deep.id, finishedAt: deep.finishedAt },
-    coverage: yield* kseiCoverage(objects, deep?.deep?.monthsNotFound, now),
-    parseCoverage,
+    coverage: yield* kseiCoverage(
+      read.reportIndex.monthsHeld,
+      deep?.deep?.monthsNotFound,
+      now
+    ),
+    parseCoverage: read.parseCoverage,
   }
 })
 
-// Starts a `trigger` run now, refused while one is in progress.
+// Starts a `trigger` run now, refused while one is in progress or the
+// archive's runs are still importing.
 const startNow = Effect.fnUntraced(function* (
   trigger: Exclude<KseiTrigger, "cron">
 ) {
@@ -86,11 +89,14 @@ const startNow = Effect.fnUntraced(function* (
     trigger,
     DateTime.toEpochMillis(yield* DateTime.now)
   )
+  // The same words as shareholding.ts's Run now refusal and the badge in
+  // components/admin/archive/last-run-card.tsx.
   const refused = () =>
     Effect.fail(new Conflict({ message: "A run is in progress." }))
   // DuplicateRunId: another start in the same millisecond took the id.
   yield* startKseiRun(id, trigger).pipe(
-    Effect.catchTags({ RunInProgress: refused, DuplicateRunId: refused })
+    Effect.catchTags({ RunInProgress: refused, DuplicateRunId: refused }),
+    importingAsConflict
   )
   return { id }
 })

@@ -4,6 +4,7 @@
 import { runServerEffectResult } from "@workspace/server"
 import { Effect, Layer } from "effect"
 
+import { archiveDbD1 } from "../archive/archive-db.ts"
 import {
   kseiBucketR2,
   kseiParseWorkflowBinding,
@@ -15,7 +16,9 @@ import { scheduledKseiRun } from "./runs.ts"
 export const runKseiCron = (scheduledTime: number) =>
   runServerEffectResult(
     scheduledKseiRun(scheduledTime).pipe(
-      Effect.provide(Layer.merge(kseiBucketR2, kseiWorkflowBinding))
+      Effect.provide(
+        Layer.mergeAll(kseiBucketR2, archiveDbD1, kseiWorkflowBinding)
+      )
     )
   )
 
@@ -24,5 +27,9 @@ export const runKseiParseCron = (scheduledTime: number) =>
   runServerEffectResult(
     kseiParseRuns
       .scheduled(scheduledTime)
-      .pipe(Effect.provide(Layer.merge(kseiBucketR2, kseiParseWorkflowBinding)))
+      .pipe(
+        Effect.provide(
+          Layer.mergeAll(kseiBucketR2, archiveDbD1, kseiParseWorkflowBinding)
+        )
+      )
   )

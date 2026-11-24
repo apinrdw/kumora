@@ -12,6 +12,7 @@ import {
 } from "../holdings/above-1.ts"
 import { parseRunsOf } from "../holdings/parse-runs.ts"
 import { kindPrefix, reportKey } from "./keys.ts"
+import { shareholdingIndex } from "./report-index.ts"
 
 const KIND = "above-1"
 
@@ -24,6 +25,8 @@ export class Above1ParseWorkflow extends Context.Service<
 export const above1ParseRuns = parseRunsOf({
   runName: "Above-1% parse run",
   // parse-runs/<kind>/, as keys.ts lays out.
+  archive: "shareholding",
+  runKind: `parse-${KIND}`,
   runsPrefix: `parse-runs/${KIND}/`,
   months: {
     prefix: kindPrefix(KIND),
@@ -32,5 +35,6 @@ export const above1ParseRuns = parseRunsOf({
     parserVersion: ABOVE_1_PARSER_VERSION,
     parse: parseAbove1Month,
   },
+  newestVersions: shareholdingIndex.newestVersions(KIND),
   workflow: Above1ParseWorkflow,
 })

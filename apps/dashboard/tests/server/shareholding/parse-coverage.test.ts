@@ -23,16 +23,20 @@ import {
   type ListingItem,
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
+import type { MemoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
+import { archiveDbOf } from "../archive/runs.ts"
 import {
   type MemoryHoldingsDb,
   memoryHoldingsDb,
 } from "../holdings/memory-holdings-db.ts"
+import { readAlone } from "../archive/read-alone.ts"
 
 interface World {
   readonly idx: FakeIdx
   readonly bucket: MemoryBucket
   readonly holdings: MemoryHoldingsDb
+  readonly index: MemoryArchiveDb
 }
 
 const CLASSIFICATION_DATES: ReadonlyArray<ClassificationFixture> = [
@@ -43,25 +47,33 @@ const CLASSIFICATION_DATES: ReadonlyArray<ClassificationFixture> = [
 ]
 
 // IDX listing every classification and investor-type fixture's report.
-const world = (): World => ({
-  idx: fakeIdx([
-    ...CLASSIFICATION_DATES.map(classificationItem),
-    ...investorTypeItems(),
-  ]),
-  bucket: memoryBucket(),
-  holdings: memoryHoldingsDb(),
-})
+const world = (): World => {
+  const bucket = memoryBucket()
+  return {
+    idx: fakeIdx([
+      ...CLASSIFICATION_DATES.map(classificationItem),
+      ...investorTypeItems(),
+    ]),
+    bucket,
+    holdings: memoryHoldingsDb(),
+    // One ArchiveDb holds both the report index and the runs.
+    index: archiveDbOf(bucket),
+  }
+}
 
 // Each run an hour after the last, so a version archived later is fetched
 // later.
-const archive = ({ idx, bucket }: World, id: string) =>
+const archive = ({ idx, bucket, index }: World, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      archiveRun(localSteps(Layer.merge(idx.layer, bucket.layer)), {
-        id: RunId.make(id),
-        trigger: "cron",
-        startedAt: new Date("2026-11-14T13:00:00Z"),
-      })
+      archiveRun(
+        localSteps(Layer.mergeAll(idx.layer, bucket.layer, index.layer)),
+        {
+          id: RunId.make(id),
+          trigger: "cron",
+          startedAt: new Date("2026-11-14T13:00:00Z"),
+        }
+      )
     )
   )
 
@@ -133,18 +145,27 @@ const INVESTOR_TYPE: Kind = {
 const parse = ({ bucket, holdings }: World, { runs }: Kind, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      runs.run(localSteps(Layer.merge(bucket.layer, holdings.layer)), {
-        id: RunId.make(id),
-        trigger: "cron",
-        startedAt: new Date("2026-11-14T14:00:00Z"),
-      })
+      runs.run(
+        localSteps(
+          Layer.mergeAll(
+            bucket.layer,
+            holdings.layer,
+            archiveDbOf(bucket).layer
+          )
+        ),
+        {
+          id: RunId.make(id),
+          trigger: "cron",
+          startedAt: new Date("2026-11-14T14:00:00Z"),
+        }
+      )
     )
   )
 
 // The kind's parse coverage as each shown cell's state by its date.
-const parseCoverage = ({ bucket, holdings }: World, { runs }: Kind) =>
-  runs.parseCoverage.pipe(
-    Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
+const parseCoverage = ({ bucket, holdings, index }: World, { runs }: Kind) =>
+  readAlone(runs.parseCoverage).pipe(
+    Effect.provide(Layer.mergeAll(bucket.layer, holdings.layer, index.layer)),
     Effect.map((years) =>
       Object.fromEntries(
         years.flatMap(({ months }) =>
@@ -253,16 +274,43 @@ for (const kind of [CLASSIFICATION, INVESTOR_TYPE])
         const w = world()
         yield* archive(w, "cron-2026-11-14T06")
         yield* parse(w, kind, "cron-2026-11-14")
-        // A record of a report dated 2026-10-31, never parsed.
+        // A report dated 2026-10-31, never parsed, indexed by the next run.
+        w.bucket.objects.set(
+          `${kind.prefix}2026-10-31/${"a".repeat(64)}.xlsx`,
+          {
+            body: "xlsx",
+            contentType: "application/octet-stream",
+            customMetadata: {},
+          }
+        )
         w.bucket.objects.set(
           `${kind.prefix}2026-10-31/${"a".repeat(64)}.2026-11-14T150000.000Z.0123456789abcdef.json`,
           { body: "{}", contentType: "application/json", customMetadata: {} }
         )
+        yield* archive(w, "cron-2026-11-14T13")
         const { "2026-10-30": _october, ...earlier } = states(kind, "parsed")
         assert.deepStrictEqual(yield* parseCoverage(w, kind), {
           ...earlier,
           "2026-10-31": "not-parsed",
         })
+      })
+    )
+
+    it.effect("takes each month's newest version from the report index", () =>
+      Effect.gen(function* () {
+        const w = world()
+        yield* archive(w, "cron-2026-11-14T06")
+        yield* parse(w, kind, "cron-2026-11-14")
+        kind.newerOctober(w)
+        yield* archive(w, "cron-2026-11-14T13")
+        // The index alone holds what was archived: the bucket's reports are
+        // gone.
+        for (const key of w.bucket.objects.keys())
+          if (key.startsWith("reports/")) w.bucket.objects.delete(key)
+        assert.deepStrictEqual(
+          yield* parseCoverage(w, kind),
+          states(kind, "parsed", "stale")
+        )
       })
     )
   })

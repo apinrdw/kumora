@@ -5,13 +5,15 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
-import { RunId } from "@/server/archive/run"
+import { type RunBase, RunId } from "@/server/archive/run"
 import { KSEI_PARSER_VERSION } from "@/server/holdings/ksei"
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
 import { kseiParseRuns } from "@/server/ksei/parse-runs"
 
 import { localSteps } from "../archive/local-steps.ts"
+import type { MemoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
+import { archiveDbOf, KSEI_PARSE, seedRun } from "../archive/runs.ts"
 import {
   type MemoryHoldingsDb,
   memoryHoldingsDb,
@@ -24,41 +26,60 @@ import {
   holdingsKsei,
   holdingsUrl,
 } from "./fake-ksei.ts"
+import { readAlone } from "../archive/read-alone.ts"
 
 interface World {
   readonly ksei: FakeKsei
   readonly bucket: MemoryBucket
   readonly holdings: MemoryHoldingsDb
+  readonly index: MemoryArchiveDb
 }
 
-const world = (): World => ({
-  ksei: holdingsKsei(),
-  bucket: memoryBucket(),
-  holdings: memoryHoldingsDb(),
-})
+const world = (): World => {
+  const bucket = memoryBucket()
+  return {
+    ksei: holdingsKsei(),
+    bucket,
+    holdings: memoryHoldingsDb(),
+    // One ArchiveDb holds both the report index and the runs.
+    index: archiveDbOf(bucket),
+  }
+}
 
 // Today, so the grid ends in 2026.
 const start = TestClock.setTime(Date.parse("2026-11-17T03:00:00Z"))
 
-const archive = ({ ksei, bucket }: World, id: string) =>
+const archive = ({ ksei, bucket, index }: World, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      kseiArchiveRun(localSteps(Layer.merge(ksei.layer, bucket.layer)), {
-        id: RunId.make(id),
-        trigger: "cron",
-        startedAt: new Date("2026-11-14T03:00:00Z"),
-      })
+      kseiArchiveRun(
+        localSteps(Layer.mergeAll(ksei.layer, bucket.layer, index.layer)),
+        {
+          id: RunId.make(id),
+          trigger: "cron",
+          startedAt: new Date("2026-11-14T03:00:00Z"),
+        }
+      )
     )
   )
 
 const parse = ({ bucket, holdings }: World, id: string, startedAt: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      kseiParseRuns.run(localSteps(Layer.merge(bucket.layer, holdings.layer)), {
-        id: RunId.make(id),
-        trigger: id.startsWith("admin") ? "admin" : "cron",
-        startedAt: new Date(startedAt),
-      })
+      kseiParseRuns.run(
+        localSteps(
+          Layer.mergeAll(
+            bucket.layer,
+            holdings.layer,
+            archiveDbOf(bucket).layer
+          )
+        ),
+        {
+          id: RunId.make(id),
+          trigger: id.startsWith("admin") ? "admin" : "cron",
+          startedAt: new Date(startedAt),
+        }
+      )
     )
   )
 
@@ -79,9 +100,13 @@ const bumpParser = ({ holdings }: World, periodEnd: string) => {
 
 // The parse coverage as each year's twelve cells, a cell its state or "" when
 // blank.
-const parseCoverage = ({ bucket, holdings }: World) =>
-  kseiParseRuns.parseCoverage.pipe(
-    Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
+const coverage = ({ bucket, holdings, index }: World) =>
+  readAlone(kseiParseRuns.parseCoverage).pipe(
+    Effect.provide(Layer.mergeAll(bucket.layer, holdings.layer, index.layer))
+  )
+
+const parseCoverage = (w: World) =>
+  coverage(w).pipe(
     Effect.map((years) =>
       Object.fromEntries(
         years.map(({ year, months }) => [
@@ -93,9 +118,8 @@ const parseCoverage = ({ bucket, holdings }: World) =>
   )
 
 // 2026's cell for the month at `index`, January being 0.
-const cell = ({ bucket, holdings }: World, index: number) =>
-  kseiParseRuns.parseCoverage.pipe(
-    Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
+const cell = (w: World, index: number) =>
+  coverage(w).pipe(
     Effect.map(
       (years) => years.find(({ year }) => year === 2026)?.months[index]
     )
@@ -219,20 +243,16 @@ describe("the KSEI parse coverage", () => {
         yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
         // An admin run started later is still running: its record has no
         // failures yet.
-        w.bucket.objects.set("parse-runs/admin-1763434800000.json", {
-          body: JSON.stringify({
-            id: "admin-1763434800000",
-            trigger: "admin",
-            startedAt: "2026-11-15T03:00:00.000Z",
-            finishedAt: null,
-            outcome: "running",
-            monthsParsed: 0,
-            parseFailures: [],
-            error: null,
-          }),
-          contentType: "application/json",
-          customMetadata: {},
-        })
+        seedRun(archiveDbOf(w.bucket), KSEI_PARSE, {
+          id: RunId.make("admin-1763434800000"),
+          trigger: "admin",
+          startedAt: "2026-11-15T03:00:00.000Z",
+          finishedAt: null,
+          outcome: "running",
+          monthsParsed: 0,
+          parseFailures: [],
+          error: null,
+        } as RunBase)
         assert.deepStrictEqual(
           yield* parseCoverage(w),
           may2026("parsed", "parsed", "parsed", "failed")
@@ -349,16 +369,89 @@ describe("the KSEI parse coverage", () => {
       const w = world()
       yield* archive(w, "cron-2026-11-14")
       yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
-      // A record of a report dated 2026-10-31, never parsed.
+      // A report dated 2026-10-31, never parsed, indexed by the next run.
+      w.bucket.objects.set(
+        `reports/securities-holdings/2026-10-31/${"a".repeat(64)}.zip`,
+        { body: "zip", contentType: "application/zip", customMetadata: {} }
+      )
       w.bucket.objects.set(
         `reports/securities-holdings/2026-10-31/${"a".repeat(64)}.2026-11-17T050000.000Z.0123456789abcdef.json`,
         { body: "{}", contentType: "application/json", customMetadata: {} }
       )
-      const years = yield* kseiParseRuns.parseCoverage.pipe(
-        Effect.provide(Layer.merge(w.bucket.layer, w.holdings.layer))
-      )
+      yield* archive(w, "cron-2026-11-15")
+      const years = yield* coverage(w)
       assert.strictEqual(years[0]?.months[9]?.date, "2026-10-31")
       assert.strictEqual(years[0]?.months[9]?.state, "not-parsed")
     })
+  )
+
+  it.effect("takes each month's newest version from the report index", () =>
+    Effect.gen(function* () {
+      yield* start
+      const w = world()
+      yield* archive(w, "cron-2026-11-14")
+      yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
+      w.ksei.files.set(
+        holdingsUrl("BalanceposEfek20261030.zip"),
+        fileOf(holdingsFixture("BalanceposEfek20260930.zip"))
+      )
+      yield* archive(w, "cron-2026-11-15")
+      // The index alone holds what was archived: the bucket's reports are
+      // gone.
+      for (const key of w.bucket.objects.keys())
+        if (key.startsWith("reports/")) w.bucket.objects.delete(key)
+      assert.deepStrictEqual(
+        yield* parseCoverage(w),
+        may2026("parsed", "parsed", "parsed", "stale")
+      )
+    })
+  )
+
+  it.effect(
+    "takes the version a parse run reads when two were fetched at once",
+    () =>
+      Effect.gen(function* () {
+        yield* start
+        const w = world()
+        yield* archive(w, "cron-2026-11-14")
+        w.ksei.files.set(
+          holdingsUrl("BalanceposEfek20261030.zip"),
+          fileOf(holdingsFixture("BalanceposEfek20260930.zip"))
+        )
+        // A second run at the same instant: October's two versions share
+        // their fetched-at.
+        yield* kseiArchiveRun(
+          localSteps(
+            Layer.mergeAll(w.ksei.layer, w.bucket.layer, w.index.layer)
+          ),
+          {
+            id: RunId.make("admin-2026-11-14"),
+            trigger: "admin",
+            startedAt: new Date("2026-11-14T03:00:00Z"),
+          }
+        )
+        const fetchedAts = w.index.database
+          .prepare(
+            "SELECT DISTINCT fetched_at FROM archived_report " +
+              "WHERE report_date = '2026-10-30' AND kind = 'securities-holdings'"
+          )
+          .all()
+        assert.strictEqual(fetchedAts.length, 1)
+        assert.strictEqual(
+          w.index.database
+            .prepare(
+              "SELECT COUNT(*) AS count FROM archived_report " +
+                "WHERE report_date = '2026-10-30' AND kind = 'securities-holdings'"
+            )
+            .get()?.count,
+          2
+        )
+
+        yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
+        assert.deepStrictEqual(
+          yield* parseCoverage(w),
+          may2026("parsed", "parsed", "parsed", "parsed")
+        )
+      })
   )
 })

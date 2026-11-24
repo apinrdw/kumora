@@ -1,11 +1,11 @@
 // The shareholding archive's totals per report kind, for the admin page
-// (spec apinrdw/kumora#303, "The admin page").
+// (spec apinrdw/kumora#303, "The admin page"), from the report index
+// (report-index.ts), as a part of the admin page's ArchiveDb batch.
 import { Effect, Schema } from "effect"
 
-import { ArchiveBucket } from "../archive/bucket.ts"
-import { REPORTS_PREFIX } from "../archive/run.ts"
-import { kindPrefix } from "./keys.ts"
+import { mapRead } from "../archive/page-read.ts"
 import { ReportKind } from "./listing.ts"
+import { shareholdingIndex } from "./report-index.ts"
 
 const ArchiveTotals = Schema.Struct({
   // Every report kind, in the listing's order, with its stored files.
@@ -18,25 +18,16 @@ const ArchiveTotals = Schema.Struct({
 })
 export type ArchiveTotals = typeof ArchiveTotals.Type
 
-// One listing of reports/. A report counts once per stored file, so each
-// version of it counts.
-// The totals list every object under reports/, as the spec asks
-// ("one bucket listing of reports/ with custom metadata"): about 150 files
-// and their records on 2026-11-14, plus ~50 objects a month (~24 files,
-// docs/research/idx-kepemilikan-listing.md), a few hundred KB of keys, held
-// only for the count. See apinrdw/kumora#303 and #310.
-export const archiveTotals = Effect.gen(function* () {
-  const objects = yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
-  const files = objects.filter(({ key }) => key.endsWith(".xlsx"))
-  const kinds = yield* Effect.forEach(ReportKind.literals, (kind) =>
-    Effect.map(kindPrefix(kind), (prefix) => ({
-      kind,
-      reports: files.filter(({ key }) => key.startsWith(prefix)).length,
-    }))
+// A report counts once per stored file, so each version of it counts.
+export const archiveTotals = mapRead(shareholdingIndex.kindTotals, (indexed) =>
+  Effect.succeed(
+    ArchiveTotals.make({
+      kinds: ReportKind.literals.map((kind) => ({
+        kind,
+        reports: indexed.find((row) => row.kind === kind)?.files ?? 0,
+      })),
+      reports: indexed.reduce((sum, { files }) => sum + files, 0),
+      bytes: indexed.reduce((sum, { bytes }) => sum + bytes, 0),
+    })
   )
-  return ArchiveTotals.make({
-    kinds,
-    reports: files.length,
-    bytes: objects.reduce((sum, { size }) => sum + size, 0),
-  })
-})
+)

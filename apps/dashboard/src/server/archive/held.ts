@@ -5,7 +5,7 @@
 // that wrote it.
 import { Effect } from "effect"
 
-import { ArchiveBucket } from "./bucket.ts"
+import { ArchiveBucket, type ListedObject } from "./bucket.ts"
 import { type RunId, REPORTS_PREFIX } from "./run.ts"
 
 // The record metadata keys every archive writes besides its identity. RUN
@@ -28,10 +28,21 @@ export const heldRecords = Effect.fnUntraced(function* (
   identity: string,
   run?: RunId
 ) {
+  return yield* heldIn(
+    yield* (yield* ArchiveBucket).list(REPORTS_PREFIX),
+    identity,
+    run
+  )
+})
+
+// heldRecords from `objects`, a listing of reports/ the step already made.
+export const heldIn = Effect.fnUntraced(function* (
+  objects: ReadonlyArray<ListedObject>,
+  identity: string,
+  run?: RunId
+) {
   const held = new Map<string, HeldRecords>()
-  for (const { customMetadata } of yield* (yield* ArchiveBucket).list(
-    REPORTS_PREFIX
-  )) {
+  for (const { customMetadata } of objects) {
     const key = customMetadata[identity]
     if (key === undefined || (run !== undefined && customMetadata[RUN] === run))
       continue

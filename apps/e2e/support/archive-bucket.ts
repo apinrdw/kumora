@@ -1,8 +1,8 @@
 // Seeds one of the Test stage's archive buckets. `alchemy dev` serves every
 // local R2 bucket on the dashboard Worker's S3-compatible endpoint
 // (repos/alchemy, packages/cloudflare/src/R2/LocalS3.ts), with a fixed,
-// well-known key pair that only guards localhost, so a spec writes runs/
-// records there, signed with SigV4, as an S3 client would.
+// well-known key pair that only guards localhost, so a spec writes reports
+// there, signed with SigV4, as an S3 client would.
 import { TEST, stackName } from "@workspace/deploy"
 import * as Effect from "effect/Effect"
 import { createHash, createHmac } from "node:crypto"

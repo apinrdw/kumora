@@ -10,6 +10,7 @@ import {
 } from "@workspace/deploy"
 import { stackOptions, stackStage, websiteProps } from "@workspace/deploy/stack"
 import * as Alchemy from "alchemy"
+import * as RemovalPolicy from "alchemy/RemovalPolicy"
 import { Stack } from "alchemy/Stack"
 import { isResourceState, State } from "alchemy/State"
 import * as Config from "effect/Config"
@@ -87,6 +88,16 @@ const HoldingsDb = apacDatabase("HoldingsDb", "./holdings-migrations")
 const BrokerTotalsDb = Cloudflare.D1.Database("BrokerTotalsDb", {
   migrations: "./broker-totals-migrations",
 })
+
+// Both archives' metadata: the report index, read by the admin pages. On
+// every stage like the archive buckets; it fills from its stage's buckets
+// (src/server/archive/report-index.ts).
+// Decision: a data set gets a D1 of its own, read replication off
+// (apps/dashboard/docs/adr/0001-each-data-set-gets-its-own-d1-with-read-replication-off.md)
+//
+// Decision: every D1 is recreated in apac by cloning the one it replaces
+// (apps/dashboard/docs/adr/0124-every-d1-is-recreated-in-apac-by-cloning-the-one-it-replaces.md)
+const ArchiveDb = apacDatabase("ArchiveDb", "./archive-migrations")
 
 // Decision: Production alone owns the mailer.pusat.ai sending subdomain
 // (apps/dashboard/docs/adr/0002-production-alone-owns-the-mail-sending-subdomain.md)
@@ -182,6 +193,11 @@ export const Website = Cloudflare.Website.Vite(
         AUTH_DB: AuthDb,
         HOLDINGS_DB: HoldingsDb,
         BROKER_TOTALS_DB: BrokerTotalsDb,
+        // Decision: only Production's ArchiveDb survives a stack destroy
+        // (apps/dashboard/docs/adr/0126-only-production-s-archivedb-survives-a-stack-destroy.md)
+        ARCHIVE_DB: ArchiveDb.pipe(
+          RemovalPolicy.retain((yield* stageKind(stage)) === "production")
+        ),
         AUTH_BASE_URL: yield* stageUrl("dashboard", stage),
         BETTER_AUTH_SECRET: Alchemy.makeRandom("BetterAuthSecret"),
         EMAIL: Cloudflare.Email.SendEmail("Email", {

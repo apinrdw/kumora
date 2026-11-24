@@ -3,12 +3,9 @@
 //   reports/<kind>/<data-date>/<sha256>.xlsx               written once per hash
 //   reports/<kind>/<data-date>/<sha256>.<fetched-at>.<listing>.json
 //                                                          one per listing seen
-//   runs/<run-id>.json                                     (../archive/run.ts)
-//   runs/latest.json                                       { id } of the last run
-//   parse-runs/<kind>/<run-id>.json                        one per parse run of
-//                                                          the kind (../holdings/
-//                                                          parse-runs.ts)
-//   parse-runs/<kind>/latest.json                          { id } of its last
+//   runs/<run-id>.json, runs/latest.json                   runs before ArchiveDb
+//   parse-runs/<kind>/<run-id>.json,                       held them, read once
+//   parse-runs/<kind>/latest.json                          (../archive/run-import.ts)
 //
 // Nothing under reports/ is ever overwritten or deleted.
 import { Effect } from "effect"

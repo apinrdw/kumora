@@ -2,7 +2,8 @@
 // created, with what `create` was given; a test sets an instance's status.
 // A second `create` with a used id fails the way the runtime does. `onCreate`
 // runs inside `create`, as an instance that runs before `create` returns;
-// `refuseCreate` fails every `create` with a WorkflowError.
+// `refuseCreate` fails every `create` with a WorkflowError. `statusReads`
+// logs the id of every status read.
 import { Effect, Layer } from "effect"
 
 import {
@@ -21,6 +22,7 @@ export interface FakeInstance {
 
 export interface FakeWorkflow {
   readonly instances: Map<string, FakeInstance>
+  readonly statusReads: Array<string>
   onCreate: ((id: string) => void) | undefined
   refuseCreate: boolean
   readonly layer: Layer.Layer<ArchiveWorkflow>
@@ -30,6 +32,7 @@ export const fakeWorkflow = (): FakeWorkflow => {
   const instances = new Map<string, FakeInstance>()
   const workflow: FakeWorkflow = {
     instances,
+    statusReads: [],
     onCreate: undefined,
     refuseCreate: false,
     layer: Layer.succeed(
@@ -52,6 +55,7 @@ export const fakeWorkflow = (): FakeWorkflow => {
                 }),
         status: (id) =>
           Effect.sync(() => {
+            workflow.statusReads.push(id)
             const instance = instances.get(id)
             return instance === undefined
               ? undefined

@@ -48,8 +48,6 @@ export interface ListOptions {
 // An object as `get` reads it.
 interface StoredObject {
   readonly body: string
-  // What `putIfUnchanged` compares.
-  readonly etag: string
   readonly uploaded: Date
 }
 
@@ -82,14 +80,5 @@ export class ArchiveBucket extends Context.Service<
       body: Uint8Array | string,
       options: PutOptions
     ) => Effect.Effect<void, BucketError>
-    // Writes only while the object's ETag is still `etag`, or, with `etag`
-    // undefined, while there is no object; in one step, so of two writers
-    // that read the same ETag, one writes. Whether it wrote.
-    readonly putIfUnchanged: (
-      key: string,
-      body: string,
-      options: PutOptions,
-      etag: string | undefined
-    ) => Effect.Effect<boolean, BucketError>
   }
 >()("dashboard/archive/ArchiveBucket") {}

@@ -43,6 +43,21 @@ export function databaseFile(id: string) {
   )
 }
 
+// Runs `fill` on the Test stage's D1 `resource`, in one transaction.
+export function writeTo(resource: string, fill: (db: DatabaseSync) => void) {
+  const id = databaseId(resource)
+  if (id === undefined) throw new Error(`The Test stage has no ${resource} yet`)
+  // The dashboard holds the file open too: wait out its locks.
+  const db = new DatabaseSync(databaseFile(id).pathname, { timeout: 5000 })
+  try {
+    db.exec("BEGIN")
+    fill(db)
+    db.exec("COMMIT")
+  } finally {
+    db.close()
+  }
+}
+
 // Empties `tables` of the Test stage's D1 `resource`, then runs `fill`, in
 // one transaction.
 export function replaceTables(
@@ -50,16 +65,8 @@ export function replaceTables(
   tables: ReadonlyArray<string>,
   fill: (db: DatabaseSync) => void
 ) {
-  const id = databaseId(resource)
-  if (id === undefined) throw new Error(`The Test stage has no ${resource} yet`)
-  // The dashboard holds the file open too: wait out its locks.
-  const db = new DatabaseSync(databaseFile(id).pathname, { timeout: 5000 })
-  try {
-    db.exec("BEGIN")
+  writeTo(resource, (db) => {
     for (const table of tables) db.exec(`DELETE FROM ${table}`)
     fill(db)
-    db.exec("COMMIT")
-  } finally {
-    db.close()
-  }
+  })
 }

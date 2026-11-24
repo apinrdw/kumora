@@ -1,25 +1,16 @@
-// Seeds the Test stage's shareholding archive bucket (archive-bucket.ts).
+// Seeds the Test stage's shareholding archive bucket (archive-bucket.ts), and
+// in its ArchiveDb the report index, as an archive run would, and its runs
+// (runs.ts).
 import * as Effect from "effect/Effect"
-import * as Schema from "effect/Schema"
 import { readFileSync } from "node:fs"
 
 import { sha256Hex } from "../../dashboard/src/server/archive/hash.ts"
 import { recordName } from "../../dashboard/src/server/archive/record-key.ts"
-import { RunMetadata } from "../../dashboard/src/server/shareholding/run-result.ts"
-import { putObject } from "./archive-bucket"
-
-const put = (
-  key: string,
-  body: string | Uint8Array<ArrayBuffer>,
-  contentType: string,
-  metadata?: Readonly<Record<string, string>>
-) => putObject("ShareholdingArchiveBucket", key, body, contentType, metadata)
-
-const putJson = (key: string, value: unknown) =>
-  put(key, JSON.stringify(value), "application/json")
+import { seedSizedReport, storeIndexedReport } from "./report-index"
+import { seedRunRow } from "./runs"
 
 /**
- * An archive run's result, as runs/<id>.json holds it. Records written while
+ * An archive run's result, as its ArchiveDb row holds it. Records written while
  * archive runs also parsed hold months parsed and parse failures.
  */
 export interface SeededRun {
@@ -45,38 +36,38 @@ export interface SeededRun {
 }
 
 /**
- * Writes the run's record and leaves runs/latest.json alone, so it can run
- * beside the specs that point it at their own run.
+ * Writes the run's row and leaves the last run alone, so it can run beside
+ * the specs that make their own run the last.
  */
 export async function seedRun(run: SeededRun) {
-  await put(
-    `runs/${run.id}.json`,
-    JSON.stringify(run),
-    "application/json",
-    Schema.encodeUnknownSync(RunMetadata)({ run })
-  )
+  seedRunRow("shareholding", "archive", run, { latest: false })
 }
 
-/** Writes the run's record and points runs/latest.json at it. */
+/** Writes the run's row as the last run. */
 export async function seedLatestRun(run: SeededRun) {
-  await seedRun(run)
-  await putJson("runs/latest.json", { id: run.id })
+  seedRunRow("shareholding", "archive", run, { latest: true })
 }
+
+// The spreadsheet type the archive stores its files as.
+const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 /**
  * Stores a report under `reports/<kind>/<data date>/` as an archive run
  * would: `bytes` bytes of file, then its listing record.
  */
 export async function seedReport(prefix: string, hash: string, bytes: number) {
-  await put(
-    `reports/${prefix}/${hash}.xlsx`,
-    "x".repeat(bytes),
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  )
-  await putJson(`reports/${prefix}/${hash}.20261114T060000000Z.0000.json`, {
-    sha256: hash,
+  await seedSizedReport("shareholding", {
+    prefix,
+    hash,
+    bytes,
+    extension: "xlsx",
+    contentType: XLSX,
+    fetchedAt: "2026-11-14T06:00:00.000Z",
   })
 }
+
+// When seedReportFixture's records were fetched, as their keys say.
+const FIXTURE_FETCHED_AT = "2026-11-14T13:00:00.000Z"
 
 /**
  * Stores one of the dashboard's trimmed report fixtures
@@ -110,16 +101,21 @@ export async function seedReportFixture(
         record: `${prefix}${yield* recordName(
           dataDate,
           sha256,
-          "2026-11-14T13:00:00.000Z",
+          FIXTURE_FETCHED_AT,
           `https://www.idx.co.id/Media/${filename}\n`
         )}`,
       }
     })
   )
-  await put(
-    keys.report,
-    bytes,
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  )
-  await putJson(keys.record, { dataDate, sha256: keys.sha256 })
+  await storeIndexedReport("shareholding", {
+    kind,
+    reportDate: dataDate,
+    sha256: keys.sha256,
+    fetchedAt: FIXTURE_FETCHED_AT,
+    fileKey: keys.report,
+    file: bytes,
+    contentType: XLSX,
+    recordKey: keys.record,
+    record: JSON.stringify({ dataDate, sha256: keys.sha256 }),
+  })
 }

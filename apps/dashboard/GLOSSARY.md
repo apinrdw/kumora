@@ -393,12 +393,20 @@ _Avoid_: KSEI mirror, shareholding archive
 One pass that compares KSEI's lists of reports with the KSEI archive and stores any report, or new version of one, that the archive lacks. The schedule starts one each day, and an admin can start one when no KSEI archive run is in progress. It ends **complete**, **partial** (a list or some reports could not be read or stored, and wait for the next run) or **failed** (neither list could be read).
 _Avoid_: Archive run, which is IDX's; sync, scrape
 
+**Report index**:
+One row per archived version of a report, in either archive, kept in ArchiveDb so the admin pages read the totals, coverage and parse coverage without listing the archive. The archive stays the truth: the index is rebuilt from it, and each archive run first adds any version the index lacks.
+_Avoid_: Report table, manifest, catalog
+
+**ArchiveDb**:
+The database, near where the admin pages are served, that holds the report index of both archives and every run. The reports themselves stay in the archives. Runs recorded before ArchiveDb held them are copied in once for each kind of run, starting the first time that kind is read or started there. A copy can take several page loads or starts. Until it finishes, each one answers that the archive's runs are still being copied into ArchiveDb.
+_Avoid_: Archive database for the archives themselves, which are buckets of reports
+
 **Deep backfill**:
 A KSEI archive run an admin starts that also looks for KSEI reports older than KSEI's lists, by filenames known from elsewhere and by guessing each month's period end. Scheduled runs never do this.
 _Avoid_: History run, full sync
 
 **Run**:
-One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run, an investor-type parse run, an above-1% parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run.
+One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run, an investor-type parse run, an above-1% parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run. Every run is recorded in ArchiveDb, and starting one claims it there: of two starts of one kind at once, one starts the run and the other is refused.
 _Avoid_: Archive run for both, which is IDX's; job
 
 ### Holdings

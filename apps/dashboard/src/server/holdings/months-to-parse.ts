@@ -1,8 +1,8 @@
 // Which archived months to parse into parsed holdings: a month is parsed
 // when its newest archived version (by fetched-at) or the parser's version
 // differs from the version its parsed holdings came from, or when it has
-// none. Every parse run's reconcile uses it (parse-steps.ts), and so does
-// the parse coverage (parse-coverage.ts).
+// none. Every parse run's reconcile uses it (parse-steps.ts); the parse
+// coverage (parse-coverage.ts) shows the same states, from the report index.
 import { Effect, Schema } from "effect"
 
 import { ArchiveBucket } from "../archive/bucket.ts"
@@ -112,9 +112,10 @@ export const parsedMonths = Effect.fnUntraced(function* ({
 
 // Each date archived under `prefix`, oldest first, with the SHA-256 of its
 // newest version by fetched-at: the version a parse run reads. The parse
-// coverage (parse-coverage.ts) reads it too, so it never disagrees with what
-// the next run picks.
-export const newestVersions = Effect.fnUntraced(function* (prefix: string) {
+// coverage reads the same from the report index (newestVersions in
+// ../archive/report-index.ts), so it agrees with what the next run picks.
+// The parse coverage tests hold the two to the same pick, a tie included.
+const newestVersions = Effect.fnUntraced(function* (prefix: string) {
   const newest = new Map<string, { sha256: string; fetchedAt: string }>()
   for (const { key } of yield* (yield* ArchiveBucket).list(prefix)) {
     const record = yield* parseRecordName(key.slice(prefix.length))

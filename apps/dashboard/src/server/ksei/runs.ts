@@ -1,9 +1,10 @@
 // The KSEI archive's runs on the shared run machinery (src/server/archive/):
-// its run store, starts, last run and recent runs. Spec apinrdw/kumora#327,
-// "Starting a run".
-import { Effect } from "effect"
+// its runs in ArchiveDb, starts, and the last run, recent runs and latest
+// deep run its admin page reads in one ArchiveDb batch. Spec
+// apinrdw/kumora#327, "Starting a run".
+import { type DateTime, Effect } from "effect"
 
-import { listRecentRuns } from "../archive/history.ts"
+import { recentRunsRead } from "../archive/history.ts"
 import {
   type ArchiveSource,
   dailyRunIdAt,
@@ -11,47 +12,47 @@ import {
   RUNS_PREFIX,
 } from "../archive/run.ts"
 import {
-  readLastRun,
-  readLatestRunWhere,
+  lastRunRead,
+  latestRunWhereRead,
   scheduledRun,
   startRunOf,
-  writeRunRecord,
 } from "../archive/runs.ts"
+import { writeRunRow } from "../archive/run-rows.ts"
 import {
-  KseiRunMetadata,
   KseiRunResult,
-  type KseiRunSummary,
+  KseiRunSummary,
   KseiTrigger,
   runningKseiResult,
 } from "./run-result.ts"
 
 const KSEI_RUNS = {
   runName: "KSEI archive run",
+  archive: "ksei",
+  runKind: "archive",
   runsPrefix: RUNS_PREFIX,
   triggers: KseiTrigger.literals,
   runIdAt: dailyRunIdAt,
   result: KseiRunResult,
-  metadata: KseiRunMetadata,
+  summary: KseiRunSummary,
+  // The latest deep run that has ended with its finds.
+  readersPastRetention: { deep: (run) => run.deep !== null },
   running: runningKseiResult,
 } satisfies ArchiveSource<KseiTrigger, KseiRunSummary, KseiRunResult>
 
-export const putKseiRunRecord = (result: KseiRunResult) =>
-  writeRunRecord(KSEI_RUNS, result)
+export const writeKseiRun = (result: KseiRunResult) =>
+  writeRunRow(KSEI_RUNS, result)
 
 // The last run, for the admin page: undefined before any run.
-export const lastKseiRun = readLastRun(KSEI_RUNS)
+export const lastKseiRun = lastRunRead(KSEI_RUNS)
 
-// The runs started in the past 30 days, newest first.
-export const recentKseiRuns = listRecentRuns(KSEI_RUNS)
+// The runs started in the 30 days to `now`, newest first.
+export const recentKseiRuns = (now: DateTime.Utc) =>
+  recentRunsRead(KSEI_RUNS, now)
 
 // The latest deep run that has ended with its finds, however old: the months
 // it found nothing for are the coverage grid's "not found". Undefined before
 // any.
-export const lastKseiDeepRun = readLatestRunWhere(
-  KSEI_RUNS,
-  "deep",
-  (run) => run.deep !== null
-)
+export const lastKseiDeepRun = latestRunWhereRead(KSEI_RUNS, "deep")
 
 export const startKseiRun = (id: RunId, trigger: KseiTrigger) =>
   startRunOf(KSEI_RUNS, id, trigger)

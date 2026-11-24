@@ -117,7 +117,6 @@ export const r2ArchiveBucket = (binding: (env: WorkerEnvShape) => R2Binding) =>
           readObject(key, (object) =>
             object.text().then((body) => ({
               body,
-              etag: object.httpEtag,
               uploaded: object.uploaded,
             }))
           ),
@@ -132,20 +131,6 @@ export const r2ArchiveBucket = (binding: (env: WorkerEnvShape) => R2Binding) =>
               customMetadata: customMetadata ?? {},
             })
           ).pipe(Effect.asVoid),
-        // R2 checks the condition and writes in one step, and answers null
-        // when it doesn't hold.
-        putIfUnchanged: (key, body, { contentType, customMetadata }, etag) =>
-          attempt("put", key, () =>
-            bucket.put(key, body, {
-              httpMetadata: { contentType },
-              customMetadata: customMetadata ?? {},
-              onlyIf: new Headers(
-                etag === undefined
-                  ? { "if-none-match": "*" }
-                  : { "if-match": etag }
-              ),
-            })
-          ).pipe(Effect.map((object) => object !== null)),
       })
     })
   )

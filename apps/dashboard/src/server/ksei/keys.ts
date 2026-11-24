@@ -3,10 +3,9 @@
 //   reports/<kind>/<period-end>/<sha256>.zip               written once per hash
 //   reports/<kind>/<period-end>/<sha256>.<fetched-at>.<seen>.json
 //                                                          one per (filename, ETag)
-//   runs/<run-id>.json                                     (../archive/run.ts)
-//   runs/latest.json                                       { id } of the last run
-//   parse-runs/<run-id>.json, parse-runs/latest.json       the KSEI parse runs'
-//                                                          (parse-runs.ts)
+//   runs/<run-id>.json, runs/latest.json                   runs before ArchiveDb
+//   parse-runs/<run-id>.json, parse-runs/latest.json       held them, read once
+//                                                          (../archive/run-import.ts)
 //
 // Nothing under reports/ is ever overwritten or deleted.
 // Decision: the KSEI archive keeps November 2018 onward only

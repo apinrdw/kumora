@@ -1,47 +1,33 @@
-// Seeds the Test stage's KSEI archive bucket (archive-bucket.ts).
+// Seeds the Test stage's KSEI archive bucket (archive-bucket.ts), and the
+// report index and runs in its ArchiveDb, as a KSEI archive run would.
 import * as Effect from "effect/Effect"
-import * as Schema from "effect/Schema"
 import { readFileSync } from "node:fs"
 
 import { sha256Hex } from "../../dashboard/src/server/archive/hash.ts"
 import { recordKey, reportKey } from "../../dashboard/src/server/ksei/keys.ts"
 
 import type { KseiRunResult } from "../../dashboard/src/server/ksei/run-result.ts"
-import { KseiRunMetadata } from "../../dashboard/src/server/ksei/run-result.ts"
-import { putObject } from "./archive-bucket"
+import { seedSizedReport, storeIndexedReport } from "./report-index"
+import { seedRunRow } from "./runs"
 
-const put = (
-  key: string,
-  body: string | Uint8Array<ArrayBuffer>,
-  contentType: string,
-  metadata?: Readonly<Record<string, string>>
-) => putObject("KseiArchiveBucket", key, body, contentType, metadata)
-
-/** A KSEI archive run's result, as runs/<id>.json holds it. */
+/** A KSEI archive run's result, as its ArchiveDb row holds it. */
 export type SeededKseiRun = typeof KseiRunResult.Encoded
 
 /**
- * Writes the run's record and leaves runs/latest.json alone, so it can run
- * beside the specs that point it at their own run.
+ * Writes the run's row and leaves the last run alone, so it can run beside
+ * the specs that make their own run the last.
  */
 export async function seedKseiRun(run: SeededKseiRun) {
-  await put(
-    `runs/${run.id}.json`,
-    JSON.stringify(run),
-    "application/json",
-    Schema.encodeUnknownSync(KseiRunMetadata)({ run })
-  )
+  seedRunRow("ksei", "archive", run, { latest: false })
 }
 
-/** Writes the run's record and points runs/latest.json at it. */
+/** Writes the run's row as the last run. */
 export async function seedLatestKseiRun(run: SeededKseiRun) {
-  await seedKseiRun(run)
-  await put(
-    "runs/latest.json",
-    JSON.stringify({ id: run.id }),
-    "application/json"
-  )
+  seedRunRow("ksei", "archive", run, { latest: true })
 }
+
+// When the KSEI seeds' records were fetched, as their keys say.
+const FETCHED_AT = "2026-11-14T03:00:00.000Z"
 
 /**
  * Stores a KSEI report under `reports/<kind>/<period end>/` as a run would:
@@ -52,16 +38,14 @@ export async function seedKseiReport(
   hash: string,
   bytes: number
 ) {
-  await put(
-    `reports/${prefix}/${hash}.zip`,
-    "x".repeat(bytes),
-    "application/zip"
-  )
-  await put(
-    `reports/${prefix}/${hash}.20261114T030000000Z.0000.json`,
-    JSON.stringify({ sha256: hash }),
-    "application/json"
-  )
+  await seedSizedReport("ksei", {
+    prefix,
+    hash,
+    bytes,
+    extension: "zip",
+    contentType: "application/zip",
+    fetchedAt: FETCHED_AT,
+  })
 }
 
 /**
@@ -91,16 +75,21 @@ export async function seedKseiHoldingsFixture(filename: string) {
           "securities-holdings",
           periodEnd,
           sha256,
-          "2026-11-14T03:00:00.000Z",
+          FETCHED_AT,
           { filename, etag: null }
         ),
       }
     })
   )
-  await put(keys.report, bytes, "application/zip")
-  await put(
-    keys.record,
-    JSON.stringify({ filename, sha256: keys.sha256 }),
-    "application/json"
-  )
+  await storeIndexedReport("ksei", {
+    kind: "securities-holdings",
+    reportDate: periodEnd,
+    sha256: keys.sha256,
+    fetchedAt: FETCHED_AT,
+    fileKey: keys.report,
+    file: bytes,
+    contentType: "application/zip",
+    recordKey: keys.record,
+    record: JSON.stringify({ filename, sha256: keys.sha256 }),
+  })
 }

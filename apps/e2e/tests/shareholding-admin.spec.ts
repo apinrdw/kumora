@@ -115,8 +115,8 @@ test.describe("a member", () => {
   })
 })
 
-// Serial, since every test points the one runs/latest.json of the
-// Test stage's bucket at its own run.
+// Serial, since every test makes its own run the Test stage's one last
+// archive run.
 test.describe.serial("an admin's last archive run", () => {
   test.use({ storageState: ADMIN.storageState })
 
@@ -230,7 +230,7 @@ const wib = (iso: string) =>
     hourCycle: "h23",
   }).format(new Date(iso))} WIB`
 
-// These seed runs/ records without touching runs/latest.json, so
+// These seed runs without changing the last run, so
 // they run beside the serial last-run tests above.
 test.describe("an admin's archive history", () => {
   test.use({ storageState: ADMIN.storageState })

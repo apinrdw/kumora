@@ -1,51 +1,50 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Layer, Option, Schema } from "effect"
+import { Effect, Layer, Option } from "effect"
 import { TestClock } from "effect/testing"
 
+import { ArchiveDb } from "@/server/archive/archive-db"
+import { type ArchiveSource, RUNS_PREFIX, RunId } from "@/server/archive/run"
+import { startRunOf } from "@/server/archive/runs"
+import {
+  ArchiveRunResult,
+  ArchiveTrigger,
+  runIdAt,
+  runningResult,
+  RunSummary,
+} from "@/server/shareholding/run-result"
 import {
   lastRun,
   scheduledArchiveRun,
   startRun,
 } from "@/server/shareholding/runs"
-import { RunId } from "@/server/archive/run"
-import { RunMetadata } from "@/server/shareholding/run-result"
-
-import type { ArchiveWorkflow } from "@/server/archive/workflow"
-import type { ArchiveBucket } from "@/server/archive/bucket"
 
 import { everySplit } from "../../interleaved"
 
-import { fakeWorkflow, type FakeWorkflow } from "./fake-workflow.ts"
-import { type MemoryBucket, memoryBucket } from "./memory-bucket.ts"
+import {
+  latestRunId,
+  runStores,
+  SHAREHOLDING_ARCHIVE,
+  seedRun,
+  storedRun,
+} from "./runs.ts"
+import { readAlone } from "./read-alone.ts"
 
 // 13:00 WIB on 14 November 2026.
 const AFTERNOON = Date.parse("2026-11-14T06:00:00Z")
 
-const fire = (
-  workflow: FakeWorkflow,
-  bucket: MemoryBucket,
-  scheduledTime = AFTERNOON
-) =>
-  scheduledArchiveRun(scheduledTime).pipe(
-    Effect.provide(Layer.merge(workflow.layer, bucket.layer))
-  )
+type Stores = ReturnType<typeof runStores>
 
-const setJson = (bucket: MemoryBucket, key: string, value: unknown) =>
-  bucket.objects.set(key, {
-    body: JSON.stringify(value),
-    contentType: "application/json",
-    customMetadata: {},
-  })
+const fire = ({ layer }: Stores, scheduledTime = AFTERNOON) =>
+  scheduledArchiveRun(scheduledTime).pipe(Effect.provide(layer))
 
-const json = (bucket: MemoryBucket, key: string) =>
-  JSON.parse(bucket.objects.get(key)?.body ?? "null")
+const started = ({ workflow }: Stores) => [...workflow.instances.keys()]
 
-const pointLatestAt = (bucket: MemoryBucket, id: string) =>
-  setJson(bucket, "runs/latest.json", { id })
+const stored = ({ db }: Stores, id: string) =>
+  storedRun(db, SHAREHOLDING_ARCHIVE, id)
 
 // The id of the last run while it is in progress.
-const runInProgress = (layer: Layer.Layer<ArchiveBucket | ArchiveWorkflow>) =>
-  lastRun.pipe(
+const runInProgress = ({ layer }: Stores) =>
+  readAlone(lastRun).pipe(
     Effect.map((view) =>
       view?.inProgress === true ? Option.some(view.result.id) : Option.none()
     ),
@@ -55,15 +54,12 @@ const runInProgress = (layer: Layer.Layer<ArchiveBucket | ArchiveWorkflow>) =>
 describe("the archive cron", () => {
   it.effect("starts a run named after its scheduled hour", () =>
     Effect.gen(function* () {
-      const workflow = fakeWorkflow()
-      yield* fire(workflow, memoryBucket())
+      const archive = runStores()
+      yield* fire(archive)
 
+      assert.deepStrictEqual(started(archive), ["cron-2026-11-14T06"])
       assert.deepStrictEqual(
-        [...workflow.instances.keys()],
-        ["cron-2026-11-14T06"]
-      )
-      assert.deepStrictEqual(
-        workflow.instances.get("cron-2026-11-14T06")?.options,
+        archive.workflow.instances.get("cron-2026-11-14T06")?.options,
         {
           id: "cron-2026-11-14T06",
           params: { trigger: "cron" },
@@ -73,6 +69,9 @@ describe("the archive cron", () => {
           },
         }
       )
+      assert.deepInclude(stored(archive, "cron-2026-11-14T06"), {
+        outcome: "running",
+      })
     })
   )
 
@@ -85,128 +84,136 @@ describe("the archive cron", () => {
   ] as const)
     it.effect(`skips while the latest run is ${status}`, () =>
       Effect.gen(function* () {
-        const workflow = fakeWorkflow()
-        const bucket = memoryBucket()
-        yield* fire(workflow, bucket, Date.parse("2026-11-13T13:00:00Z"))
-        pointLatestAt(bucket, "cron-2026-11-13T13")
-        const previous = workflow.instances.get("cron-2026-11-13T13")
+        const archive = runStores()
+        yield* fire(archive, Date.parse("2026-11-13T13:00:00Z"))
+        const previous = archive.workflow.instances.get("cron-2026-11-13T13")
         assert.isDefined(previous)
         previous.status = status
 
-        yield* fire(workflow, bucket)
+        yield* fire(archive)
 
-        assert.deepStrictEqual(
-          [...workflow.instances.keys()],
-          ["cron-2026-11-13T13"]
-        )
+        assert.deepStrictEqual(started(archive), ["cron-2026-11-13T13"])
       })
     )
 
   for (const status of ["complete", "errored", "terminated"] as const)
     it.effect(`starts once the latest run is ${status}`, () =>
       Effect.gen(function* () {
-        const workflow = fakeWorkflow()
-        const bucket = memoryBucket()
-        yield* fire(workflow, bucket, Date.parse("2026-11-13T13:00:00Z"))
-        pointLatestAt(bucket, "cron-2026-11-13T13")
-        const previous = workflow.instances.get("cron-2026-11-13T13")
+        const archive = runStores()
+        yield* fire(archive, Date.parse("2026-11-13T13:00:00Z"))
+        const previous = archive.workflow.instances.get("cron-2026-11-13T13")
         assert.isDefined(previous)
         previous.status = status
 
-        yield* fire(workflow, bucket)
+        yield* fire(archive)
 
-        assert.deepStrictEqual(
-          [...workflow.instances.keys()],
-          ["cron-2026-11-13T13", "cron-2026-11-14T06"]
-        )
+        assert.deepStrictEqual(started(archive), [
+          "cron-2026-11-13T13",
+          "cron-2026-11-14T06",
+        ])
       })
     )
 
   it.effect("ignores a second firing for the same hour", () =>
     Effect.gen(function* () {
-      const workflow = fakeWorkflow()
-      const bucket = memoryBucket()
-      yield* fire(workflow, bucket)
-      pointLatestAt(bucket, "cron-2026-11-14T06")
-      const first = workflow.instances.get("cron-2026-11-14T06")
+      const archive = runStores()
+      yield* fire(archive)
+      const first = archive.workflow.instances.get("cron-2026-11-14T06")
       assert.isDefined(first)
       first.status = "complete"
 
-      yield* fire(workflow, bucket)
+      yield* fire(archive)
 
-      assert.deepStrictEqual(
-        [...workflow.instances.keys()],
-        ["cron-2026-11-14T06"]
-      )
+      assert.deepStrictEqual(started(archive), ["cron-2026-11-14T06"])
       assert.strictEqual(first.status, "complete")
     })
   )
 
-  it.effect("leaves the record of the run a second firing finds", () =>
-    Effect.gen(function* () {
-      const workflow = fakeWorkflow()
-      const bucket = memoryBucket()
-      yield* fire(workflow, bucket)
-      const first = workflow.instances.get("cron-2026-11-14T06")
-      assert.isDefined(first)
-      first.status = "complete"
-      // The run ended, and an admin run came after it.
-      const record = { ...json(bucket, "runs/cron-2026-11-14T06.json") }
-      record.outcome = "complete"
-      setJson(bucket, "runs/cron-2026-11-14T06.json", record)
-      pointLatestAt(bucket, "admin-1763125200000")
-      bucket.puts.length = 0
+  it.effect(
+    "leaves the record and the last run of a run a second firing finds",
+    () =>
+      Effect.gen(function* () {
+        const archive = runStores()
+        yield* fire(archive)
+        const first = archive.workflow.instances.get("cron-2026-11-14T06")
+        assert.isDefined(first)
+        first.status = "complete"
+        const ended = { ...stored(archive, "cron-2026-11-14T06") }
+        ended["outcome"] = "complete"
+        // The run ended, and an admin run came after it.
+        seedRun(
+          archive.db,
+          SHAREHOLDING_ARCHIVE,
+          ended as unknown as Parameters<typeof seedRun>[2]
+        )
+        yield* startRun(RunId.make("admin-1763125200000"), "admin").pipe(
+          Effect.provide(archive.layer)
+        )
 
-      yield* fire(workflow, bucket)
+        yield* fire(archive)
 
-      assert.deepStrictEqual(bucket.puts, [])
-    })
+        assert.deepStrictEqual(stored(archive, "cron-2026-11-14T06"), ended)
+        assert.strictEqual(
+          latestRunId(archive.db, SHAREHOLDING_ARCHIVE),
+          "admin-1763125200000"
+        )
+      })
   )
 
-  for (const [label, minutesAgo, started] of [
-    ["skips while a start that claimed runs/latest.json", 4, []],
-    [
-      "starts once a start that died after claiming runs/latest.json",
-      6,
-      ["cron-2026-11-14T06"],
-    ],
+  for (const [label, minutesAgo, expected] of [
+    ["skips while a start that claimed its run", 4, []],
+    ["starts once a start that died after claiming its run", 6, ["cron"]],
   ] as const)
     it.effect(`${label} is ${minutesAgo} minutes old`, () =>
       Effect.gen(function* () {
-        const workflow = fakeWorkflow()
-        const bucket = memoryBucket()
-        // The claim, with no record and no instance yet.
-        bucket.objects.set("runs/latest.json", {
-          body: JSON.stringify({ id: "admin-1763125200000" }),
-          contentType: "application/json",
-          customMetadata: {},
-          uploaded: AFTERNOON - minutesAgo * 60 * 1000,
-        })
+        const archive = runStores()
+        // The claim, with no instance: its start died before `create`.
+        yield* TestClock.setTime(AFTERNOON - minutesAgo * 60 * 1000)
+        archive.workflow.refuseCreate = true
+        archive.workflow.onCreate = undefined
+        yield* startRun(RunId.make("admin-1763125200000"), "admin").pipe(
+          Effect.provide(archive.layer),
+          Effect.ignore
+        )
+        // As if the refusal never got recorded: the start died there.
+        const claimed = stored(archive, "admin-1763125200000")
+        assert.isDefined(claimed)
+        seedRun(
+          archive.db,
+          SHAREHOLDING_ARCHIVE,
+          {
+            ...claimed,
+            outcome: "running",
+            finishedAt: null,
+            error: null,
+          } as never,
+          { latest: true }
+        )
+        archive.workflow.refuseCreate = false
         yield* TestClock.setTime(AFTERNOON)
 
-        yield* fire(workflow, bucket)
+        yield* fire(archive)
 
-        assert.deepStrictEqual([...workflow.instances.keys()], [...started])
+        assert.deepStrictEqual(
+          started(archive),
+          expected.length === 0 ? [] : ["cron-2026-11-14T06"]
+        )
       })
     )
 
   it.effect("starts when the latest run is past its retention", () =>
     Effect.gen(function* () {
-      const workflow = fakeWorkflow()
-      const bucket = memoryBucket()
+      const archive = runStores()
       // It never recorded how it ended, and its instance is gone.
-      const started = Date.parse("2026-10-01T06:00:00Z")
-      yield* TestClock.setTime(started)
-      yield* fire(workflow, bucket, started)
-      workflow.instances.clear()
+      const startedAt = Date.parse("2026-10-01T06:00:00Z")
+      yield* TestClock.setTime(startedAt)
+      yield* fire(archive, startedAt)
+      archive.workflow.instances.clear()
       yield* TestClock.setTime(AFTERNOON)
 
-      yield* fire(workflow, bucket)
+      yield* fire(archive)
 
-      assert.deepStrictEqual(
-        [...workflow.instances.keys()],
-        ["cron-2026-11-14T06"]
-      )
+      assert.deepStrictEqual(started(archive), ["cron-2026-11-14T06"])
     })
   )
 })
@@ -215,18 +222,16 @@ describe("the archive cron", () => {
 describe("starting a run by hand", () => {
   it.effect("names the run in progress, and nothing once it ends", () =>
     Effect.gen(function* () {
-      const workflow = fakeWorkflow()
-      const bucket = memoryBucket()
-      const layer = Layer.merge(workflow.layer, bucket.layer)
-      const check = runInProgress(layer)
+      const archive = runStores()
+      const check = runInProgress(archive)
       assert.isTrue(Option.isNone(yield* check))
 
       yield* startRun(RunId.make("admin-1763125200000"), "admin").pipe(
-        Effect.provide(layer)
+        Effect.provide(archive.layer)
       )
       assert.deepStrictEqual(yield* check, Option.some("admin-1763125200000"))
 
-      const run = workflow.instances.get("admin-1763125200000")
+      const run = archive.workflow.instances.get("admin-1763125200000")
       assert.isDefined(run)
       assert.deepStrictEqual(run.options, {
         id: "admin-1763125200000",
@@ -242,15 +247,14 @@ describe("starting a run by hand", () => {
     "keeps the record of a run that ended before the start returned",
     () =>
       Effect.gen(function* () {
-        const workflow = fakeWorkflow()
-        const bucket = memoryBucket()
+        const archive = runStores()
         const id = RunId.make("admin-1763125200000")
         const ended = {
           id,
-          trigger: "admin",
+          trigger: "admin" as const,
           startedAt: "2026-11-14T13:00:00.000Z",
           finishedAt: "2026-11-14T13:00:30.000Z",
-          outcome: "complete",
+          outcome: "complete" as const,
           reportsAdded: 0,
           newVersions: 0,
           reportsChecked: 145,
@@ -261,14 +265,13 @@ describe("starting a run by hand", () => {
         }
         // The run's steps all ran inside `create`: its summary wrote the
         // record.
-        workflow.onCreate = () => setJson(bucket, `runs/${id}.json`, ended)
+        archive.workflow.onCreate = () =>
+          seedRun(archive.db, SHAREHOLDING_ARCHIVE, ended, { latest: true })
 
-        yield* startRun(id, "admin").pipe(
-          Effect.provide(Layer.merge(workflow.layer, bucket.layer))
-        )
+        yield* startRun(id, "admin").pipe(Effect.provide(archive.layer))
 
-        assert.deepStrictEqual(json(bucket, `runs/${id}.json`), ended)
-        assert.deepStrictEqual(json(bucket, "runs/latest.json"), { id })
+        assert.deepStrictEqual(stored(archive, id), ended)
+        assert.strictEqual(latestRunId(archive.db, SHAREHOLDING_ARCHIVE), id)
       })
   )
 
@@ -276,29 +279,20 @@ describe("starting a run by hand", () => {
     "records a run the Workflow refused to create as failed, and starts the next",
     () =>
       Effect.gen(function* () {
-        const workflow = fakeWorkflow()
-        const bucket = memoryBucket()
-        const layer = Layer.merge(workflow.layer, bucket.layer)
+        const archive = runStores()
         const id = RunId.make("admin-1763125200000")
-        workflow.refuseCreate = true
+        archive.workflow.refuseCreate = true
 
         const exit = yield* Effect.exit(
-          startRun(id, "admin").pipe(Effect.provide(layer))
+          startRun(id, "admin").pipe(Effect.provide(archive.layer))
         )
 
         assert.isTrue(exit._tag === "Failure")
-        assert.deepInclude(json(bucket, `runs/${id}.json`), {
+        assert.deepInclude(stored(archive, id), {
           outcome: "failed",
           error: "The Workflow refused to start the run.",
         })
-        // What the recent runs table shows of it.
-        assert.strictEqual(
-          Schema.decodeUnknownSync(RunMetadata)(
-            bucket.objects.get(`runs/${id}.json`)?.customMetadata
-          ).run.outcome,
-          "failed"
-        )
-        assert.isTrue(Option.isNone(yield* runInProgress(layer)))
+        assert.isTrue(Option.isNone(yield* runInProgress(archive)))
       })
   )
 
@@ -307,23 +301,54 @@ describe("starting a run by hand", () => {
     () =>
       Effect.gen(function* () {
         const operations = yield* everySplit({
-          setup: Effect.sync(() => ({
-            workflow: fakeWorkflow(),
-            bucket: memoryBucket(),
-          })),
-          first: ({ workflow, bucket }) => fire(workflow, bucket),
-          second: ({ workflow, bucket }) =>
+          setup: Effect.sync(runStores),
+          first: (archive) => fire(archive),
+          second: (archive) =>
             startRun(RunId.make("admin-1763125200000"), "admin").pipe(
-              Effect.provide(Layer.merge(workflow.layer, bucket.layer)),
+              Effect.provide(archive.layer),
               Effect.ignore
             ),
-          check: ({ workflow, bucket }, at) =>
+          check: (archive, at) =>
             Effect.sync(() => {
-              const started = [...workflow.instances.keys()]
-              assert.strictEqual(started.length, 1, `split at ${at}`)
-              assert.deepStrictEqual(json(bucket, "runs/latest.json"), {
-                id: started[0],
-              })
+              const ids = started(archive)
+              assert.strictEqual(ids.length, 1, `split at ${at}`)
+              assert.strictEqual(
+                latestRunId(archive.db, SHAREHOLDING_ARCHIVE),
+                ids[0]
+              )
+            }),
+        })
+        assert.isAbove(operations, 0)
+      })
+  )
+
+  it.effect(
+    "starts one run when two starts judge the same ended run at once",
+    () =>
+      Effect.gen(function* () {
+        const operations = yield* everySplit({
+          setup: Effect.gen(function* () {
+            const archive = runStores()
+            yield* fire(archive, Date.parse("2026-11-14T05:00:00Z"))
+            const previous =
+              archive.workflow.instances.get("cron-2026-11-14T05")
+            if (previous !== undefined) previous.status = "complete"
+            return archive
+          }),
+          first: (archive) => fire(archive),
+          second: (archive) =>
+            startRun(RunId.make("admin-1763125200000"), "admin").pipe(
+              Effect.provide(archive.layer),
+              Effect.ignore
+            ),
+          check: (archive, at) =>
+            Effect.sync(() => {
+              const ids = started(archive).slice(1)
+              assert.strictEqual(ids.length, 1, `split at ${at}`)
+              assert.strictEqual(
+                latestRunId(archive.db, SHAREHOLDING_ARCHIVE),
+                ids[0]
+              )
             }),
         })
         assert.isAbove(operations, 0)
@@ -334,24 +359,126 @@ describe("starting a run by hand", () => {
     "refuses a cron firing right after a start, before the run's plan step",
     () =>
       Effect.gen(function* () {
-        const workflow = fakeWorkflow()
-        const bucket = memoryBucket()
+        const archive = runStores()
         yield* startRun(RunId.make("admin-1763125200000"), "admin").pipe(
-          Effect.provide(Layer.merge(workflow.layer, bucket.layer))
+          Effect.provide(archive.layer)
         )
 
-        yield* fire(workflow, bucket)
+        yield* fire(archive)
 
-        assert.deepStrictEqual(
-          [...workflow.instances.keys()],
-          ["admin-1763125200000"]
-        )
+        assert.deepStrictEqual(started(archive), ["admin-1763125200000"])
         assert.strictEqual(
-          JSON.parse(
-            bucket.objects.get("runs/admin-1763125200000.json")?.body ?? "null"
-          ).outcome,
+          stored(archive, "admin-1763125200000")?.["outcome"],
           "running"
         )
+      })
+  )
+
+  it.effect(
+    "fails a start whose row ArchiveDb refuses, rather than claiming again",
+    () =>
+      Effect.gen(function* () {
+        const archive = runStores()
+        // A record whose start no date parses from: its row breaks
+        // started_at's NOT NULL, which is no claim lost to another start.
+        const unparsed: ArchiveSource<
+          ArchiveTrigger,
+          RunSummary,
+          ArchiveRunResult
+        > = {
+          runName: "Archive run",
+          archive: "shareholding",
+          runKind: "archive",
+          runsPrefix: RUNS_PREFIX,
+          triggers: ArchiveTrigger.literals,
+          runIdAt,
+          result: ArchiveRunResult,
+          summary: RunSummary,
+          readersPastRetention: {},
+          running: (run) =>
+            Effect.map(runningResult(run), (record) => ({
+              ...record,
+              startedAt: "not a date",
+            })),
+        }
+
+        const refused = yield* Effect.flip(
+          startRunOf(unparsed, RunId.make("admin-1763125200000"), "admin").pipe(
+            Effect.provide(archive.layer)
+          )
+        )
+
+        assert.strictEqual(refused._tag, "ArchiveDbError")
+        assert.deepStrictEqual(started(archive), [])
+      })
+  )
+
+  it.effect(
+    "gives up after a few claims lost to starts whose runs keep ending",
+    () =>
+      Effect.gen(function* () {
+        const archive = runStores()
+        let rivals = 0
+        // Before each claim this start sends, another start claims a run
+        // that ends at once, so the claim judged ended a run that no longer
+        // holds it.
+        const contended = Layer.effect(
+          ArchiveDb,
+          Effect.gen(function* () {
+            const inner = yield* ArchiveDb
+            return ArchiveDb.of({
+              batch: (statements) =>
+                Effect.suspend(() => {
+                  if (statements.some(({ sql }) => sql.includes("latest)"))) {
+                    rivals += 1
+                    const id = RunId.make(`cron-rival-${rivals}`)
+                    seedRun(
+                      archive.db,
+                      SHAREHOLDING_ARCHIVE,
+                      ArchiveRunResult.make({
+                        id,
+                        trigger: "cron",
+                        startedAt: new Date(
+                          AFTERNOON + rivals * 1000
+                        ).toISOString(),
+                        finishedAt: null,
+                        outcome: "running",
+                        reportsAdded: 0,
+                        newVersions: 0,
+                        reportsChecked: 0,
+                        notStored: [],
+                        other: [],
+                        error: null,
+                      }),
+                      { latest: true }
+                    )
+                    archive.workflow.instances.set(id, {
+                      options: {
+                        id,
+                        params: { trigger: "cron" },
+                        retention: {
+                          successRetention: "30 days",
+                          errorRetention: "30 days",
+                        },
+                      },
+                      status: "complete",
+                    })
+                  }
+                  return inner.batch(statements)
+                }),
+            })
+          })
+        ).pipe(Layer.provide(archive.db.layer))
+
+        const refused = yield* Effect.flip(
+          startRun(RunId.make("admin-1763125200000"), "admin").pipe(
+            Effect.provide(Layer.merge(archive.layer, contended))
+          )
+        )
+
+        assert.strictEqual(refused._tag, "RunInProgress")
+        assert.isAtMost(rivals, 3)
+        assert.isUndefined(stored(archive, "admin-1763125200000"))
       })
   )
 })

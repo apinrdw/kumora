@@ -32,6 +32,8 @@ import {
   RunStatus,
 } from "./archive-card"
 
+// The badge's words; Run now's refusal in server/admin/ksei.ts and
+// server/admin/shareholding.ts says the same.
 const IN_PROGRESS = "A run is in progress"
 
 /** What a button asks before it starts a run. */
@@ -43,9 +45,11 @@ interface RunConfirm {
 
 /**
  * A button that starts a run with `start`, a server function, disabled while
- * a run is in progress. A Conflict from the server reads as a run in
- * progress. With `confirm`, it asks first. `note` says beside it that a run
- * is in progress; a second button beside the first leaves it to the first.
+ * a run is in progress. A Conflict from the server reads as the server
+ * words it: a run is in progress, or the archive's runs are still being
+ * copied into ArchiveDb. With `confirm`, it asks first. `note` says beside
+ * it that a run is in progress; a second button beside the first leaves it
+ * to the first.
  */
 export function RunArchiveButton({
   inProgress,
@@ -74,12 +78,12 @@ export function RunArchiveButton({
         onSuccess: ({ id }) => ({ _tag: "Done", message: `Started ${id}.` }),
         onFailure: (cause) => ({
           _tag: "Failed",
-          message: cause.reasons.some(
-            (reason) =>
+          message:
+            cause.reasons.flatMap((reason) =>
               reason._tag === "Fail" && reason.error._tag === "Conflict"
-          )
-            ? `${IN_PROGRESS}.`
-            : "Couldn't start a run. Try again.",
+                ? [reason.error.message]
+                : []
+            )[0] ?? "Couldn't start a run. Try again.",
         }),
       })
   )

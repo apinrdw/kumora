@@ -14,6 +14,7 @@ import {
 } from "../holdings/ksei.ts"
 import { parseRunsOf } from "../holdings/parse-runs.ts"
 import { kindPrefix, reportKey } from "./keys.ts"
+import { kseiIndex } from "./report-index.ts"
 
 const KIND = "securities-holdings"
 
@@ -25,6 +26,8 @@ export class KseiParseWorkflow extends Context.Service<
 
 export const kseiParseRuns = parseRunsOf({
   runName: "KSEI parse run",
+  archive: "ksei",
+  runKind: `parse-${KIND}`,
   runsPrefix: "parse-runs/",
   months: {
     prefix: kindPrefix(KIND),
@@ -33,5 +36,6 @@ export const kseiParseRuns = parseRunsOf({
     parserVersion: KSEI_PARSER_VERSION,
     parse: parseKseiMonth,
   },
+  newestVersions: kseiIndex.newestVersions(KIND),
   workflow: KseiParseWorkflow,
 })

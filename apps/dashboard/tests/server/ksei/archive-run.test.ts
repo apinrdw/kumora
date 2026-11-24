@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import type { StepConfig } from "@workspace/server"
 import { Duration, Effect, Layer, Schema } from "effect"
 
+import type { ArchiveDb } from "@/server/archive/archive-db"
 import { RunId } from "@/server/archive/run"
 import {
   kseiArchiveRun,
@@ -13,10 +14,17 @@ import {
   MAX_LISTED_REPORTS,
   MAX_LISTING_BYTES,
 } from "@/server/ksei/listing"
-import { KseiRunMetadata } from "@/server/ksei/run-result"
+import { kseiReportIndex } from "@/server/ksei/report-index"
+import { KseiRunSummary } from "@/server/ksei/run-result"
 
 import { localSteps } from "../archive/local-steps.ts"
+import {
+  failingFirstReportInsert,
+  type MemoryArchiveDb,
+  memoryArchiveDb,
+} from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
+import { archiveDbOf, KSEI_ARCHIVE, storedRun } from "../archive/runs.ts"
 import {
   etagOf,
   type FakeKsei,
@@ -28,18 +36,23 @@ import {
   RECORDED,
   zipBody,
 } from "./fake-ksei.ts"
+import { readAlone } from "../archive/read-alone.ts"
 
 const run = (
   ksei: FakeKsei,
   bucket: MemoryBucket,
   id: string,
-  startedAt = new Date("2026-11-14T03:00:00Z")
+  startedAt = new Date("2026-11-14T03:00:00Z"),
+  db: { readonly layer: Layer.Layer<ArchiveDb> } = archiveDbOf(bucket)
 ) =>
-  kseiArchiveRun(localSteps(Layer.merge(ksei.layer, bucket.layer)), {
-    id: RunId.make(id),
-    trigger: "cron",
-    startedAt,
-  })
+  kseiArchiveRun(
+    localSteps(Layer.mergeAll(ksei.layer, bucket.layer, db.layer)),
+    {
+      id: RunId.make(id),
+      trigger: "cron",
+      startedAt,
+    }
+  )
 
 const keysUnder = (bucket: MemoryBucket, prefix: string) =>
   [...bucket.objects.keys()].filter((key) => key.startsWith(prefix)).sort()
@@ -52,10 +65,13 @@ const sha256 = (text: string) =>
 const json = (bucket: MemoryBucket, key: string) =>
   JSON.parse(bucket.objects.get(key)?.body ?? "null")
 
-const summaryOf = (bucket: MemoryBucket, key: string) =>
-  Schema.decodeUnknownSync(KseiRunMetadata)(
-    bucket.objects.get(key)?.customMetadata
-  ).run
+// The run record of `id`, as its row holds it.
+const runRecordOf = (bucket: MemoryBucket, id: string) =>
+  storedRun(archiveDbOf(bucket), KSEI_ARCHIVE, id)
+
+// The summary the recent runs table shows of `id`.
+const summaryOf = (bucket: MemoryBucket, id: string) =>
+  Schema.decodeUnknownSync(KseiRunSummary)(runRecordOf(bucket, id))
 
 const assertNothingOverwritten = (bucket: MemoryBucket) => {
   const reportPuts = bucket.puts.filter((key) => key.startsWith("reports/"))
@@ -111,8 +127,8 @@ describe("a KSEI archive run", () => {
           `reports/securities-statistics/2026-10-30/${hash}.`
         )
       )
-      const record = json(bucket, recordKey)
-      assert.deepStrictEqual(record, {
+      const stored = json(bucket, recordKey)
+      assert.deepStrictEqual(stored, {
         kind: "securities-statistics",
         periodEnd: "2026-10-30",
         filename: STATIS_OCT,
@@ -126,7 +142,7 @@ describe("a KSEI archive run", () => {
         md5: md5(body),
         lastModified: LAST_MODIFIED,
         contentLength: new TextEncoder().encode(body).length,
-        fetchedAt: record.fetchedAt,
+        fetchedAt: stored.fetchedAt,
         sha256: hash,
       })
       assert.deepStrictEqual(bucket.objects.get(recordKey)?.customMetadata, {
@@ -149,8 +165,8 @@ describe("a KSEI archive run", () => {
         notStored: [],
         error: null,
       })
-      assert.deepStrictEqual(json(bucket, "runs/cron-2026-11-14.json"), result)
-      assert.deepStrictEqual(summaryOf(bucket, "runs/cron-2026-11-14.json"), {
+      assert.deepStrictEqual(runRecordOf(bucket, "cron-2026-11-14"), result)
+      assert.deepStrictEqual(summaryOf(bucket, "cron-2026-11-14"), {
         id: result.id,
         trigger: "cron",
         startedAt: "2026-11-14T03:00:00.000Z",
@@ -158,7 +174,8 @@ describe("a KSEI archive run", () => {
         reportsAdded: 72,
         newVersions: 0,
       })
-      assert.notInclude(bucket.puts, "runs/latest.json")
+      // No run writes its record or the latest pointer to R2.
+      assert.deepStrictEqual(keysUnder(bucket, "runs/"), [])
     })
   )
 
@@ -232,7 +249,9 @@ describe("a KSEI archive run", () => {
       const ksei = fakeKsei()
       const bucket = memoryBucket()
       yield* run(ksei, bucket, "cron-2026-11-14")
-      const steps = localSteps(Layer.merge(ksei.layer, bucket.layer))
+      const steps = localSteps(
+        Layer.mergeAll(ksei.layer, bucket.layer, memoryArchiveDb().layer)
+      )
       const configs = new Map<string, StepConfig | undefined>()
 
       yield* kseiArchiveRun(
@@ -425,10 +444,7 @@ describe("a KSEI archive run", () => {
             result.listingFailures[0]?.message,
             "KSEI's Securities holdings listing"
           )
-          assert.deepStrictEqual(
-            json(bucket, "runs/cron-2026-11-14.json"),
-            result
-          )
+          assert.deepStrictEqual(runRecordOf(bucket, "cron-2026-11-14"), result)
         })
     )
 
@@ -452,7 +468,7 @@ describe("a KSEI archive run", () => {
         "KSEI's Securities holdings listing answered 405"
       )
       assert.deepStrictEqual(keysUnder(bucket, "reports/"), [])
-      assert.deepInclude(json(bucket, "runs/cron-2026-11-14.json"), {
+      assert.deepInclude(runRecordOf(bucket, "cron-2026-11-14"), {
         outcome: "failed",
         error: error.message,
       })
@@ -667,5 +683,186 @@ describe("a KSEI archive run at the largest size it accepts", () => {
         notStored: [STATIS_OCT],
       })
     })
+  )
+})
+
+// What the report index holds, as the admin page reads it: each kind's
+// reports, versions and bytes, and the months held.
+const indexed = (db: MemoryArchiveDb) =>
+  readAlone(kseiReportIndex).pipe(Effect.provide(db.layer))
+
+// The rows `db` has written so far.
+const rowsWritten = (db: MemoryArchiveDb) =>
+  Number(
+    (
+      db.database.prepare("SELECT total_changes() AS changes").get() as {
+        changes: number
+      }
+    ).changes
+  )
+
+// Every object stored under reports/, zips and records.
+const reportBytes = (bucket: MemoryBucket) =>
+  [...bucket.objects]
+    .filter(([key]) => key.startsWith("reports/"))
+    .reduce(
+      (sum, [, { body, bytes }]) =>
+        sum + (bytes?.length ?? new TextEncoder().encode(body).length),
+      0
+    )
+
+const recordCount = (bucket: MemoryBucket) =>
+  keysUnder(bucket, "reports/").filter((key) => key.endsWith(".json")).length
+
+describe("a KSEI archive run's report index", () => {
+  it.effect("indexes each report it stores", () =>
+    Effect.gen(function* () {
+      const ksei = fakeKsei()
+      const bucket = memoryBucket()
+      const db = memoryArchiveDb()
+      yield* run(ksei, bucket, "cron-2026-11-14", undefined, db)
+
+      const { totals, monthsHeld } = yield* indexed(db)
+      assert.deepStrictEqual(
+        totals.kinds.map(({ kind, reports, versions }) => ({
+          kind,
+          reports,
+          versions,
+        })),
+        [
+          { kind: "securities-statistics", reports: 36, versions: 36 },
+          { kind: "securities-holdings", reports: 36, versions: 36 },
+        ]
+      )
+      assert.strictEqual(totals.bytes, reportBytes(bucket))
+      assert.isTrue(monthsHeld["securities-statistics"].has("2026-10"))
+      assert.isTrue(monthsHeld["securities-holdings"].has("2026-09"))
+      assert.isFalse(monthsHeld["securities-holdings"].has("2018-10"))
+    })
+  )
+
+  it.effect(
+    "counts a file with several records once, and each of its records",
+    () =>
+      Effect.gen(function* () {
+        const ksei = fakeKsei()
+        const bucket = memoryBucket()
+        const db = memoryArchiveDb()
+        yield* run(ksei, bucket, "cron-2026-11-14", undefined, db)
+        // A new ETag serving the bytes held: a second record of one file.
+        const body = zipBody(`text of ${STATIS_OCT}`)
+        ksei.files.set(STATIS_OCT_URL, { ...fileOf(body), etag: '"new"' })
+        yield* run(
+          ksei,
+          bucket,
+          "cron-2026-11-15",
+          new Date("2026-11-15T03:00:00Z"),
+          db
+        )
+        assert.strictEqual(recordsOf(bucket, STATIS_OCT).length, 2)
+
+        const { totals } = yield* indexed(db)
+        assert.deepStrictEqual(
+          totals.kinds.map(({ kind, reports, versions }) => ({
+            kind,
+            reports,
+            versions,
+          })),
+          [
+            { kind: "securities-statistics", reports: 36, versions: 36 },
+            { kind: "securities-holdings", reports: 36, versions: 36 },
+          ]
+        )
+        assert.strictEqual(totals.bytes, reportBytes(bucket))
+      })
+  )
+
+  it.effect("writes no second record when a report's index insert fails", () =>
+    Effect.gen(function* () {
+      const ksei = fakeKsei()
+      const bucket = memoryBucket()
+      const db = memoryArchiveDb()
+      const failing = failingFirstReportInsert(db)
+      const result = yield* run(
+        ksei,
+        bucket,
+        "cron-2026-11-14",
+        undefined,
+        failing
+      )
+      db.failBatch = undefined
+      assert.isTrue(failing.failed())
+
+      assert.deepInclude(result, { outcome: "complete", reportsAdded: 72 })
+      assert.strictEqual(recordCount(bucket), 72)
+      // The next run's heal indexes the record the failed insert left out.
+      yield* run(
+        ksei,
+        bucket,
+        "cron-2026-11-15",
+        new Date("2026-11-15T03:00:00Z"),
+        db
+      )
+      assert.strictEqual(recordCount(bucket), 72)
+      assert.deepStrictEqual(
+        (yield* indexed(db)).totals.kinds.map(({ versions }) => versions),
+        [36, 36]
+      )
+    })
+  )
+
+  it.effect(
+    "indexes the records an earlier run stored before the index existed",
+    () =>
+      Effect.gen(function* () {
+        const ksei = fakeKsei()
+        const bucket = memoryBucket()
+        const before = memoryArchiveDb()
+        yield* run(ksei, bucket, "cron-2026-11-14", undefined, before)
+        const filled = yield* indexed(before)
+
+        // A stage whose bucket filled before ArchiveDb did.
+        const db = memoryArchiveDb()
+        const result = yield* run(
+          ksei,
+          bucket,
+          "cron-2026-11-15",
+          new Date("2026-11-15T03:00:00Z"),
+          db
+        )
+
+        assert.deepInclude(result, { outcome: "complete", reportsAdded: 0 })
+        assert.deepStrictEqual(yield* indexed(db), filled)
+      })
+  )
+
+  it.effect(
+    "writes a row per record it indexes, and none for those indexed",
+    () =>
+      Effect.gen(function* () {
+        const ksei = fakeKsei()
+        const bucket = memoryBucket()
+        yield* run(ksei, bucket, "cron-2026-11-14")
+        const db = memoryArchiveDb()
+
+        yield* run(
+          ksei,
+          bucket,
+          "cron-2026-11-15",
+          new Date("2026-11-15T03:00:00Z"),
+          db
+        )
+        // Each run also writes its own row twice: running, then its summary.
+        assert.strictEqual(rowsWritten(db), recordCount(bucket) + 2)
+
+        yield* run(
+          ksei,
+          bucket,
+          "cron-2026-11-16",
+          new Date("2026-11-16T03:00:00Z"),
+          db
+        )
+        assert.strictEqual(rowsWritten(db), recordCount(bucket) + 4)
+      })
   )
 })

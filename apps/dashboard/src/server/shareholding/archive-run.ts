@@ -12,15 +12,17 @@ import {
 import { DateTime, Effect, Schema } from "effect"
 import { HttpClient, type HttpClientError } from "effect/http"
 
+import type { ArchiveDb, ArchiveDbError } from "../archive/archive-db.ts"
 import { ArchiveBucket, type BucketError } from "../archive/bucket.ts"
 import { readCapped } from "../archive/capped-body.ts"
 import { sha256Hex } from "../archive/hash.ts"
 import { headHeld, MAX_ETAG_BYTES } from "../archive/head.ts"
-import { ETAG, heldRecords, RUN, SHA256 } from "../archive/held.ts"
+import { ETAG, heldIn, heldRecords, RUN, SHA256 } from "../archive/held.ts"
 import { failingRun } from "../archive/failing-run.ts"
 import {
   type Run,
   type RunId,
+  REPORTS_PREFIX,
   runError,
   storedReports,
 } from "../archive/run.ts"
@@ -30,16 +32,24 @@ import {
   ListedReport,
   type ListingUnreadable,
 } from "./listing.ts"
+import { shareholdingIndex } from "./report-index.ts"
 import {
   ArchiveRunResult,
   type ArchiveTrigger,
   runningResult,
 } from "./run-result.ts"
-import { putRunRecord } from "./runs.ts"
+import { writeArchiveRun } from "./runs.ts"
 
 type IdxRun = Run<ArchiveTrigger>
 
-type StepServices = ArchiveBucket | HttpClient.HttpClient
+type StepServices = ArchiveBucket | ArchiveDb | HttpClient.HttpClient
+
+// Every step keeps the runtime's 10 minutes. `plan` (the listing) and each
+// `report:` (one file) wait on one IDX request, which has no timeout of its
+// own (workflow.ts), so a stuck one is cut off with its step and retried.
+// Their calls in turn to the archive's stores (PLAN_STORE_CALLS and
+// REPORT_STORE_CALLS at STORE_SLOWEST_ANSWER each, ../archive/run.ts) take a
+// small part of it.
 
 // Each step result holds at most one ListedReport, or less, per listed
 // report, which MAX_LISTED_REPORTS (listing.ts) bounds. The ETags and hashes
@@ -74,18 +84,23 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
 const recordsByUrl = (run?: RunId) => heldRecords(SOURCE_URL, run)
 
 // The listing, split by whether the archive holds each URL, and the run's
-// `running` record. runs/latest.json already names the run: its start
-// claimed it (../archive/runs.ts).
+// `running` record. Its row already holds the claim: its start inserted it
+// (../archive/runs.ts). First, the report index gains every record of
+// reports/ it lacks.
 const plan = Effect.fnUntraced(function* (
   run: IdxRun
 ): Effect.fn.Return<
   Plan,
-  ListingUnreadable | NonRetryable | BucketError,
+  ListingUnreadable | NonRetryable | BucketError | ArchiveDbError,
   StepServices
 > {
+  const objects = yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
+  // Decision: the report index is a copy of R2 that each archive run heals
+  // (apps/dashboard/docs/adr/0125-the-report-index-is-a-copy-of-r2-that-each-archive-run-heals.md)
+  yield* shareholdingIndex.heal(objects)
   const listed = yield* fetchListing
-  const held = yield* recordsByUrl()
-  yield* putRunRecord(yield* runningResult(run))
+  const held = yield* heldIn(objects, SOURCE_URL)
+  yield* writeArchiveRun(yield* runningResult(run))
   return {
     fresh: listed.filter((report) => !held.has(report.sourceUrl)),
     held: listed.filter((report) => held.has(report.sourceUrl)),
@@ -178,30 +193,30 @@ const archiveReport = Effect.fnUntraced(function* (
       etag,
     }
   )
-  yield* bucket.put(
-    key,
-    JSON.stringify({
-      description: report.description,
-      rawDescription: report.rawDescription,
-      dataDate: report.dataDate,
-      kind: report.kind,
-      sourceUrl: report.sourceUrl,
-      fetchedUrl: report.fetchUrl,
-      etag,
-      lastModified: response.headers["last-modified"] ?? null,
-      fetchedAt,
-      sha256,
-    }),
-    {
-      contentType: "application/json",
-      customMetadata: {
-        [SOURCE_URL]: report.sourceUrl,
-        [SHA256]: sha256,
-        [RUN]: run,
-        ...(etag === null ? {} : { [ETAG]: etag }),
-      },
-    }
-  )
+  const record = JSON.stringify({
+    description: report.description,
+    rawDescription: report.rawDescription,
+    dataDate: report.dataDate,
+    kind: report.kind,
+    sourceUrl: report.sourceUrl,
+    fetchedUrl: report.fetchUrl,
+    etag,
+    lastModified: response.headers["last-modified"] ?? null,
+    fetchedAt,
+    sha256,
+  })
+  yield* bucket.put(key, record, {
+    contentType: "application/json",
+    customMetadata: {
+      [SOURCE_URL]: report.sourceUrl,
+      [SHA256]: sha256,
+      [RUN]: run,
+      ...(etag === null ? {} : { [ETAG]: etag }),
+    },
+  })
+  // Decision: the report index is a copy of R2 that each archive run heals
+  // (apps/dashboard/docs/adr/0125-the-report-index-is-a-copy-of-r2-that-each-archive-run-heals.md)
+  yield* shareholdingIndex.indexRecord(key, bytes.length, record)
   return {
     sourceUrl: report.sourceUrl,
     description: report.description,
@@ -246,7 +261,7 @@ const summary = Effect.fnUntraced(function* (
       .filter(({ kind }) => kind === "other")
       .map(({ sourceUrl, description }) => ({ sourceUrl, description })),
   })
-  yield* putRunRecord(result)
+  yield* writeArchiveRun(result)
   return result
 })
 
@@ -260,7 +275,7 @@ const recordPlanFailure = Effect.fnUntraced(function* (
     outcome: "failed",
     error: yield* runError(error),
   })
-  yield* putRunRecord(result)
+  yield* writeArchiveRun(result)
   return result
 })
 
