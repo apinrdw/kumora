@@ -1,6 +1,6 @@
 // The day store's replay path against SQLite's query planner: a recorded
 // tape request runs up to four times a second per viewer over a million-row
-// day, so no statement it runs may scan the trades table.
+// day, so no statement it runs may scan the trade chunks.
 import { assert, describe, it } from "@effect/vitest"
 import {
   MAX_CODE_BOOK_EVENTS,
@@ -65,7 +65,7 @@ const numbers = (trades: ReadonlyArray<RunningTrade>) =>
   trades.map((found) => found.tradeNumber)
 
 describe("the recorded tape's query plan", () => {
-  it.effect("searches the trades table by number and never scans it", () =>
+  it.effect("searches the trade chunks by number and never scans them", () =>
     Effect.gen(function* () {
       const { sql, statements, plan } = recordingSql()
       const store = yield* makeDayStore(sql)
@@ -92,7 +92,7 @@ describe("the recorded tape's query plan", () => {
         ["1", "2"]
       )
       const scans = statements
-        .filter((statement) => /\btrades\b/.test(statement))
+        .filter((statement) => /\btrade_chunks\b/.test(statement))
         .flatMap((statement) =>
           plan(statement)
             .filter((detail) => detail.startsWith("SCAN"))
