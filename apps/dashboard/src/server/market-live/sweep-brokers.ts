@@ -55,16 +55,12 @@ const sweepsText = (sweeps: ReadonlyArray<SweepBrokers>) =>
 const sweepsFromText = (text: string) =>
   Effect.orDie(decodeSweepBrokersText(text))
 
-// Decision: a new sweep brokers row is a gzipped BLOB; old plain rows stay
+// Decision: a sweep brokers row is a gzipped BLOB
 // (apps/dashboard/docs/adr/0099-new-sweep-brokers-rows-are-gzipped-blobs.md)
 const storedSweeps = (text: string) =>
   Effect.sync(() => new Uint8Array(gzipSync(text)))
 const textOf = (stored: SqlValue | undefined) =>
-  Effect.sync(() =>
-    typeof stored === "string"
-      ? stored
-      : new TextDecoder().decode(gunzipSync(stored as Uint8Array))
-  )
+  Effect.sync(() => new TextDecoder().decode(gunzipSync(stored as Uint8Array)))
 
 // One member trade's broker on one side of a sweep, with its investor type
 // and the trade's lots.
@@ -326,8 +322,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // One minute's rows worked out again from the codes and order numbers
   // `held` reads, metering the rows it read: for each code, its whole
   // sweeps' and auction matches' text, or none when none is whole.
-  // A row whose text is already stored, gzipped or plain, is left
-  // out, and so is a delete of a row never stored, so a batch writes only
+  // A row whose text is already stored is left out, and so is a delete of a row never stored, so a batch writes only
   // the rows it changes, not every code's row of each minute it touches. See
   // apinrdw/kumora#348.
   const minuteRows = (minute: number, held: HeldReads) =>
@@ -394,7 +389,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   })
 
   // How many rows the table holds and their payload bytes as stored,
-  // gzipped or plain.
+  // gzipped.
   const storage = Effect.sync(() => {
     const [row] = sql.exec(
       "SELECT count(*) AS rows, coalesce(sum(length(sweeps)), 0) AS bytes FROM sweep_brokers"
