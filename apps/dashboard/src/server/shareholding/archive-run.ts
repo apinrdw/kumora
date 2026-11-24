@@ -47,9 +47,9 @@ type StepServices = ArchiveBucket | ArchiveDb | HttpClient.HttpClient
 // Every step keeps the runtime's 10 minutes. `plan` (the listing) and each
 // `report:` (one file) wait on one IDX request, which has no timeout of its
 // own (workflow.ts), so a stuck one is cut off with its step and retried.
-// Their calls in turn to the archive's stores at their slowest
-// (../archive/run.ts) take at most 28 s of it for `plan`, 8 s for a
-// `report:`.
+// Their calls in turn to the archive's stores (PLAN_STORE_CALLS and
+// REPORT_STORE_CALLS at STORE_SLOWEST_ANSWER each, ../archive/run.ts) take a
+// small part of it.
 
 // Each step result holds at most one ListedReport, or less, per listed
 // report, which MAX_LISTED_REPORTS (listing.ts) bounds. The ETags and hashes
