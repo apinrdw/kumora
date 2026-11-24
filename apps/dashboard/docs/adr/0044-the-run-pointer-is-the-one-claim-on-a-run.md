@@ -1,5 +1,5 @@
 ---
-Status: superseded by ADR-0126
+Status: superseded by ADR-0127
 ---
 
 # The run pointer is the one claim on a run

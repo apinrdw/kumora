@@ -139,7 +139,7 @@ export const latestRunWhereRead = <
 // holder, the unique index lets one insert; the other judges again against
 // the winner.
 // Decision: the latest run row is the one claim on a run
-// (apps/dashboard/docs/adr/0126-the-latest-run-row-is-the-one-claim-on-a-run.md)
+// (apps/dashboard/docs/adr/0127-the-latest-run-row-is-the-one-claim-on-a-run.md)
 const claim = <
   Trigger extends string,
   Summary extends RunSummaryBase,
