@@ -5,17 +5,15 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
-import { RunId } from "@/server/archive/run"
+import { type RunBase, RunId } from "@/server/archive/run"
 import { KSEI_PARSER_VERSION } from "@/server/holdings/ksei"
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
 import { kseiParseRuns } from "@/server/ksei/parse-runs"
 
 import { localSteps } from "../archive/local-steps.ts"
-import {
-  type MemoryArchiveDb,
-  memoryArchiveDb,
-} from "../archive/memory-archive-db.ts"
+import type { MemoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
+import { archiveDbOf, KSEI_PARSE, seedRun } from "../archive/runs.ts"
 import {
   type MemoryHoldingsDb,
   memoryHoldingsDb,
@@ -36,12 +34,16 @@ interface World {
   readonly index: MemoryArchiveDb
 }
 
-const world = (): World => ({
-  ksei: holdingsKsei(),
-  bucket: memoryBucket(),
-  holdings: memoryHoldingsDb(),
-  index: memoryArchiveDb(),
-})
+const world = (): World => {
+  const bucket = memoryBucket()
+  return {
+    ksei: holdingsKsei(),
+    bucket,
+    holdings: memoryHoldingsDb(),
+    // One ArchiveDb holds both the report index and the runs.
+    index: archiveDbOf(bucket),
+  }
+}
 
 // Today, so the grid ends in 2026.
 const start = TestClock.setTime(Date.parse("2026-11-17T03:00:00Z"))
@@ -63,11 +65,20 @@ const archive = ({ ksei, bucket, index }: World, id: string) =>
 const parse = ({ bucket, holdings }: World, id: string, startedAt: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      kseiParseRuns.run(localSteps(Layer.merge(bucket.layer, holdings.layer)), {
-        id: RunId.make(id),
-        trigger: id.startsWith("admin") ? "admin" : "cron",
-        startedAt: new Date(startedAt),
-      })
+      kseiParseRuns.run(
+        localSteps(
+          Layer.mergeAll(
+            bucket.layer,
+            holdings.layer,
+            archiveDbOf(bucket).layer
+          )
+        ),
+        {
+          id: RunId.make(id),
+          trigger: id.startsWith("admin") ? "admin" : "cron",
+          startedAt: new Date(startedAt),
+        }
+      )
     )
   )
 
@@ -231,20 +242,16 @@ describe("the KSEI parse coverage", () => {
         yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
         // An admin run started later is still running: its record has no
         // failures yet.
-        w.bucket.objects.set("parse-runs/admin-1763434800000.json", {
-          body: JSON.stringify({
-            id: "admin-1763434800000",
-            trigger: "admin",
-            startedAt: "2026-11-15T03:00:00.000Z",
-            finishedAt: null,
-            outcome: "running",
-            monthsParsed: 0,
-            parseFailures: [],
-            error: null,
-          }),
-          contentType: "application/json",
-          customMetadata: {},
-        })
+        seedRun(archiveDbOf(w.bucket), KSEI_PARSE, {
+          id: RunId.make("admin-1763434800000"),
+          trigger: "admin",
+          startedAt: "2026-11-15T03:00:00.000Z",
+          finishedAt: null,
+          outcome: "running",
+          monthsParsed: 0,
+          parseFailures: [],
+          error: null,
+        } as RunBase)
         assert.deepStrictEqual(
           yield* parseCoverage(w),
           may2026("parsed", "parsed", "parsed", "failed")

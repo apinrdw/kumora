@@ -1,7 +1,8 @@
 // What every archive's runs share: a run's id and outcome, the fields its
-// record always holds, where the records live in the archive's bucket, and
-// the ArchiveSource through which an archive describes its own runs to the
-// shared run machinery (runs.ts, history.ts).
+// record always holds, and the ArchiveSource through which an archive
+// describes its own runs to the shared run machinery (runs.ts, history.ts).
+// ArchiveDb holds the runs (run-rows.ts). Before it did, each archive's
+// bucket held them, where the cutover import (run-import.ts) reads them:
 //
 //   runs/<run-id>.json                                     one per run
 //   runs/latest.json                                       { id } of the last run
@@ -87,9 +88,9 @@ export interface RunParams<Trigger extends string = string> {
 // keys.ts).
 export const REPORTS_PREFIX = "reports/"
 
-// Where an archive run's records live. A run that isn't an archive run, such
-// as the KSEI parse run, keeps its own under another prefix in the same
-// bucket (`ArchiveSource.runsPrefix`).
+// Where an archive run's records lived in R2. A run that isn't an archive
+// run, such as the KSEI parse run, kept its own under another prefix in the
+// same bucket (`ArchiveSource.runsPrefix`).
 export const RUNS_PREFIX = "runs/"
 
 // <prefix><id>.json, a run's record.
@@ -100,7 +101,8 @@ export const runKey = Effect.fnUntraced(function* (
   return `${prefix}${id}.json`
 })
 
-// <prefix>latest.json, the pointer at the last run started.
+// <prefix>latest.json, the pointer at the last run started, until ArchiveDb
+// held the runs.
 export const latestRunKey = Effect.fnUntraced(function* (prefix: string) {
   return `${prefix}latest.json`
 })
@@ -125,9 +127,20 @@ export interface RunBase extends RunSummaryBase {
   readonly error: string | null
 }
 
-// One archive's runs, as the shared run machinery reads and writes them.
-// `RunRecord` is its record at runs/<id>.json, `Summary` the part of it the
-// record's custom metadata carries.
+// Which archive a run is of, as the report index names it
+// (report-index.ts): each has its own bucket and run machinery.
+export type RunArchive = "ksei" | "shareholding"
+
+// The newest run of `trigger` that `accept` takes, however old, which a
+// reader finds (readLatestRunWhere, runs.ts).
+export interface LatestWhere<Trigger extends string, RunRecord> {
+  readonly trigger: Trigger
+  readonly accept: (run: RunRecord) => boolean
+}
+
+// One kind of an archive's runs, as the shared run machinery reads and
+// writes them. `RunRecord` is its run record, `Summary` the part of it the
+// recent runs table shows.
 export interface ArchiveSource<
   Trigger extends string,
   Summary extends RunSummaryBase,
@@ -135,22 +148,24 @@ export interface ArchiveSource<
 > {
   // How a log line names one of its runs, as "Archive run".
   readonly runName: string
-  // Where its run records and latest pointer live in the bucket, as
-  // RUNS_PREFIX.
+  readonly archive: RunArchive
+  // Which of the archive's runs, as "archive": one run of each kind is in
+  // progress at a time.
+  readonly runKind: string
+  // Where its run records and latest pointer lived in the bucket, as
+  // RUNS_PREFIX, for the cutover import.
   readonly runsPrefix: string
   // Every trigger that starts its runs.
   readonly triggers: ReadonlyArray<Trigger>
   // The id of the run `trigger` starts at `epochMs`. Ids of one trigger must
-  // sort as their starts do: the recent runs list each trigger's ids from 30
-  // days ago on (history.ts).
+  // sort as their starts do: the cutover import lists each trigger's ids
+  // from 30 days ago on.
   readonly runIdAt: (trigger: Trigger, epochMs: number) => Effect.Effect<RunId>
   readonly result: Schema.Codec<RunRecord, unknown>
-  // The custom metadata of runs/<id>.json: its summary, so the recent runs
-  // read the listing of runs/ and no record.
-  readonly metadata: Schema.Codec<
-    { readonly run: Summary },
-    Readonly<Record<string, string>>
-  >
+  readonly summary: Schema.Codec<Summary, unknown>
+  // The runs older than 30 days a reader still finds: the cutover import
+  // brings the newest of each along.
+  readonly kept: ReadonlyArray<LatestWhere<Trigger, RunRecord>>
   // A run's record from its start until it ends.
   readonly running: (run: Run<Trigger>) => Effect.Effect<RunRecord>
 }

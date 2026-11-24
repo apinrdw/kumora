@@ -117,8 +117,8 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
 
 // Both listings, split by whether the archive holds each filename, and the
 // run's `running` record. A listing that can't be read skips its kind; with
-// neither, the run fails. runs/latest.json already names the run: its start
-// claimed it (../archive/runs.ts). First, the report index gains every
+// neither, the run fails. Its row already holds the claim: its start
+// inserted it (../archive/runs.ts). First, the report index gains every
 // record of reports/ it lacks.
 const plan = Effect.fnUntraced(function* (
   run: KseiRun

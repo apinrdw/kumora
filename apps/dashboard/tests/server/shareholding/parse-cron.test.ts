@@ -12,6 +12,7 @@ import { InvestorTypeParseWorkflow } from "@/server/shareholding/investor-type-p
 import { scheduledParseRuns } from "@/server/shareholding/parse-runs"
 
 import { fakeWorkflow } from "../archive/fake-workflow.ts"
+import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { memoryBucket } from "../archive/memory-bucket.ts"
 
 const parseCron = () => {
@@ -24,8 +25,10 @@ const parseCron = () => {
     classification,
     investorType,
     above1,
+    // One ArchiveDb holds every kind's runs, as on a stage.
     layer: Layer.mergeAll(
       bucket.layer,
+      memoryArchiveDb().layer,
       Layer.effect(
         ClassificationParseWorkflow,
         Effect.service(ArchiveWorkflow)

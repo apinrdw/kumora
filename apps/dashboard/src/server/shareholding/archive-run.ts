@@ -80,9 +80,9 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
 const recordsByUrl = (run?: RunId) => heldRecords(SOURCE_URL, run)
 
 // The listing, split by whether the archive holds each URL, and the run's
-// `running` record. runs/latest.json already names the run: its start
-// claimed it (../archive/runs.ts). First, the report index gains every
-// record of reports/ it lacks.
+// `running` record. Its row already holds the claim: its start inserted it
+// (../archive/runs.ts). First, the report index gains every record of
+// reports/ it lacks.
 const plan = Effect.fnUntraced(function* (
   run: IdxRun
 ): Effect.fn.Return<

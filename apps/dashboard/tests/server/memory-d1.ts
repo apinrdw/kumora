@@ -49,28 +49,31 @@ export const memoryD1 = (migrations: Record<string, string>): MemoryD1 => {
     database,
     failBatch: undefined,
     statements: [],
+    // One synchronous step, so no other fiber's batch runs inside it, as
+    // D1 runs each batch whole. A batch `failBatch` matches ends undefined,
+    // rolled back.
     batch: (batch) =>
-      Effect.try(() => {
+      Effect.try((): D1Batch | undefined => {
         db.statements.push(...batch)
         const before = changes()
         database.exec("BEGIN")
-        const rows = batch.map(({ sql, params }) =>
-          statement(sql).all(...(params as Array<SQLInputValue>))
-        )
-        return { rows, rowsWritten: changes() - before }
+        try {
+          const rows = batch.map(({ sql, params }) =>
+            statement(sql).all(...(params as Array<SQLInputValue>))
+          )
+          if (db.failBatch?.(batch.map(({ sql }) => sql)) === true)
+            return undefined
+          const rowsWritten = changes() - before
+          database.exec("COMMIT")
+          return { rows, rowsWritten }
+        } finally {
+          if (database.isTransaction) database.exec("ROLLBACK")
+        }
       }).pipe(
-        Effect.flatMap((results) =>
-          db.failBatch?.(batch.map(({ sql }) => sql)) === true
+        Effect.flatMap((result) =>
+          result === undefined
             ? Effect.fail(new Error("D1 is unavailable"))
-            : Effect.sync(() => {
-                database.exec("COMMIT")
-                return results
-              })
-        ),
-        Effect.ensuring(
-          Effect.sync(() => {
-            if (database.isTransaction) database.exec("ROLLBACK")
-          })
+            : Effect.succeed(result)
         )
       ),
   }

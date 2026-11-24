@@ -1,16 +1,15 @@
 // Seeds the Test stage's KSEI archive bucket (archive-bucket.ts), and the
-// report index in its ArchiveDb, as a KSEI archive run would.
+// report index and runs in its ArchiveDb, as a KSEI archive run would.
 import * as Effect from "effect/Effect"
-import * as Schema from "effect/Schema"
 import { readFileSync } from "node:fs"
 
 import { sha256Hex } from "../../dashboard/src/server/archive/hash.ts"
 import { recordKey, reportKey } from "../../dashboard/src/server/ksei/keys.ts"
 
 import type { KseiRunResult } from "../../dashboard/src/server/ksei/run-result.ts"
-import { KseiRunMetadata } from "../../dashboard/src/server/ksei/run-result.ts"
 import { putObject } from "./archive-bucket"
 import { indexRecord } from "./report-index"
+import { seedRunRow } from "./runs"
 
 const put = (
   key: string,
@@ -19,30 +18,20 @@ const put = (
   metadata?: Readonly<Record<string, string>>
 ) => putObject("KseiArchiveBucket", key, body, contentType, metadata)
 
-/** A KSEI archive run's result, as runs/<id>.json holds it. */
+/** A KSEI archive run's result, as its ArchiveDb row holds it. */
 export type SeededKseiRun = typeof KseiRunResult.Encoded
 
 /**
- * Writes the run's record and leaves runs/latest.json alone, so it can run
- * beside the specs that point it at their own run.
+ * Writes the run's row and leaves the last run alone, so it can run beside
+ * the specs that make their own run the last.
  */
 export async function seedKseiRun(run: SeededKseiRun) {
-  await put(
-    `runs/${run.id}.json`,
-    JSON.stringify(run),
-    "application/json",
-    Schema.encodeUnknownSync(KseiRunMetadata)({ run })
-  )
+  seedRunRow("ksei", "archive", run, { latest: false })
 }
 
-/** Writes the run's record and points runs/latest.json at it. */
+/** Writes the run's row as the last run. */
 export async function seedLatestKseiRun(run: SeededKseiRun) {
-  await seedKseiRun(run)
-  await put(
-    "runs/latest.json",
-    JSON.stringify({ id: run.id }),
-    "application/json"
-  )
+  seedRunRow("ksei", "archive", run, { latest: true })
 }
 
 // When the KSEI seeds' records were fetched, as their keys say.

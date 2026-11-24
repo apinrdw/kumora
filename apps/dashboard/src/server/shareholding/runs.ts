@@ -1,5 +1,5 @@
 // The shareholding archive's runs on the shared run machinery
-// (src/server/archive/): its run store, starts, last run and recent runs.
+// (src/server/archive/): its runs in ArchiveDb, starts, last run and recent runs.
 // Spec apinrdw/kumora#303, "Starting a run".
 import { Effect } from "effect"
 
@@ -15,18 +15,20 @@ import {
   ArchiveRunResult,
   ArchiveTrigger,
   runIdAt,
-  RunMetadata,
   runningResult,
-  type RunSummary,
+  RunSummary,
 } from "./run-result.ts"
 
 const SHAREHOLDING_RUNS = {
   runName: "Archive run",
+  archive: "shareholding",
+  runKind: "archive",
   runsPrefix: RUNS_PREFIX,
   triggers: ArchiveTrigger.literals,
   runIdAt,
   result: ArchiveRunResult,
-  metadata: RunMetadata,
+  summary: RunSummary,
+  kept: [],
   running: runningResult,
 } satisfies ArchiveSource<ArchiveTrigger, RunSummary, ArchiveRunResult>
 

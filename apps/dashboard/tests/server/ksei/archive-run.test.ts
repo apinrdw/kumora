@@ -14,7 +14,7 @@ import {
   MAX_LISTING_BYTES,
 } from "@/server/ksei/listing"
 import { kseiReportIndex } from "@/server/ksei/report-index"
-import { KseiRunMetadata } from "@/server/ksei/run-result"
+import { KseiRunSummary } from "@/server/ksei/run-result"
 
 import { localSteps } from "../archive/local-steps.ts"
 import {
@@ -22,6 +22,7 @@ import {
   memoryArchiveDb,
 } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
+import { archiveDbOf, KSEI_ARCHIVE, storedRun } from "../archive/runs.ts"
 import {
   etagOf,
   type FakeKsei,
@@ -39,7 +40,7 @@ const run = (
   bucket: MemoryBucket,
   id: string,
   startedAt = new Date("2026-11-14T03:00:00Z"),
-  db: MemoryArchiveDb = memoryArchiveDb()
+  db: MemoryArchiveDb = archiveDbOf(bucket)
 ) =>
   kseiArchiveRun(
     localSteps(Layer.mergeAll(ksei.layer, bucket.layer, db.layer)),
@@ -61,10 +62,13 @@ const sha256 = (text: string) =>
 const json = (bucket: MemoryBucket, key: string) =>
   JSON.parse(bucket.objects.get(key)?.body ?? "null")
 
-const summaryOf = (bucket: MemoryBucket, key: string) =>
-  Schema.decodeUnknownSync(KseiRunMetadata)(
-    bucket.objects.get(key)?.customMetadata
-  ).run
+// The run record of `id`, as its row holds it.
+const runRecordOf = (bucket: MemoryBucket, id: string) =>
+  storedRun(archiveDbOf(bucket), KSEI_ARCHIVE, id)
+
+// The summary the recent runs table shows of `id`.
+const summaryOf = (bucket: MemoryBucket, id: string) =>
+  Schema.decodeUnknownSync(KseiRunSummary)(runRecordOf(bucket, id))
 
 const assertNothingOverwritten = (bucket: MemoryBucket) => {
   const reportPuts = bucket.puts.filter((key) => key.startsWith("reports/"))
@@ -120,8 +124,8 @@ describe("a KSEI archive run", () => {
           `reports/securities-statistics/2026-10-30/${hash}.`
         )
       )
-      const record = json(bucket, recordKey)
-      assert.deepStrictEqual(record, {
+      const stored = json(bucket, recordKey)
+      assert.deepStrictEqual(stored, {
         kind: "securities-statistics",
         periodEnd: "2026-10-30",
         filename: STATIS_OCT,
@@ -135,7 +139,7 @@ describe("a KSEI archive run", () => {
         md5: md5(body),
         lastModified: LAST_MODIFIED,
         contentLength: new TextEncoder().encode(body).length,
-        fetchedAt: record.fetchedAt,
+        fetchedAt: stored.fetchedAt,
         sha256: hash,
       })
       assert.deepStrictEqual(bucket.objects.get(recordKey)?.customMetadata, {
@@ -158,8 +162,8 @@ describe("a KSEI archive run", () => {
         notStored: [],
         error: null,
       })
-      assert.deepStrictEqual(json(bucket, "runs/cron-2026-11-14.json"), result)
-      assert.deepStrictEqual(summaryOf(bucket, "runs/cron-2026-11-14.json"), {
+      assert.deepStrictEqual(runRecordOf(bucket, "cron-2026-11-14"), result)
+      assert.deepStrictEqual(summaryOf(bucket, "cron-2026-11-14"), {
         id: result.id,
         trigger: "cron",
         startedAt: "2026-11-14T03:00:00.000Z",
@@ -167,7 +171,8 @@ describe("a KSEI archive run", () => {
         reportsAdded: 72,
         newVersions: 0,
       })
-      assert.notInclude(bucket.puts, "runs/latest.json")
+      // No run writes its record or the latest pointer to R2.
+      assert.deepStrictEqual(keysUnder(bucket, "runs/"), [])
     })
   )
 
@@ -436,10 +441,7 @@ describe("a KSEI archive run", () => {
             result.listingFailures[0]?.message,
             "KSEI's Securities holdings listing"
           )
-          assert.deepStrictEqual(
-            json(bucket, "runs/cron-2026-11-14.json"),
-            result
-          )
+          assert.deepStrictEqual(runRecordOf(bucket, "cron-2026-11-14"), result)
         })
     )
 
@@ -463,7 +465,7 @@ describe("a KSEI archive run", () => {
         "KSEI's Securities holdings listing answered 405"
       )
       assert.deepStrictEqual(keysUnder(bucket, "reports/"), [])
-      assert.deepInclude(json(bucket, "runs/cron-2026-11-14.json"), {
+      assert.deepInclude(runRecordOf(bucket, "cron-2026-11-14"), {
         outcome: "failed",
         error: error.message,
       })
@@ -804,7 +806,8 @@ describe("a KSEI archive run's report index", () => {
           new Date("2026-11-15T03:00:00Z"),
           db
         )
-        assert.strictEqual(rowsWritten(db), recordCount(bucket))
+        // Each run also writes its own row twice: running, then its summary.
+        assert.strictEqual(rowsWritten(db), recordCount(bucket) + 2)
 
         yield* run(
           ksei,
@@ -813,7 +816,7 @@ describe("a KSEI archive run's report index", () => {
           new Date("2026-11-16T03:00:00Z"),
           db
         )
-        assert.strictEqual(rowsWritten(db), recordCount(bucket))
+        assert.strictEqual(rowsWritten(db), recordCount(bucket) + 4)
       })
   )
 })

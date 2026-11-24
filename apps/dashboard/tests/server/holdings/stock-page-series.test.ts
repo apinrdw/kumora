@@ -37,7 +37,9 @@ const parsed = Effect.gen(function* () {
   )
   yield* TestClock.adjust("1 hour")
   yield* kseiParseRuns.run(
-    localSteps(Layer.merge(bucket.layer, holdings.layer)),
+    localSteps(
+      Layer.mergeAll(bucket.layer, holdings.layer, memoryArchiveDb().layer)
+    ),
     run("cron-2026-11-14T04")
   )
   return holdings.layer

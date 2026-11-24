@@ -23,11 +23,9 @@ import {
   type ListingItem,
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
-import {
-  type MemoryArchiveDb,
-  memoryArchiveDb,
-} from "../archive/memory-archive-db.ts"
+import type { MemoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
+import { archiveDbOf } from "../archive/runs.ts"
 import {
   type MemoryHoldingsDb,
   memoryHoldingsDb,
@@ -48,15 +46,19 @@ const CLASSIFICATION_DATES: ReadonlyArray<ClassificationFixture> = [
 ]
 
 // IDX listing every classification and investor-type fixture's report.
-const world = (): World => ({
-  idx: fakeIdx([
-    ...CLASSIFICATION_DATES.map(classificationItem),
-    ...investorTypeItems(),
-  ]),
-  bucket: memoryBucket(),
-  holdings: memoryHoldingsDb(),
-  index: memoryArchiveDb(),
-})
+const world = (): World => {
+  const bucket = memoryBucket()
+  return {
+    idx: fakeIdx([
+      ...CLASSIFICATION_DATES.map(classificationItem),
+      ...investorTypeItems(),
+    ]),
+    bucket,
+    holdings: memoryHoldingsDb(),
+    // One ArchiveDb holds both the report index and the runs.
+    index: archiveDbOf(bucket),
+  }
+}
 
 // Each run an hour after the last, so a version archived later is fetched
 // later.
@@ -142,11 +144,20 @@ const INVESTOR_TYPE: Kind = {
 const parse = ({ bucket, holdings }: World, { runs }: Kind, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      runs.run(localSteps(Layer.merge(bucket.layer, holdings.layer)), {
-        id: RunId.make(id),
-        trigger: "cron",
-        startedAt: new Date("2026-11-14T14:00:00Z"),
-      })
+      runs.run(
+        localSteps(
+          Layer.mergeAll(
+            bucket.layer,
+            holdings.layer,
+            archiveDbOf(bucket).layer
+          )
+        ),
+        {
+          id: RunId.make(id),
+          trigger: "cron",
+          startedAt: new Date("2026-11-14T14:00:00Z"),
+        }
+      )
     )
   )
 

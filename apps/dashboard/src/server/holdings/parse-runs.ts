@@ -1,7 +1,6 @@
 // One kind of parse run on the shared run machinery (../archive/): its run
 // itself, `reconcile`, one `parse:<date>` step per month to parse
-// (parse-steps.ts), then `summary`; its run store under its runs prefix in
-// its archive's bucket; its starts and its last run. Each kind has its own
+// (parse-steps.ts), then `summary`; its runs in ArchiveDb; its starts and its last run. Each kind has its own
 // Workflow, which it names by its own service and the machinery uses as its
 // ArchiveWorkflow, so one layer can hold an archive's run Workflow and its
 // parse runs' Workflows. Each kind's runs are apart from another's: their
@@ -10,12 +9,15 @@
 import type { StepFailed, WorkflowSteps } from "@workspace/server"
 import { type Context, DateTime, Effect } from "effect"
 
+import type { ArchiveDb } from "../archive/archive-db.ts"
 import type { ArchiveBucket } from "../archive/bucket.ts"
 import { failingRun } from "../archive/failing-run.ts"
 import {
   type ArchiveSource,
   dailyRunIdAt,
+  type LatestWhere,
   type Run,
+  type RunArchive,
   type RunId,
   runError,
 } from "../archive/run.ts"
@@ -30,15 +32,23 @@ import { ArchiveWorkflow } from "../archive/workflow.ts"
 import type { HoldingsDb } from "./db.ts"
 import { parseCoverage } from "./parse-coverage.ts"
 import {
-  ParseRunMetadata,
   ParseRunResult,
-  type ParseRunSummary,
+  ParseRunSummary,
   ParseTrigger,
   runningParseResult,
 } from "./parse-run-result.ts"
 import { type MonthSource, type Parses, parseMonths } from "./parse-steps.ts"
 
 type ParseRun = Run<ParseTrigger>
+
+// Each trigger's last finished run: a run in progress is passed over for the
+// one before it.
+const FINISHED = ParseTrigger.literals.map(
+  (trigger): LatestWhere<ParseTrigger, ParseRunResult> => ({
+    trigger,
+    accept: (run) => run.outcome !== "running",
+  })
+)
 
 // A kind's Workflow, as its own service.
 type ParseWorkflow<Self> = Context.Key<
@@ -54,18 +64,25 @@ type ParseWorkflow<Self> = Context.Key<
 export const parseRunsOf = <Self>(kind: {
   // How a log line names one of its runs, as "KSEI parse run".
   readonly runName: string
-  // Where its run records and latest pointer live in its archive's bucket.
+  readonly archive: RunArchive
+  // Its run kind in ArchiveDb, as "parse-investor-type".
+  readonly runKind: string
+  // Where its run records and latest pointer lived in its archive's bucket,
+  // for the cutover import.
   readonly runsPrefix: string
   readonly months: MonthSource
   readonly workflow: ParseWorkflow<Self>
 }) => {
   const source = {
     runName: kind.runName,
+    archive: kind.archive,
+    runKind: kind.runKind,
     runsPrefix: kind.runsPrefix,
     triggers: ParseTrigger.literals,
     runIdAt: dailyRunIdAt,
     result: ParseRunResult,
-    metadata: ParseRunMetadata,
+    summary: ParseRunSummary,
+    kept: FINISHED,
     running: runningParseResult,
   } satisfies ArchiveSource<ParseTrigger, ParseRunSummary, ParseRunResult>
 
@@ -115,9 +132,7 @@ export const parseRunsOf = <Self>(kind: {
   // The last finished run, of either trigger: undefined before any. A run
   // in progress is passed over for the one before it.
   const lastFinished = Effect.map(
-    Effect.forEach(ParseTrigger.literals, (trigger) =>
-      readLatestRunWhere(source, trigger, (run) => run.outcome !== "running")
-    ),
+    Effect.forEach(FINISHED, (where) => readLatestRunWhere(source, where)),
     (runs) =>
       runs.reduce<ParseRunResult | undefined>(
         (latest, run) =>
@@ -136,7 +151,7 @@ export const parseRunsOf = <Self>(kind: {
     ),
     // The run its Workflow runs.
     run: Effect.fn(kind.runName)(function* (
-      steps: WorkflowSteps<ArchiveBucket | HoldingsDb>,
+      steps: WorkflowSteps<ArchiveBucket | ArchiveDb | HoldingsDb>,
       run: ParseRun
     ): Effect.fn.Return<ParseRunResult, StepFailed> {
       const parses = yield* failingRun(

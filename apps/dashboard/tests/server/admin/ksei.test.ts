@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Conflict, Unauthorized } from "@workspace/server"
-import { Effect, Layer, Logger, References, Schema } from "effect"
+import { Effect, Layer, Logger, References } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
@@ -17,7 +17,7 @@ import { recordKey, reportKey } from "@/server/ksei/keys"
 import type { KseiReportKind } from "@/server/ksei/kind"
 import { KseiParseWorkflow } from "@/server/ksei/parse-runs"
 import { healKseiIndex } from "@/server/ksei/report-index"
-import { KseiRunMetadata, type KseiRunResult } from "@/server/ksei/run-result"
+import type { KseiRunResult } from "@/server/ksei/run-result"
 
 import {
   ADMIN_EMAIL,
@@ -28,8 +28,12 @@ import {
   send,
 } from "../auth/seam.ts"
 import { fakeWorkflow, type FakeWorkflow } from "../archive/fake-workflow.ts"
-import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
+import {
+  archiveDbOf,
+  KSEI_ARCHIVE,
+  seedRun as seedRunRow,
+} from "../archive/runs.ts"
 import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
 
 const headers = (cookie?: string) =>
@@ -63,20 +67,10 @@ const RUNNING: KseiRunResult = {
 }
 
 const seedRun = (bucket: MemoryBucket, run: KseiRunResult) =>
-  bucket.objects.set(`runs/${run.id}.json`, {
-    body: JSON.stringify(run),
-    contentType: "application/json",
-    customMetadata: Schema.encodeSync(KseiRunMetadata)({ run }),
-  })
+  seedRunRow(archiveDbOf(bucket), KSEI_ARCHIVE, run)
 
-const seedLatest = (bucket: MemoryBucket, run: KseiRunResult) => {
-  seedRun(bucket, run)
-  bucket.objects.set("runs/latest.json", {
-    body: JSON.stringify({ id: run.id }),
-    contentType: "application/json",
-    customMetadata: {},
-  })
-}
+const seedLatest = (bucket: MemoryBucket, run: KseiRunResult) =>
+  seedRunRow(archiveDbOf(bucket), KSEI_ARCHIVE, run, { latest: true })
 
 const seedObject = (bucket: MemoryBucket, key: string, body: string) =>
   bucket.objects.set(key, {
@@ -109,7 +103,7 @@ const storeReport = (
 const archive = () => {
   const auth = seam()
   const bucket = memoryBucket()
-  const db = memoryArchiveDb()
+  const db = archiveDbOf(bucket)
   const workflow = fakeWorkflow()
   // The KSEI parse run's own Workflow.
   const parseWorkflow = fakeWorkflow()
@@ -462,6 +456,69 @@ describe("KSEI's Deep backfill", () => {
         // The older deep run's month is no longer known as not found.
         assert.strictEqual(monthOf(statistics, 2019, 5), "never-looked-for")
         assert.strictEqual(monthOf(statistics, 2020, 7), "not-found")
+      }).pipe(Effect.provide(layer))
+    }
+  )
+})
+
+describe("the KSEI archive page after the cutover", () => {
+  it.effect(
+    "shows the last run, the recent runs and a deep run older than 30 days a stage held only in R2",
+    () => {
+      const { layer, mails, bucket } = archive()
+      const deep: KseiRunResult = {
+        ...RUNNING,
+        id: RunId.make("deep-1750000000000"),
+        trigger: "deep",
+        startedAt: "2025-06-15T15:06:40.000Z",
+        finishedAt: "2025-06-15T16:00:00.000Z",
+        outcome: "complete",
+        deep: {
+          foundFromSeed: [],
+          foundByProbing: [],
+          monthsNotFound: {
+            "securities-statistics": ["2020-07"],
+            "securities-holdings": [],
+          },
+          probeFailures: [],
+        },
+      }
+      const last: KseiRunResult = {
+        ...RUNNING,
+        finishedAt: "2026-11-14T03:05:00.000Z",
+        outcome: "complete",
+      }
+      for (const [key, value] of [
+        [`runs/${deep.id}.json`, deep],
+        [`runs/${last.id}.json`, last],
+        ["runs/latest.json", { id: last.id }],
+      ] as const)
+        bucket.objects.set(key, {
+          body: JSON.stringify(value),
+          contentType: "application/json",
+          customMetadata: {},
+        })
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        for (const load of [1, 2]) {
+          bucket.gets.length = 0
+          const page = yield* kseiArchivePage(headers(cookie))
+          assert.deepStrictEqual(page.lastRun?.result, last, `load ${load}`)
+          assert.deepStrictEqual(
+            page.recentRuns.map(({ id }) => id),
+            [last.id]
+          )
+          assert.deepStrictEqual(page.lastDeepRun, {
+            id: deep.id,
+            finishedAt: deep.finishedAt,
+          })
+        }
+        // The second load read no run from R2.
+        assert.deepStrictEqual(
+          bucket.gets.filter((key) => key.includes("runs/")),
+          []
+        )
       }).pipe(Effect.provide(layer))
     }
   )

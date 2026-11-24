@@ -23,7 +23,7 @@ import {
   type InlineFixture,
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
-import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
+import { archiveDbOf, shareholdingParse, storedRun } from "../archive/runs.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import {
   type MemoryHoldingsDb,
@@ -49,7 +49,7 @@ const archive = ({ idx, bucket }: World, id: string) =>
     Effect.andThen(
       archiveRun(
         localSteps(
-          Layer.mergeAll(idx.layer, bucket.layer, memoryArchiveDb().layer)
+          Layer.mergeAll(idx.layer, bucket.layer, archiveDbOf(bucket).layer)
         ),
         {
           id: RunId.make(id),
@@ -64,7 +64,13 @@ const parse = ({ bucket, holdings }: World, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
       classificationParseRuns.run(
-        localSteps(Layer.merge(bucket.layer, holdings.layer)),
+        localSteps(
+          Layer.mergeAll(
+            bucket.layer,
+            holdings.layer,
+            archiveDbOf(bucket).layer
+          )
+        ),
         {
           id: RunId.make(id),
           trigger: "cron",
@@ -93,8 +99,12 @@ const republishOctober = (w: World) => republish(w, "2026-10-30", "2026-09-30")
 
 // A parse run's record as the admin page reads it.
 const runRecord = ({ bucket }: World, id: string) =>
-  Schema.decodeUnknownSync(Schema.fromJsonString(ParseRunResult))(
-    bucket.objects.get(`parse-runs/investor-classification/${id}.json`)?.body
+  Schema.decodeUnknownSync(ParseRunResult)(
+    storedRun(
+      archiveDbOf(bucket),
+      shareholdingParse("investor-classification"),
+      id
+    )
   )
 
 const page = ({ holdings }: World, code: string, month?: string) =>

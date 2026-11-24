@@ -26,6 +26,8 @@ export class KseiParseWorkflow extends Context.Service<
 
 export const kseiParseRuns = parseRunsOf({
   runName: "KSEI parse run",
+  archive: "ksei",
+  runKind: `parse-${KIND}`,
   runsPrefix: "parse-runs/",
   months: {
     prefix: kindPrefix(KIND),

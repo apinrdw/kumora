@@ -1,39 +1,47 @@
-// An archive's run store and starting its runs: <prefix><id>.json and the
-// <prefix>latest.json pointer, the one-run-at-a-time start from its cron or an
-// admin page, and the last run the page shows. Spec apinrdw/kumora#303,
-// "Starting a run". Each archive passes its ArchiveSource (run.ts) and
-// provides its own ArchiveBucket and ArchiveWorkflow.
-import { DateTime, Effect, Option, Schema } from "effect"
+// An archive's run store and starting its runs: one ArchiveDb row per run
+// (run-rows.ts), the one-run-at-a-time start from its cron or an admin page,
+// and the last run the page shows. Spec apinrdw/kumora#303, "Starting a
+// run", and #659. Each archive passes its ArchiveSource (run.ts) and
+// provides its own ArchiveBucket, for the cutover import (run-import.ts), and
+// its own ArchiveWorkflow.
+import { DateTime, Effect, Schema } from "effect"
 
-import { ArchiveBucket, type BucketError } from "./bucket.ts"
+import type { ArchiveDbError } from "./archive-db.ts"
+import { ArchiveDb } from "./archive-db.ts"
+import type { ArchiveBucket, BucketError } from "./bucket.ts"
 import { RETENTION } from "./retention.ts"
 import {
+  type ArchiveSource,
+  type LatestWhere,
   type RunBase,
   RunId,
-  type ArchiveSource,
-  LatestRun,
-  latestRunKey,
-  runKey,
   type RunSummaryBase,
 } from "./run.ts"
-import { isInProgress, START_WINDOW_MS, viewRun } from "./run-view.ts"
+import { importedRuns, readRuns } from "./run-import.ts"
+import {
+  decodeRun,
+  decodeRuns,
+  lastRunStatement,
+  RUN_COLUMNS,
+  runRow,
+  runStatement,
+  triggerRunsStatement,
+  writeRunRow,
+} from "./run-rows.ts"
+import { isInProgress, viewRun } from "./run-view.ts"
 import {
   ArchiveWorkflow,
   DuplicateRunId,
   type WorkflowError,
 } from "./workflow.ts"
 
-// The run runs/latest.json names is still in progress.
+// The run the kind's last start claimed is still in progress.
 class RunInProgress extends Schema.TaggedError<RunInProgress>()(
   "RunInProgress",
   { id: RunId }
 ) {}
 
-const decodeLatestRun = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(LatestRun)
-)
-
-// Writes runs/<id>.json, with its summary as custom metadata.
+// Writes `result` as its run's row.
 export const writeRunRecord = <
   Trigger extends string,
   Summary extends RunSummaryBase,
@@ -41,53 +49,28 @@ export const writeRunRecord = <
 >(
   source: ArchiveSource<Trigger, Summary, RunRecord>,
   result: RunRecord
-) =>
-  Effect.gen(function* () {
-    yield* (yield* ArchiveBucket).put(
-      yield* runKey(result.id, source.runsPrefix),
-      JSON.stringify(result),
-      {
-        contentType: "application/json",
-        customMetadata: Schema.encodeSync(source.metadata)({ run: result }),
-      }
-    )
-  })
+) => writeRunRow(source, result)
 
-// The run runs/latest.json names: its record, its instance's status, and
-// the pointer's ETag, which a start that claims it must still find.
-const readLatest = <
+// The run the kind's last start claimed, judged against its instance's
+// status: undefined before any run.
+const judgeLatest = <
   Trigger extends string,
   Summary extends RunSummaryBase,
   RunRecord extends RunBase & Summary,
 >(
-  source: ArchiveSource<Trigger, Summary, RunRecord>
+  source: ArchiveSource<Trigger, Summary, RunRecord>,
+  rows: ReadonlyArray<Record<string, unknown>>
 ) =>
   Effect.gen(function* () {
-    const bucket = yield* ArchiveBucket
-    const pointer = yield* bucket.get(yield* latestRunKey(source.runsPrefix))
-    if (pointer === undefined) return undefined
-    const { id } = yield* decodeLatestRun(pointer.body)
-    const record = yield* bucket.get(yield* runKey(id, source.runsPrefix))
-    const result =
-      record === undefined
-        ? undefined
-        : yield* Schema.decodeUnknownEffect(
-            Schema.fromJsonString(source.result)
-          )(record.body)
-    const instance = yield* (yield* ArchiveWorkflow).status(id)
+    const result = yield* decodeRun(source.result, rows)
+    if (result === undefined) return undefined
+    const instance = yield* (yield* ArchiveWorkflow).status(result.id)
     const now = DateTime.toEpochMillis(yield* DateTime.now)
     return {
-      id,
-      etag: pointer.etag,
       result,
       instance,
       now,
-      // With neither a record nor an instance, a start has just claimed the
-      // pointer and is still writing them.
-      inProgress:
-        result === undefined && instance === undefined
-          ? now - pointer.uploaded.getTime() < START_WINDOW_MS
-          : yield* isInProgress(result, instance, now),
+      inProgress: yield* isInProgress(result, instance, now),
     }
   })
 
@@ -100,85 +83,109 @@ export const readLastRun = <
   source: ArchiveSource<Trigger, Summary, RunRecord>
 ) =>
   Effect.gen(function* () {
-    const latest = yield* readLatest(source)
-    if (latest?.result === undefined) return undefined
+    const [rows = []] = yield* readRuns(source, [lastRunStatement(source)])
+    const latest = yield* judgeLatest(source, rows)
+    if (latest === undefined) return undefined
     return yield* viewRun(latest.result, latest.instance, latest.now)
   })
 
-// The newest record of `trigger`'s runs that `accept` takes, however old:
-// undefined when none does. Ids of one trigger sort as their starts do
-// (`runIdAt`), so it reads records newest first and stops at the first
-// taken. A record that no longer decodes is passed over.
+// Rows read at a time while looking for the newest run `accept` takes.
+const PAGE_ROWS = 20
+
+// The newest run of `where.trigger` that `where.accept` takes, however old:
+// undefined when none does. It reads the trigger's rows newest first, a page
+// at a time, and stops at the first taken. A record that no longer decodes
+// is passed over.
 export const readLatestRunWhere = <
   Trigger extends string,
   Summary extends RunSummaryBase,
   RunRecord extends RunBase & Summary,
 >(
   source: ArchiveSource<Trigger, Summary, RunRecord>,
-  trigger: Trigger,
-  accept: (run: RunRecord) => boolean
+  where: LatestWhere<Trigger, RunRecord>
 ) =>
   Effect.gen(function* () {
-    const bucket = yield* ArchiveBucket
-    const decode = Schema.decodeUnknownOption(
-      Schema.fromJsonString(source.result)
-    )
-    const keys = (yield* bucket.list(`${source.runsPrefix}${trigger}-`))
-      .map(({ key }) => key)
-      .filter((key) => key.endsWith(".json"))
-      .reverse()
-    for (const key of keys) {
-      const record = yield* bucket.get(key)
-      if (record === undefined) continue
-      const run = Option.getOrUndefined(decode(record.body))
-      if (run !== undefined && accept(run)) return run
+    for (let offset = 0; ; offset += PAGE_ROWS) {
+      const [rows = []] = yield* readRuns(source, [
+        triggerRunsStatement(source, where.trigger, {
+          offset,
+          limit: PAGE_ROWS,
+        }),
+      ])
+      const taken = (yield* decodeRuns(source.result, rows)).find(where.accept)
+      if (taken !== undefined) return taken
+      if (rows.length < PAGE_ROWS) return undefined
     }
-    return undefined
   })
 
-// Points runs/latest.json at `id`, unless the run it names is in progress or
-// `id` ran before. Only a start writes the pointer: no step of a run does.
-// Decision: the run pointer is the one claim, taken by a conditional R2 write
-// (apps/dashboard/docs/adr/0044-the-run-pointer-is-the-one-claim-on-a-run.md)
+// Claims the start of `running`'s run by inserting its row as the one the
+// kind's last start claimed, unless the run that holds the claim is in
+// progress or `running`'s id ran before. Of two starts that judged the same
+// holder, the unique index lets one insert; the other judges again against
+// the winner.
+// Decision: the latest run row is the one claim on a run
+// (apps/dashboard/docs/adr/0126-the-latest-run-row-is-the-one-claim-on-a-run.md)
 const claim = <
   Trigger extends string,
   Summary extends RunSummaryBase,
   RunRecord extends RunBase & Summary,
 >(
   source: ArchiveSource<Trigger, Summary, RunRecord>,
-  id: RunId
+  running: RunRecord
 ): Effect.Effect<
   void,
   | RunInProgress
   | DuplicateRunId
+  | ArchiveDbError
   | BucketError
   | WorkflowError
   | Schema.SchemaError,
-  ArchiveBucket | ArchiveWorkflow
+  ArchiveDb | ArchiveBucket | ArchiveWorkflow
 > =>
   Effect.gen(function* () {
-    const latest = yield* readLatest(source)
-    if (latest?.id === id) return yield* new DuplicateRunId({ id })
-    if (latest?.inProgress) return yield* new RunInProgress({ id: latest.id })
-    const bucket = yield* ArchiveBucket
-    // A start claiming the same id claims from this same pointer, so only one
-    // gets past the write below.
-    if (yield* bucket.exists(yield* runKey(id, source.runsPrefix)))
-      return yield* new DuplicateRunId({ id })
-    const claimed = yield* bucket.putIfUnchanged(
-      yield* latestRunKey(source.runsPrefix),
-      JSON.stringify(LatestRun.make({ id })),
-      { contentType: "application/json" },
-      latest?.etag
-    )
-    if (!claimed) return yield* claim(source, id)
+    const db = yield* ArchiveDb
+    const [taken = [], holder = []] = yield* db.batch([
+      runStatement(source, running.id),
+      lastRunStatement(source),
+    ])
+    if (taken.length > 0) return yield* new DuplicateRunId({ id: running.id })
+    const latest = yield* judgeLatest(source, holder)
+    if (latest?.inProgress)
+      return yield* new RunInProgress({ id: latest.result.id })
+    const kind = [source.archive, source.runKind] as const
+    // Hands the claim on from the holder this start judged ended, in the
+    // same transaction as the insert, and only while the id is free, so a
+    // refused insert never leaves the kind without a claim.
+    const release: ReadonlyArray<{ sql: string; params: Array<string> }> =
+      latest === undefined
+        ? []
+        : [
+            {
+              sql:
+                "UPDATE run SET latest = NULL WHERE archive = ?1 AND " +
+                "run_kind = ?2 AND id = ?3 AND latest = 1 AND NOT EXISTS " +
+                "(SELECT 1 FROM run WHERE archive = ?1 AND run_kind = ?2 " +
+                "AND id = ?4)",
+              params: [...kind, latest.result.id, running.id],
+            },
+          ]
+    const results = yield* db.batch([
+      ...release,
+      {
+        sql:
+          `INSERT OR IGNORE INTO run (archive, run_kind, ${RUN_COLUMNS}, ` +
+          "latest) VALUES (?, ?, ?, ?, ?, ?, ?, 1) RETURNING id",
+        params: [...kind, ...runRow(running)],
+      },
+    ])
+    if ((results.at(-1) ?? []).length === 0)
+      return yield* claim(source, running)
   })
 
-// Claims the start, then creates the run's Workflow instance, kept for
-// RETENTION, with a `running` record.
-// The record is written before `create`: after `create`, the run's
-// own steps may already have ended it, and writing `running` then would
-// never be undone (apinrdw/kumora#309).
+// Claims the start, with the run's `running` record, then creates the run's
+// Workflow instance, kept for RETENTION. The record is in place before
+// `create`: after `create`, the run's own steps may already have ended it,
+// and writing `running` then would never be undone (apinrdw/kumora#309).
 export const startRunOf = <
   Trigger extends string,
   Summary extends RunSummaryBase,
@@ -189,13 +196,13 @@ export const startRunOf = <
   trigger: Trigger
 ) =>
   Effect.gen(function* () {
-    yield* claim(source, id)
+    yield* importedRuns(source)
     const record = yield* source.running({
       id,
       trigger,
       startedAt: DateTime.toDateUtc(yield* DateTime.now),
     })
-    yield* writeRunRecord(source, record)
+    yield* claim(source, record)
     yield* (yield* ArchiveWorkflow)
       .create({ id, params: { trigger }, retention: RETENTION })
       .pipe(
