@@ -80,7 +80,8 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
   }
 })
 
-// Starts a `trigger` run now, refused while one is in progress.
+// Starts a `trigger` run now, refused while one is in progress or the
+// archive's runs are still importing.
 const startNow = Effect.fnUntraced(function* (
   trigger: Exclude<KseiTrigger, "cron">
 ) {
@@ -92,7 +93,8 @@ const startNow = Effect.fnUntraced(function* (
     Effect.fail(new Conflict({ message: "A run is in progress." }))
   // DuplicateRunId: another start in the same millisecond took the id.
   yield* startKseiRun(id, trigger).pipe(
-    Effect.catchTags({ RunInProgress: refused, DuplicateRunId: refused })
+    Effect.catchTags({ RunInProgress: refused, DuplicateRunId: refused }),
+    importingAsConflict
   )
   return { id }
 })

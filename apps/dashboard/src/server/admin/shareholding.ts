@@ -85,7 +85,8 @@ export const runArchiveNow = Effect.fn("runArchiveNow")(function* (
     Effect.fail(new Conflict({ message: "A run is in progress." }))
   // DuplicateRunId: another Run now in the same millisecond took the id.
   yield* startRun(id, "admin").pipe(
-    Effect.catchTags({ RunInProgress: refused, DuplicateRunId: refused })
+    Effect.catchTags({ RunInProgress: refused, DuplicateRunId: refused }),
+    importingAsConflict
   )
   return { id }
 })

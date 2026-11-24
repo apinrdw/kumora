@@ -398,7 +398,7 @@ One row per archived version of a report, in either archive, kept in ArchiveDb s
 _Avoid_: Report table, manifest, catalog
 
 **ArchiveDb**:
-The database, near where the admin pages are served, that holds the report index of both archives and every run. The reports themselves stay in the archives. Runs recorded before ArchiveDb held them were copied in once, the first time each kind of run was read or started there.
+The database, near where the admin pages are served, that holds the report index of both archives and every run. The reports themselves stay in the archives. Runs recorded before ArchiveDb held them are copied in once for each kind of run, starting the first time that kind is read or started there. A copy can take several page loads or starts. Until it finishes, each one answers that the archive's runs are still being copied into ArchiveDb.
 _Avoid_: Archive database for the archives themselves, which are buckets of reports
 
 **Deep backfill**:
