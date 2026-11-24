@@ -1,5 +1,5 @@
 // The day store's replay path against SQLite's query planner: a recorded
-// tape request runs up to four times a second per viewer over a million-row
+// tape request runs up to four times a second per viewer over a million-trade
 // day, so no statement it runs may scan the trade chunks.
 import { assert, describe, it } from "@effect/vitest"
 import {
