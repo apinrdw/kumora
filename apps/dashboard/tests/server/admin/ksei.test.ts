@@ -322,6 +322,52 @@ describe("the KSEI archive page's ArchiveDb reads", () => {
   )
 })
 
+describe("the KSEI archive page's deep run", () => {
+  it.effect(
+    "finds the latest deep run with finds behind more deep runs without them than one read takes",
+    () => {
+      const { layer, mails, bucket } = archive()
+      const db = archiveDbOf(bucket)
+      const deepAt = (epochMs: number, finds: boolean): KseiRunResult => ({
+        ...RUNNING,
+        id: RunId.make(`deep-${epochMs}`),
+        trigger: "deep",
+        startedAt: new Date(epochMs).toISOString(),
+        finishedAt: new Date(epochMs + 60_000).toISOString(),
+        outcome: finds ? "complete" : "failed",
+        deep: finds
+          ? {
+              foundFromSeed: [],
+              foundByProbing: [],
+              monthsNotFound: {
+                "securities-statistics": [],
+                "securities-holdings": [],
+              },
+              probeFailures: [],
+            }
+          : null,
+      })
+      const found = deepAt(1_750_000_000_000, true)
+      return Effect.gen(function* () {
+        seedRunRow(db, KSEI_ARCHIVE, found)
+        // Fifty later deep runs that ended without finds.
+        for (let day = 1; day <= 50; day++)
+          seedRunRow(
+            db,
+            KSEI_ARCHIVE,
+            deepAt(1_750_000_000_000 + day * 86_400_000, false)
+          )
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        const page = yield* kseiArchivePage(headers(cookie))
+        assert.deepStrictEqual(page.lastDeepRun, {
+          id: found.id,
+          finishedAt: found.finishedAt,
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
+})
+
 describe("the KSEI archive page's timing", () => {
   it.effect("logs how long each part of an admin's load took", () => {
     const { layer, mails } = archive()
