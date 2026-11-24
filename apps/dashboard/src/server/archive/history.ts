@@ -22,7 +22,11 @@ export const recentRunsRead = <
 ) => ({
   kinds: [importedKind(source)],
   statements: [
-    recentRunsStatement(source, DateTime.toEpochMillis(now) - RETENTION_MS),
+    recentRunsStatement(
+      source,
+      Object.keys(source.summary.fields),
+      DateTime.toEpochMillis(now) - RETENTION_MS
+    ),
   ],
   read: ([rows = []]: ReadonlyArray<Rows>) =>
     Effect.gen(function* () {

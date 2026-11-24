@@ -28,14 +28,21 @@ export const lastRunStatement = (kind: ArchiveRunKind): Statement => ({
   params: kindParams(kind),
 })
 
-// The runs started at `sinceMs` or later, newest first.
+// The runs started at `sinceMs` or later, newest first, each record cut to
+// its `fields` in ArchiveDb: 30 days of hourly runs of the largest record
+// would hold 720 MiB, past a Worker's 128.
+// Decision: ArchiveDb is the source of truth for runs
+// (apps/dashboard/docs/adr/0128-archivedb-is-the-source-of-truth-for-runs.md)
 export const recentRunsStatement = (
   kind: ArchiveRunKind,
+  fields: ReadonlyArray<string>,
   sinceMs: number
 ): Statement => ({
   sql:
-    `SELECT record FROM run WHERE ${OF_KIND} AND started_at >= ? ` +
-    "ORDER BY started_at DESC, id DESC",
+    `SELECT json_object(${fields
+      .map((field) => `'${field}', json_extract(record, '$.${field}')`)
+      .join(", ")}) AS record FROM run WHERE ${OF_KIND} ` +
+    "AND started_at >= ? ORDER BY started_at DESC, id DESC",
   params: [...kindParams(kind), sinceMs],
 })
 

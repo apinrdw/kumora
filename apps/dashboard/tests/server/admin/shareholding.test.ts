@@ -512,19 +512,15 @@ describe("the shareholding archive page's ArchiveDb reads", () => {
       const padding = "x".repeat(STEP_RESULT_BYTES - 1024)
       for (let hour = 0; hour < 30 * 24; hour++) {
         const startedAt = new Date(NOW - (hour + 1) * HOUR).toISOString()
-        seedRun(
-          db,
-          SHAREHOLDING_ARCHIVE,
-          {
-            ...RUNNING,
-            id: RunId.make(`cron-${startedAt.slice(0, 13)}`),
-            startedAt,
-            finishedAt: startedAt,
-            outcome: "partial",
-            notStored: [padding],
-          },
-          { latest: hour === 0 }
-        )
+        const run: ArchiveRunResult = {
+          ...RUNNING,
+          id: RunId.make(`cron-${startedAt.slice(0, 13)}`),
+          startedAt,
+          finishedAt: startedAt,
+          outcome: "partial",
+          notStored: [padding],
+        }
+        seedRun(db, SHAREHOLDING_ARCHIVE, run, { latest: hour === 0 })
       }
       // 30 days of daily parse runs of each trigger, each failing a month no
       // report is held for at the largest message.
@@ -534,19 +530,17 @@ describe("the shareholding archive page's ArchiveDb reads", () => {
             const startedAt = new Date(NOW - (day + 1) * 24 * HOUR)
               .toISOString()
               .replace("T14", trigger === "cron" ? "T14" : "T15")
-            seedRun(
-              db,
-              shareholdingParse(kind),
-              {
-                ...finishedParse("2001-01-31"),
-                id: RunId.make(`${trigger}-${startedAt.slice(0, 10)}`),
-                trigger,
-                startedAt,
-                finishedAt: startedAt,
-                parseFailures: [{ date: "2001-01-31", message: padding }],
-              },
-              { latest: trigger === "admin" && day === 0 }
-            )
+            const run: ParseRunResult = {
+              ...finishedParse("2001-01-31"),
+              id: RunId.make(`${trigger}-${startedAt.slice(0, 10)}`),
+              trigger,
+              startedAt,
+              finishedAt: startedAt,
+              parseFailures: [{ date: "2001-01-31", message: padding }],
+            }
+            seedRun(db, shareholdingParse(kind), run, {
+              latest: trigger === "admin" && day === 0,
+            })
           }
       let mostRead = 0
       return Effect.gen(function* () {

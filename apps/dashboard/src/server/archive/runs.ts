@@ -93,8 +93,11 @@ export const lastRunRead = <
     }),
 })
 
-// Rows read at a time while looking for the newest run `accept` takes.
-const PAGE_ROWS = 20
+// Rows read at a time while looking for the newest run `accept` takes: the
+// newest, and the one before should the newest still run, as one run of a
+// kind runs at a time. Each row holds a whole record, and a page rides in
+// the admin page's batch with every other kind's.
+const PAGE_ROWS = 2
 
 const triggerPage = <Trigger extends string>(
   source: ArchiveRunKind & { readonly triggers: ReadonlyArray<Trigger> },

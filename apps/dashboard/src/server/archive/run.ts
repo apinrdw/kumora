@@ -187,7 +187,11 @@ export interface ArchiveSource<
   // from 30 days ago on.
   readonly runIdAt: (trigger: Trigger, epochMs: number) => Effect.Effect<RunId>
   readonly result: Schema.Codec<RunRecord, unknown>
-  readonly summary: Schema.Codec<Summary, unknown>
+  // A Struct of record fields, which the recent runs read cuts each
+  // record to (run-rows.ts).
+  readonly summary: Schema.Codec<Summary, unknown> & {
+    readonly fields: Schema.Struct.Fields
+  }
   // The runs older than 30 days a reader still finds: the cutover import
   // brings the newest of each along.
   readonly readersPastRetention: ReadonlyArray<LatestWhere<Trigger, RunRecord>>
