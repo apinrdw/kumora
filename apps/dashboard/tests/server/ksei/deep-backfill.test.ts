@@ -8,6 +8,7 @@ import { unlistedReport } from "@/server/ksei/listing"
 import { WAYBACK_SEED } from "@/server/ksei/wayback-seed"
 
 import { localSteps } from "../archive/local-steps.ts"
+import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import { type FakeKsei, fakeKsei, fileOf, zipBody } from "./fake-ksei.ts"
 
@@ -45,7 +46,9 @@ const deepRun = (
   kseiArchiveRun(
     countingSteps(
       ksei,
-      localSteps(Layer.merge(ksei.layer, bucket.layer)),
+      localSteps(
+        Layer.mergeAll(ksei.layer, bucket.layer, memoryArchiveDb().layer)
+      ),
       counts,
       configs
     ),

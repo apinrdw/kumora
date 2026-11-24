@@ -11,6 +11,7 @@ import { kseiArchiveRun } from "@/server/ksei/archive-run"
 import { kseiParseRuns } from "@/server/ksei/parse-runs"
 
 import { localSteps } from "../archive/local-steps.ts"
+import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { memoryBucket } from "../archive/memory-bucket.ts"
 import { holdingsKsei } from "../ksei/fake-ksei.ts"
 import { memoryHoldingsDb } from "./memory-holdings-db.ts"
@@ -25,7 +26,13 @@ const parsed = Effect.gen(function* () {
   })
   yield* TestClock.adjust("1 hour")
   yield* kseiArchiveRun(
-    localSteps(Layer.merge(holdingsKsei().layer, bucket.layer)),
+    localSteps(
+      Layer.mergeAll(
+        holdingsKsei().layer,
+        bucket.layer,
+        memoryArchiveDb().layer
+      )
+    ),
     run("cron-2026-11-14T03")
   )
   yield* TestClock.adjust("1 hour")

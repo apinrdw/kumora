@@ -73,7 +73,10 @@ export const memoryBucket = (): MemoryBucket => {
               listed.push(key)
               return {
                 key,
-                size: object.body.length,
+                // Bytes, as R2 lists them.
+                size:
+                  object.bytes?.length ??
+                  new TextEncoder().encode(object.body).length,
                 uploaded: new Date(object.uploaded ?? now),
                 customMetadata: object.customMetadata,
               }

@@ -12,6 +12,7 @@ import {
 import { DateTime, Duration, Effect, Result, Schema } from "effect"
 import { HttpClient, type HttpClientError } from "effect/http"
 
+import type { ArchiveDb, ArchiveDbError } from "../archive/archive-db.ts"
 import { ArchiveBucket, type BucketError } from "../archive/bucket.ts"
 import { readCapped } from "../archive/capped-body.ts"
 import { sha256Hex } from "../archive/hash.ts"
@@ -28,6 +29,7 @@ import {
   type Run,
   type RunId,
   runError,
+  REPORTS_PREFIX,
   storedReports,
 } from "../archive/run.ts"
 import { inArchive } from "./coverage.ts"
@@ -38,11 +40,12 @@ import {
   type Probed,
   seed,
 } from "./deep.ts"
-import { FILENAME, recordsByFilename } from "./held.ts"
+import { FILENAME, recordsByFilename, recordsIn } from "./held.ts"
 import { KSEI_REQUEST_TIMEOUT, KSEI_SLOWEST_ANSWER } from "./http.ts"
 import { recordKey, reportKey } from "./keys.ts"
 import { KseiReportKind } from "./kind.ts"
 import { fetchListing, KseiFilename, ListedKseiReport } from "./listing.ts"
+import { healKseiIndex, indexKseiReport } from "./report-index.ts"
 import {
   type DeepFinds,
   KseiRunResult,
@@ -54,7 +57,7 @@ import { putKseiRunRecord } from "./runs.ts"
 
 type KseiRun = Run<KseiTrigger>
 
-type StepServices = ArchiveBucket | HttpClient.HttpClient
+type StepServices = ArchiveBucket | ArchiveDb | HttpClient.HttpClient
 
 // A step that asks KSEI times out when the requests it waits on in turn
 // should all have answered. `plan` (both listings at once) and each
@@ -115,10 +118,19 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
 // Both listings, split by whether the archive holds each filename, and the
 // run's `running` record. A listing that can't be read skips its kind; with
 // neither, the run fails. runs/latest.json already names the run: its start
-// claimed it (../archive/runs.ts).
+// claimed it (../archive/runs.ts). First, the report index gains every
+// record of reports/ it lacks.
 const plan = Effect.fnUntraced(function* (
   run: KseiRun
-): Effect.fn.Return<Plan, NoListingReadable | BucketError, StepServices> {
+): Effect.fn.Return<
+  Plan,
+  NoListingReadable | BucketError | ArchiveDbError,
+  StepServices
+> {
+  const objects = yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
+  // Decision: the report index is a copy of R2 that each archive run heals
+  // (apps/dashboard/docs/adr/0125-the-report-index-is-a-copy-of-r2-that-each-archive-run-heals.md)
+  yield* healKseiIndex(objects)
   const listings = yield* Effect.forEach(
     KseiReportKind.literals,
     (kind) => Effect.result(fetchListing(kind)),
@@ -136,7 +148,7 @@ const plan = Effect.fnUntraced(function* (
     listings.filter(Result.isSuccess).flatMap(({ success }) => success),
     ({ periodEnd }) => inArchive(periodEnd)
   )
-  const held = yield* recordsByFilename()
+  const held = yield* recordsIn(objects)
   yield* putKseiRunRecord(yield* runningKseiResult(run))
   return {
     fresh: listed.filter((report) => !held.has(report.filename)),
@@ -194,7 +206,11 @@ const archiveReport = Effect.fnUntraced(function* (
   headEtag: string | null
 ): Effect.fn.Return<
   ArchivedReport,
-  HttpClientError.HttpClientError | NotOnKsei | NonRetryable | BucketError,
+  | HttpClientError.HttpClientError
+  | NotOnKsei
+  | NonRetryable
+  | BucketError
+  | ArchiveDbError,
   StepServices
 > {
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
@@ -242,32 +258,35 @@ const archiveReport = Effect.fnUntraced(function* (
     fetchedAt,
     { filename: report.filename, etag }
   )
-  yield* bucket.put(
-    key,
-    JSON.stringify({
-      kind: report.kind,
-      periodEnd: report.periodEnd,
-      filename: report.filename,
-      url: report.url,
-      listing: report.listing,
-      etag,
-      md5,
-      lastModified: response.headers["last-modified"] ?? null,
-      contentLength: contentLength === undefined ? null : Number(contentLength),
-      fetchedAt,
-      sha256,
-      ...(md5Mismatch ? { md5Mismatch } : {}),
-    }),
-    {
-      contentType: "application/json",
-      customMetadata: {
-        [FILENAME]: report.filename,
-        [SHA256]: sha256,
-        [RUN]: run,
-        ...(etag === null ? {} : { [ETAG]: etag }),
-      },
-    }
-  )
+  const record = JSON.stringify({
+    kind: report.kind,
+    periodEnd: report.periodEnd,
+    filename: report.filename,
+    url: report.url,
+    listing: report.listing,
+    etag,
+    md5,
+    lastModified: response.headers["last-modified"] ?? null,
+    contentLength: contentLength === undefined ? null : Number(contentLength),
+    fetchedAt,
+    sha256,
+    ...(md5Mismatch ? { md5Mismatch } : {}),
+  })
+  yield* bucket.put(key, record, {
+    contentType: "application/json",
+    customMetadata: {
+      [FILENAME]: report.filename,
+      [SHA256]: sha256,
+      [RUN]: run,
+      ...(etag === null ? {} : { [ETAG]: etag }),
+    },
+  })
+  // Decision: the report index is a copy of R2 that each archive run heals
+  // (apps/dashboard/docs/adr/0125-the-report-index-is-a-copy-of-r2-that-each-archive-run-heals.md)
+  yield* indexKseiReport(key, {
+    fileBytes: bytes.length,
+    recordBytes: new TextEncoder().encode(record).length,
+  })
   return {
     filename: report.filename,
     kind: report.kind,

@@ -10,6 +10,7 @@ import {
 } from "@workspace/deploy"
 import { stackOptions, stackStage, websiteProps } from "@workspace/deploy/stack"
 import * as Alchemy from "alchemy"
+import * as RemovalPolicy from "alchemy/RemovalPolicy"
 import { Stack } from "alchemy/Stack"
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
@@ -138,6 +139,19 @@ export const Website = Cloudflare.Website.Vite(
         AUTH_DB: AuthDb,
         HOLDINGS_DB: HoldingsDb,
         BROKER_TOTALS_DB: BrokerTotalsDb,
+        // Both archives' metadata: the report index, read by the admin
+        // pages. On every stage like the archive buckets; it fills from its
+        // stage's buckets (src/server/archive/report-index.ts).
+        // Decision: a data set gets a D1 of its own, read replication off
+        // (apps/dashboard/docs/adr/0001-each-data-set-gets-its-own-d1-with-read-replication-off.md)
+        ARCHIVE_DB: Cloudflare.D1.Database("ArchiveDb", {
+          migrations: "./archive-migrations",
+          // Decision: ArchiveDb is in apac, and only Production's survives a stack destroy
+          // (apps/dashboard/docs/adr/0124-archivedb-is-in-apac-and-production-s-survives-a-stack-destroy.md)
+          primaryLocationHint: "apac",
+        }).pipe(
+          RemovalPolicy.retain((yield* stageKind(stage)) === "production")
+        ),
         AUTH_BASE_URL: yield* stageUrl("dashboard", stage),
         BETTER_AUTH_SECRET: Alchemy.makeRandom("BetterAuthSecret"),
         EMAIL: Cloudflare.Email.SendEmail("Email", {

@@ -8,13 +8,13 @@ import { DateTime, Effect } from "effect"
 
 import type { FileRoutesByFullPath } from "@/routeTree.gen"
 import { authorizeArchive } from "@/server/admin/archive-access"
-import { ArchiveBucket } from "@/server/archive/bucket"
-import { dailyRunIdAt, REPORTS_PREFIX } from "@/server/archive/run"
+import { dailyRunIdAt } from "@/server/archive/run"
 import type { Action } from "@/server/auth/policy"
 import { kseiCoverage } from "@/server/ksei/coverage"
 import { parseNow } from "@/server/admin/parse-now"
 import { timePart } from "@/server/admin/part-timing"
 import { kseiParseRuns } from "@/server/ksei/parse-runs"
+import { kseiReportIndex } from "@/server/ksei/report-index"
 import type { KseiTrigger } from "@/server/ksei/run-result"
 import {
   lastKseiDeepRun,
@@ -23,7 +23,6 @@ import {
   startKseiRun,
 } from "@/server/ksei/runs"
 import { nextKseiParseRun, nextKseiRun } from "@/server/ksei/schedule"
-import { kseiTotals } from "@/server/ksei/totals"
 
 const KSEI_PATH = "/admin/ksei" satisfies keyof FileRoutesByFullPath
 
@@ -40,17 +39,13 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
   headers: Headers
 ) {
   yield* authorize(headers, "admin.view-ksei-archive").pipe(timed("authorize"))
-  // One listing of reports/ gives the totals and the coverage: ~150 objects
-  // after the first run, ~1,000 after a deep backfill, far within
-  // MAX_LISTED_OBJECTS.
-  const reports = Effect.gen(function* () {
-    return yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
-  })
-  const [run, runs, objects, deep, parseRun, parseCoverage] = yield* Effect.all(
+  // The report index gives the totals and the coverage in one ArchiveDb
+  // batch, in place of a listing of reports/.
+  const [run, runs, indexed, deep, parseRun, parseCoverage] = yield* Effect.all(
     [
       lastKseiRun.pipe(timed("lastRun")),
       recentKseiRuns.pipe(timed("recentRuns")),
-      reports.pipe(timed("reports")),
+      kseiReportIndex.pipe(timed("reportIndex")),
       lastKseiDeepRun.pipe(timed("lastDeepRun")),
       kseiParseRuns.last.pipe(timed("lastParseRun")),
       kseiParseRuns.parseCoverage.pipe(timed("parseCoverage")),
@@ -67,13 +62,17 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
     )).toISOString(),
     now: DateTime.formatIso(now),
     recentRuns: runs,
-    totals: yield* kseiTotals(objects),
+    totals: indexed.totals,
     // The deep run the coverage's months not found come from.
     lastDeepRun:
       deep?.deep == null
         ? undefined
         : { id: deep.id, finishedAt: deep.finishedAt },
-    coverage: yield* kseiCoverage(objects, deep?.deep?.monthsNotFound, now),
+    coverage: yield* kseiCoverage(
+      indexed.monthsHeld,
+      deep?.deep?.monthsNotFound,
+      now
+    ),
     parseCoverage,
   }
 })

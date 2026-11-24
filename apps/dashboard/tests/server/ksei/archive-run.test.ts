@@ -13,9 +13,14 @@ import {
   MAX_LISTED_REPORTS,
   MAX_LISTING_BYTES,
 } from "@/server/ksei/listing"
+import { kseiReportIndex } from "@/server/ksei/report-index"
 import { KseiRunMetadata } from "@/server/ksei/run-result"
 
 import { localSteps } from "../archive/local-steps.ts"
+import {
+  type MemoryArchiveDb,
+  memoryArchiveDb,
+} from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import {
   etagOf,
@@ -33,13 +38,17 @@ const run = (
   ksei: FakeKsei,
   bucket: MemoryBucket,
   id: string,
-  startedAt = new Date("2026-11-14T03:00:00Z")
+  startedAt = new Date("2026-11-14T03:00:00Z"),
+  db: MemoryArchiveDb = memoryArchiveDb()
 ) =>
-  kseiArchiveRun(localSteps(Layer.merge(ksei.layer, bucket.layer)), {
-    id: RunId.make(id),
-    trigger: "cron",
-    startedAt,
-  })
+  kseiArchiveRun(
+    localSteps(Layer.mergeAll(ksei.layer, bucket.layer, db.layer)),
+    {
+      id: RunId.make(id),
+      trigger: "cron",
+      startedAt,
+    }
+  )
 
 const keysUnder = (bucket: MemoryBucket, prefix: string) =>
   [...bucket.objects.keys()].filter((key) => key.startsWith(prefix)).sort()
@@ -232,7 +241,9 @@ describe("a KSEI archive run", () => {
       const ksei = fakeKsei()
       const bucket = memoryBucket()
       yield* run(ksei, bucket, "cron-2026-11-14")
-      const steps = localSteps(Layer.merge(ksei.layer, bucket.layer))
+      const steps = localSteps(
+        Layer.mergeAll(ksei.layer, bucket.layer, memoryArchiveDb().layer)
+      )
       const configs = new Map<string, StepConfig | undefined>()
 
       yield* kseiArchiveRun(
@@ -667,5 +678,142 @@ describe("a KSEI archive run at the largest size it accepts", () => {
         notStored: [STATIS_OCT],
       })
     })
+  )
+})
+
+// What the report index holds, as the admin page reads it: each kind's
+// reports, versions and bytes, and the months held.
+const indexed = (db: MemoryArchiveDb) =>
+  kseiReportIndex.pipe(Effect.provide(db.layer))
+
+// The rows `db` has written so far.
+const rowsWritten = (db: MemoryArchiveDb) =>
+  Number(
+    (
+      db.database.prepare("SELECT total_changes() AS changes").get() as {
+        changes: number
+      }
+    ).changes
+  )
+
+const recordCount = (bucket: MemoryBucket) =>
+  keysUnder(bucket, "reports/").filter((key) => key.endsWith(".json")).length
+
+describe("a KSEI archive run's report index", () => {
+  it.effect("indexes each report it stores", () =>
+    Effect.gen(function* () {
+      const ksei = fakeKsei()
+      const bucket = memoryBucket()
+      const db = memoryArchiveDb()
+      yield* run(ksei, bucket, "cron-2026-11-14", undefined, db)
+
+      const { totals, monthsHeld } = yield* indexed(db)
+      assert.deepStrictEqual(
+        totals.kinds.map(({ kind, reports, versions }) => ({
+          kind,
+          reports,
+          versions,
+        })),
+        [
+          { kind: "securities-statistics", reports: 36, versions: 36 },
+          { kind: "securities-holdings", reports: 36, versions: 36 },
+        ]
+      )
+      // Every object the run stored under reports/, zips and records.
+      assert.strictEqual(
+        totals.bytes,
+        [...bucket.objects]
+          .filter(([key]) => key.startsWith("reports/"))
+          .reduce(
+            (sum, [, { body, bytes }]) =>
+              sum + (bytes?.length ?? new TextEncoder().encode(body).length),
+            0
+          )
+      )
+      assert.isTrue(monthsHeld["securities-statistics"].has("2026-10"))
+      assert.isTrue(monthsHeld["securities-holdings"].has("2026-09"))
+      assert.isFalse(monthsHeld["securities-holdings"].has("2018-10"))
+    })
+  )
+
+  it.effect("adds no second row when a report's step is retried", () =>
+    Effect.gen(function* () {
+      const ksei = fakeKsei()
+      const bucket = memoryBucket()
+      const db = memoryArchiveDb()
+      // The first index insert of a report fails after its record is
+      // written, so the step's retry writes the record again.
+      let failed = false
+      db.failBatch = (sql) => {
+        const insert = sql.some((each) => each.includes("INSERT"))
+        if (!insert || failed || sql.length !== 1) return false
+        failed = true
+        return true
+      }
+      yield* run(ksei, bucket, "cron-2026-11-14", undefined, db)
+      db.failBatch = undefined
+      assert.isTrue(failed)
+
+      const { totals } = yield* indexed(db)
+      assert.deepStrictEqual(
+        totals.kinds.map(({ versions }) => versions),
+        [36, 36]
+      )
+      assert.strictEqual(recordCount(bucket), 72)
+    })
+  )
+
+  it.effect(
+    "indexes the records an earlier run stored before the index existed",
+    () =>
+      Effect.gen(function* () {
+        const ksei = fakeKsei()
+        const bucket = memoryBucket()
+        const before = memoryArchiveDb()
+        yield* run(ksei, bucket, "cron-2026-11-14", undefined, before)
+        const filled = yield* indexed(before)
+
+        // A stage whose bucket filled before ArchiveDb did.
+        const db = memoryArchiveDb()
+        const result = yield* run(
+          ksei,
+          bucket,
+          "cron-2026-11-15",
+          new Date("2026-11-15T03:00:00Z"),
+          db
+        )
+
+        assert.deepInclude(result, { outcome: "complete", reportsAdded: 0 })
+        assert.deepStrictEqual(yield* indexed(db), filled)
+      })
+  )
+
+  it.effect(
+    "writes a row per record it indexes, and none for those indexed",
+    () =>
+      Effect.gen(function* () {
+        const ksei = fakeKsei()
+        const bucket = memoryBucket()
+        yield* run(ksei, bucket, "cron-2026-11-14")
+        const db = memoryArchiveDb()
+
+        yield* run(
+          ksei,
+          bucket,
+          "cron-2026-11-15",
+          new Date("2026-11-15T03:00:00Z"),
+          db
+        )
+        assert.strictEqual(rowsWritten(db), recordCount(bucket))
+
+        yield* run(
+          ksei,
+          bucket,
+          "cron-2026-11-16",
+          new Date("2026-11-16T03:00:00Z"),
+          db
+        )
+        assert.strictEqual(rowsWritten(db), recordCount(bucket))
+      })
   )
 })

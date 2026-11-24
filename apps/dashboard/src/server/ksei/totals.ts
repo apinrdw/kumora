@@ -1,44 +1,41 @@
 // The KSEI archive's totals per KSEI report kind, for the admin page (spec
-// apinrdw/kumora#327, "The admin page").
+// apinrdw/kumora#327, "The admin page"), from the report index
+// (report-index.ts).
 import { Effect, Schema } from "effect"
 
-import type { ListedObject } from "../archive/bucket.ts"
-import { kindPrefix } from "./keys.ts"
 import { KseiReportKind } from "./kind.ts"
 
+const KindTotals = Schema.Struct({
+  kind: KseiReportKind,
+  // Period ends held, each once.
+  reports: Schema.Number,
+  // Stored files, each version of a report counted.
+  versions: Schema.Number,
+  // Every object under the kind's prefix: its files and their records.
+  bytes: Schema.Number,
+})
+type KindTotals = typeof KindTotals.Type
+
 const KseiTotals = Schema.Struct({
-  kinds: Schema.Array(
-    Schema.Struct({
-      kind: KseiReportKind,
-      // Period ends held, each once.
-      reports: Schema.Number,
-      // Stored files, each version of a report counted.
-      versions: Schema.Number,
-      // Every object under the kind's prefix: its files and their records.
-      bytes: Schema.Number,
-    })
-  ),
+  kinds: Schema.Array(KindTotals),
   reports: Schema.Number,
   bytes: Schema.Number,
 })
 export type KseiTotals = typeof KseiTotals.Type
 
-// From a listing of reports/.
+// From the index's totals of each kind it holds a report of; a kind it
+// holds none of is all zeros.
 export const kseiTotals = Effect.fnUntraced(function* (
-  objects: ReadonlyArray<ListedObject>
+  indexed: ReadonlyArray<KindTotals>
 ) {
-  const kinds = yield* Effect.forEach(KseiReportKind.literals, (kind) =>
-    Effect.map(kindPrefix(kind), (prefix) => {
-      const under = objects.filter(({ key }) => key.startsWith(prefix))
-      const zips = under.filter(({ key }) => key.endsWith(".zip"))
-      return {
+  const kinds = KseiReportKind.literals.map(
+    (kind) =>
+      indexed.find((row) => row.kind === kind) ?? {
         kind,
-        // reports/<kind>/<period-end>/<sha256>.zip
-        reports: new Set(zips.map(({ key }) => key.split("/")[2])).size,
-        versions: zips.length,
-        bytes: under.reduce((sum, { size }) => sum + size, 0),
+        reports: 0,
+        versions: 0,
+        bytes: 0,
       }
-    })
   )
   return KseiTotals.make({
     kinds,

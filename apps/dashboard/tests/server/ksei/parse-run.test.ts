@@ -12,6 +12,7 @@ import { kseiArchiveRun } from "@/server/ksei/archive-run"
 import { kseiParseRuns } from "@/server/ksei/parse-runs"
 
 import { localSteps } from "../archive/local-steps.ts"
+import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import {
   type MemoryHoldingsDb,
@@ -43,11 +44,16 @@ const world = (): World => ({
 const archive = ({ ksei, bucket }: World, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      kseiArchiveRun(localSteps(Layer.merge(ksei.layer, bucket.layer)), {
-        id: RunId.make(id),
-        trigger: "cron",
-        startedAt: new Date("2026-11-14T03:00:00Z"),
-      })
+      kseiArchiveRun(
+        localSteps(
+          Layer.mergeAll(ksei.layer, bucket.layer, memoryArchiveDb().layer)
+        ),
+        {
+          id: RunId.make(id),
+          trigger: "cron",
+          startedAt: new Date("2026-11-14T03:00:00Z"),
+        }
+      )
     )
   )
 

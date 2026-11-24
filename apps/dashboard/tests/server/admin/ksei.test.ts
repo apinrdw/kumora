@@ -10,9 +10,13 @@ import {
   runKseiNow,
 } from "@/server/admin/ksei"
 import type { Mail } from "@/server/auth/mailer"
+import { ArchiveBucket } from "@/server/archive/bucket"
 import { RunId } from "@/server/archive/run"
 import { ArchiveWorkflow } from "@/server/archive/workflow"
+import { recordKey, reportKey } from "@/server/ksei/keys"
+import type { KseiReportKind } from "@/server/ksei/kind"
 import { KseiParseWorkflow } from "@/server/ksei/parse-runs"
+import { healKseiIndex } from "@/server/ksei/report-index"
 import { KseiRunMetadata, type KseiRunResult } from "@/server/ksei/run-result"
 
 import {
@@ -24,6 +28,7 @@ import {
   send,
 } from "../auth/seam.ts"
 import { fakeWorkflow, type FakeWorkflow } from "../archive/fake-workflow.ts"
+import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
 
@@ -80,9 +85,31 @@ const seedObject = (bucket: MemoryBucket, key: string, body: string) =>
     customMetadata: {},
   })
 
+// A version of a KSEI report as a run stores it: its file, then its record.
+const storeReport = (
+  bucket: MemoryBucket,
+  kind: KseiReportKind,
+  periodEnd: string,
+  sha256: string,
+  file: string,
+  record = "{}"
+) =>
+  Effect.gen(function* () {
+    seedObject(bucket, yield* reportKey(kind, periodEnd, sha256), file)
+    seedObject(
+      bucket,
+      yield* recordKey(kind, periodEnd, sha256, "2026-11-14T03:00:00.000Z", {
+        filename: `${sha256}.zip`,
+        etag: null,
+      }),
+      record
+    )
+  })
+
 const archive = () => {
   const auth = seam()
   const bucket = memoryBucket()
+  const db = memoryArchiveDb()
   const workflow = fakeWorkflow()
   // The KSEI parse run's own Workflow.
   const parseWorkflow = fakeWorkflow()
@@ -91,9 +118,15 @@ const archive = () => {
     bucket,
     workflow,
     parseWorkflow,
+    // The report index gains what the bucket holds, as the next KSEI
+    // archive run's `plan` would index it.
+    indexed: Effect.gen(function* () {
+      yield* healKseiIndex(yield* (yield* ArchiveBucket).list("reports/"))
+    }).pipe(Effect.provide(Layer.merge(bucket.layer, db.layer))),
     layer: Layer.mergeAll(
       auth.layer,
       bucket.layer,
+      db.layer,
       memoryHoldingsDb().layer,
       workflow.layer,
       Layer.effect(KseiParseWorkflow, Effect.service(ArchiveWorkflow)).pipe(
@@ -152,16 +185,14 @@ describe("the KSEI archive page", () => {
   })
 
   it.effect("totals each kind's reports, versions and size", () => {
-    const { layer, mails, bucket } = archive()
-    const prefix = "reports/securities-statistics/"
-    // Two versions of October, one of September, each with its record.
-    seedObject(bucket, `${prefix}2026-10-30/aa.zip`, "zip1")
-    seedObject(bucket, `${prefix}2026-10-30/aa.t.x.json`, "{}")
-    seedObject(bucket, `${prefix}2026-10-30/bb.zip`, "zip22")
-    seedObject(bucket, `${prefix}2026-10-30/bb.t.x.json`, "{}")
-    seedObject(bucket, `${prefix}2026-09-30/cc.zip`, "zip333")
-    seedObject(bucket, `${prefix}2026-09-30/cc.t.x.json`, "{}")
+    const { layer, mails, bucket, indexed } = archive()
+    const kind = "securities-statistics"
     return Effect.gen(function* () {
+      // Two versions of October, one of September, each with its record.
+      yield* storeReport(bucket, kind, "2026-10-30", "a".repeat(64), "zip1")
+      yield* storeReport(bucket, kind, "2026-10-30", "b".repeat(64), "zip22")
+      yield* storeReport(bucket, kind, "2026-09-30", "c".repeat(64), "zip333")
+      yield* indexed
       const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
       const { totals } = yield* kseiArchivePage(headers(cookie))
       assert.deepStrictEqual(totals, {
@@ -237,7 +268,7 @@ describe("the KSEI archive page's timing", () => {
           "authorize",
           "lastRun",
           "recentRuns",
-          "reports",
+          "reportIndex",
           "lastDeepRun",
           "lastParseRun",
           "parseCoverage",
@@ -456,21 +487,16 @@ describe("the KSEI coverage grid", () => {
       probeFailures: [],
     },
   })
-  const record = (bucket: MemoryBucket, kind: string, periodEnd: string) =>
-    seedObject(bucket, `reports/${kind}/${periodEnd}/aa.t.x.json`, "{}")
+  const record = (
+    bucket: MemoryBucket,
+    kind: KseiReportKind,
+    periodEnd: string
+  ) => storeReport(bucket, kind, periodEnd, "a".repeat(64), "z")
 
   it.effect(
     "shows each month held, not found by the latest deep run, or never looked for",
     () => {
-      const { layer, mails, bucket } = archive()
-      record(bucket, "securities-statistics", "2018-11-30")
-      record(bucket, "securities-statistics", "2026-10-30")
-      // Stored after the deep run looked: held wins.
-      record(bucket, "securities-holdings", "2019-03-29")
-      // A zip without its record is not a complete version.
-      seedObject(bucket, "reports/securities-holdings/2019-04-30/bb.zip", "z")
-      // Before the archive's first month: not shown, though held.
-      record(bucket, "securities-holdings", "2018-10-31")
+      const { layer, mails, bucket, indexed } = archive()
       seedRun(
         bucket,
         deepRun({
@@ -479,6 +505,19 @@ describe("the KSEI coverage grid", () => {
         })
       )
       return Effect.gen(function* () {
+        yield* record(bucket, "securities-statistics", "2018-11-30")
+        yield* record(bucket, "securities-statistics", "2026-10-30")
+        // Stored after the deep run looked: held wins.
+        yield* record(bucket, "securities-holdings", "2019-03-29")
+        // A zip without its record is not a complete version.
+        seedObject(
+          bucket,
+          yield* reportKey("securities-holdings", "2019-04-30", "b".repeat(64)),
+          "z"
+        )
+        // Before the archive's first month: not shown, though held.
+        yield* record(bucket, "securities-holdings", "2018-10-31")
+        yield* indexed
         yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
         const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
         const { coverage } = yield* kseiArchivePage(headers(cookie))
@@ -524,9 +563,10 @@ describe("the KSEI coverage grid", () => {
   it.effect(
     "shows every month without a KSEI report as never looked for",
     () => {
-      const { layer, mails, bucket } = archive()
-      record(bucket, "securities-holdings", "2020-06-30")
+      const { layer, mails, bucket, indexed } = archive()
       return Effect.gen(function* () {
+        yield* record(bucket, "securities-holdings", "2020-06-30")
+        yield* indexed
         yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
         const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
         const { coverage, lastDeepRun } = yield* kseiArchivePage(

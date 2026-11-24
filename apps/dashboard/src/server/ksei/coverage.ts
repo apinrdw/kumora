@@ -61,10 +61,11 @@ export const monthsHeld = Effect.fnUntraced(function* (
   )
 })
 
-// Each kind's months up to `now`'s month in WIB, from a listing of reports/
-// and the latest deep run's months not found, if there is one.
+// Each kind's months up to `now`'s month in WIB, from the months the report
+// index holds (report-index.ts) and the latest deep run's months not found,
+// if there is one.
 export const kseiCoverage = Effect.fnUntraced(function* (
-  objects: ReadonlyArray<ListedObject>,
+  heldMonths: Readonly<Record<KseiReportKind, ReadonlySet<string>>>,
   monthsNotFound: DeepFinds["monthsNotFound"] | undefined,
   now: DateTime.DateTime
 ) {
@@ -72,7 +73,7 @@ export const kseiCoverage = Effect.fnUntraced(function* (
   const kinds = yield* Effect.forEach(
     KseiReportKind.literals,
     Effect.fnUntraced(function* (kind) {
-      const held = yield* monthsHeld(objects, kind)
+      const held = heldMonths[kind]
       const notFound = new Set(monthsNotFound?.[kind])
       const state = Effect.fnUntraced(function* (month: string) {
         if (!(yield* inArchive(month))) return null

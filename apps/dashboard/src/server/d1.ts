@@ -10,6 +10,39 @@ export interface Statement {
   readonly params: ReadonlyArray<SqlValue>
 }
 
+// The most rows, and bytes of JSON, one `INSERT … SELECT` over `json_each`
+// takes.
+// Decision: D1 inserts go in json_each chunks under D1's statement limits
+// (apps/dashboard/docs/adr/0018-d1-inserts-go-in-json-each-chunks-under-statement-limits.md)
+export const CHUNK_ROWS = 1000
+export const CHUNK_BYTES = 90_000
+
+const encoder = new TextEncoder()
+
+// `rows` as JSON arrays of at most CHUNK_ROWS rows and CHUNK_BYTES bytes,
+// each row an array of its columns, for code that holds its rows already.
+export const jsonChunks = (rows: ReadonlyArray<ReadonlyArray<SqlValue>>) =>
+  Effect.sync(() => {
+    const chunks: Array<string> = []
+    let chunk: Array<string> = []
+    let bytes = 2
+    for (const row of rows) {
+      const json = JSON.stringify(row)
+      const rowBytes = encoder.encode(json).length + 1
+      if (
+        chunk.length > 0 &&
+        (chunk.length === CHUNK_ROWS || bytes + rowBytes > CHUNK_BYTES)
+      ) {
+        chunks.push(`[${chunk.join(",")}]`)
+        chunk = []
+        bytes = 2
+      }
+      chunk.push(json)
+      bytes += rowBytes
+    }
+    return chunk.length === 0 ? chunks : [...chunks, `[${chunk.join(",")}]`]
+  })
+
 export interface D1Batch {
   readonly rows: ReadonlyArray<ReadonlyArray<Record<string, unknown>>>
   readonly rowsWritten: number

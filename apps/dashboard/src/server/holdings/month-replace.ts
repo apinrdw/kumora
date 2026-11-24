@@ -5,7 +5,12 @@
 // rows. Spec apinrdw/kumora#363, "Month replace".
 import { Effect } from "effect"
 
-import type { SqlValue, Statement } from "../d1.ts"
+import {
+  CHUNK_BYTES,
+  CHUNK_ROWS,
+  type SqlValue,
+  type Statement,
+} from "../d1.ts"
 import { HoldingsDb } from "./db.ts"
 
 // Decision: a report's parse is bounded to fit 48 MiB of the Worker's heap
@@ -38,9 +43,6 @@ export interface MonthReplace {
 
 // Decision: D1 inserts go in json_each chunks under D1's statement limits
 // (apps/dashboard/docs/adr/0018-d1-inserts-go-in-json-each-chunks-under-statement-limits.md)
-const CHUNK_ROWS = 1000
-const CHUNK_BYTES = 90_000
-
 const encoder = new TextEncoder()
 
 // Gathers a table's rows as a parse reads them, each chunk of them turned

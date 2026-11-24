@@ -28,6 +28,7 @@ import {
   investorTypeItems,
 } from "../shareholding/fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
+import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { holdingsKsei } from "../ksei/fake-ksei.ts"
 import { memoryBucket } from "../archive/memory-bucket.ts"
 import { memoryHoldingsDb } from "./memory-holdings-db.ts"
@@ -48,7 +49,13 @@ const parsed = Effect.gen(function* () {
   const holdings = memoryHoldingsDb()
   const kseiBucket = memoryBucket()
   yield* kseiArchiveRun(
-    localSteps(Layer.merge(holdingsKsei().layer, kseiBucket.layer)),
+    localSteps(
+      Layer.mergeAll(
+        holdingsKsei().layer,
+        kseiBucket.layer,
+        memoryArchiveDb().layer
+      )
+    ),
     run("cron-2026-11-14T03", "2026-11-14T03:00:00Z")
   )
   yield* kseiParseRuns.run(
