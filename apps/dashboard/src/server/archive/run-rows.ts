@@ -2,7 +2,7 @@
 // run of either archive, with the whole run record as JSON beside the
 // columns its reads filter and sort on. The statements here read one kind's
 // rows, so an admin page can put several in one ArchiveDb batch
-// (`readRuns`, run-import.ts).
+// (`readPage`, page-read.ts).
 import { Effect, Option, Schema } from "effect"
 
 import type { Statement } from "../d1.ts"

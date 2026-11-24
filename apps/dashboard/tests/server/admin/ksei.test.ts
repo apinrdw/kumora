@@ -18,6 +18,7 @@ import type { KseiReportKind } from "@/server/ksei/kind"
 import { KseiParseWorkflow } from "@/server/ksei/parse-runs"
 import { kseiIndex } from "@/server/ksei/report-index"
 import type { KseiRunResult } from "@/server/ksei/run-result"
+import type { ParseRunResult } from "@/server/holdings/parse-run-result"
 
 import {
   ADMIN_EMAIL,
@@ -32,6 +33,7 @@ import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import {
   archiveDbOf,
   KSEI_ARCHIVE,
+  KSEI_PARSE,
   seedRun as seedRunRow,
 } from "../archive/runs.ts"
 import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
@@ -250,6 +252,76 @@ describe("the KSEI archive page", () => {
   })
 })
 
+describe("the KSEI archive page's ArchiveDb reads", () => {
+  it.effect(
+    "reads the runs, deep run, parse runs, totals and coverage in one ArchiveDb batch a load",
+    () => {
+      const { layer, mails, bucket, indexed } = archive()
+      const db = archiveDbOf(bucket)
+      const deep: KseiRunResult = {
+        ...RUNNING,
+        id: RunId.make("deep-1763000000000"),
+        trigger: "deep",
+        startedAt: "2026-11-13T02:13:20.000Z",
+        finishedAt: "2026-11-13T03:00:00.000Z",
+        outcome: "complete",
+        deep: {
+          foundFromSeed: [],
+          foundByProbing: [],
+          monthsNotFound: {
+            "securities-statistics": [],
+            "securities-holdings": ["2026-09"],
+          },
+          probeFailures: [],
+        },
+      }
+      const parsed: ParseRunResult = {
+        id: RunId.make("cron-2026-11-14"),
+        trigger: "cron",
+        startedAt: "2026-11-14T04:00:00.000Z",
+        finishedAt: "2026-11-14T04:01:00.000Z",
+        outcome: "partial",
+        monthsParsed: 0,
+        parseFailures: [{ date: "2026-10-30", message: "No sheet" }],
+        error: null,
+      }
+      return Effect.gen(function* () {
+        seedRunRow(db, KSEI_ARCHIVE, deep)
+        seedLatest(bucket, RUNNING)
+        seedRunRow(db, KSEI_PARSE, parsed, { latest: true })
+        yield* storeReport(
+          bucket,
+          "securities-holdings",
+          "2026-10-30",
+          "a".repeat(64),
+          "zip"
+        )
+        yield* indexed
+        yield* TestClock.setTime(Date.parse("2026-11-14T05:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        const before = db.batches
+        const page = yield* kseiArchivePage(headers(cookie))
+        assert.strictEqual(db.batches - before, 1)
+        assert.strictEqual(page.lastRun?.result.id, RUNNING.id)
+        assert.deepStrictEqual(
+          page.recentRuns.map(({ id }) => id),
+          [RUNNING.id, deep.id]
+        )
+        assert.deepStrictEqual(page.lastDeepRun, {
+          id: deep.id,
+          finishedAt: deep.finishedAt,
+        })
+        assert.deepStrictEqual(page.lastParseRun?.result, parsed)
+        assert.strictEqual(page.totals.reports, 1)
+        assert.deepInclude(page.parseCoverage[0]?.months[9], {
+          state: "failed",
+          failure: { message: "No sheet", run: parsed.id },
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
+})
+
 describe("the KSEI archive page's timing", () => {
   it.effect("logs how long each part of an admin's load took", () => {
     const { layer, mails } = archive()
@@ -266,6 +338,7 @@ describe("the KSEI archive page's timing", () => {
         lines.map(({ part }) => part),
         [
           "authorize",
+          "archiveDb",
           "lastRun",
           "recentRuns",
           "reportIndex",

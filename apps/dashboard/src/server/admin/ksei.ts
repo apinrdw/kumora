@@ -8,6 +8,7 @@ import { DateTime, Effect } from "effect"
 
 import type { FileRoutesByFullPath } from "@/routeTree.gen"
 import { authorizeArchive } from "@/server/admin/archive-access"
+import { readPage } from "@/server/archive/page-read"
 import { dailyRunIdAt } from "@/server/archive/run"
 import type { Action } from "@/server/auth/policy"
 import { kseiCoverage } from "@/server/ksei/coverage"
@@ -39,41 +40,40 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
   headers: Headers
 ) {
   yield* authorize(headers, "admin.view-ksei-archive").pipe(timed("authorize"))
-  // The report index gives the totals and the coverage in one ArchiveDb
-  // batch, in place of a listing of reports/.
-  const [run, runs, indexed, deep, parseRun, parseCoverage] = yield* Effect.all(
-    [
-      lastKseiRun.pipe(timed("lastRun")),
-      recentKseiRuns.pipe(timed("recentRuns")),
-      kseiReportIndex.pipe(timed("reportIndex")),
-      lastKseiDeepRun.pipe(timed("lastDeepRun")),
-      kseiParseRuns.last.pipe(timed("lastParseRun")),
-      kseiParseRuns.parseCoverage.pipe(timed("parseCoverage")),
-    ],
-    { concurrency: "unbounded" }
-  ).pipe(timed("reads"))
   const now = yield* DateTime.now
+  const read = yield* readPage(
+    {
+      lastRun: lastKseiRun,
+      recentRuns: recentKseiRuns(now),
+      reportIndex: kseiReportIndex,
+      lastDeepRun: lastKseiDeepRun,
+      lastParseRun: kseiParseRuns.last,
+      parseCoverage: kseiParseRuns.parseCoverage,
+    },
+    timed
+  ).pipe(timed("reads"))
+  const deep = read.lastDeepRun
   return {
-    lastRun: run,
+    lastRun: read.lastRun,
     nextRun: (yield* nextKseiRun(DateTime.toDateUtc(now))).toISOString(),
-    lastParseRun: parseRun,
+    lastParseRun: read.lastParseRun,
     nextParseRun: (yield* nextKseiParseRun(
       DateTime.toDateUtc(now)
     )).toISOString(),
     now: DateTime.formatIso(now),
-    recentRuns: runs,
-    totals: indexed.totals,
+    recentRuns: read.recentRuns,
+    totals: read.reportIndex.totals,
     // The deep run the coverage's months not found come from.
     lastDeepRun:
       deep?.deep == null
         ? undefined
         : { id: deep.id, finishedAt: deep.finishedAt },
     coverage: yield* kseiCoverage(
-      indexed.monthsHeld,
+      read.reportIndex.monthsHeld,
       deep?.deep?.monthsNotFound,
       now
     ),
-    parseCoverage,
+    parseCoverage: read.parseCoverage,
   }
 })
 

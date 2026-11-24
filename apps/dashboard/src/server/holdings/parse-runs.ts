@@ -9,7 +9,7 @@
 import type { StepFailed, WorkflowSteps } from "@workspace/server"
 import { type Context, DateTime, Effect } from "effect"
 
-import type { ArchiveDb, ArchiveDbError } from "../archive/archive-db.ts"
+import type { ArchiveDb } from "../archive/archive-db.ts"
 import type { ArchiveBucket } from "../archive/bucket.ts"
 import { failingRun } from "../archive/failing-run.ts"
 import {
@@ -21,9 +21,11 @@ import {
   type RunId,
   runError,
 } from "../archive/run.ts"
+import type { PageRead, Rows } from "../archive/page-read.ts"
+import { importedKind } from "../archive/run-import.ts"
 import {
-  readLastRun,
-  readLatestRunWhere,
+  lastRunRead,
+  latestRunWhereRead,
   scheduledRun,
   startRunOf,
   writeRunRecord,
@@ -75,11 +77,7 @@ export const parseRunsOf = <Self>(kind: {
   // Each archived date, oldest first, with its newest version's SHA-256,
   // from the report index: what the parse coverage reads in place of a
   // listing of the months' prefix.
-  readonly newestVersions: Effect.Effect<
-    ReadonlyArray<NewestVersion>,
-    ArchiveDbError,
-    ArchiveDb
-  >
+  readonly newestVersions: PageRead<ReadonlyArray<NewestVersion>>
   readonly workflow: ParseWorkflow<Self>
 }) => {
   const source = {
@@ -138,27 +136,42 @@ export const parseRunsOf = <Self>(kind: {
     return result
   })
 
-  // The last finished run, of either trigger: undefined before any. A run
-  // in progress is passed over for the one before it.
-  const lastFinished = Effect.map(
-    Effect.forEach(FINISHED, (where) => readLatestRunWhere(source, where)),
-    (runs) =>
-      runs.reduce<ParseRunResult | undefined>(
-        (latest, run) =>
-          run !== undefined &&
-          (latest === undefined || run.startedAt > latest.startedAt)
-            ? run
-            : latest,
-        undefined
-      )
-  )
+  // Each trigger's last finished run.
+  const finished = FINISHED.map((where) => latestRunWhereRead(source, where))
+
+  const lastRun = lastRunRead(source)
 
   return {
-    // The kind's parse coverage, for the admin page.
-    parseCoverage: Effect.flatMap(
-      Effect.all([kind.newestVersions, lastFinished]),
-      ([newest, run]) => parseCoverage(kind.months, newest, run)
-    ),
+    // The kind's parse coverage, for the admin page: the months' newest
+    // versions, and its last finished run, of either trigger, whose parse
+    // failures mark months failed. A run in progress is passed over for the
+    // one before it.
+    parseCoverage: {
+      kinds: [importedKind(source)],
+      statements: [
+        ...kind.newestVersions.statements,
+        ...finished.flatMap((read) => read.statements),
+      ],
+      read: ([newestRows = [], ...finishedRows]: ReadonlyArray<Rows>) =>
+        Effect.gen(function* () {
+          const runs = yield* Effect.forEach(finished, (read, index) =>
+            read.read([finishedRows[index] ?? []])
+          )
+          const lastFinished = runs.reduce<ParseRunResult | undefined>(
+            (latest, run) =>
+              run !== undefined &&
+              (latest === undefined || run.startedAt > latest.startedAt)
+                ? run
+                : latest,
+            undefined
+          )
+          return yield* parseCoverage(
+            kind.months,
+            yield* kind.newestVersions.read([newestRows]),
+            lastFinished
+          )
+        }),
+    },
     // The run its Workflow runs.
     run: Effect.fn(kind.runName)(function* (
       steps: WorkflowSteps<ArchiveBucket | ArchiveDb | HoldingsDb>,
@@ -172,7 +185,10 @@ export const parseRunsOf = <Self>(kind: {
       return yield* steps.do("summary", summary(run, parses))
     }),
     // The last run, for the admin page: undefined before any run.
-    last: onWorkflow(readLastRun(source)),
+    last: {
+      ...lastRun,
+      read: (rows: ReadonlyArray<Rows>) => onWorkflow(lastRun.read(rows)),
+    },
     start: (id: RunId, trigger: ParseTrigger) =>
       onWorkflow(startRunOf(source, id, trigger)),
     // What each cron firing runs: one run a day, named after its scheduled

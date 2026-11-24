@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Conflict, Unauthorized } from "@workspace/server"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Logger, References } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
@@ -14,6 +14,7 @@ import type { Mail } from "@/server/auth/mailer"
 import { ArchiveBucket } from "@/server/archive/bucket"
 import { RunId } from "@/server/archive/run"
 import { ArchiveWorkflow } from "@/server/archive/workflow"
+import type { ParseRunResult } from "@/server/holdings/parse-run-result"
 import { Above1ParseWorkflow } from "@/server/shareholding/above-1-parse"
 import { ClassificationParseWorkflow } from "@/server/shareholding/classification-parse"
 import { InvestorTypeParseWorkflow } from "@/server/shareholding/investor-type-parse"
@@ -39,7 +40,12 @@ import {
   memoryArchiveDb,
 } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
-import { latestRunId, SHAREHOLDING_ARCHIVE, seedRun } from "../archive/runs.ts"
+import {
+  latestRunId,
+  SHAREHOLDING_ARCHIVE,
+  seedRun,
+  shareholdingParse,
+} from "../archive/runs.ts"
 import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
 
 const headers = (cookie?: string) =>
@@ -367,6 +373,112 @@ describe("the shareholding archive page", () => {
         only(9, "2026-09-30")
       )
     }).pipe(Effect.provide(layer))
+  })
+})
+
+const finishedParse = (failedOn: string): ParseRunResult => ({
+  id: RunId.make("cron-2026-11-14"),
+  trigger: "cron",
+  startedAt: "2026-11-14T14:00:00.000Z",
+  finishedAt: "2026-11-14T14:01:00.000Z",
+  outcome: "partial",
+  monthsParsed: 0,
+  parseFailures: [{ date: failedOn, message: "No sheet" }],
+  error: null,
+})
+
+describe("the shareholding archive page's ArchiveDb reads", () => {
+  it.effect(
+    "reads the runs, parse runs, totals and parse coverage in one ArchiveDb batch a load",
+    () => {
+      const { layer, mails, bucket, db, indexed } = archive()
+      const classification = finishedParse("2026-10-31")
+      const investorType = finishedParse("2026-09-30")
+      const above1 = finishedParse("2026-08-31")
+      seedLatest(db, RUNNING)
+      for (const [kind, run] of [
+        ["investor-classification", classification],
+        ["investor-type", investorType],
+        ["above-1", above1],
+      ] as const)
+        seedRun(db, shareholdingParse(kind), run, { latest: true })
+      return Effect.gen(function* () {
+        yield* storeReport(
+          bucket,
+          "investor-classification",
+          "2026-10-31",
+          "a".repeat(64),
+          "xlsx"
+        )
+        yield* storeReport(
+          bucket,
+          "investor-type",
+          "2026-09-30",
+          "b".repeat(64),
+          "xlsx"
+        )
+        yield* indexed
+        yield* TestClock.setTime(Date.parse("2026-11-14T15:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        const before = db.batches
+        const page = yield* shareholdingArchivePage(headers(cookie))
+        assert.strictEqual(db.batches - before, 1)
+        assert.strictEqual(page.lastRun?.result.id, RUNNING.id)
+        assert.deepStrictEqual(
+          page.recentRuns.map(({ id }) => id),
+          [RUNNING.id]
+        )
+        assert.deepStrictEqual(
+          page.lastClassificationParseRun?.result,
+          classification
+        )
+        assert.deepStrictEqual(
+          page.lastInvestorTypeParseRun?.result,
+          investorType
+        )
+        assert.deepStrictEqual(page.lastAbove1ParseRun?.result, above1)
+        assert.strictEqual(page.totals.reports, 2)
+        assert.deepInclude(page.classificationParseCoverage[0]?.months[9], {
+          state: "failed",
+          failure: { message: "No sheet", run: classification.id },
+        })
+        assert.deepInclude(page.investorTypeParseCoverage[0]?.months[8], {
+          state: "failed",
+          failure: { message: "No sheet", run: investorType.id },
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect("logs how long each part of an admin's load took", () => {
+    const { layer, mails } = archive()
+    const lines: Array<Readonly<Record<string, unknown>>> = []
+    const capture = Logger.make(({ message, fiber }) => {
+      const [text] = Array.isArray(message) ? message : [message]
+      if (text === "Admin page part timed")
+        lines.push(fiber.getRef(References.CurrentLogAnnotations))
+    })
+    return Effect.gen(function* () {
+      const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+      yield* shareholdingArchivePage(headers(cookie))
+      assert.sameMembers(
+        lines.map(({ part }) => part),
+        [
+          "authorize",
+          "archiveDb",
+          "lastRun",
+          "recentRuns",
+          "totals",
+          "lastClassificationParseRun",
+          "lastInvestorTypeParseRun",
+          "lastAbove1ParseRun",
+          "classificationParseCoverage",
+          "investorTypeParseCoverage",
+          "reads",
+        ]
+      )
+      for (const line of lines) assert.strictEqual(line.page, "shareholding")
+    }).pipe(Effect.provide(layer), Effect.provide(Logger.layer([capture])))
   })
 })
 

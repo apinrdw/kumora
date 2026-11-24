@@ -3,6 +3,7 @@ import type { StepConfig } from "@workspace/server"
 import { Duration, Effect, Layer, Schema } from "effect"
 
 import type { ArchiveDb } from "@/server/archive/archive-db"
+import { readAlone } from "@/server/archive/page-read"
 import { RunId } from "@/server/archive/run"
 import {
   kseiArchiveRun,
@@ -688,7 +689,7 @@ describe("a KSEI archive run at the largest size it accepts", () => {
 // What the report index holds, as the admin page reads it: each kind's
 // reports, versions and bytes, and the months held.
 const indexed = (db: MemoryArchiveDb) =>
-  kseiReportIndex.pipe(Effect.provide(db.layer))
+  readAlone(kseiReportIndex).pipe(Effect.provide(db.layer))
 
 // The rows `db` has written so far.
 const rowsWritten = (db: MemoryArchiveDb) =>

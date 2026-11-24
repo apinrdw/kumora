@@ -1,13 +1,24 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
+import { readAlone } from "@/server/archive/page-read"
 import { RunId } from "@/server/archive/run"
 import type { ArchiveRunResult } from "@/server/shareholding/run-result"
-import { lastRun, recentRuns, startRun } from "@/server/shareholding/runs"
+import {
+  lastRun as lastRunRead,
+  recentRuns as recentRunsRead,
+  startRun,
+} from "@/server/shareholding/runs"
 
 import type { FakeInstance, FakeWorkflow } from "./fake-workflow.ts"
 import { runStores, SHAREHOLDING_ARCHIVE, seedRun } from "./runs.ts"
+
+const lastRun = readAlone(lastRunRead)
+
+const recentRuns = Effect.flatMap(DateTime.now, (now) =>
+  readAlone(recentRunsRead(now))
+)
 
 const RUNNING: ArchiveRunResult = {
   id: RunId.make("admin-1763125032000"),

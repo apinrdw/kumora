@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Option } from "effect"
 import { TestClock } from "effect/testing"
 
+import { readAlone } from "@/server/archive/page-read"
 import {
   lastRun,
   scheduledArchiveRun,
@@ -34,7 +35,7 @@ const stored = ({ db }: Stores, id: string) =>
 
 // The id of the last run while it is in progress.
 const runInProgress = ({ layer }: Stores) =>
-  lastRun.pipe(
+  readAlone(lastRun).pipe(
     Effect.map((view) =>
       view?.inProgress === true ? Option.some(view.result.id) : Option.none()
     ),

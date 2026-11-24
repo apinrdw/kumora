@@ -17,13 +17,15 @@ import {
   RunId,
   type RunSummaryBase,
 } from "./run.ts"
-import { importedRuns, readRuns } from "./run-import.ts"
+import type { Rows } from "./page-read.ts"
+import { importedKind, importedRuns } from "./run-import.ts"
 import {
   decodeRun,
   decodeRuns,
   lastRunStatement,
   RUN_COLUMNS,
   runRow,
+  type RunKind,
   runStatement,
   triggerRunsStatement,
   writeRunRow,
@@ -75,48 +77,61 @@ const judgeLatest = <
   })
 
 // The last run, for the admin page: undefined before any run.
-export const readLastRun = <
+export const lastRunRead = <
   Trigger extends string,
   Summary extends RunSummaryBase,
   RunRecord extends RunBase & Summary,
 >(
   source: ArchiveSource<Trigger, Summary, RunRecord>
-) =>
-  Effect.gen(function* () {
-    const [rows = []] = yield* readRuns(source, [lastRunStatement(source)])
-    const latest = yield* judgeLatest(source, rows)
-    if (latest === undefined) return undefined
-    return yield* viewRun(latest.result, latest.instance, latest.now)
-  })
+) => ({
+  kinds: [importedKind(source)],
+  statements: [lastRunStatement(source)],
+  read: ([rows = []]: ReadonlyArray<Rows>) =>
+    Effect.gen(function* () {
+      const latest = yield* judgeLatest(source, rows)
+      if (latest === undefined) return undefined
+      return yield* viewRun(latest.result, latest.instance, latest.now)
+    }),
+})
 
 // Rows read at a time while looking for the newest run `accept` takes.
 const PAGE_ROWS = 20
 
+const triggerPage = (kind: RunKind, trigger: string, offset: number) =>
+  triggerRunsStatement(kind, trigger, { offset, limit: PAGE_ROWS })
+
 // The newest run of `where.trigger` that `where.accept` takes, however old:
 // undefined when none does. It reads the trigger's rows newest first, a page
-// at a time, and stops at the first taken. A record that no longer decodes
-// is passed over.
-export const readLatestRunWhere = <
+// at a time, and stops at the first taken: the first page rides in the
+// page's batch, and a later one, which only a trigger whose newest
+// PAGE_ROWS runs are all passed over needs, has a batch of its own. A record
+// that no longer decodes is passed over.
+export const latestRunWhereRead = <
   Trigger extends string,
   Summary extends RunSummaryBase,
   RunRecord extends RunBase & Summary,
 >(
   source: ArchiveSource<Trigger, Summary, RunRecord>,
   where: LatestWhere<Trigger, RunRecord>
-) =>
-  Effect.gen(function* () {
-    for (let offset = 0; ; offset += PAGE_ROWS) {
-      const [rows = []] = yield* readRuns(source, [
-        triggerRunsStatement(source, where.trigger, {
-          offset,
-          limit: PAGE_ROWS,
-        }),
-      ])
-      const taken = (yield* decodeRuns(source.result, rows)).find(where.accept)
-      if (taken !== undefined) return taken
-      if (rows.length < PAGE_ROWS) return undefined
-    }
-  })
+) => ({
+  kinds: [importedKind(source)],
+  statements: [triggerPage(source, where.trigger, 0)],
+  read: ([first = []]: ReadonlyArray<Rows>) =>
+    Effect.gen(function* () {
+      let rows = first
+      for (let offset = 0; ; offset += PAGE_ROWS) {
+        const taken = (yield* decodeRuns(source.result, rows)).find(
+          where.accept
+        )
+        if (taken !== undefined) return taken
+        if (rows.length < PAGE_ROWS) return undefined
+        // The first page's batch imported the kind.
+        ;[rows = []] = yield* (yield* ArchiveDb).batch([
+          triggerPage(source, where.trigger, offset + PAGE_ROWS),
+        ])
+      }
+    }),
+})
 
 // Claims the start of `running`'s run by inserting its row as the one the
 // kind's last start claimed, unless the run that holds the claim is in

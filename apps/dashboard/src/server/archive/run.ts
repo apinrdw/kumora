@@ -149,7 +149,7 @@ export interface RunBase extends RunSummaryBase {
 export type RunArchive = "ksei" | "shareholding"
 
 // The newest run of `trigger` that `accept` takes, however old, which a
-// reader finds (readLatestRunWhere, runs.ts).
+// reader finds (latestRunWhereRead, runs.ts).
 export interface LatestWhere<Trigger extends string, RunRecord> {
   readonly trigger: Trigger
   readonly accept: (run: RunRecord) => boolean

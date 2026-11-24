@@ -1,11 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Layer } from "effect"
+import { DateTime, Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
 import { ArchiveBucket, MAX_LISTED_OBJECTS } from "@/server/archive/bucket"
+import { readAlone } from "@/server/archive/page-read"
 import { RunId } from "@/server/archive/run"
 import { shareholdingIndex } from "@/server/shareholding/report-index"
-import { recentRuns } from "@/server/shareholding/runs"
+import { recentRuns as recentRunsRead } from "@/server/shareholding/runs"
 import { archiveTotals } from "@/server/shareholding/totals"
 import type {
   ArchiveRunResult,
@@ -15,6 +16,10 @@ import type {
 import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import { runStores, SHAREHOLDING_ARCHIVE, seedRun } from "../archive/runs.ts"
+
+const recentRuns = Effect.flatMap(DateTime.now, (now) =>
+  readAlone(recentRunsRead(now))
+)
 
 const NOW = Date.parse("2026-11-14T14:00:00.000Z")
 const HOUR = 3_600_000
@@ -221,7 +226,7 @@ const indexedTotals = (bucket: MemoryBucket) => {
     yield* shareholdingIndex.heal(
       yield* (yield* ArchiveBucket).list("reports/")
     )
-    return yield* archiveTotals
+    return yield* readAlone(archiveTotals)
   }).pipe(Effect.provide(Layer.merge(bucket.layer, db.layer)))
 }
 

@@ -5,6 +5,7 @@ import { Effect, Layer, Schema } from "effect"
 import { archiveRun, MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
 import type { ArchiveDb } from "@/server/archive/archive-db"
 import { MAX_ETAG_BYTES } from "@/server/archive/head"
+import { readAlone } from "@/server/archive/page-read"
 import { RunId, MAX_RUN_ERROR_LENGTH } from "@/server/archive/run"
 import { RunSummary } from "@/server/shareholding/run-result"
 import { archiveTotals } from "@/server/shareholding/totals"
@@ -952,7 +953,7 @@ describe("an archive run at the largest size it accepts", () => {
 
 // The archive totals the admin page reads from the report index.
 const indexed = (db: MemoryArchiveDb) =>
-  archiveTotals.pipe(Effect.provide(db.layer))
+  readAlone(archiveTotals).pipe(Effect.provide(db.layer))
 
 // The totals a listing of reports/ gives: each .xlsx per kind, and every
 // object's bytes.

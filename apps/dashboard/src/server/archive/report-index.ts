@@ -12,6 +12,7 @@ import { decodeRows, jsonChunks, type SqlValue, type Statement } from "../d1.ts"
 import { ArchiveDb } from "./archive-db.ts"
 import type { ListedObject } from "./bucket.ts"
 import type { IndexedArchiveName } from "./indexed-archive.ts"
+import type { PageRead } from "./page-read.ts"
 import { parseRecordName } from "./record-key.ts"
 import { REPORTS_PREFIX } from "./run.ts"
 
@@ -41,20 +42,6 @@ interface IndexedReport<Kind extends string> {
   readonly fileBytes: number
   readonly recordBytes: number
 }
-
-// A statement for a page's ArchiveDb batch, and how to read its rows.
-interface IndexQuery<A> {
-  readonly statement: Statement
-  readonly decode: (
-    rows: ReadonlyArray<Record<string, unknown>>
-  ) => Effect.Effect<A>
-}
-
-// Runs `query` in an ArchiveDb batch of its own.
-export const runAlone = Effect.fnUntraced(function* <A>(query: IndexQuery<A>) {
-  const [rows = []] = yield* (yield* ArchiveDb).batch([query.statement])
-  return yield* query.decode(rows)
-})
 
 // A kind's totals in the index.
 export interface IndexedKindTotals<Kind extends string> {
@@ -224,33 +211,39 @@ export const reportIndexOf = <Kind extends string>(
     // ../holdings/months-to-parse.ts), and of two versions fetched at once,
     // keeps the one listed first: the lower SHA-256.
     newestVersions: (kind: Kind) =>
-      runAlone<ReadonlyArray<NewestVersion>>({
-        statement: {
-          sql:
-            "SELECT report_date AS date, sha256 FROM (SELECT report_date, " +
-            "sha256, ROW_NUMBER() OVER (PARTITION BY report_date " +
-            "ORDER BY fetched_at DESC, sha256) AS rank FROM archived_report " +
-            "WHERE archive = ? AND kind = ?) WHERE rank = 1 " +
-            "ORDER BY report_date",
-          params: [archive.name, kind],
-        },
-        decode: decodeRows(NewestVersionRow),
-      }),
+      ({
+        kinds: [],
+        statements: [
+          {
+            sql:
+              "SELECT report_date AS date, sha256 FROM (SELECT report_date, " +
+              "sha256, ROW_NUMBER() OVER (PARTITION BY report_date " +
+              "ORDER BY fetched_at DESC, sha256) AS rank FROM archived_report " +
+              "WHERE archive = ? AND kind = ?) WHERE rank = 1 " +
+              "ORDER BY report_date",
+            params: [archive.name, kind],
+          },
+        ],
+        read: ([rows = []]) => decodeRows(NewestVersionRow)(rows),
+      }) satisfies PageRead<ReadonlyArray<NewestVersion>>,
 
     // Each kind's totals, for each kind the index holds a report of. A
     // file's bytes count once however many records it has, each record's
     // bytes once, as a listing of reports/ counted them.
     kindTotals: {
-      statement: {
-        sql:
-          "SELECT kind, COUNT(DISTINCT report_date) AS dates, " +
-          "COUNT(*) AS files, SUM(file_bytes + record_bytes) AS bytes " +
-          "FROM (SELECT kind, report_date, MAX(file_bytes) AS file_bytes, " +
-          "SUM(record_bytes) AS record_bytes FROM archived_report " +
-          "WHERE archive = ? GROUP BY kind, file_key) GROUP BY kind",
-        params: [archive.name],
-      },
-      decode: decodeRows(KindTotalsRow),
-    } satisfies IndexQuery<ReadonlyArray<IndexedKindTotals<Kind>>>,
+      kinds: [],
+      statements: [
+        {
+          sql:
+            "SELECT kind, COUNT(DISTINCT report_date) AS dates, " +
+            "COUNT(*) AS files, SUM(file_bytes + record_bytes) AS bytes " +
+            "FROM (SELECT kind, report_date, MAX(file_bytes) AS file_bytes, " +
+            "SUM(record_bytes) AS record_bytes FROM archived_report " +
+            "WHERE archive = ? GROUP BY kind, file_key) GROUP BY kind",
+          params: [archive.name],
+        },
+      ],
+      read: ([rows = []]) => decodeRows(KindTotalsRow)(rows),
+    } satisfies PageRead<ReadonlyArray<IndexedKindTotals<Kind>>>,
   }
 }

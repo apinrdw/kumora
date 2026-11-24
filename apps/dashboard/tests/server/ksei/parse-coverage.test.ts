@@ -5,6 +5,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
+import { readAlone } from "@/server/archive/page-read"
 import { type RunBase, RunId } from "@/server/archive/run"
 import { KSEI_PARSER_VERSION } from "@/server/holdings/ksei"
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
@@ -100,7 +101,7 @@ const bumpParser = ({ holdings }: World, periodEnd: string) => {
 // The parse coverage as each year's twelve cells, a cell its state or "" when
 // blank.
 const coverage = ({ bucket, holdings, index }: World) =>
-  kseiParseRuns.parseCoverage.pipe(
+  readAlone(kseiParseRuns.parseCoverage).pipe(
     Effect.provide(Layer.mergeAll(bucket.layer, holdings.layer, index.layer))
   )
 

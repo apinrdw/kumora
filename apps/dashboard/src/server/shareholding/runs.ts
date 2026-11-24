@@ -1,12 +1,12 @@
 // The shareholding archive's runs on the shared run machinery
 // (src/server/archive/): its runs in ArchiveDb, starts, last run and recent runs.
 // Spec apinrdw/kumora#303, "Starting a run".
-import { Effect } from "effect"
+import { type DateTime, Effect } from "effect"
 
-import { listRecentRuns } from "../archive/history.ts"
+import { recentRunsRead } from "../archive/history.ts"
 import { type ArchiveSource, type RunId, RUNS_PREFIX } from "../archive/run.ts"
 import {
-  readLastRun,
+  lastRunRead,
   scheduledRun,
   startRunOf,
   writeRunRecord,
@@ -36,10 +36,11 @@ export const putRunRecord = (result: ArchiveRunResult) =>
   writeRunRecord(SHAREHOLDING_RUNS, result)
 
 // The last run, for the admin page: undefined before any run.
-export const lastRun = readLastRun(SHAREHOLDING_RUNS)
+export const lastRun = lastRunRead(SHAREHOLDING_RUNS)
 
-// The runs started in the past 30 days, newest first.
-export const recentRuns = listRecentRuns(SHAREHOLDING_RUNS)
+// The runs started in the 30 days to `now`, newest first.
+export const recentRuns = (now: DateTime.Utc) =>
+  recentRunsRead(SHAREHOLDING_RUNS, now)
 
 export const startRun = (id: RunId, trigger: ArchiveTrigger) =>
   startRunOf(SHAREHOLDING_RUNS, id, trigger)

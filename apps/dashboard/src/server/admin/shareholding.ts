@@ -10,6 +10,7 @@ import type { FileRoutesByFullPath } from "@/routeTree.gen"
 import { authorizeArchive } from "@/server/admin/archive-access"
 import { parseNow } from "@/server/admin/parse-now"
 import { timePart } from "@/server/admin/part-timing"
+import { readPage } from "@/server/archive/page-read"
 import type { Action } from "@/server/auth/policy"
 import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 import { classificationParseRuns } from "@/server/shareholding/classification-parse"
@@ -37,47 +38,34 @@ export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
     yield* authorize(headers, "admin.view-shareholding-archive").pipe(
       timed("authorize")
     )
-    const [
-      run,
-      runs,
-      totals,
-      classificationParseRun,
-      investorTypeParseRun,
-      above1ParseRun,
-      classificationParseCoverage,
-      investorTypeParseCoverage,
-    ] = yield* Effect.all(
-      [
-        lastRun.pipe(timed("lastRun")),
-        recentRuns.pipe(timed("recentRuns")),
-        archiveTotals.pipe(timed("totals")),
-        classificationParseRuns.last.pipe(timed("lastClassificationParseRun")),
-        investorTypeParseRuns.last.pipe(timed("lastInvestorTypeParseRun")),
-        above1ParseRuns.last.pipe(timed("lastAbove1ParseRun")),
-        classificationParseRuns.parseCoverage.pipe(
-          timed("classificationParseCoverage")
-        ),
-        investorTypeParseRuns.parseCoverage.pipe(
-          timed("investorTypeParseCoverage")
-        ),
-      ],
-      { concurrency: "unbounded" }
-    ).pipe(timed("reads"))
     const now = yield* DateTime.now
+    const read = yield* readPage(
+      {
+        lastRun,
+        recentRuns: recentRuns(now),
+        totals: archiveTotals,
+        lastClassificationParseRun: classificationParseRuns.last,
+        lastInvestorTypeParseRun: investorTypeParseRuns.last,
+        lastAbove1ParseRun: above1ParseRuns.last,
+        classificationParseCoverage: classificationParseRuns.parseCoverage,
+        investorTypeParseCoverage: investorTypeParseRuns.parseCoverage,
+      },
+      timed
+    ).pipe(timed("reads"))
     return {
-      lastRun: run,
+      lastRun: read.lastRun,
       nextRun: (yield* nextScheduledRun(DateTime.toDateUtc(now))).toISOString(),
-      lastClassificationParseRun: classificationParseRun,
-      lastInvestorTypeParseRun: investorTypeParseRun,
-      lastAbove1ParseRun: above1ParseRun,
-      classificationParseCoverage,
-      investorTypeParseCoverage,
+      lastClassificationParseRun: read.lastClassificationParseRun,
+      lastInvestorTypeParseRun: read.lastInvestorTypeParseRun,
+      lastAbove1ParseRun: read.lastAbove1ParseRun,
+      classificationParseCoverage: read.classificationParseCoverage,
+      investorTypeParseCoverage: read.investorTypeParseCoverage,
       nextParseRun: (yield* nextParseRun(
         DateTime.toDateUtc(now)
       )).toISOString(),
       now: DateTime.formatIso(now),
-      recentRuns: runs,
-      totals,
+      recentRuns: read.recentRuns,
+      totals: read.totals,
     }
   }
 )

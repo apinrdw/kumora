@@ -159,27 +159,41 @@ const importRuns = <
     )
   })
 
-// Each statement's rows, read in one ArchiveDb batch, after the kind's
-// cutover import when it hasn't had one. Statements of other kinds may ride
-// along, once each of their kinds has been imported too.
-export const readRuns = <
+// A run kind, with its cutover import: what a read of its rows imports
+// first, when ArchiveDb hasn't.
+export interface ImportedKind<E, R> extends RunKind {
+  readonly importRuns: Effect.Effect<void, E, R>
+}
+
+export const importedKind = <
   Trigger extends string,
   Summary extends RunSummaryBase,
   RunRecord extends RunBase & Summary,
 >(
-  source: ArchiveSource<Trigger, Summary, RunRecord>,
+  source: ArchiveSource<Trigger, Summary, RunRecord>
+) => ({
+  archive: source.archive,
+  runKind: source.runKind,
+  importRuns: importRuns(source),
+})
+
+// Each statement's rows, read in one ArchiveDb batch beside a check of
+// whether each of `kinds` has been imported. Should any not have been, it
+// imports those, then reads the statements again in a second batch.
+export const readRuns = Effect.fnUntraced(function* <E, R>(
+  kinds: ReadonlyArray<ImportedKind<E, R>>,
   statements: ReadonlyArray<Statement>
-) =>
-  Effect.gen(function* () {
-    const db = yield* ArchiveDb
-    const [imported = [], ...rows] = yield* db.batch([
-      importedStatement(source),
-      ...statements,
-    ])
-    if (imported.length > 0) return rows
-    yield* importRuns(source)
-    return statements.length === 0 ? [] : yield* db.batch(statements)
+) {
+  const db = yield* ArchiveDb
+  const rows = yield* db.batch([...kinds.map(importedStatement), ...statements])
+  const missing = kinds.filter((_, index) => (rows[index] ?? []).length === 0)
+  if (missing.length === 0) return rows.slice(kinds.length)
+  yield* Effect.forEach(missing, (kind) => kind.importRuns, {
+    concurrency: "unbounded",
+    discard: true,
   })
+  return statements.length === 0 ? [] : yield* db.batch(statements)
+})
 
 // The kind's cutover import, when it hasn't had one.
 export const importedRuns = <
@@ -188,4 +202,4 @@ export const importedRuns = <
   RunRecord extends RunBase & Summary,
 >(
   source: ArchiveSource<Trigger, Summary, RunRecord>
-) => Effect.asVoid(readRuns(source, []))
+) => Effect.asVoid(readRuns([importedKind(source)], []))

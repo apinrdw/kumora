@@ -5,6 +5,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
+import { readAlone } from "@/server/archive/page-read"
 import { RunId } from "@/server/archive/run"
 import { archiveRun } from "@/server/shareholding/archive-run"
 import { classificationParseRuns } from "@/server/shareholding/classification-parse"
@@ -163,7 +164,7 @@ const parse = ({ bucket, holdings }: World, { runs }: Kind, id: string) =>
 
 // The kind's parse coverage as each shown cell's state by its date.
 const parseCoverage = ({ bucket, holdings, index }: World, { runs }: Kind) =>
-  runs.parseCoverage.pipe(
+  readAlone(runs.parseCoverage).pipe(
     Effect.provide(Layer.mergeAll(bucket.layer, holdings.layer, index.layer)),
     Effect.map((years) =>
       Object.fromEntries(
