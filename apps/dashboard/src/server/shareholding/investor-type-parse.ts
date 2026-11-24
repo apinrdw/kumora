@@ -12,7 +12,7 @@ import {
 } from "../holdings/investor-type.ts"
 import { parseRunsOf } from "../holdings/parse-runs.ts"
 import { kindPrefix, reportKey } from "./keys.ts"
-import { shareholdingNewestVersions } from "./report-index.ts"
+import { shareholdingIndex } from "./report-index.ts"
 
 const KIND = "investor-type"
 
@@ -31,11 +31,11 @@ export const investorTypeParseRuns = parseRunsOf({
   runsPrefix: `parse-runs/${KIND}/`,
   months: {
     prefix: kindPrefix(KIND),
-    indexed: shareholdingNewestVersions(KIND),
     reportKey: (dataDate, sha256) => reportKey(KIND, dataDate, sha256),
     tables: INVESTOR_TYPE_TABLES,
     parserVersion: PARSER_VERSION,
     parse: parseInvestorTypeMonth,
   },
+  newestVersions: shareholdingIndex.newestVersions(KIND),
   workflow: InvestorTypeParseWorkflow,
 })

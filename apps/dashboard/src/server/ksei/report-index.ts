@@ -4,49 +4,16 @@
 import { Effect, Schema } from "effect"
 
 import { ArchiveDb } from "../archive/archive-db.ts"
-import type { ListedObject } from "../archive/bucket.ts"
-import {
-  healIndex,
-  type IndexedArchive,
-  indexedReport,
-  indexReports,
-  newestIndexedVersions,
-} from "../archive/report-index.ts"
+import { reportIndexOf } from "../archive/report-index.ts"
+import { decodeRows } from "../d1.ts"
 import { reportKey } from "./keys.ts"
 import { KseiReportKind } from "./kind.ts"
 import { kseiTotals } from "./totals.ts"
 
-const isKind = Schema.is(KseiReportKind)
-
-const KSEI: IndexedArchive = {
-  archive: "ksei",
-  fileKey: (kind, periodEnd, sha256) =>
-    isKind(kind) ? reportKey(kind, periodEnd, sha256) : Effect.undefined,
-}
-
-// Indexes the record a `report:` step just wrote, unless the index has it.
-export const indexKseiReport = Effect.fnUntraced(function* (
-  recordKey: string,
-  sizes: { readonly fileBytes: number; readonly recordBytes: number }
-) {
-  const report = yield* indexedReport(KSEI, recordKey, sizes)
-  if (report !== undefined) yield* indexReports(KSEI.archive, [report])
-})
-
-// Indexes every record in `objects`, a listing of reports/, the index lacks.
-export const healKseiIndex = (objects: ReadonlyArray<ListedObject>) =>
-  healIndex(KSEI, objects)
-
-// Each archived date of `kind`, oldest first, with its newest version's
-// SHA-256.
-export const kseiNewestVersions = (kind: KseiReportKind) =>
-  newestIndexedVersions(KSEI.archive, kind)
-
-const KindTotalsRow = Schema.Struct({
+export const kseiIndex = reportIndexOf({
+  name: "ksei",
   kind: KseiReportKind,
-  reports: Schema.Number,
-  versions: Schema.Number,
-  bytes: Schema.Number,
+  fileKey: reportKey,
 })
 
 const HeldMonthRow = Schema.Struct({
@@ -55,36 +22,22 @@ const HeldMonthRow = Schema.Struct({
 })
 
 // Each kind's totals and the months it holds (YYYY-MM), in one ArchiveDb
-// batch. A file's bytes count once however many records it has, each record's
-// bytes once, as a listing of reports/ counted them.
+// batch.
 export const kseiReportIndex = Effect.gen(function* () {
   const [totalsRows = [], monthRows = []] = yield* (yield* ArchiveDb).batch([
-    {
-      sql:
-        "SELECT kind, COUNT(DISTINCT report_date) AS reports, " +
-        "COUNT(*) AS versions, SUM(file_bytes + record_bytes) AS bytes " +
-        "FROM (SELECT kind, report_date, MAX(file_bytes) AS file_bytes, " +
-        "SUM(record_bytes) AS record_bytes FROM archived_report " +
-        "WHERE archive = ? GROUP BY kind, file_key) GROUP BY kind",
-      params: ["ksei"],
-    },
+    kseiIndex.kindTotals.statement,
     {
       sql:
         "SELECT DISTINCT kind, substr(report_date, 1, 7) AS month " +
         "FROM archived_report WHERE archive = ?",
-      params: ["ksei"],
+      params: [kseiIndex.name],
     },
   ])
-  const kinds = yield* Schema.decodeUnknownEffect(Schema.Array(KindTotalsRow))(
-    totalsRows
-  ).pipe(Effect.orDie)
-  const months = yield* Schema.decodeUnknownEffect(Schema.Array(HeldMonthRow))(
-    monthRows
-  ).pipe(Effect.orDie)
+  const months = yield* decodeRows(HeldMonthRow)(monthRows)
   const held = (kind: KseiReportKind) =>
     new Set(months.filter((row) => row.kind === kind).map(({ month }) => month))
   return {
-    totals: yield* kseiTotals(kinds),
+    totals: yield* kseiTotals(yield* kseiIndex.kindTotals.decode(totalsRows)),
     monthsHeld: {
       "securities-statistics": held("securities-statistics"),
       "securities-holdings": held("securities-holdings"),

@@ -11,7 +11,6 @@ import {
 } from "@workspace/server"
 import { DateTime, Effect, Result, Schema } from "effect"
 
-import type { ArchiveDb, ArchiveDbError } from "../archive/archive-db.ts"
 import { ArchiveBucket } from "../archive/bucket.ts"
 import { ParseFailure, runError } from "../archive/run.ts"
 import type { HoldingsDb, HoldingsDbError } from "./db.ts"
@@ -31,14 +30,6 @@ interface Unreadable {
 export interface MonthSource {
   // Every archived version's record of the report kind sits under it.
   readonly prefix: Effect.Effect<string>
-  // Each archived date, oldest first, with its newest version's SHA-256,
-  // from the report index: what the parse coverage reads in place of a
-  // listing of `prefix`. The steps never read it.
-  readonly indexed: Effect.Effect<
-    ReadonlyArray<{ readonly date: string; readonly sha256: string }>,
-    ArchiveDbError,
-    ArchiveDb
-  >
   // Where a month's version is archived.
   readonly reportKey: (date: string, sha256: string) => Effect.Effect<string>
   // Its parsed holdings tables.

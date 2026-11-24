@@ -19,7 +19,7 @@ import { ClassificationParseWorkflow } from "@/server/shareholding/classificatio
 import { InvestorTypeParseWorkflow } from "@/server/shareholding/investor-type-parse"
 import { recordKey, reportKey } from "@/server/shareholding/keys"
 import type { ReportKind } from "@/server/shareholding/listing"
-import { healShareholdingIndex } from "@/server/shareholding/report-index"
+import { shareholdingIndex } from "@/server/shareholding/report-index"
 import {
   type ArchiveRunResult,
   RunSummary,
@@ -120,7 +120,7 @@ const archive = () => {
     // The report index gains what the bucket holds, as the next archive
     // run's `plan` would index it.
     indexed: Effect.gen(function* () {
-      yield* healShareholdingIndex(
+      yield* shareholdingIndex.heal(
         yield* (yield* ArchiveBucket).list("reports/")
       )
     }).pipe(Effect.provide(Layer.merge(bucket.layer, db.layer))),

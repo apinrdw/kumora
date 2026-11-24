@@ -349,13 +349,15 @@ describe("a deep backfill", () => {
           const timeout = configs.get(name)?.timeout
           return timeout === undefined ? undefined : Duration.toMillis(timeout)
         }
-        // One request at a time: 2 minutes.
+        // One request at a time, 2 minutes, and the archive's own calls in
+        // turn at 2 s each: listing, healing and a run record for `plan`, a
+        // file, a record and its row for a `report:`.
+        assert.isAtLeast(timeoutOf("plan") ?? 0, 120_000 + 14 * 2_000)
         for (const name of [
-          "plan",
           `report:${SEEDED_STATIS}`,
           `report:${PROBED_BALANCEPOS}`,
         ])
-          assert.strictEqual(timeoutOf(name), 120_000, name)
+          assert.isAtLeast(timeoutOf(name) ?? 0, 120_000 + 4 * 2_000, name)
         // Twelve months, four at once, each up to seven days under two names:
         // 42 HEADs in turn at KSEI's slowest 8 s, and one stuck request's 2
         // minutes.

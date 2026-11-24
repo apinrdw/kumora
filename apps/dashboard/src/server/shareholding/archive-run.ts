@@ -32,10 +32,7 @@ import {
   ListedReport,
   type ListingUnreadable,
 } from "./listing.ts"
-import {
-  healShareholdingIndex,
-  indexShareholdingReport,
-} from "./report-index.ts"
+import { shareholdingIndex } from "./report-index.ts"
 import {
   ArchiveRunResult,
   type ArchiveTrigger,
@@ -46,6 +43,13 @@ import { putRunRecord } from "./runs.ts"
 type IdxRun = Run<ArchiveTrigger>
 
 type StepServices = ArchiveBucket | ArchiveDb | HttpClient.HttpClient
+
+// Every step keeps the runtime's 10 minutes. `plan` (the listing) and each
+// `report:` (one file) wait on one IDX request, which has no timeout of its
+// own (workflow.ts), so a stuck one is cut off with its step and retried.
+// Their calls in turn to the archive's stores at their slowest
+// (../archive/run.ts) take at most 28 s of it for `plan`, 8 s for a
+// `report:`.
 
 // Each step result holds at most one ListedReport, or less, per listed
 // report, which MAX_LISTED_REPORTS (listing.ts) bounds. The ETags and hashes
@@ -93,7 +97,7 @@ const plan = Effect.fnUntraced(function* (
   const objects = yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
   // Decision: the report index is a copy of R2 that each archive run heals
   // (apps/dashboard/docs/adr/0125-the-report-index-is-a-copy-of-r2-that-each-archive-run-heals.md)
-  yield* healShareholdingIndex(objects)
+  yield* shareholdingIndex.heal(objects)
   const listed = yield* fetchListing
   const held = yield* heldIn(objects, SOURCE_URL)
   yield* putRunRecord(yield* runningResult(run))
@@ -145,7 +149,7 @@ const archiveReport = Effect.fnUntraced(function* (
   headEtag: string | null
 ): Effect.fn.Return<
   ArchivedReport,
-  HttpClientError.HttpClientError | NonRetryable | BucketError | ArchiveDbError,
+  HttpClientError.HttpClientError | NonRetryable | BucketError,
   StepServices
 > {
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
@@ -212,10 +216,7 @@ const archiveReport = Effect.fnUntraced(function* (
   })
   // Decision: the report index is a copy of R2 that each archive run heals
   // (apps/dashboard/docs/adr/0125-the-report-index-is-a-copy-of-r2-that-each-archive-run-heals.md)
-  yield* indexShareholdingReport(key, {
-    fileBytes: bytes.length,
-    recordBytes: new TextEncoder().encode(record).length,
-  })
+  yield* shareholdingIndex.indexRecord(key, bytes.length, record)
   return {
     sourceUrl: report.sourceUrl,
     description: report.description,

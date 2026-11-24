@@ -19,11 +19,16 @@ export const recordName = Effect.fnUntraced(function* (
 const RECORD =
   /^(\d{4}-\d{2}-\d{2})\/([0-9a-f]{64})\.([^.]+\.\d{3}Z)\.[0-9a-f]+\.json$/
 
-// A recordName's parts, or undefined for a name that isn't one.
+// A recordName's parts, its fetched-at the ISO instant recordName was given,
+// or undefined for a name that isn't one.
 export const parseRecordName = (name: string) =>
   Effect.sync(() => {
     const [, date, sha256, fetchedAt] = RECORD.exec(name) ?? []
     return date === undefined || sha256 === undefined || fetchedAt === undefined
       ? undefined
-      : { date, sha256, fetchedAt }
+      : {
+          date,
+          sha256,
+          fetchedAt: fetchedAt.replace(/T(\d{2})(\d{2})(\d{2})/, "T$1:$2:$3"),
+        }
   })

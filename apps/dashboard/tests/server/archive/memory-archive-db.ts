@@ -1,6 +1,7 @@
 // The archives' metadata for tests: a memory D1 (../memory-d1.ts) with
 // archive-migrations/ applied, behind the ArchiveDb service the code uses.
 import { Effect, Layer } from "effect"
+import { TestClock } from "effect/testing"
 
 import { ArchiveDb, ArchiveDbError } from "@/server/archive/archive-db"
 
@@ -29,4 +30,34 @@ export const memoryArchiveDb = (): MemoryArchiveDb => {
       })
     ),
   })
+}
+
+// `db`, whose first insert of one report's row fails after running, as a
+// D1 down for a moment. The failure moves the test clock a minute on, as a
+// Workflow's retry of the step runs later than the attempt it retries.
+// `failed` says whether it has failed yet.
+export const failingFirstReportInsert = (db: MemoryArchiveDb) => {
+  let failed = false
+  db.failBatch = (sql) => {
+    const insert =
+      sql.length === 1 && sql.some((each) => each.includes("INSERT"))
+    if (!insert || failed) return false
+    failed = true
+    return true
+  }
+  return {
+    layer: Layer.effect(
+      ArchiveDb,
+      Effect.gen(function* () {
+        const inner = yield* ArchiveDb
+        return ArchiveDb.of({
+          batch: (statements) =>
+            inner
+              .batch(statements)
+              .pipe(Effect.tapError(() => TestClock.adjust("1 minute"))),
+        })
+      })
+    ).pipe(Layer.provide(db.layer)),
+    failed: () => failed,
+  }
 }
