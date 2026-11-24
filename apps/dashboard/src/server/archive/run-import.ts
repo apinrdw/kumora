@@ -16,7 +16,6 @@ import { RETENTION_MS } from "./retention.ts"
 import {
   type ArchiveSource,
   LatestRun,
-  type LatestWhere,
   latestRunKey,
   type RunBase,
   type RunSummaryBase,
@@ -193,15 +192,14 @@ const importer = <
           const runs = reads.flatMap(({ run }) =>
             run === undefined ? [] : [run]
           )
-          const taken = source.readersPastRetention
-            .filter(
-              (reader) =>
-                !found.has(reader.trigger) &&
-                runs.some(
-                  (run) => run.trigger === reader.trigger && reader.accept(run)
-                )
+          const taken = source.triggers.filter((trigger) => {
+            const accept = source.readersPastRetention[trigger]
+            return (
+              accept !== undefined &&
+              !found.has(trigger) &&
+              runs.some((run) => run.trigger === trigger && accept(run))
             )
-            .map(({ trigger }) => trigger)
+          })
           yield* db.batch([
             ...reads.map(({ id, run }): Statement =>
               run === undefined
@@ -276,22 +274,25 @@ const importLatest = Effect.fnUntraced(function* <
   return latest.id
 })
 
-// The newest run `reader` finds, however old, unless a run imported already
-// is one it takes: older runs hold no newer one. Read RECORDS_AT_ONCE at a
-// time, newest first; the runs newer than the one it takes are passed over.
+// The newest run `trigger`'s reader takes, however old, unless a run
+// imported already is one it takes: older runs hold no newer one. Read
+// RECORDS_AT_ONCE at a time, newest first; the runs newer than the one it
+// takes are passed over.
 const importKept = Effect.fnUntraced(function* <
   Trigger extends string,
   Summary extends RunSummaryBase,
   RunRecord extends RunBase & Summary,
->(runs: Importer<Trigger, RunRecord>, reader: LatestWhere<Trigger, RunRecord>) {
-  if (runs.found.has(reader.trigger)) return
-  const keys = [...(yield* runs.list(reader.trigger))].reverse()
+>(
+  runs: Importer<Trigger, RunRecord>,
+  trigger: Trigger,
+  accept: (run: RunRecord) => boolean
+) {
+  if (runs.found.has(trigger)) return
+  const keys = [...(yield* runs.list(trigger))].reverse()
   for (let start = 0; start < keys.length; start += RECORDS_AT_ONCE) {
     const read = yield* runs.read(keys.slice(start, start + RECORDS_AT_ONCE))
     if (read === undefined) return
-    const taken = read.findIndex(
-      ({ run }) => run !== undefined && reader.accept(run)
-    )
+    const taken = read.findIndex(({ run }) => run !== undefined && accept(run))
     if (taken < 0) yield* runs.write(read.map(passedOver))
     else
       return yield* runs.write([
@@ -321,8 +322,10 @@ const importRuns = <
     const runs = yield* importer(source)
     yield* importRecent(source, runs)
     const latestId = yield* importLatest(source, runs)
-    for (const reader of source.readersPastRetention)
-      yield* importKept(runs, reader)
+    for (const trigger of source.triggers) {
+      const accept = source.readersPastRetention[trigger]
+      if (accept !== undefined) yield* importKept(runs, trigger, accept)
+    }
     if (runs.stopped()) {
       yield* Effect.logInfo(
         `${source.runName}s read from R2 so far: ${runs.done.size}`

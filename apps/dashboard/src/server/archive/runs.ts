@@ -16,7 +16,6 @@ import type { ArchiveBucket, BucketError } from "./bucket.ts"
 import { RETENTION } from "./retention.ts"
 import {
   type ArchiveSource,
-  type LatestWhere,
   type RunBase,
   RunId,
   type RunSummaryBase,
@@ -110,34 +109,40 @@ const triggerPage = <Trigger extends string>(
   offset: number
 ) => triggerRunsStatement(source, trigger, { offset, limit: PAGE_ROWS })
 
-// The newest run of `where.trigger` that `where.accept` takes, however old:
-// undefined when none does. It reads the trigger's rows newest first, a page
-// at a time, and stops at the first taken: the first page rides in the
-// page's batch, and a later one, which only a trigger whose newest
-// PAGE_ROWS runs are all passed over needs, has a batch of its own. A record
-// that no longer decodes is passed over.
+// The newest run of `trigger` that its reader past retention takes, however
+// old: undefined when it takes none. It reads the trigger's rows newest
+// first, a page at a time, and stops at the first taken: the first page
+// rides in the page's batch, and a later one, which only a trigger whose
+// newest PAGE_ROWS runs are all passed over needs, has a batch of its own. A
+// record that no longer decodes is passed over. Only a trigger with a reader
+// past retention has one: the cutover import brought its run along.
 export const latestRunWhereRead = <
   Trigger extends string,
   Summary extends RunSummaryBase,
   RunRecord extends RunBase & Summary,
+  Kept extends Trigger,
 >(
-  source: ArchiveSource<Trigger, Summary, RunRecord>,
-  where: LatestWhere<Trigger, RunRecord>
+  source: ArchiveSource<Trigger, Summary, RunRecord> & {
+    readonly readersPastRetention: Readonly<
+      Record<Kept, (run: RunRecord) => boolean>
+    >
+  },
+  trigger: Kept
 ) => ({
   kinds: [importedKind(source)],
-  statements: [triggerPage(source, where.trigger, 0)],
+  statements: [triggerPage(source, trigger, 0)],
   read: ([first = []]: ReadonlyArray<Rows>) =>
     Effect.gen(function* () {
       let rows = first
       for (let offset = 0; ; offset += PAGE_ROWS) {
         const taken = (yield* decodeRuns(source.result, rows)).find(
-          where.accept
+          source.readersPastRetention[trigger]
         )
         if (taken !== undefined) return taken
         if (rows.length < PAGE_ROWS) return undefined
         // The first page's batch imported the kind.
         ;[rows = []] = yield* (yield* ArchiveDb).batch([
-          triggerPage(source, where.trigger, offset + PAGE_ROWS),
+          triggerPage(source, trigger, offset + PAGE_ROWS),
         ])
       }
     }),

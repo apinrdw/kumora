@@ -24,7 +24,7 @@ const SHAREHOLDING_RUNS = {
   runIdAt,
   result: ArchiveRunResult,
   summary: RunSummary,
-  readersPastRetention: [],
+  readersPastRetention: {},
   running: runningResult,
 } satisfies ArchiveSource<ArchiveTrigger, RunSummary, ArchiveRunResult>
 

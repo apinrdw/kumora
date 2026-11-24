@@ -8,7 +8,6 @@ import { recentRunsRead } from "../archive/history.ts"
 import {
   type ArchiveSource,
   dailyRunIdAt,
-  type LatestWhere,
   type RunId,
   RUNS_PREFIX,
 } from "../archive/run.ts"
@@ -26,12 +25,6 @@ import {
   runningKseiResult,
 } from "./run-result.ts"
 
-// The latest deep run that has ended with its finds.
-const DEEP_RUN = {
-  trigger: "deep",
-  accept: (run) => run.deep !== null,
-} satisfies LatestWhere<KseiTrigger, KseiRunResult>
-
 const KSEI_RUNS = {
   runName: "KSEI archive run",
   archive: "ksei",
@@ -41,7 +34,8 @@ const KSEI_RUNS = {
   runIdAt: dailyRunIdAt,
   result: KseiRunResult,
   summary: KseiRunSummary,
-  readersPastRetention: [DEEP_RUN],
+  // The latest deep run that has ended with its finds.
+  readersPastRetention: { deep: (run) => run.deep !== null },
   running: runningKseiResult,
 } satisfies ArchiveSource<KseiTrigger, KseiRunSummary, KseiRunResult>
 
@@ -58,7 +52,7 @@ export const recentKseiRuns = (now: DateTime.Utc) =>
 // The latest deep run that has ended with its finds, however old: the months
 // it found nothing for are the coverage grid's "not found". Undefined before
 // any.
-export const lastKseiDeepRun = latestRunWhereRead(KSEI_RUNS, DEEP_RUN)
+export const lastKseiDeepRun = latestRunWhereRead(KSEI_RUNS, "deep")
 
 export const startKseiRun = (id: RunId, trigger: KseiTrigger) =>
   startRunOf(KSEI_RUNS, id, trigger)

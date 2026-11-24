@@ -16,7 +16,6 @@ import { failingRun } from "../archive/failing-run.ts"
 import {
   type ArchiveSource,
   dailyRunIdAt,
-  type LatestWhere,
   type Run,
   type RunArchive,
   type RunId,
@@ -53,12 +52,11 @@ type ParseRun = Run<ParseTrigger>
 
 // Each trigger's last finished run: a run in progress is passed over for the
 // one before it.
-const FINISHED = ParseTrigger.literals.map(
-  (trigger): LatestWhere<ParseTrigger, ParseRunResult> => ({
-    trigger,
-    accept: (run) => run.outcome !== "running",
-  })
-)
+const finished = (run: ParseRunResult) => run.outcome !== "running"
+const FINISHED = { cron: finished, admin: finished } satisfies Record<
+  ParseTrigger,
+  typeof finished
+>
 
 // A kind's Workflow, as its own service.
 type ParseWorkflow<Self> = Context.Key<
@@ -143,7 +141,9 @@ export const parseRunsOf = <Self>(kind: {
   })
 
   // Each trigger's last finished run.
-  const finished = FINISHED.map((where) => latestRunWhereRead(source, where))
+  const lastFinished = ParseTrigger.literals.map((trigger) =>
+    latestRunWhereRead(source, trigger)
+  )
 
   const lastRun = lastRunRead(source)
 
@@ -153,7 +153,7 @@ export const parseRunsOf = <Self>(kind: {
     // failures mark months failed. A run in progress is passed over for the
     // one before it.
     parseCoverage: mapRead(
-      bothReads(kind.newestVersions, allReads(finished)),
+      bothReads(kind.newestVersions, allReads(lastFinished)),
       ([newestVersions, runs]) =>
         parseCoverage(
           kind.months,

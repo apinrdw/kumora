@@ -160,11 +160,13 @@ export type RunKind =
   | "parse-above-1"
   | "parse-securities-holdings"
 
-// The newest run of `trigger` that `accept` takes, however old, which a
-// reader finds (latestRunWhereRead, runs.ts).
-export interface LatestWhere<Trigger extends string, RunRecord> {
-  readonly trigger: Trigger
-  readonly accept: (run: RunRecord) => boolean
+// A kind's readers past retention, by trigger: each takes or passes over a
+// run of its trigger, and reads the newest run it takes, however old
+// (latestRunWhereRead, runs.ts). Keyed by trigger, so a trigger has at most
+// one: the cutover import keeps a reader's progress by its trigger
+// (run-import.ts).
+export type ReadersPastRetention<Trigger extends string, RunRecord> = {
+  readonly [T in Trigger]?: (run: RunRecord) => boolean
 }
 
 // One kind of an archive's runs, as the shared run machinery reads and
@@ -195,9 +197,8 @@ export interface ArchiveSource<
     readonly fields: Schema.Struct.Fields
   }
   // The runs older than 30 days a reader still finds: the cutover import
-  // brings the newest of each along. At most one per trigger: an unfinished
-  // import records the readers it has found by trigger.
-  readonly readersPastRetention: ReadonlyArray<LatestWhere<Trigger, RunRecord>>
+  // brings along the newest each takes.
+  readonly readersPastRetention: ReadersPastRetention<Trigger, RunRecord>
   // A run's record from its start until it ends.
   readonly running: (run: Run<Trigger>) => Effect.Effect<RunRecord>
 }
