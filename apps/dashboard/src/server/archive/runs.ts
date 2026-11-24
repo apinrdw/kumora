@@ -182,39 +182,56 @@ const claim = <
     const latest = yield* judgeLatest(source, holder)
     if (latest?.inProgress)
       return yield* new RunInProgress({ id: latest.result.id })
-    const kind = kindParams(source)
-    // Hands the claim on from the holder this start judged ended, in the
-    // same transaction as the insert, and only while the id is free, so a
-    // refused insert never leaves the kind without a claim.
-    const release: ReadonlyArray<Statement> =
-      latest === undefined
-        ? []
-        : [
-            {
-              sql:
-                `UPDATE run SET latest = NULL WHERE ${OF_KIND} AND id = ?3 ` +
-                `AND latest = 1 AND NOT EXISTS (SELECT 1 FROM run WHERE ` +
-                `${OF_KIND} AND id = ?4)`,
-              params: [...kind, latest.result.id, running.id],
-            },
-          ]
-    const results = yield* db.batch([
-      ...release,
-      {
-        sql:
-          `INSERT INTO run (archive, run_kind, ${RUN_COLUMNS}, latest) ` +
-          "VALUES (?, ?, ?, ?, ?, ?, ?, 1) ON CONFLICT DO NOTHING RETURNING id",
-        params: [...kind, ...runRow(running)],
-      },
-      lastRunStatement(source),
-    ])
-    if ((results.at(-2) ?? []).length > 0) return
+    const [inserted = [], winner = []] = yield* db
+      .batch([
+        ...handOn(source, latest?.result.id, running.id),
+        {
+          sql:
+            `INSERT INTO run (archive, run_kind, ${RUN_COLUMNS}, latest) ` +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 1) ON CONFLICT DO NOTHING RETURNING id",
+          params: [...kindParams(source), ...runRow(running)],
+        },
+        lastRunStatement(source),
+      ])
+      .pipe(Effect.map((results) => results.slice(-2)))
+    if (inserted.length > 0) return
     if (attempt < CLAIM_ATTEMPTS)
       return yield* claim(source, running, attempt + 1)
-    // The row that won the last claim, or, with none, the id ran first.
-    const winner = yield* decodeRun(source.result, results.at(-1) ?? [])
+    return yield* lostClaim(source, running.id, winner)
+  })
+
+// Hands the claim on from `held`, the holder a start judged ended, to the
+// run `running` inserts, in the same transaction as the insert, and only
+// while the id is free, so a refused insert never leaves the kind without a
+// claim. None before any run.
+const handOn = (
+  kind: ArchiveRunKind,
+  held: RunId | undefined,
+  running: RunId
+): ReadonlyArray<Statement> =>
+  held === undefined
+    ? []
+    : [
+        {
+          sql:
+            `UPDATE run SET latest = NULL WHERE ${OF_KIND} AND id = ?3 ` +
+            `AND latest = 1 AND NOT EXISTS (SELECT 1 FROM run WHERE ` +
+            `${OF_KIND} AND id = ?4)`,
+          params: [...kindParams(kind), held, running],
+        },
+      ]
+
+// Why a start lost its last claim: to the run whose row holds it in
+// `holder`, or, with none, to `id` having run first.
+const lostClaim = <RunRecord extends RunBase>(
+  source: { readonly result: Schema.Codec<RunRecord, unknown> },
+  id: RunId,
+  holder: Rows
+) =>
+  Effect.gen(function* () {
+    const winner = yield* decodeRun(source.result, holder)
     return yield* winner === undefined
-      ? new DuplicateRunId({ id: running.id })
+      ? new DuplicateRunId({ id })
       : new RunInProgress({ id: winner.id })
   })
 
