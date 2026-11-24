@@ -100,6 +100,8 @@ export const lastRunRead = <
 // newest, and the one before should the newest still run, as one run of a
 // kind runs at a time. Each row holds a whole record, and a page rides in
 // the admin page's batch with every other kind's.
+// Decision: ArchiveDb is the source of truth for runs
+// (apps/dashboard/docs/adr/0128-archivedb-is-the-source-of-truth-for-runs.md)
 const PAGE_ROWS = 2
 
 const triggerPage = <Trigger extends string>(

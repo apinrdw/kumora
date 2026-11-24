@@ -151,8 +151,8 @@ export interface RunBase extends RunSummaryBase {
 export type RunArchive = IndexedArchiveName
 
 // Which of an archive's runs: its archive run (IDX's) or KSEI archive run,
-// or one of its parse runs (../holdings/parse-runs.ts). One run of each kind is in progress at a
-// time.
+// or one of its parse runs (../holdings/parse-runs.ts). One run of each
+// kind is in progress at a time.
 export type RunKind =
   | "archive"
   | "parse-investor-classification"
