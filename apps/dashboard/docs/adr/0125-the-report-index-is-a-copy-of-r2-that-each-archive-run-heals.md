@@ -5,5 +5,6 @@ The admin pages read the archives' totals and coverage from a report index in Ar
 Sites:
 - `apps/dashboard/src/server/archive/report-index.ts`
 - `apps/dashboard/src/server/ksei/archive-run.ts`
+- `apps/dashboard/src/server/shareholding/archive-run.ts`
 
 Source: apinrdw/kumora#659

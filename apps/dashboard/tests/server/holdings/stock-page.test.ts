@@ -65,9 +65,10 @@ const parsed = Effect.gen(function* () {
   const bucket = memoryBucket()
   yield* archiveRun(
     localSteps(
-      Layer.merge(
+      Layer.mergeAll(
         fakeIdx([...classificationIdx().listing, ...investorTypeItems()]).layer,
-        bucket.layer
+        bucket.layer,
+        memoryArchiveDb().layer
       )
     ),
     run("cron-2026-11-14T13", "2026-11-14T13:00:00Z")

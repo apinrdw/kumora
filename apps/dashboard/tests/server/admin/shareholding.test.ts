@@ -11,11 +11,15 @@ import {
   shareholdingArchivePage,
 } from "@/server/admin/shareholding"
 import type { Mail } from "@/server/auth/mailer"
+import { ArchiveBucket } from "@/server/archive/bucket"
 import { RunId } from "@/server/archive/run"
 import { ArchiveWorkflow } from "@/server/archive/workflow"
 import { Above1ParseWorkflow } from "@/server/shareholding/above-1-parse"
 import { ClassificationParseWorkflow } from "@/server/shareholding/classification-parse"
 import { InvestorTypeParseWorkflow } from "@/server/shareholding/investor-type-parse"
+import { recordKey, reportKey } from "@/server/shareholding/keys"
+import type { ReportKind } from "@/server/shareholding/listing"
+import { healShareholdingIndex } from "@/server/shareholding/report-index"
 import {
   type ArchiveRunResult,
   RunMetadata,
@@ -31,6 +35,7 @@ import {
   send,
 } from "../auth/seam.ts"
 import { fakeWorkflow, type FakeWorkflow } from "../archive/fake-workflow.ts"
+import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
 
@@ -75,9 +80,37 @@ const seedLatest = (bucket: MemoryBucket, run: ArchiveRunResult) => {
   })
 }
 
+// A version of a report as an archive run stores it: its file, then its
+// record.
+const storeReport = (
+  bucket: MemoryBucket,
+  kind: ReportKind,
+  dataDate: string,
+  sha256: string,
+  file: string,
+  record = "{}"
+) =>
+  Effect.gen(function* () {
+    const put = (key: string, body: string) =>
+      bucket.objects.set(key, {
+        body,
+        contentType: "application/octet-stream",
+        customMetadata: {},
+      })
+    put(yield* reportKey(kind, dataDate, sha256), file)
+    put(
+      yield* recordKey(kind, dataDate, sha256, "2026-11-14T13:00:00.000Z", {
+        sourceUrl: `https://www.idx.co.id/Media/${sha256}.xlsx`,
+        etag: null,
+      }),
+      record
+    )
+  })
+
 const archive = () => {
   const auth = seam()
   const bucket = memoryBucket()
+  const db = memoryArchiveDb()
   const workflow = fakeWorkflow()
   // Each parse run's own Workflow.
   const classificationWorkflow = fakeWorkflow()
@@ -90,9 +123,17 @@ const archive = () => {
     classificationWorkflow,
     investorTypeWorkflow,
     above1Workflow,
+    // The report index gains what the bucket holds, as the next archive
+    // run's `plan` would index it.
+    indexed: Effect.gen(function* () {
+      yield* healShareholdingIndex(
+        yield* (yield* ArchiveBucket).list("reports/")
+      )
+    }).pipe(Effect.provide(Layer.merge(bucket.layer, db.layer))),
     layer: Layer.mergeAll(
       auth.layer,
       bucket.layer,
+      db.layer,
       memoryHoldingsDb().layer,
       workflow.layer,
       Layer.effect(
@@ -185,7 +226,7 @@ describe("the shareholding archive page", () => {
   })
 
   it.effect("shows an admin the recent runs and the archive totals", () => {
-    const { layer, mails, bucket } = archive()
+    const { layer, mails, bucket, indexed } = archive()
     const finished: ArchiveRunResult = {
       ...RUNNING,
       finishedAt: "2026-11-14T13:01:12.000Z",
@@ -193,12 +234,36 @@ describe("the shareholding archive page", () => {
       reportsAdded: 1,
     }
     seedLatest(bucket, finished)
-    bucket.objects.set("reports/above-1/2026-10-31/aa.xlsx", {
-      body: "xlsx",
-      contentType: "application/octet-stream",
-      customMetadata: {},
-    })
     return Effect.gen(function* () {
+      yield* storeReport(
+        bucket,
+        "above-1",
+        "2026-10-31",
+        "a".repeat(64),
+        "xlsx"
+      )
+      // Two versions of one report.
+      yield* storeReport(
+        bucket,
+        "above-5",
+        "2026-11-13",
+        "b".repeat(64),
+        "xlsx22"
+      )
+      yield* storeReport(
+        bucket,
+        "above-5",
+        "2026-11-13",
+        "c".repeat(64),
+        "xlsx333"
+      )
+      yield* indexed
+      // Stored after the index healed, so not yet counted.
+      bucket.objects.set("reports/other/2026-11-12/dd.xlsx", {
+        body: "unindexed",
+        contentType: "application/octet-stream",
+        customMetadata: {},
+      })
       yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
       const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
       const page = yield* shareholdingArchivePage(headers(cookie))
@@ -212,11 +277,18 @@ describe("the shareholding archive page", () => {
           newVersions: 0,
         }),
       ])
-      assert.deepStrictEqual(
-        page.totals.kinds.find(({ kind }) => kind === "above-1"),
-        { kind: "above-1", reports: 1 }
-      )
-      assert.strictEqual(page.totals.bytes, 4)
+      assert.deepStrictEqual(page.totals, {
+        kinds: [
+          { kind: "above-5", reports: 2 },
+          { kind: "above-1", reports: 1 },
+          { kind: "investor-type", reports: 0 },
+          { kind: "investor-classification", reports: 0 },
+          { kind: "other", reports: 0 },
+        ],
+        reports: 3,
+        // 17 bytes of files and three 2-byte records.
+        bytes: 23,
+      })
     }).pipe(Effect.provide(layer))
   })
 

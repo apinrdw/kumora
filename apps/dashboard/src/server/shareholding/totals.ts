@@ -1,10 +1,9 @@
 // The shareholding archive's totals per report kind, for the admin page
-// (spec apinrdw/kumora#303, "The admin page").
+// (spec apinrdw/kumora#303, "The admin page"), from the report index
+// (report-index.ts) in one ArchiveDb statement.
 import { Effect, Schema } from "effect"
 
-import { ArchiveBucket } from "../archive/bucket.ts"
-import { REPORTS_PREFIX } from "../archive/run.ts"
-import { kindPrefix } from "./keys.ts"
+import { ArchiveDb } from "../archive/archive-db.ts"
 import { ReportKind } from "./listing.ts"
 
 const ArchiveTotals = Schema.Struct({
@@ -18,25 +17,36 @@ const ArchiveTotals = Schema.Struct({
 })
 export type ArchiveTotals = typeof ArchiveTotals.Type
 
-// One listing of reports/. A report counts once per stored file, so each
-// version of it counts.
-// The totals list every object under reports/, as the spec asks
-// ("one bucket listing of reports/ with custom metadata"): about 150 files
-// and their records on 2026-11-14, plus ~50 objects a month (~24 files,
-// docs/research/idx-kepemilikan-listing.md), a few hundred KB of keys, held
-// only for the count. See apinrdw/kumora#303 and #310.
+const KindRow = Schema.Struct({
+  kind: ReportKind,
+  reports: Schema.Number,
+  bytes: Schema.Number,
+})
+
+// A report counts once per stored file, so each version of it counts. A
+// file's bytes count once however many records it has, each record's bytes
+// once, as a listing of reports/ counted them.
 export const archiveTotals = Effect.gen(function* () {
-  const objects = yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
-  const files = objects.filter(({ key }) => key.endsWith(".xlsx"))
-  const kinds = yield* Effect.forEach(ReportKind.literals, (kind) =>
-    Effect.map(kindPrefix(kind), (prefix) => ({
-      kind,
-      reports: files.filter(({ key }) => key.startsWith(prefix)).length,
-    }))
-  )
+  const [rows = []] = yield* (yield* ArchiveDb).batch([
+    {
+      sql:
+        "SELECT kind, COUNT(*) AS reports, " +
+        "SUM(file_bytes + record_bytes) AS bytes " +
+        "FROM (SELECT kind, MAX(file_bytes) AS file_bytes, " +
+        "SUM(record_bytes) AS record_bytes FROM archived_report " +
+        "WHERE archive = ? GROUP BY kind, file_key) GROUP BY kind",
+      params: ["shareholding"],
+    },
+  ])
+  const indexed = yield* Schema.decodeUnknownEffect(Schema.Array(KindRow))(
+    rows
+  ).pipe(Effect.orDie)
   return ArchiveTotals.make({
-    kinds,
-    reports: files.length,
-    bytes: objects.reduce((sum, { size }) => sum + size, 0),
+    kinds: ReportKind.literals.map((kind) => ({
+      kind,
+      reports: indexed.find((row) => row.kind === kind)?.reports ?? 0,
+    })),
+    reports: indexed.reduce((sum, { reports }) => sum + reports, 0),
+    bytes: indexed.reduce((sum, { bytes }) => sum + bytes, 0),
   })
 })

@@ -3,6 +3,7 @@ import { getRequest } from "@tanstack/react-start/server"
 import { runServerEffect } from "@workspace/server"
 import { Effect, Layer } from "effect"
 
+import { archiveDbD1 } from "@/server/archive/archive-db"
 import { Auth } from "@/server/auth/auth"
 import { holdingsDbD1 } from "@/server/holdings/db"
 import {
@@ -23,6 +24,7 @@ import {
 
 const services = Layer.mergeAll(
   Auth.layer,
+  archiveDbD1,
   holdingsDbD1,
   archiveBucketR2,
   archiveWorkflowBinding,

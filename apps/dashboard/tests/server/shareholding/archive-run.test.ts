@@ -6,11 +6,13 @@ import { archiveRun, MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
 import { MAX_ETAG_BYTES } from "@/server/archive/head"
 import { RunId, MAX_RUN_ERROR_LENGTH } from "@/server/archive/run"
 import { RunMetadata } from "@/server/shareholding/run-result"
+import { archiveTotals } from "@/server/shareholding/totals"
 import {
   LISTING_URL,
   MAX_LISTED_REPORT_BYTES,
   MAX_LISTED_REPORTS,
   MAX_LISTING_BYTES,
+  ReportKind,
 } from "@/server/shareholding/listing"
 
 import {
@@ -22,15 +24,20 @@ import {
   idxIdUrl,
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
+import {
+  type MemoryArchiveDb,
+  memoryArchiveDb,
+} from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 
 const run = (
   idx: FakeIdx,
   bucket: MemoryBucket,
   id: string,
-  startedAt = new Date("2026-11-14T13:00:00Z")
+  startedAt = new Date("2026-11-14T13:00:00Z"),
+  db: MemoryArchiveDb = memoryArchiveDb()
 ) =>
-  archiveRun(localSteps(Layer.merge(idx.layer, bucket.layer)), {
+  archiveRun(localSteps(Layer.mergeAll(idx.layer, bucket.layer, db.layer)), {
     id: RunId.make(id),
     trigger: "cron",
     startedAt,
@@ -714,7 +721,9 @@ describe("an archive run", () => {
     () =>
       Effect.gen(function* () {
         const bucket = memoryBucket()
-        const steps = localSteps(Layer.merge(fakeIdx().layer, bucket.layer))
+        const steps = localSteps(
+          Layer.mergeAll(fakeIdx().layer, bucket.layer, memoryArchiveDb().layer)
+        )
         // The runtime's message for a failed step, which it decides the size of.
         const message = `plan failed: ${"x".repeat(5 * MAX_RUN_ERROR_LENGTH)}`
 
@@ -939,5 +948,153 @@ describe("an archive run at the largest size it accepts", () => {
       assert.strictEqual(recordsOf(bucket, atCap).length, 2)
       assert.strictEqual(recordsOf(bucket, pastCap).length, 1)
     })
+  )
+})
+
+// The archive totals the admin page reads from the report index.
+const indexed = (db: MemoryArchiveDb) =>
+  archiveTotals.pipe(Effect.provide(db.layer))
+
+// The totals a listing of reports/ gives: each .xlsx per kind, and every
+// object's bytes.
+const listedTotals = (bucket: MemoryBucket) => {
+  const objects = [...bucket.objects].filter(([key]) =>
+    key.startsWith("reports/")
+  )
+  const files = objects.filter(([key]) => key.endsWith(".xlsx"))
+  return {
+    kinds: ReportKind.literals.map((kind) => ({
+      kind,
+      reports: files.filter(([key]) => key.startsWith(`reports/${kind}/`))
+        .length,
+    })),
+    reports: files.length,
+    bytes: objects.reduce(
+      (sum, [, { body, bytes }]) =>
+        sum + (bytes?.length ?? new TextEncoder().encode(body).length),
+      0
+    ),
+  }
+}
+
+// The rows `db` has written so far.
+const rowsWritten = (db: MemoryArchiveDb) =>
+  Number(
+    (
+      db.database.prepare("SELECT total_changes() AS changes").get() as {
+        changes: number
+      }
+    ).changes
+  )
+
+// The rows the index holds.
+const rowsHeld = (db: MemoryArchiveDb) =>
+  Number(
+    (
+      db.database
+        .prepare("SELECT COUNT(*) AS count FROM archived_report")
+        .get() as { count: number }
+    ).count
+  )
+
+const recordCount = (bucket: MemoryBucket) =>
+  keysUnder(bucket, "reports/").filter((key) => key.endsWith(".json")).length
+
+describe("an archive run's report index", () => {
+  it.effect("indexes each report it stores", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx()
+      const bucket = memoryBucket()
+      const db = memoryArchiveDb()
+      yield* run(idx, bucket, "cron-2026-11-14T13", undefined, db)
+
+      const totals = yield* indexed(db)
+      assert.strictEqual(totals.reports, 145)
+      assert.deepStrictEqual(totals, listedTotals(bucket))
+    })
+  )
+
+  it.effect("indexes a new version of a report it stores", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx()
+      const bucket = memoryBucket()
+      const db = memoryArchiveDb()
+      yield* run(idx, bucket, "cron-2026-11-14T06", undefined, db)
+
+      const daily = idx.listing[0]
+      idx.files.set(idxIdUrl(daily.Prospectus), {
+        body: `corrected xlsx bytes of ${daily.Prospectus}`,
+        etag: `"etag-0:1"`,
+        lastModified: "Sat, 14 Nov 2026 09:00:00 GMT",
+      })
+      yield* run(idx, bucket, "cron-2026-11-14T13", undefined, db)
+
+      const totals = yield* indexed(db)
+      assert.strictEqual(totals.reports, 146)
+      assert.deepStrictEqual(totals, listedTotals(bucket))
+    })
+  )
+
+  it.effect("adds no second row when a report's step is retried", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx()
+      const bucket = memoryBucket()
+      const db = memoryArchiveDb()
+      // The first index insert of a report fails after its record is
+      // written, so the step's retry writes the record again.
+      let failed = false
+      db.failBatch = (sql) => {
+        const insert = sql.some((each) => each.includes("INSERT"))
+        if (!insert || failed || sql.length !== 1) return false
+        failed = true
+        return true
+      }
+      yield* run(idx, bucket, "cron-2026-11-14T13", undefined, db)
+      db.failBatch = undefined
+      assert.isTrue(failed)
+
+      assert.deepStrictEqual(yield* indexed(db), listedTotals(bucket))
+      assert.strictEqual(rowsHeld(db), recordCount(bucket))
+    })
+  )
+
+  it.effect(
+    "indexes the records an earlier run stored before the index existed",
+    () =>
+      Effect.gen(function* () {
+        const idx = fakeIdx()
+        const bucket = memoryBucket()
+        yield* run(idx, bucket, "cron-2026-11-14T06")
+
+        // A stage whose bucket filled before ArchiveDb did.
+        const db = memoryArchiveDb()
+        const result = yield* run(
+          idx,
+          bucket,
+          "cron-2026-11-14T13",
+          undefined,
+          db
+        )
+
+        assert.deepInclude(result, { outcome: "complete", reportsAdded: 0 })
+        assert.deepStrictEqual(yield* indexed(db), listedTotals(bucket))
+      })
+  )
+
+  it.effect(
+    "writes a row per record it indexes, and none for those indexed",
+    () =>
+      Effect.gen(function* () {
+        const idx = fakeIdx()
+        const bucket = memoryBucket()
+        yield* run(idx, bucket, "cron-2026-11-14T06")
+        const db = memoryArchiveDb()
+
+        yield* run(idx, bucket, "cron-2026-11-14T13", undefined, db)
+        assert.strictEqual(rowsWritten(db), recordCount(bucket))
+
+        yield* run(idx, bucket, "cron-2026-11-15T06", undefined, db)
+        assert.strictEqual(rowsWritten(db), recordCount(bucket))
+      })
   )
 })

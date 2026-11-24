@@ -2,8 +2,9 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
-import { MAX_LISTED_OBJECTS } from "@/server/archive/bucket"
+import { ArchiveBucket, MAX_LISTED_OBJECTS } from "@/server/archive/bucket"
 import { RunId } from "@/server/archive/run"
+import { healShareholdingIndex } from "@/server/shareholding/report-index"
 import { recentRuns } from "@/server/shareholding/runs"
 import { archiveTotals } from "@/server/shareholding/totals"
 import {
@@ -13,6 +14,7 @@ import {
 } from "@/server/shareholding/run-result"
 
 import { fakeWorkflow, type FakeWorkflow } from "../archive/fake-workflow.ts"
+import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 
 const NOW = Date.parse("2026-11-14T14:00:00.000Z")
@@ -258,20 +260,39 @@ describe("the recent archive runs", () => {
   })
 })
 
+// A version of a report as an archive run stores it: its file, then a
+// 2-byte record per listing it was seen under (named by `listings`).
 const report = (
   bucket: MemoryBucket,
   prefix: string,
   hash: string,
-  bytes: number
+  bytes: number,
+  listings: ReadonlyArray<string> = ["abcd"]
 ) => {
-  put(bucket, `reports/${prefix}/${hash}.xlsx`, "x".repeat(bytes))
-  put(bucket, `reports/${prefix}/${hash}.20261114T130000000Z.abcd.json`, "{}")
+  const sha256 = hash.padStart(64, "0")
+  put(bucket, `reports/${prefix}/${sha256}.xlsx`, "x".repeat(bytes))
+  for (const listing of listings)
+    put(
+      bucket,
+      `reports/${prefix}/${sha256}.2026-11-14T130000.000Z.${listing}.json`,
+      "{}"
+    )
+}
+
+// The totals once the report index holds what `bucket` does, as the next
+// archive run's `plan` would index it.
+const indexedTotals = (bucket: MemoryBucket) => {
+  const db = memoryArchiveDb()
+  return Effect.gen(function* () {
+    yield* healShareholdingIndex(yield* (yield* ArchiveBucket).list("reports/"))
+    return yield* archiveTotals
+  }).pipe(Effect.provide(Layer.merge(bucket.layer, db.layer)))
 }
 
 describe("the archive totals", () => {
   it.effect("are zero for every report kind before any report", () =>
     Effect.gen(function* () {
-      assert.deepStrictEqual(yield* archiveTotals, {
+      assert.deepStrictEqual(yield* indexedTotals(memoryBucket()), {
         kinds: [
           { kind: "above-5", reports: 0 },
           { kind: "above-1", reports: 0 },
@@ -282,7 +303,7 @@ describe("the archive totals", () => {
         reports: 0,
         bytes: 0,
       })
-    }).pipe(provide(memoryBucket()))
+    })
   )
 
   it.effect(
@@ -293,10 +314,11 @@ describe("the archive totals", () => {
       // A new version of the same report.
       report(bucket, "above-5/2026-11-13", "bb", 120)
       report(bucket, "above-5/2026-11-14", "cc", 90)
-      report(bucket, "investor-type/2026-10-31", "dd", 300)
+      // One file seen under two listings: two records.
+      report(bucket, "investor-type/2026-10-31", "dd", 300, ["abcd", "ef01"])
       report(bucket, "other/2026-11-12", "ee", 50)
       return Effect.gen(function* () {
-        assert.deepStrictEqual(yield* archiveTotals, {
+        assert.deepStrictEqual(yield* indexedTotals(bucket), {
           kinds: [
             { kind: "above-5", reports: 3 },
             { kind: "above-1", reports: 0 },
@@ -305,21 +327,21 @@ describe("the archive totals", () => {
             { kind: "other", reports: 1 },
           ],
           reports: 5,
-          // 660 bytes of files and five 2-byte records.
-          bytes: 670,
+          // 660 bytes of files and six 2-byte records.
+          bytes: 672,
         })
-      }).pipe(provide(bucket))
+      })
     }
   )
 
   it.effect("count the largest archive the bucket lists", () => {
     const bucket = memoryBucket()
     for (let index = 0; index < MAX_LISTED_OBJECTS / 2; index++)
-      report(bucket, "above-5/2026-11-13", String(index).padStart(64, "0"), 1)
+      report(bucket, "above-5/2026-11-13", String(index), 1)
     return Effect.gen(function* () {
-      const totals = yield* archiveTotals
+      const totals = yield* indexedTotals(bucket)
       assert.strictEqual(totals.reports, MAX_LISTED_OBJECTS / 2)
       assert.strictEqual(totals.bytes, (MAX_LISTED_OBJECTS / 2) * 3)
-    }).pipe(provide(bucket))
+    })
   })
 })

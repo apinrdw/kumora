@@ -27,6 +27,7 @@ import {
   investorTypeItems,
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
+import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 import {
   type MemoryHoldingsDb,
@@ -57,11 +58,16 @@ const world = (withClassification = false): World => ({
 const archive = ({ idx, bucket }: World, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      archiveRun(localSteps(Layer.merge(idx.layer, bucket.layer)), {
-        id: RunId.make(id),
-        trigger: "cron",
-        startedAt: new Date("2026-11-14T13:00:00Z"),
-      })
+      archiveRun(
+        localSteps(
+          Layer.mergeAll(idx.layer, bucket.layer, memoryArchiveDb().layer)
+        ),
+        {
+          id: RunId.make(id),
+          trigger: "cron",
+          startedAt: new Date("2026-11-14T13:00:00Z"),
+        }
+      )
     )
   )
 
