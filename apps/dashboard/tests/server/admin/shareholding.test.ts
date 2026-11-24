@@ -1,5 +1,7 @@
+import type { SQLInputValue } from "node:sqlite"
+
 import { assert, describe, it } from "@effect/vitest"
-import { Conflict, Unauthorized } from "@workspace/server"
+import { Conflict, STEP_RESULT_BYTES, Unauthorized } from "@workspace/server"
 import { Effect, Layer, Logger, References } from "effect"
 import { TestClock } from "effect/testing"
 
@@ -11,9 +13,11 @@ import {
   shareholdingArchivePage,
 } from "@/server/admin/shareholding"
 import type { Mail } from "@/server/auth/mailer"
+import { ArchiveDb } from "@/server/archive/archive-db"
 import { ArchiveBucket } from "@/server/archive/bucket"
 import { RunId } from "@/server/archive/run"
 import { ArchiveWorkflow } from "@/server/archive/workflow"
+import type { Statement } from "@/server/d1"
 import type { ParseRunResult } from "@/server/holdings/parse-run-result"
 import { Above1ParseWorkflow } from "@/server/shareholding/above-1-parse"
 import { ClassificationParseWorkflow } from "@/server/shareholding/classification-parse"
@@ -498,7 +502,111 @@ describe("the shareholding archive page's ArchiveDb reads", () => {
       for (const line of lines) assert.strictEqual(line.page, "shareholding")
     }).pipe(Effect.provide(layer), Effect.provide(Logger.layer([capture])))
   })
+
+  it.effect(
+    "reads at most READ_BUDGET of run records in a batch, at 30 days of hourly runs of the largest record",
+    () => {
+      const { layer, mails, db } = archive()
+      const NOW = Date.parse("2026-11-14T14:00:00.000Z")
+      const HOUR = 3_600_000
+      const padding = "x".repeat(STEP_RESULT_BYTES - 1024)
+      for (let hour = 0; hour < 30 * 24; hour++) {
+        const startedAt = new Date(NOW - (hour + 1) * HOUR).toISOString()
+        seedRun(
+          db,
+          SHAREHOLDING_ARCHIVE,
+          {
+            ...RUNNING,
+            id: RunId.make(`cron-${startedAt.slice(0, 13)}`),
+            startedAt,
+            finishedAt: startedAt,
+            outcome: "partial",
+            notStored: [padding],
+          },
+          { latest: hour === 0 }
+        )
+      }
+      // 30 days of daily parse runs of each trigger, each failing a month no
+      // report is held for at the largest message.
+      for (const kind of ["investor-classification", "investor-type"] as const)
+        for (const trigger of ["cron", "admin"] as const)
+          for (let day = 0; day < 30; day++) {
+            const startedAt = new Date(NOW - (day + 1) * 24 * HOUR)
+              .toISOString()
+              .replace("T14", trigger === "cron" ? "T14" : "T15")
+            seedRun(
+              db,
+              shareholdingParse(kind),
+              {
+                ...finishedParse("2001-01-31"),
+                id: RunId.make(`${trigger}-${startedAt.slice(0, 10)}`),
+                trigger,
+                startedAt,
+                finishedAt: startedAt,
+                parseFailures: [{ date: "2001-01-31", message: padding }],
+              },
+              { latest: trigger === "admin" && day === 0 }
+            )
+          }
+      let mostRead = 0
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(NOW)
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        const page = yield* shareholdingArchivePage(headers(cookie))
+        assert.lengthOf(page.recentRuns, 30 * 24)
+        assert.isAtMost(mostRead, READ_BUDGET)
+      }).pipe(
+        Effect.provide(
+          Layer.effect(
+            ArchiveDb,
+            Effect.gen(function* () {
+              const inner = yield* ArchiveDb
+              return ArchiveDb.of({
+                batch: (statements) => {
+                  mostRead = Math.max(mostRead, recordBytes(db, statements))
+                  // A Worker runs out of memory before it holds the rows.
+                  return mostRead > READ_BUDGET
+                    ? Effect.die(`${mostRead} bytes of run records`)
+                    : inner.batch(statements)
+                },
+              })
+            })
+          )
+        ),
+        Effect.provide(layer)
+      )
+    },
+    120_000
+  )
 })
+
+// The most bytes of run records one ArchiveDb batch returns: an eighth of
+// a Worker's 128 MiB, as each record's row string is parsed and decoded
+// beside it.
+const READ_BUDGET = 16 * 2 ** 20
+
+// The bytes of run records `statements` return, counted in the database
+// without reading them out.
+const recordBytes = (
+  db: MemoryArchiveDb,
+  statements: ReadonlyArray<Statement>
+) =>
+  statements
+    .filter(({ sql }) => /^SELECT .*\brecord\b.* FROM run WHERE/.test(sql))
+    .reduce(
+      (sum, { sql, params }) =>
+        sum +
+        Number(
+          (
+            db.database
+              .prepare(
+                `SELECT coalesce(sum(length(record)), 0) AS bytes FROM (${sql})`
+              )
+              .get(...(params as Array<SQLInputValue>)) as { bytes: number }
+          ).bytes
+        ),
+      0
+    )
 
 describe("Run now", () => {
   it.effect("starts an admin run named by the time", () => {
