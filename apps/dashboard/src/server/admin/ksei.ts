@@ -89,6 +89,8 @@ const startNow = Effect.fnUntraced(function* (
     trigger,
     DateTime.toEpochMillis(yield* DateTime.now)
   )
+  // The same words as shareholding.ts's Run now refusal and the badge in
+  // components/admin/archive/last-run-card.tsx.
   const refused = () =>
     Effect.fail(new Conflict({ message: "A run is in progress." }))
   // DuplicateRunId: another start in the same millisecond took the id.

@@ -17,7 +17,7 @@ The first import kept one mark per record for every purpose (`archive-migrations
 3. A reader scan keeps the newest run its reader takes, wherever that run lies relative to the 30 days, and however many invocations the import takes.
 4. A scan reads and writes only its own progress. Scans share only a run's row, which every scan wants, so no scan's pass over a record hides it from another.
 5. A scan's progress only moves on. A slower invocation that writes after a faster one moves it nowhere, and the next invocation resumes each scan where the furthest one stopped, reading no record that one read.
-6. One invocation stays within its limits at any number of R2 records, and holds at most `RECORDS_AT_ONCE` records at once.
+6. One invocation stays within its limits at up to `MAX_LISTED_OBJECTS` R2 records under one trigger (ADR 0043), the most a listing returns, and holds at most `RECORDS_AT_ONCE` records at once.
 7. An import that failed part-way, or that raced another, ends in the same rows. An import that has finished never reads R2 or adds a row again.
 
 Sites:

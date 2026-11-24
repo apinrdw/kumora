@@ -81,6 +81,8 @@ export const runArchiveNow = Effect.fn("runArchiveNow")(function* (
     "admin",
     DateTime.toEpochMillis(yield* DateTime.now)
   )
+  // The same words as ksei.ts's Run now refusal and the badge in
+  // components/admin/archive/last-run-card.tsx.
   const refused = () =>
     Effect.fail(new Conflict({ message: "A run is in progress." }))
   // DuplicateRunId: another Run now in the same millisecond took the id.

@@ -32,6 +32,8 @@ import {
   RunStatus,
 } from "./archive-card"
 
+// The badge's words; Run now's refusal in server/admin/ksei.ts and
+// server/admin/shareholding.ts says the same.
 const IN_PROGRESS = "A run is in progress"
 
 /** What a button asks before it starts a run. */
