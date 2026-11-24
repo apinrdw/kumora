@@ -391,7 +391,17 @@ describe("the shareholding archive page's ArchiveDb reads", () => {
   it.effect(
     "reads the runs, parse runs, totals and parse coverage in one ArchiveDb batch a load",
     () => {
-      const { layer, mails, bucket, db, indexed } = archive()
+      const {
+        layer,
+        mails,
+        bucket,
+        db,
+        indexed,
+        workflow,
+        classificationWorkflow,
+        investorTypeWorkflow,
+        above1Workflow,
+      } = archive()
       const classification = finishedParse("2026-10-31")
       const investorType = finishedParse("2026-09-30")
       const above1 = finishedParse("2026-08-31")
@@ -423,6 +433,14 @@ describe("the shareholding archive page's ArchiveDb reads", () => {
         const before = db.batches
         const page = yield* shareholdingArchivePage(headers(cookie))
         assert.strictEqual(db.batches - before, 1)
+        // Only a row that says running needs its Workflow instance's status.
+        assert.deepStrictEqual(workflow.statusReads, [RUNNING.id, RUNNING.id])
+        for (const parse of [
+          classificationWorkflow,
+          investorTypeWorkflow,
+          above1Workflow,
+        ])
+          assert.deepStrictEqual(parse.statusReads, [])
         assert.strictEqual(page.lastRun?.result.id, RUNNING.id)
         assert.deepStrictEqual(
           page.recentRuns.map(({ id }) => id),

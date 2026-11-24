@@ -256,7 +256,8 @@ describe("the KSEI archive page's ArchiveDb reads", () => {
   it.effect(
     "reads the runs, deep run, parse runs, totals and coverage in one ArchiveDb batch a load",
     () => {
-      const { layer, mails, bucket, indexed } = archive()
+      const { layer, mails, bucket, indexed, workflow, parseWorkflow } =
+        archive()
       const db = archiveDbOf(bucket)
       const deep: KseiRunResult = {
         ...RUNNING,
@@ -302,6 +303,9 @@ describe("the KSEI archive page's ArchiveDb reads", () => {
         const before = db.batches
         const page = yield* kseiArchivePage(headers(cookie))
         assert.strictEqual(db.batches - before, 1)
+        // Only a row that says running needs its Workflow instance's status.
+        assert.deepStrictEqual(workflow.statusReads, [RUNNING.id, RUNNING.id])
+        assert.deepStrictEqual(parseWorkflow.statusReads, [])
         assert.strictEqual(page.lastRun?.result.id, RUNNING.id)
         assert.deepStrictEqual(
           page.recentRuns.map(({ id }) => id),
