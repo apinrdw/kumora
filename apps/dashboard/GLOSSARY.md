@@ -394,7 +394,7 @@ One pass that compares KSEI's lists of reports with the KSEI archive and stores 
 _Avoid_: Archive run, which is IDX's; sync, scrape
 
 **Report index**:
-One row per archived version of a report, in either archive, kept in ArchiveDb so the admin pages read the totals and coverage without listing the archive. The archive stays the truth: the index is rebuilt from it, and each archive run first adds any version the index lacks.
+One row per archived version of a report, in either archive, kept in ArchiveDb so the admin pages read the totals, coverage and parse coverage without listing the archive. The archive stays the truth: the index is rebuilt from it, and each archive run first adds any version the index lacks.
 _Avoid_: Report table, manifest, catalog
 
 **ArchiveDb**:
