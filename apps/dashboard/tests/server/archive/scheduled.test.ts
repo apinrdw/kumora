@@ -1,14 +1,23 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Option } from "effect"
+import { Effect, Layer, Option } from "effect"
 import { TestClock } from "effect/testing"
 
+import { ArchiveDb } from "@/server/archive/archive-db"
 import { readAlone } from "@/server/archive/page-read"
+import { type ArchiveSource, RUNS_PREFIX, RunId } from "@/server/archive/run"
+import { startRunOf } from "@/server/archive/runs"
+import {
+  ArchiveRunResult,
+  ArchiveTrigger,
+  runIdAt,
+  runningResult,
+  RunSummary,
+} from "@/server/shareholding/run-result"
 import {
   lastRun,
   scheduledArchiveRun,
   startRun,
 } from "@/server/shareholding/runs"
-import { RunId } from "@/server/archive/run"
 
 import { everySplit } from "../../interleaved"
 
@@ -362,6 +371,112 @@ describe("starting a run by hand", () => {
           stored(archive, "admin-1763125200000")?.["outcome"],
           "running"
         )
+      })
+  )
+
+  it.effect(
+    "fails a start whose row ArchiveDb refuses, rather than claiming again",
+    () =>
+      Effect.gen(function* () {
+        const archive = runStores()
+        // A record whose start no date parses from: its row breaks
+        // started_at's NOT NULL, which is no claim lost to another start.
+        const unparsed: ArchiveSource<
+          ArchiveTrigger,
+          RunSummary,
+          ArchiveRunResult
+        > = {
+          runName: "Archive run",
+          archive: "shareholding",
+          runKind: "archive",
+          runsPrefix: RUNS_PREFIX,
+          triggers: ArchiveTrigger.literals,
+          runIdAt,
+          result: ArchiveRunResult,
+          summary: RunSummary,
+          kept: [],
+          running: (run) =>
+            Effect.map(runningResult(run), (record) => ({
+              ...record,
+              startedAt: "not a date",
+            })),
+        }
+
+        const refused = yield* Effect.flip(
+          startRunOf(unparsed, RunId.make("admin-1763125200000"), "admin").pipe(
+            Effect.provide(archive.layer)
+          )
+        )
+
+        assert.strictEqual(refused._tag, "ArchiveDbError")
+        assert.deepStrictEqual(started(archive), [])
+      })
+  )
+
+  it.effect(
+    "gives up after a few claims lost to starts whose runs keep ending",
+    () =>
+      Effect.gen(function* () {
+        const archive = runStores()
+        let rivals = 0
+        // Before each claim this start sends, another start claims a run
+        // that ends at once, so the claim judged ended a run that no longer
+        // holds it.
+        const contended = Layer.effect(
+          ArchiveDb,
+          Effect.gen(function* () {
+            const inner = yield* ArchiveDb
+            return ArchiveDb.of({
+              batch: (statements) =>
+                Effect.suspend(() => {
+                  if (statements.some(({ sql }) => sql.includes("latest)"))) {
+                    rivals += 1
+                    const id = RunId.make(`cron-rival-${rivals}`)
+                    seedRun(
+                      archive.db,
+                      SHAREHOLDING_ARCHIVE,
+                      {
+                        id,
+                        trigger: "cron",
+                        startedAt: new Date(AFTERNOON + rivals * 1000).toISOString(),
+                        finishedAt: null,
+                        outcome: "running",
+                        reportsAdded: 0,
+                        newVersions: 0,
+                        reportsChecked: 0,
+                        notStored: [],
+                        other: [],
+                        error: null,
+                      } satisfies ArchiveRunResult,
+                      { latest: true }
+                    )
+                    archive.workflow.instances.set(id, {
+                      options: {
+                        id,
+                        params: { trigger: "cron" },
+                        retention: {
+                          successRetention: "30 days",
+                          errorRetention: "30 days",
+                        },
+                      },
+                      status: "complete",
+                    })
+                  }
+                  return inner.batch(statements)
+                }),
+            })
+          })
+        ).pipe(Layer.provide(archive.db.layer))
+
+        const refused = yield* Effect.flip(
+          startRun(RunId.make("admin-1763125200000"), "admin").pipe(
+            Effect.provide(Layer.merge(archive.layer, contended))
+          )
+        )
+
+        assert.strictEqual(refused._tag, "RunInProgress")
+        assert.isAtMost(rivals, 3)
+        assert.isUndefined(stored(archive, "admin-1763125200000"))
       })
   )
 })
