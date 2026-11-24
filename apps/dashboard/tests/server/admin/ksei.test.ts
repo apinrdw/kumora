@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Conflict, Unauthorized } from "@workspace/server"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer, Logger, References, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
@@ -216,6 +216,39 @@ describe("the KSEI archive page", () => {
         },
       ])
     }).pipe(Effect.provide(layer))
+  })
+})
+
+describe("the KSEI archive page's timing", () => {
+  it.effect("logs how long each part of an admin's load took", () => {
+    const { layer, mails } = archive()
+    const lines: Array<Readonly<Record<string, unknown>>> = []
+    const capture = Logger.make(({ message, fiber }) => {
+      const [text] = Array.isArray(message) ? message : [message]
+      if (text === "Admin page part timed")
+        lines.push(fiber.getRef(References.CurrentLogAnnotations))
+    })
+    return Effect.gen(function* () {
+      const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+      yield* kseiArchivePage(headers(cookie))
+      assert.sameMembers(
+        lines.map(({ part }) => part),
+        [
+          "authorize",
+          "lastRun",
+          "recentRuns",
+          "reports",
+          "lastDeepRun",
+          "lastParseRun",
+          "parseCoverage",
+          "reads",
+        ]
+      )
+      for (const line of lines) {
+        assert.strictEqual(line.page, "ksei")
+        assert.isNumber(line.ms)
+      }
+    }).pipe(Effect.provide(layer), Effect.provide(Logger.layer([capture])))
   })
 })
 

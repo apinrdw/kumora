@@ -13,6 +13,7 @@ import { dailyRunIdAt, REPORTS_PREFIX } from "@/server/archive/run"
 import type { Action } from "@/server/auth/policy"
 import { kseiCoverage } from "@/server/ksei/coverage"
 import { parseNow } from "@/server/admin/parse-now"
+import { timePart } from "@/server/admin/part-timing"
 import { kseiParseRuns } from "@/server/ksei/parse-runs"
 import type { KseiTrigger } from "@/server/ksei/run-result"
 import {
@@ -33,10 +34,12 @@ const authorize = (
     | "admin.run-ksei-parse"
 ) => authorizeArchive(headers, action, KSEI_PATH)
 
+const timed = (part: string) => timePart("ksei", part)
+
 export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
   headers: Headers
 ) {
-  yield* authorize(headers, "admin.view-ksei-archive")
+  yield* authorize(headers, "admin.view-ksei-archive").pipe(timed("authorize"))
   // One listing of reports/ gives the totals and the coverage: ~150 objects
   // after the first run, ~1,000 after a deep backfill, far within
   // MAX_LISTED_OBJECTS.
@@ -45,15 +48,15 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
   })
   const [run, runs, objects, deep, parseRun, parseCoverage] = yield* Effect.all(
     [
-      lastKseiRun,
-      recentKseiRuns,
-      reports,
-      lastKseiDeepRun,
-      kseiParseRuns.last,
-      kseiParseRuns.parseCoverage,
+      lastKseiRun.pipe(timed("lastRun")),
+      recentKseiRuns.pipe(timed("recentRuns")),
+      reports.pipe(timed("reports")),
+      lastKseiDeepRun.pipe(timed("lastDeepRun")),
+      kseiParseRuns.last.pipe(timed("lastParseRun")),
+      kseiParseRuns.parseCoverage.pipe(timed("parseCoverage")),
     ],
     { concurrency: "unbounded" }
-  )
+  ).pipe(timed("reads"))
   const now = yield* DateTime.now
   return {
     lastRun: run,

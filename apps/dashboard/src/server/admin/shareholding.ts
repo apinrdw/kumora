@@ -9,6 +9,7 @@ import { DateTime, Effect } from "effect"
 import type { FileRoutesByFullPath } from "@/routeTree.gen"
 import { authorizeArchive } from "@/server/admin/archive-access"
 import { parseNow } from "@/server/admin/parse-now"
+import { timePart } from "@/server/admin/part-timing"
 import type { Action } from "@/server/auth/policy"
 import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 import { classificationParseRuns } from "@/server/shareholding/classification-parse"
@@ -29,9 +30,13 @@ const authorize = (
   >
 ) => authorizeArchive(headers, action, SHAREHOLDING_PATH)
 
+const timed = (part: string) => timePart("shareholding", part)
+
 export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
   function* (headers: Headers) {
-    yield* authorize(headers, "admin.view-shareholding-archive")
+    yield* authorize(headers, "admin.view-shareholding-archive").pipe(
+      timed("authorize")
+    )
     const [
       run,
       runs,
@@ -43,17 +48,21 @@ export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
       investorTypeParseCoverage,
     ] = yield* Effect.all(
       [
-        lastRun,
-        recentRuns,
-        archiveTotals,
-        classificationParseRuns.last,
-        investorTypeParseRuns.last,
-        above1ParseRuns.last,
-        classificationParseRuns.parseCoverage,
-        investorTypeParseRuns.parseCoverage,
+        lastRun.pipe(timed("lastRun")),
+        recentRuns.pipe(timed("recentRuns")),
+        archiveTotals.pipe(timed("totals")),
+        classificationParseRuns.last.pipe(timed("lastClassificationParseRun")),
+        investorTypeParseRuns.last.pipe(timed("lastInvestorTypeParseRun")),
+        above1ParseRuns.last.pipe(timed("lastAbove1ParseRun")),
+        classificationParseRuns.parseCoverage.pipe(
+          timed("classificationParseCoverage")
+        ),
+        investorTypeParseRuns.parseCoverage.pipe(
+          timed("investorTypeParseCoverage")
+        ),
       ],
       { concurrency: "unbounded" }
-    )
+    ).pipe(timed("reads"))
     const now = yield* DateTime.now
     return {
       lastRun: run,
