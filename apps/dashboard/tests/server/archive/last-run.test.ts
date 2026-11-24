@@ -1,8 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
-import { DateTime, Effect } from "effect"
+import { STEP_RESULT_BYTES } from "@workspace/server"
+import { DateTime, Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
+import { ArchiveDb } from "@/server/archive/archive-db"
+import { ArchiveBucket } from "@/server/archive/bucket"
 import { readAlone } from "@/server/archive/page-read"
+import { RECORDS_AT_ONCE } from "@/server/archive/run-import"
 import { RunId } from "@/server/archive/run"
 import type { ArchiveRunResult } from "@/server/shareholding/run-result"
 import {
@@ -351,6 +355,85 @@ describe("the cutover import", () => {
         assert.isAbove(operations, 0)
       }),
     20_000
+  )
+
+  it.effect(
+    "holds at most RECORDS_AT_ONCE records read from R2 and not yet in ArchiveDb, at the largest import",
+    () => {
+      const archive = runStores()
+      // 31 days of hourly cron runs, each record as large as a run's summary
+      // step can return. The bucket holds them small, and pads each as it is
+      // read, so the test holds no more of them than the import does.
+      const HOUR = 3_600_000
+      const padding = "x".repeat(STEP_RESULT_BYTES - 1024)
+      for (let hour = 0; hour < 31 * 24; hour++) {
+        const startedAt = new Date(NOW - hour * HOUR).toISOString()
+        inR2(archive, {
+          ...COMPLETE,
+          id: RunId.make(`cron-${startedAt.slice(0, 13)}`),
+          startedAt,
+        })
+      }
+      putJson(archive, "runs/latest.json", { id: "cron-2026-11-14T14" })
+      let held = 0
+      let mostHeld = 0
+      const padded = Layer.effect(
+        ArchiveBucket,
+        Effect.gen(function* () {
+          const inner = yield* ArchiveBucket
+          return ArchiveBucket.of({
+            ...inner,
+            get: (key) =>
+              Effect.map(inner.get(key), (object) => {
+                if (object === undefined || !key.includes("cron-"))
+                  return object
+                const body = JSON.stringify({
+                  ...JSON.parse(object.body),
+                  notStored: [padding],
+                })
+                held += body.length
+                mostHeld = Math.max(mostHeld, held)
+                return { ...object, body }
+              }),
+          })
+        })
+      ).pipe(Layer.provide(archive.bucket.layer))
+      const unpadded = Layer.effect(
+        ArchiveDb,
+        Effect.gen(function* () {
+          const inner = yield* ArchiveDb
+          return ArchiveDb.of({
+            batch: (statements) =>
+              inner.batch(
+                statements.map((statement) => {
+                  const record = statement.params[6]
+                  if (!statement.sql.includes("INTO run (")) return statement
+                  if (typeof record !== "string") return statement
+                  held -= record.length
+                  const params = [...statement.params]
+                  params[6] = JSON.stringify({
+                    ...JSON.parse(record),
+                    notStored: [],
+                  })
+                  return { ...statement, params }
+                })
+              ),
+          })
+        })
+      ).pipe(Layer.provide(archive.db.layer))
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(NOW)
+        assert.strictEqual((yield* lastRun)?.result.id, "cron-2026-11-14T14")
+        assert.strictEqual(
+          runCount(archive.db, SHAREHOLDING_ARCHIVE),
+          30 * 24 + 1
+        )
+        assert.isAtMost(mostHeld, RECORDS_AT_ONCE * STEP_RESULT_BYTES)
+      }).pipe(
+        Effect.provide(Layer.mergeAll(padded, unpadded, archive.workflow.layer))
+      )
+    },
+    60_000
   )
 
   it.effect("imports nothing on a fresh stage, and only once", () => {
