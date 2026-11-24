@@ -63,8 +63,8 @@ const apacDatabase = Effect.fn("apacDatabase")(function* (
 // scripts/auth-schema.ts replays the same directory for the drift check and
 // the handler test seam. apps/e2e/reset-test-stage.ts reads this resource's
 // state file, AuthDb.json, by this id.
-// Decision: every D1 sits in apac and moves there by cloning the one it replaces
-// (apps/dashboard/docs/adr/0124-every-d1-sits-in-apac-and-moves-by-cloning.md)
+// Decision: every D1 is recreated in apac by cloning the one it replaces
+// (apps/dashboard/docs/adr/0124-every-d1-is-recreated-in-apac-by-cloning-the-one-it-replaces.md)
 const AuthDb = apacDatabase("AuthDb", "./migrations")
 
 // Parsed holdings: the parse runs parse reports into it, the stock page
