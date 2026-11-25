@@ -25,6 +25,7 @@
     "@alchemy.run/cloudflare": "catalog:",
     "@alchemy.run/infisical": "catalog:",
     "@effect/platform-bun": "catalog:",
+    "@workspace/client": "workspace:*",
     "alchemy": "catalog:",
     "effect": "catalog:"
   }

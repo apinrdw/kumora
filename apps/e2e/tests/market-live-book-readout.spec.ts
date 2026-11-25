@@ -15,7 +15,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import { DASHBOARD, MEMBER } from "../support/accounts"
+import { DASHBOARD, DASHBOARD_PATH, MEMBER } from "../support/accounts"
 import { marketNow, wibInstant, wibTime } from "../support/clock"
 import { seedSpecialBoard } from "../support/holdings"
 import {
@@ -196,7 +196,7 @@ test("on a recorded day the readings follow the replay cursor", async ({
       })
     )
   await page.route(
-    (url) => url.pathname === "/market-live/days",
+    (url) => url.pathname === `${DASHBOARD_PATH}/market-live/days`,
     (route) =>
       route.fulfill({
         json: {
@@ -212,11 +212,13 @@ test("on a recorded day the readings follow the replay cursor", async ({
       })
   )
   await page.route(
-    (url) => url.pathname === `/market-live/days/${day}/gaps`,
+    (url) => url.pathname === `${DASHBOARD_PATH}/market-live/days/${day}/gaps`,
     (route) => route.fulfill({ json: { gaps: [] } })
   )
   await page.route(
-    (url) => url.pathname === `/market-live/days/${day}/books/${code}`,
+    (url) =>
+      url.pathname ===
+      `${DASHBOARD_PATH}/market-live/days/${day}/books/${code}`,
     (route) =>
       route.fulfill({
         contentType: "application/json",
@@ -314,7 +316,7 @@ test("a wall that appears is listed, marked on the ladder and on the heatmap", a
 // A recorded day with no gaps whose day strip lists it, its chunks unrouted.
 const recordedDay = async (page: Page, day: WibDate) => {
   await page.route(
-    (url) => url.pathname === "/market-live/days",
+    (url) => url.pathname === `${DASHBOARD_PATH}/market-live/days`,
     (route) =>
       route.fulfill({
         json: {
@@ -330,7 +332,7 @@ const recordedDay = async (page: Page, day: WibDate) => {
       })
   )
   await page.route(
-    (url) => url.pathname === `/market-live/days/${day}/gaps`,
+    (url) => url.pathname === `${DASHBOARD_PATH}/market-live/days/${day}/gaps`,
     (route) => route.fulfill({ json: { gaps: [] } })
   )
 }
@@ -366,7 +368,9 @@ test("on a recorded day the events after the cursor are dimmed", async ({
   ]
   await recordedDay(page, day)
   await page.route(
-    (url) => url.pathname === `/market-live/days/${day}/book-events/${code}`,
+    (url) =>
+      url.pathname ===
+      `${DASHBOARD_PATH}/market-live/days/${day}/book-events/${code}`,
     (route) =>
       route.fulfill({
         contentType: "application/json",
@@ -396,7 +400,9 @@ test("a day recorded before book events says so", async ({ page }) => {
   const day = WibDate.make(wibToday())
   await recordedDay(page, day)
   await page.route(
-    (url) => url.pathname === `/market-live/days/${day}/book-events/${code}`,
+    (url) =>
+      url.pathname ===
+      `${DASHBOARD_PATH}/market-live/days/${day}/book-events/${code}`,
     (route) => route.fulfill({ json: { code, recorded: false, events: [] } })
   )
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}`)

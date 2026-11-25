@@ -11,6 +11,8 @@ import { fileURLToPath } from "node:url"
 export const testUrl = (app: App) => Effect.runSync(stageUrl(app, TEST))
 
 export const DASHBOARD = testUrl("dashboard")
+/** The path the dashboard is served under on its host, for matching a request's pathname. */
+export const DASHBOARD_PATH = new URL(DASHBOARD).pathname
 
 export interface SharedAccount {
   readonly name: string

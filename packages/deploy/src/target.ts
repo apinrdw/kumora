@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 
+import { DashboardBasePath } from "@workspace/client/base-path"
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
@@ -189,17 +190,28 @@ export const stageTarget = Effect.fnUntraced(function* (
   }
 })
 
-// Where a stage's Worker serves: its workers.dev URL, or the app's dev server
-// on Dev and Test stages, which run only under `alchemy dev`.
+// The path each app is served under on its host: web at the root, the
+// dashboard at its base path.
+const APP_PATHS = {
+  web: "",
+  dashboard: DashboardBasePath,
+} as const satisfies Record<App, string>
+
+// An app's Stage URL (GLOSSARY.md): its Worker's workers.dev URL, or the app's
+// dev server on Dev and Test stages, which run only under `alchemy dev`, plus
+// the path the app is served under. It may carry a path, so a caller that
+// needs only the host or origin reads it from `new URL(...)`.
+// Decision: the dashboard is served under /dashboard on every Stage
+// (docs/adr/0020-the-dashboard-is-served-under-dashboard-on-every-stage.md)
 export const stageUrl = Effect.fnUntraced(function* (
   app: App,
   stage: Stage
 ): Effect.fn.Return<string> {
   const kind = yield* stageKind(stage)
   if (kind === "dev" || kind === "test")
-    return `http://localhost:${yield* devPort(app)}`
+    return `http://localhost:${yield* devPort(app)}${APP_PATHS[app]}`
   const { workerName } = yield* stageTarget(app, stage)
-  return `https://${workerName}.${WORKERS_DEV_SUBDOMAIN}.workers.dev`
+  return `https://${workerName}.${WORKERS_DEV_SUBDOMAIN}.workers.dev${APP_PATHS[app]}`
 })
 
 export const deployTarget = Effect.fnUntraced(function* (
