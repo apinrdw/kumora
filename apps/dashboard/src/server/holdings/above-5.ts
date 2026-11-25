@@ -420,6 +420,9 @@ type ListedOn = (
 // Each side's listed shares: the report date's for its own counts, the
 // trading day before's for the previous day's. A stock's listed shares can
 // change on the report date, and each side's % is of its own day's.
+//
+// Decision: a single-account ambiguous count is resolved against listed shares
+// (apps/dashboard/docs/adr/0130-a-single-account-ambiguous-count-is-resolved-against-listed-shares.md)
 interface ListedShares {
   readonly current: ListedOn
   readonly previous: ListedOn
