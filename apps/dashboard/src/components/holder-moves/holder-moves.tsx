@@ -9,6 +9,7 @@ import type { WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 
+import { BoundedRows } from "@/components/k/bounded-rows"
 import { kCard, kFocus } from "@/components/k/styles"
 import {
   BrokerChip,
@@ -281,14 +282,24 @@ function MovesTable({
               </td>
             </tr>
           ) : (
-            lines.map((line) => (
-              <MoveRow
-                key={`${line.code} ${line.holder}`}
-                line={line}
-                kind={moves.kind}
-                period={moves.period}
-              />
-            ))
+            <BoundedRows
+              key={moves.period}
+              rows={lines}
+              more={(control) => (
+                <tr className="border-t border-border">
+                  <td colSpan={columns.length}>{control}</td>
+                </tr>
+              )}
+            >
+              {(line) => (
+                <MoveRow
+                  key={`${line.code} ${line.holder}`}
+                  line={line}
+                  kind={moves.kind}
+                  period={moves.period}
+                />
+              )}
+            </BoundedRows>
           )}
         </tbody>
       </table>
@@ -518,25 +529,31 @@ function Rail({
           </p>
         ) : (
           <ul className="flex max-h-140 flex-col gap-3 overflow-auto">
-            {crossed.map((line) => (
-              <li
-                key={`${line.code} ${line.holder}`}
-                className="grid grid-cols-[52px_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[12.5px]"
-              >
-                <span className="num font-semibold">{line.code}</span>
-                <span className="font-medium">{line.name}</span>
-                <span
-                  className={cn(
-                    "num col-start-2 text-[11.5px]",
-                    line.move === "new" ? "text-up" : "text-down"
-                  )}
+            <BoundedRows
+              key={moves.period}
+              rows={crossed}
+              more={(control) => <li>{control}</li>}
+            >
+              {(line) => (
+                <li
+                  key={`${line.code} ${line.holder}`}
+                  className="grid grid-cols-[52px_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[12.5px]"
                 >
-                  {line.move === "new"
-                    ? `In at ${Effect.runSync(percentOf(line.stake.now ?? 0))}`
-                    : `Out ${Effect.runSync(stakeChangeText({ before: line.stake.before }, moves.kind))}`}
-                </span>
-              </li>
-            ))}
+                  <span className="num font-semibold">{line.code}</span>
+                  <span className="font-medium">{line.name}</span>
+                  <span
+                    className={cn(
+                      "num col-start-2 text-[11.5px]",
+                      line.move === "new" ? "text-up" : "text-down"
+                    )}
+                  >
+                    {line.move === "new"
+                      ? `In at ${Effect.runSync(percentOf(line.stake.now ?? 0))}`
+                      : `Out ${Effect.runSync(stakeChangeText({ before: line.stake.before }, moves.kind))}`}
+                  </span>
+                </li>
+              )}
+            </BoundedRows>
           </ul>
         )}
       </section>

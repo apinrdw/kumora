@@ -9,6 +9,7 @@ import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import { Fragment, useState } from "react"
 
+import { BoundedRows } from "@/components/k/bounded-rows"
 import { kCard, kFocus } from "@/components/k/styles"
 import { MonthTabs } from "@/components/stocks/choice"
 import { EveryMonth } from "@/components/stocks/every-month"
@@ -172,16 +173,24 @@ function HoldersTable({ holders }: { holders: MonthHolders }) {
           </tr>
         </thead>
         <tbody>
-          {[...holders.listed, ...holders.offList, ...holders.history].map(
-            (line) => (
+          <BoundedRows
+            key={holders.dataDate}
+            rows={[...holders.listed, ...holders.offList, ...holders.history]}
+            more={(control) => (
+              <tr>
+                <td colSpan={5}>{control}</td>
+              </tr>
+            )}
+          >
+            {(line) => (
               <HolderRow
                 key={line.holder}
                 line={line}
                 open={open.has(line.holder)}
                 onToggle={() => toggle(line.holder)}
               />
-            )
-          )}
+            )}
+          </BoundedRows>
         </tbody>
       </table>
     </div>

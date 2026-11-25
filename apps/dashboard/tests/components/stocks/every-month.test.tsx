@@ -113,6 +113,28 @@ describe("Every month", () => {
       "A dot is a month the holder was not listed: sold out or fell below 1%."
     )
   })
+  test("renders as many rows at first as fit 6,000 cells, fewer of more months", async () => {
+    // 100 months of 2 holders no other month has: 200 rows of 100 cells.
+    const months = Array.from({ length: 100 }, (_, at) =>
+      month(new Date(Date.UTC(2020, at, 28)).toISOString().slice(0, 10), [
+        holder(`A${at}`, [row(`ALPHA ${at}`, 300, 300)]),
+        holder(`B${at}`, [row(`BETA ${at}`, 200, 200)]),
+      ])
+    )
+    const last = months.at(-1)?.dataDate ?? ""
+    await act(() => root.render(<EveryMonth months={months} selected={last} />))
+    expect(
+      rows()
+        .slice(0, 2)
+        .map(([name]) => name)
+    ).toEqual(["ALPHA 99", "BETA 99"])
+    const more = () => grid()?.querySelector("[data-more-rows]")
+    expect(grid()?.querySelectorAll("tbody tr[data-unlisted]")).toHaveLength(58)
+    expect(more()?.textContent).toBe("60 of 200 shown · Show 60 more")
+    await act(() => more()?.querySelector("button")?.click())
+    expect(more()?.textContent).toBe("120 of 200 shown · Show 60 more")
+  })
+
   test("shades every cell the lightest when every holder holds 0%", async () => {
     await act(() =>
       root.render(

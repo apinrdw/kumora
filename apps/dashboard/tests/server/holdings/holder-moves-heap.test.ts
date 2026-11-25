@@ -8,6 +8,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
+import { ROWS_SHOWN } from "@/components/k/bounded-rows"
 import { Month, TREND_PERIODS } from "@/domain/holdings"
 import { deriveMoveMonth } from "@/server/holdings/above-1-moves"
 import { deriveMoveDay } from "@/server/holdings/above-5-moves"
@@ -160,7 +161,7 @@ const pageInBoundedHeap = (kind: "daily" | "monthly", lines: number) =>
 
 // The table renders its first rows of the period's lines (BoundedRows): its
 // header, the rows shown and the row that shows more. Rendered whole, a
-// period at the caps took more heap than a Worker has.
+// period at the caps did not fit the bound.
 describe("the Holder moves page's render", () => {
   it.effect(
     "shows a day at the parse's caps in 96 MiB of heap",
@@ -168,7 +169,7 @@ describe("the Holder moves page's render", () => {
       Effect.gen(function* () {
         assert.strictEqual(
           yield* pageInBoundedHeap("daily", LINES),
-          `${LINES} holders above 5% moved, ${LINES} entered or left; ${1 + 200 + 1} rows`
+          `${LINES} holders above 5% moved, ${LINES} entered or left; ${1 + ROWS_SHOWN + 1} rows`
         )
       }),
     { timeout: 120_000 }
@@ -180,7 +181,7 @@ describe("the Holder moves page's render", () => {
       Effect.gen(function* () {
         assert.strictEqual(
           yield* pageInBoundedHeap("monthly", MONTH_LINES),
-          `${MONTH_LINES} holders above 1% moved, ${MONTH_LINES} entered or left; ${1 + 200 + 1} rows`
+          `${MONTH_LINES} holders above 1% moved, ${MONTH_LINES} entered or left; ${1 + ROWS_SHOWN + 1} rows`
         )
       }),
     { timeout: 120_000 }

@@ -28,12 +28,13 @@ interface GridRow {
   readonly name: string
   // Listed in the selected month.
   readonly listed: boolean
-  // One per month, undefined where the holder isn't listed.
-  readonly cells: ReadonlyArray<Cell | undefined>
 }
 
 // `selected` is the panel's month's data date. Rows listed in it come
-// first, by its %; the rest follow by their newest %.
+// first, by its %; the rest follow by their newest %. `cellsOf` gives a
+// row's cells, one per month and undefined where the holder isn't listed,
+// when the row is rendered: every row's cells at once are holders times
+// months, which a stock's budget of rows doesn't bound.
 export const everyMonth = Effect.fnUntraced(function* (
   months: ReadonlyArray<MajorHoldersMonth>,
   selected: string
@@ -62,22 +63,23 @@ export const everyMonth = Effect.fnUntraced(function* (
     for (const { holder, now } of listed) newest.set(holder, now)
   const current =
     cells[months.findIndex(({ dataDate }) => dataDate === selected)]
-  const selectedMoves = moves.find(({ period }) => period === selected)
-  const shownOf = (holder: HolderId) =>
-    selectedMoves?.listed.find((each) => each.holder === holder)?.now
+  const shown = new Map(
+    moves
+      .find(({ period }) => period === selected)
+      ?.listed.map(({ holder, now }) => [holder, now])
+  )
 
   const rows = yield* Effect.forEach(
     newest,
     Effect.fnUntraced(function* ([holder, latest]) {
-      const shown = shownOf(holder) ?? latest
+      const now = shown.get(holder) ?? latest
       return {
         row: {
           holder,
-          name: (yield* largestRow(shown)).name,
+          name: (yield* largestRow(now)).name,
           listed: current?.has(holder) ?? false,
-          cells: cells.map((month) => month.get(holder)),
         } satisfies GridRow,
-        hundredths: shown.percentageHundredths,
+        hundredths: now.percentageHundredths,
       }
     })
   )
@@ -87,13 +89,18 @@ export const everyMonth = Effect.fnUntraced(function* (
   )
   return {
     rows: rows.map(({ row }) => row),
+    cellsOf: (holder: HolderId) =>
+      Effect.sync(() => cells.map((month) => month.get(holder))),
     // The largest % of any holder in any month, which shades the darkest; at
     // least 1, so a grid of 0% cells shades them all the lightest.
-    largest: Math.max(
-      1,
-      ...months.flatMap(({ holders }) =>
-        holders.map(({ percentageHundredths }) => percentageHundredths)
-      )
+    largest: months.reduce(
+      (most, { holders }) =>
+        holders.reduce(
+          (highest, { percentageHundredths }) =>
+            Math.max(highest, percentageHundredths),
+          most
+        ),
+      1
     ),
   }
 })

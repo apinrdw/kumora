@@ -14,6 +14,8 @@ Both kinds share one derivation (`server/holdings/derived-moves.ts`). Stocks are
 - a day: 16,000 lines from 21 days of 8,000 rows; it fit 64 MiB, not 56, on 25 Nov 2026, and reads in under 32 MiB;
 - a month: 30,000 lines from 21 months of 15,000 rows; it fit 72 MiB, not 64, and reads in under 48 MiB (39.5 MiB measured).
 
+The page renders its table and its Entered or left list through `BoundedRows` (ADR 0133): each list's first 200 lines, by stock code, and 200 more on a click. The filters' counts, the headline and the search cover every line. A real day passes 200 lines, since each of its 263 to 343 moving stocks has at least one, so the table of a real day starts cut. Rendered whole, a period at the caps did not fit 96 MiB. The same test file holds the render's bound: a worker that holds a period's lines as the read gives them, 16,000 of a day or 30,000 of a month, and renders the page from them (`holder-moves-page-worker.tsx`) fits 96 MiB of heap, about 30 MiB of it the worker's own. A day fit 64 MiB and a month 88, not always 84, on 25 Nov 2026.
+
 The cost is one more step per derived period in a run, twice the rows written for each line, and a derivation whose reads grow with the parsed periods: it reads each moving stock's every period that fits the budget, where its Trend alone read 21. By the days above, that is about 2,500 more securities account rows a derived day for each parsed day before it, read in turns of the budget's rows. Undoing this means reading moves on demand again, which needs another bound on the read, such as computing the rail's counts at parse time and reading fewer trend periods.
 
 Sites:

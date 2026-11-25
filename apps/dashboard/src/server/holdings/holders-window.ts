@@ -22,6 +22,9 @@ export interface HoldersWindow {
   // It fits a period and the one before at the parse's cap, so a period's
   // moves are always right.
   readonly budget: number
+  // The most periods of a stock read, for a kind whose panel renders
+  // something for each period that a row budget alone leaves too many of.
+  readonly periods?: number
 }
 
 // Above-5% days, for Daily holders. A day costs its row and its blocks' and
@@ -48,6 +51,11 @@ export const MONTHLY_WINDOW: HoldersWindow = {
       WHERE h.stock_code = s.stock_code AND h.data_date = d.data_date
     )`,
   budget: 2 * (MAX_HOLDING_ROWS + 1),
+  // 20 years. Major holders renders a tab and an Every month column for
+  // each month, and the budget alone holds 15,001 months of one holder:
+  // their render took over 88 MiB of heap
+  // (tests/server/holdings/stock-page-heap.test.ts).
+  periods: 240,
 }
 
 // The most rows of one stock's holders its page reads, its days' and its
@@ -61,9 +69,10 @@ export const PAGE_BUDGET = DAILY_WINDOW.budget + 4_000
 // `stocks` (its stock_code), `since`, the oldest of the periods read, and
 // `rows`, their rows. The periods are the parsed ones up to the SQL
 // expression `upTo`, or up to the newest without it, whose rows fit the SQL
-// expression `budget`, which may name the stock as `c.stock_code`.
+// expression `budget`, which may name the stock as `c.stock_code`, and at
+// most the window's `periods` of them.
 const windowOf = (
-  { parsed, cost }: HoldersWindow,
+  { parsed, cost, periods }: HoldersWindow,
   name: string,
   stocks: string,
   upTo: string | undefined,
@@ -80,10 +89,13 @@ const windowOf = (
       SELECT stock_code, data_date, rows,
         SUM(rows) OVER (
           PARTITION BY stock_code ORDER BY data_date DESC
-        ) AS total
+        ) AS total,
+        ROW_NUMBER() OVER (
+          PARTITION BY stock_code ORDER BY data_date DESC
+        ) AS nth
       FROM ${name}_cost
     ) c
-    WHERE total <= ${budget}
+    WHERE total <= ${budget}${periods === undefined ? "" : ` AND nth <= ${periods}`}
     GROUP BY stock_code
   )`
 

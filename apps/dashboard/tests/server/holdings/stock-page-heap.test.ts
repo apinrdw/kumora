@@ -5,6 +5,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { StockCode } from "@workspace/relay"
 import { Effect } from "effect"
 
+import { ROWS_SHOWN } from "@/components/k/bounded-rows"
 import {
   DAILY_WINDOW,
   MONTHLY_WINDOW,
@@ -39,7 +40,7 @@ const PAGE_HEAP_MIB = 96
 
 // The table rows a panel renders of a list longer than BoundedRows shows:
 // its header, the rows shown and the row that shows more.
-const TABLE_ROWS = 1 + 200 + 1
+const TABLE_ROWS = 1 + ROWS_SHOWN + 1
 
 interface Seeded {
   // Each day's holders, of `accounts` securities accounts each; `churn`
@@ -200,7 +201,7 @@ describe("the stock page's Major holders read", () => {
 // grid a cell for each holder in each: the window reads at most its
 // `periods` of months, and the grid renders its first rows.
 describe("the stock page's Major holders read and render", () => {
-  const periods = 240
+  const { periods = 0 } = MONTHLY_WINDOW
 
   // 29,760 rows: every month's holders are new, so each is a row of the
   // table and of the grid, 240 cells wide.

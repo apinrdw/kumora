@@ -510,14 +510,16 @@ describe("an above-1% parse run", () => {
         // Listed in September: out of its history, and one row in the grid.
         assert.lengthOf(yield* named("2026-09"), 1)
         const grid = yield* everyMonth(months, "2026-09-30")
+        const cells = yield* Effect.forEach(
+          grid.rows.filter((row) => row.name === name),
+          ({ holder }) => grid.cellsOf(holder)
+        )
         assert.deepStrictEqual(
-          grid.rows
-            .filter((row) => row.name === name)
-            .map(({ cells }) =>
-              cells.map((cell) =>
-                cell === undefined ? "not listed" : (cell.move ?? "listed")
-              )
-            ),
+          cells.map((row) =>
+            row.map((cell) =>
+              cell === undefined ? "not listed" : (cell.move ?? "listed")
+            )
+          ),
           [["listed", "not listed", "return", "listed", "not listed"]]
         )
       })

@@ -7,8 +7,8 @@
 import type { StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
-import { Fragment } from "react"
 
+import { BoundedRows } from "@/components/k/bounded-rows"
 import { kCard, kFocus } from "@/components/k/styles"
 import {
   BrokerChip,
@@ -204,33 +204,69 @@ function HoldersTable({ holders }: { holders: HoldersDay }) {
           </tr>
         </thead>
         <tbody>
-          {[...holders.listed, ...holders.offList].map((line) => (
-            <Fragment key={line.holder}>
-              <HolderRow line={line} compared={compared} />
-              {line.move !== "off list" &&
-                line.accounts.map((account, index) => (
-                  <SecuritiesAccountRow key={index} account={account} />
-                ))}
-            </Fragment>
-          ))}
-          {holders.history.length > 0 && (
-            <tr className="border-b border-border">
-              <td
-                colSpan={7}
-                className="pt-3.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase"
-              >
-                Earlier holders · {holders.history.length}
-              </td>
-            </tr>
-          )}
-          {holders.history.map((line) => (
-            <HolderRow key={line.holder} line={line} compared={compared} />
-          ))}
+          <BoundedRows
+            key={holders.dataDate}
+            rows={Effect.runSync(tableRows(holders))}
+            more={(control) => (
+              <tr className="border-t border-border">
+                <td colSpan={7}>{control}</td>
+              </tr>
+            )}
+          >
+            {(row) =>
+              row.kind === "holder" ? (
+                <HolderRow key={row.key} line={row.line} compared={compared} />
+              ) : row.kind === "account" ? (
+                <SecuritiesAccountRow key={row.key} account={row.account} />
+              ) : (
+                <tr key={row.kind} className="border-b border-border">
+                  <td
+                    colSpan={7}
+                    className="pt-3.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase"
+                  >
+                    Earlier holders · {row.count}
+                  </td>
+                </tr>
+              )
+            }
+          </BoundedRows>
         </tbody>
       </table>
     </div>
   )
 }
+
+type TableRow =
+  | { kind: "holder"; key: string; line: DailyHolderLine }
+  | { kind: "account"; key: string; account: SecuritiesAccountLine }
+  | { kind: "earlier"; count: number }
+
+// The table's rows in order: each holder of the day, a listed one's
+// securities accounts under it, then the earlier holders under their
+// heading.
+const tableRows = (holders: HoldersDay) =>
+  Effect.sync((): ReadonlyArray<TableRow> => [
+    ...[...holders.listed, ...holders.offList].flatMap(
+      (line): Array<TableRow> => [
+        { kind: "holder", key: line.holder, line },
+        ...(line.move === "off list"
+          ? []
+          : line.accounts.map((account, index): TableRow => ({
+              kind: "account",
+              key: `${line.holder} ${index}`,
+              account,
+            }))),
+      ]
+    ),
+    ...(holders.history.length > 0
+      ? [{ kind: "earlier" as const, count: holders.history.length }]
+      : []),
+    ...holders.history.map((line): TableRow => ({
+      kind: "holder",
+      key: line.holder,
+      line,
+    })),
+  ])
 
 const ORIGIN_LABEL = {
   local: "Local",

@@ -282,6 +282,19 @@ describe("Major holders", () => {
     ])
   })
 
+  test("draws the ownership bar's first 100 holders a segment each, the rest in one", async () => {
+    const many = Array.from({ length: 103 }, (_, index) =>
+      holder(`H${index}`, [row(`HOLDER ${index}`, 1000 - index, 100)])
+    )
+    await render({ months: [month("2026-10-30", many)] })
+    expect(segments()).toHaveLength(102)
+    expect(segments().slice(-2)).toEqual([
+      ["3 more holders 3.00%", `${300 / 103}%`, "more"],
+      ["Holders under 1% 0.00%", "0%", "under"],
+    ])
+    expect(legend().at(6)).toBe("+97 more")
+  })
+
   test("badges each holder's controller flag, classification or type, origin and foreign domicile", async () => {
     await render({})
     expect(meta("ADARO STRATEGIC INVESTMENTS")).toBe(

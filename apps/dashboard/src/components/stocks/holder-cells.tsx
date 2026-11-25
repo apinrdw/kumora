@@ -138,6 +138,9 @@ const TONES = {
 } as const
 const UNDER = "bg-neutral/40"
 const LEGEND_TOP = 6
+// The holders the bar draws a segment each: at most 100 can be above 1%.
+// Any after them share one segment.
+const BAR_SEGMENTS = 100
 
 // apinrdw/kumora#474's layout B bar: listed shares split among the holders
 // in table order, controllers and affiliates gold, then the rest of the 100%
@@ -157,7 +160,7 @@ export function OwnershipBar({
   // Whether to explain gold in the legend.
   controllers: boolean
 }) {
-  const segments = lines.map((line, index) => {
+  const segments = lines.slice(0, BAR_SEGMENTS).map((line, index) => {
     const tone = line.gold ? "gold" : "blue"
     return {
       line,
@@ -175,7 +178,10 @@ export function OwnershipBar({
     restShares === undefined || restShares < 0
       ? ""
       : ` · ${Effect.runSync(lotsOfShares(restShares))} lots`
-  const more = segments.length - LEGEND_TOP
+  const more = lines.length - LEGEND_TOP
+  const merged = lines
+    .slice(BAR_SEGMENTS)
+    .reduce((sum, { hundredths }) => sum + hundredths, 0)
   return (
     <div className="flex flex-col gap-2">
       <div
@@ -192,6 +198,14 @@ export function OwnershipBar({
             className={cn("border-surface min-w-px border-r", className)}
           />
         ))}
+        {lines.length > BAR_SEGMENTS && (
+          <div
+            title={`${lines.length - BAR_SEGMENTS} more holders ${Effect.runSync(percentOf(merged))}`}
+            data-tone="more"
+            style={{ width: `${(100 * merged) / whole}%` }}
+            className={TONES.blue[0]}
+          />
+        )}
         <div
           title={`Holders under ${threshold} ${underPercent}${restLots}`}
           data-tone="under"
