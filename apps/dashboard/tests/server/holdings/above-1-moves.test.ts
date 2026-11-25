@@ -59,6 +59,28 @@ describe("Holder moves' Monthly, in a month with two above-1% reports", () => {
       })
   )
 
+  it.effect(
+    "lists and rails only the month's later report, the one its month opens",
+    () =>
+      Effect.gen(function* () {
+        const read = yield* Effect.gen(function* () {
+          for (const report of yield* staleMoveMonths())
+            yield* deriveMoveMonth(report)
+          return yield* holderMovesRead({ kind: "monthly" })
+        }).pipe(Effect.provide(seeded().layer))
+        assert.deepStrictEqual(read.periods, [REPORTS[0], REPORTS[2]])
+        assert.deepStrictEqual(
+          read.rail.map(({ period, counts }) => ({ period, counts })),
+          [
+            {
+              period: REPORTS[2],
+              counts: { new: 2, up: 0, down: 0, offList: 2 },
+            },
+          ]
+        )
+      })
+  )
+
   it.effect("links to the report its stock's Major holders shows", () =>
     Effect.gen(function* () {
       const page = yield* stockPage(CODE, undefined).pipe(
