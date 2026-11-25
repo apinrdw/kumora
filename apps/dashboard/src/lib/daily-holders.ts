@@ -106,9 +106,6 @@ export interface HoldersDay {
     | undefined
 }
 
-const accountOf = ({ custodian, name }: Above5Account) =>
-  `${custodian}\n${name}`
-
 // Decision: a holder matches by key, then as renamed, then as returning
 // (apps/dashboard/docs/adr/0129-a-renamed-or-returning-holder-keeps-its-identity.md)
 const BY_SHARES: MoveRule<DailyHolder> = {
@@ -117,9 +114,11 @@ const BY_SHARES: MoveRule<DailyHolder> = {
   renamed: (gone, arrived) =>
     Effect.sync(() => {
       if (gone.scripless === arrived.scripless) return true
-      const accounts = new Set(gone.accounts.map(accountOf))
       return arrived.accounts.some((account) =>
-        accounts.has(accountOf(account))
+        gone.accounts.some(
+          (each) =>
+            each.custodian === account.custodian && each.name === account.name
+        )
       )
     }),
 }
@@ -160,7 +159,8 @@ const pairAccounts = (
         if (paired[at] !== undefined) return
         const match = [...left].find(
           (each) =>
-            accountOf(each) === accountOf(account) &&
+            each.custodian === account.custodian &&
+            each.name === account.name &&
             (!sameShares || each.scripless === account.scripless)
         )
         if (match === undefined) return

@@ -14,14 +14,20 @@ const LEGAL_FORMS = new Set(["PT", "TBK", "PERSERO"])
 // Uppercase, punctuation and legal forms dropped: `PANIN SEKURITAS Tbk, PT`
 // reads as IDX's `PANIN SEKURITAS`.
 const normalized = (name: string) =>
-  name
-    .toUpperCase()
-    .split(/[^A-Z0-9]+/)
-    .filter((word) => word !== "" && !LEGAL_FORMS.has(word))
-    .join(" ")
+  Effect.sync(() =>
+    name
+      .toUpperCase()
+      .split(/[^A-Z0-9]+/)
+      .filter((word) => word !== "" && !LEGAL_FORMS.has(word))
+      .join(" ")
+  )
 
 const MEMBERS = new Map(
-  EXCHANGE_MEMBERS.map(([code, name]) => [normalized(name), code])
+  Effect.runSync(
+    Effect.forEach(EXCHANGE_MEMBERS, ([code, name]) =>
+      Effect.map(normalized(name), (key) => [key, code] as const)
+    )
+  )
 )
 
 // KSEI's holding account for a closed member names its code with a serial:
@@ -30,10 +36,11 @@ const MEMBERS = new Map(
 const CLOSED_MEMBER =
   /(?:CLOSED MEMBER\s*-\s*|TAMP(?:UNGAN)?\s+)([A-Z]{2})\d{3}/
 
-export const brokerOf = (custodian: string) =>
-  Effect.sync((): BrokerCode | undefined => {
-    const closed = CLOSED_MEMBER.exec(custodian.toUpperCase())?.[1]
-    return closed === undefined
-      ? MEMBERS.get(normalized(custodian))
-      : BrokerCode.make(closed)
-  })
+export const brokerOf = Effect.fnUntraced(function* (
+  custodian: string
+): Effect.fn.Return<BrokerCode | undefined> {
+  const closed = CLOSED_MEMBER.exec(custodian.toUpperCase())?.[1]
+  return closed === undefined
+    ? MEMBERS.get(yield* normalized(custodian))
+    : BrokerCode.make(closed)
+})

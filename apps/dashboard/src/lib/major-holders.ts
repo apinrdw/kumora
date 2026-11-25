@@ -114,9 +114,6 @@ const BY_PERCENTAGE: MoveRule<Above1Holder> = {
   shares: (holder) => Effect.succeed(holder.total),
 }
 
-const byPercentage = ({ percentageHundredths }: HolderLine) =>
-  percentageHundredths
-
 // Every month's moves, in `months`' order.
 export const monthMoves = (months: ReadonlyArray<MajorHoldersMonth>) =>
   holderMoves(
@@ -207,13 +204,13 @@ export const majorHolders = Effect.fnUntraced(function* (
       : { kind: moves.comparison.kind, dataDate: moves.comparison.period }
   const listed = yield* mostFirst(
     yield* Effect.forEach(moves.listed, listedLine),
-    byPercentage
+    ({ percentageHundredths }) => percentageHundredths
   )
   const offList = yield* mostFirst(
     yield* Effect.forEach(moves.offList, (each) =>
       unlistedLine(each, undefined)
     ),
-    byPercentage
+    ({ percentageHundredths }) => percentageHundredths
   )
   const unsorted = yield* Effect.forEach(moves.history, (each) =>
     unlistedLine(each, each.since)
