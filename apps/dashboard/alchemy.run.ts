@@ -161,6 +161,12 @@ export const Website = Cloudflare.Website.Vite(
     // (apps/dashboard/docs/adr/0005-the-test-stage-alone-moves-days-to-r2-in-streaming-hours.md)
     const testMoves: Partial<Record<"MARKET_LIVE_MOVES_ANY_HOUR", "on">> =
       stage === TEST ? { MARKET_LIVE_MOVES_ANY_HOUR: "on" } : {}
+    // Decision: Production alone redirects other hosts to its Stage URL
+    // (apps/dashboard/docs/adr/0135-production-alone-redirects-other-hosts-to-its-stage-url.md)
+    const toStageUrl: Partial<Record<"REDIRECT_TO_STAGE_URL", "on">> =
+      (yield* stageKind(stage)) === "production"
+        ? { REDIRECT_TO_STAGE_URL: "on" }
+        : {}
     // The stage's crons and their Decisions: src/server/stage-crons.ts.
     const crons = stageCrons((yield* stageKind(stage)) === "production")
     return {
@@ -279,6 +285,7 @@ export const Website = Cloudflare.Website.Vite(
         ...google,
         ...clockOffset,
         ...testMoves,
+        ...toStageUrl,
       },
     }
   })

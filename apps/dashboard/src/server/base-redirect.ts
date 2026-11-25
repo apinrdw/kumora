@@ -1,8 +1,14 @@
-// A request on the dashboard's own host for a path outside the dashboard base
-// path: a 301 to the same path, query kept, under it. An old bookmark and the
-// host's root then still open the dashboard. The Worker entry (src/worker.ts)
-// answers it before Market Live and TanStack Start, and the dev server
-// (vite.config.ts) before Vite's own base check, which would answer 404.
+// The Worker entry's redirects (src/worker.ts), answered before Market Live
+// and TanStack Start.
+//
+// - Into the base path: a request on the dashboard's own host for a path
+//   outside the dashboard base path gets a 301 to the same path, query kept,
+//   under it. An old bookmark and the host's root then still open the
+//   dashboard. The dev server (vite.config.ts) runs it too, before Vite's own
+//   base check, which would answer 404.
+// - To the Stage URL, on Production only: any other host, its old workers.dev
+//   URL among them, gets a 301 to the Stage URL's host, the path joined under
+//   the base path and the query kept.
 import { DashboardBasePath, pathUnderBase } from "@workspace/client/base-path"
 import { Effect, Option } from "effect"
 
@@ -10,10 +16,46 @@ import { Effect, Option } from "effect"
 // endpoint (apps/e2e/support/archive-bucket.ts).
 const CLOUDFLARE_PATH = "/cdn-cgi/"
 
+// The bindings the entry's redirects read.
+// Decision: Production alone redirects other hosts to its Stage URL
+// (apps/dashboard/docs/adr/0135-production-alone-redirects-other-hosts-to-its-stage-url.md)
+export interface RedirectEnv {
+  readonly DASHBOARD_URL: string
+  readonly REDIRECT_TO_STAGE_URL?: "on"
+}
+
+const underBase = Effect.fnUntraced(function* (pathname: string) {
+  return Option.isSome(yield* pathUnderBase(pathname))
+    ? pathname
+    : `${DashboardBasePath}${pathname}`
+})
+
 export const redirectIntoBase = Effect.fnUntraced(function* (request: Request) {
   const url = new URL(request.url)
   if (url.pathname.startsWith(CLOUDFLARE_PATH)) return Option.none()
   if (Option.isSome(yield* pathUnderBase(url.pathname))) return Option.none()
-  url.pathname = `${DashboardBasePath}${url.pathname}`
+  url.pathname = yield* underBase(url.pathname)
   return Option.some(Response.redirect(url.href, 301))
+})
+
+const redirectToStageUrl = Effect.fnUntraced(function* (
+  request: Request,
+  env: RedirectEnv
+) {
+  const url = new URL(request.url)
+  const stage = new URL(env.DASHBOARD_URL)
+  if (env.REDIRECT_TO_STAGE_URL === undefined || url.host === stage.host)
+    return Option.none()
+  const path = yield* underBase(url.pathname)
+  return Option.some(
+    Response.redirect(`${stage.origin}${path}${url.search}`, 301)
+  )
+})
+
+export const entryRedirect = Effect.fnUntraced(function* (
+  request: Request,
+  env: RedirectEnv
+) {
+  const toStage = yield* redirectToStageUrl(request, env)
+  return Option.isSome(toStage) ? toStage : yield* redirectIntoBase(request)
 })

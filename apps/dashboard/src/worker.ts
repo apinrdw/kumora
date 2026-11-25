@@ -1,11 +1,11 @@
-// The dashboard Worker's entry (`main` in alchemy.run.ts): the redirect into
-// the dashboard base path first, then Market Live's sockets, then TanStack
+// The dashboard Worker's entry (`main` in alchemy.run.ts): the redirects to
+// the Stage URL and into the dashboard base path first, then Market Live's sockets, then TanStack
 // Start. It also exports the Durable Object and
 // Workflow classes the stack declares.
 import startEntry from "@tanstack/react-start/server-entry"
 import { Effect, Option } from "effect"
 
-import { redirectIntoBase } from "./server/base-redirect.ts"
+import { entryRedirect, type RedirectEnv } from "./server/base-redirect.ts"
 import { runCron } from "./server/crons.ts"
 import { marketLiveRoute } from "./server/market-live/entry.ts"
 import { respond } from "./server/market-live/respond.ts"
@@ -25,8 +25,8 @@ export { ShareholdingArchive } from "./server/shareholding/workflow.ts"
 export default {
   // Cloudflare calls `fetch` and wants a Promise, so it runs the
   // route through the runner. Picking the route is pure and synchronous.
-  fetch: (request: Request) =>
-    Option.match(Effect.runSync(redirectIntoBase(request)), {
+  fetch: (request: Request, env: RedirectEnv) =>
+    Option.match(Effect.runSync(entryRedirect(request, env)), {
       onSome: (redirect) => redirect,
       onNone: () =>
         Option.match(Effect.runSync(marketLiveRoute(request)), {
