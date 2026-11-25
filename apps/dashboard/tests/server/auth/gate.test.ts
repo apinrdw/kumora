@@ -1,9 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Unauthorized } from "@workspace/server"
 import { Effect } from "effect"
+import { DatabaseSync } from "node:sqlite"
 
 import { gatePage, verifyScreen } from "@/server/auth/gate"
 import type { Mail } from "@/server/auth/mailer"
+
+import { replayMigrations } from "../../../scripts/auth-schema.ts"
 
 import {
   ADMIN_EMAIL,
@@ -125,6 +128,35 @@ describe("gatePage", () => {
       }).pipe(Effect.provide(layer))
     }
   )
+
+  // Each statement is a round trip to AuthDb's primary, about 90 ms from
+  // Singapore to apac's Tokyo (apinrdw/kumora#658).
+  it.effect("reads an admin page's session in one statement", () => {
+    const database = new DatabaseSync(":memory:")
+    replayMigrations(database)
+    const statements: Array<string> = []
+    const counted = new Proxy(database, {
+      get: (target, key) => {
+        const value: unknown = Reflect.get(target, key, target)
+        if (key === "prepare")
+          return (sql: string) => {
+            statements.push(sql)
+            return target.prepare(sql)
+          }
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    const { layer, mails } = seam(undefined, {}, { database: counted })
+    return Effect.gen(function* () {
+      const cookie = yield* verified(mails)(ADMIN_EMAIL)
+      statements.length = 0
+      yield* gatePage(headers(cookie), {
+        href: "/admin/users",
+        feature: "admin",
+      })
+      assert.strictEqual(statements.length, 1, statements.join("\n"))
+    }).pipe(Effect.provide(layer))
+  })
 })
 
 describe("verifyScreen", () => {
