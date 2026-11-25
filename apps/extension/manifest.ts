@@ -37,8 +37,10 @@ export const manifest = (
   permissions: ["storage", "alarms", "cookies"],
   // Decision: exact host permissions only, never a *.workers.dev wildcard
   // (apps/extension/docs/adr/0001-host-permissions-name-exact-hosts-only.md)
+  // An origin, though the dashboard's URL may carry a path: match patterns
+  // name hosts, and its paths all sit under it.
   host_permissions: [
-    `${productionDashboard}/*`,
+    `${new URL(productionDashboard).origin}/*`,
     STOCKBIT_TAB,
     STOCKBIT_COOKIES,
     AJAIB_TAB,
