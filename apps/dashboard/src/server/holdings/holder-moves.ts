@@ -1,20 +1,23 @@
 // The Holder moves page's read (spec apinrdw/kumora#673, "Reading";
-// apinrdw/kumora#679): for one period of one kind, the stocks whose holders
-// may have moved on it or on one of the rail's periods, each with the
-// periods its moves and trends need. The Holder moves view model
+// apinrdw/kumora#679, #680): for one period of one kind, the stocks whose
+// holders may have moved on it or on one of the rail's periods, each with
+// the periods its moves and trends need. The Holder moves view model
 // (lib/holder-moves.ts) finds the moves in them by the rules Daily holders
-// uses.
+// (a trading day) or Major holders (an above-1% month) uses.
 import { StockCode } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
-import { MOVE_KINDS, type MoveKind, RAIL_PERIODS } from "@/domain/holdings"
+import { type MoveKind, RAIL_PERIODS } from "@/domain/holdings"
 
-import { HoldingsDb } from "./db.ts"
+import { HoldingsDb, type HoldingsDbError } from "./db.ts"
 import {
+  above1Months,
+  Above1HoldingRow,
   Above5AccountRow,
   above5Days,
   Above5HolderRow,
   DailyHoldersDay,
+  MajorHoldersMonth,
 } from "./stock-page.ts"
 
 // The periods a trend covers, ending at the selected one; its oldest bar
@@ -32,16 +35,32 @@ const MovesStock = Schema.Struct({
 })
 export type MovesStock = typeof MovesStock.Type
 
-const HolderMovesRead = Schema.Struct({
-  kind: Schema.Literals(MOVE_KINDS),
-  // Every parsed period, oldest first.
-  periods: Schema.Array(Schema.String),
-  // The period asked for when parsed, else the newest; undefined when none
-  // is parsed.
-  period: Schema.UndefinedOr(Schema.String),
-  stocks: Schema.Array(MovesStock),
+// A stock that may have moved, and its above-1% months the page needs,
+// oldest first, as the Daily stock's days are. A month without a row of it
+// has no holders.
+const MonthlyMovesStock = Schema.Struct({
+  code: StockCode,
+  // As the newest of its months prints it.
+  issuerName: Schema.String,
+  months: Schema.Array(MajorHoldersMonth),
 })
-export type HolderMovesRead = typeof HolderMovesRead.Type
+export type MonthlyMovesStock = typeof MonthlyMovesStock.Type
+
+const readOf = <K extends MoveKind, S extends Schema.Top>(kind: K, stock: S) =>
+  Schema.Struct({
+    kind: Schema.Literal(kind),
+    // Every parsed period, oldest first.
+    periods: Schema.Array(Schema.String),
+    // The period asked for when parsed, else the newest; undefined when
+    // none is parsed.
+    period: Schema.UndefinedOr(Schema.String),
+    stocks: Schema.Array(stock),
+  })
+const DailyMovesRead = readOf("daily", MovesStock)
+const MonthlyMovesRead = readOf("monthly", MonthlyMovesStock)
+export type HolderMovesRead =
+  | typeof DailyMovesRead.Type
+  | typeof MonthlyMovesRead.Type
 
 // ?1 is the day asked for, or NULL. A stock may have moved on a day when
 // its blocks (by place in the stock-day, key and shares) or their accounts
@@ -122,18 +141,27 @@ const NEED = `
     WHERE m.data_date = (SELECT data_date FROM selected)
   )`
 
+const byStock = <R extends { readonly stock_code: StockCode }>(
+  rows: ReadonlyArray<R>
+) =>
+  Effect.sync(() => {
+    const grouped = new Map<StockCode, Array<R>>()
+    for (const row of rows)
+      grouped.set(row.stock_code, [...(grouped.get(row.stock_code) ?? []), row])
+    return grouped
+  })
+
 const NeedRow = Schema.Struct({
   stock_code: StockCode,
   data_date: Schema.String,
 })
 
-// The days `kind` has parsed, and for `period` (`YYYY-MM-DD`, or undefined
+// The parsed above-5% days, and for `period` (`YYYY-MM-DD`, or undefined
 // for the newest) the stocks that may have moved on it or on a rail day.
 // One batch, so a parse run replacing a day mid-read can't mix two
 // versions of it. Its rows are at most the selected day's 21 and the rail's
 // 20 days of the moving stocks' blocks and accounts.
-export const holderMovesRead = Effect.fnUntraced(function* (
-  kind: MoveKind,
+const dailyMovesRead = Effect.fnUntraced(function* (
   period: string | undefined
 ) {
   const [dayRows = [], needRows = [], holderRows = [], accountRows = []] =
@@ -175,18 +203,6 @@ export const holderMovesRead = Effect.fnUntraced(function* (
       Schema.Struct({ ...Above5AccountRow.fields, stock_code: StockCode })
     )
   )(accountRows)
-  const byStock = <R extends { readonly stock_code: StockCode }>(
-    rows: ReadonlyArray<R>
-  ) =>
-    Effect.sync(() => {
-      const grouped = new Map<StockCode, Array<R>>()
-      for (const row of rows)
-        grouped.set(row.stock_code, [
-          ...(grouped.get(row.stock_code) ?? []),
-          row,
-        ])
-      return grouped
-    })
   const needed = yield* byStock(
     Schema.decodeUnknownSync(Schema.Array(NeedRow))(needRows)
   )
@@ -207,10 +223,151 @@ export const holderMovesRead = Effect.fnUntraced(function* (
       } satisfies MovesStock
     })
   )
-  return HolderMovesRead.make({
-    kind,
+  return DailyMovesRead.make({
+    kind: "daily",
     periods,
     period: periods.includes(period ?? "") ? period : periods.at(-1),
     stocks,
   })
 })
+
+// ?1 is the month asked for (`YYYY-MM`), or NULL. A stock may have moved in
+// a month when it has rows in it and the month before and its holders (by
+// holder key and summed %, Major holders' change rule) differ between them:
+// otherwise each is unchanged, or the month before is a gap. Only those
+// stocks' months are read: the selected month's 20 before it for its
+// movers' trends, and each rail month's month before for its counts.
+const MONTHLY_NEED = `
+  WITH month AS (
+    SELECT data_date, LAG(data_date) OVER (ORDER BY data_date) AS prev
+    FROM above_1_month
+  ),
+  selected AS (
+    SELECT COALESCE(
+      (SELECT data_date FROM above_1_month
+        WHERE substr(data_date, 1, 7) = ?1),
+      (SELECT MAX(data_date) FROM above_1_month)
+    ) AS data_date
+  ),
+  paired AS (
+    SELECT data_date, prev,
+      ROW_NUMBER() OVER (ORDER BY data_date DESC) AS age
+    FROM month WHERE prev IS NOT NULL
+  ),
+  shown AS (
+    SELECT data_date, prev FROM paired
+    WHERE age <= ${RAIL_PERIODS}
+      OR data_date = (SELECT data_date FROM selected)
+  ),
+  mark AS (
+    SELECT data_date, stock_code, holder_key,
+      SUM(percentage_hundredths) AS hundredths
+    FROM above_1_holding
+    WHERE data_date IN (SELECT data_date FROM shown UNION SELECT prev FROM shown)
+    GROUP BY data_date, stock_code, holder_key
+  ),
+  now_mark AS (
+    SELECT s.data_date, m.stock_code, m.holder_key, m.hundredths
+    FROM shown s JOIN mark m ON m.data_date = s.data_date
+  ),
+  prev_mark AS (
+    SELECT s.data_date, m.stock_code, m.holder_key, m.hundredths
+    FROM shown s JOIN mark m ON m.data_date = s.prev
+  ),
+  moved AS (
+    SELECT data_date, stock_code FROM (
+      SELECT data_date, stock_code
+      FROM (SELECT * FROM now_mark EXCEPT SELECT * FROM prev_mark)
+      UNION
+      SELECT data_date, stock_code
+      FROM (SELECT * FROM prev_mark EXCEPT SELECT * FROM now_mark)
+    )
+    INTERSECT SELECT data_date, stock_code FROM now_mark
+    INTERSECT SELECT data_date, stock_code FROM prev_mark
+  ),
+  trend_month AS (
+    SELECT data_date FROM above_1_month
+    WHERE data_date <= (SELECT data_date FROM selected)
+    ORDER BY data_date DESC LIMIT ${TREND_PERIODS + 1}
+  ),
+  need AS (
+    SELECT m.stock_code, s.data_date
+    FROM moved m JOIN shown s USING (data_date)
+    UNION
+    SELECT m.stock_code, s.prev FROM moved m JOIN shown s USING (data_date)
+    UNION
+    SELECT m.stock_code, t.data_date FROM moved m, trend_month t
+    WHERE m.data_date = (SELECT data_date FROM selected)
+  )`
+
+// The parsed above-1% months, and for `month` (`YYYY-MM`, or undefined for
+// the newest) the stocks that may have moved in it or in a rail month. One
+// batch, as the Daily read's.
+const monthlyMovesRead = Effect.fnUntraced(function* (
+  month: string | undefined
+) {
+  const [monthRows = [], needRows = [], holdingRows = []] =
+    yield* (yield* HoldingsDb).batch([
+      {
+        sql: "SELECT data_date FROM above_1_month ORDER BY data_date",
+        params: [],
+      },
+      {
+        sql: `${MONTHLY_NEED} SELECT stock_code, data_date FROM need
+        ORDER BY stock_code, data_date`,
+        params: [month ?? null],
+      },
+      {
+        sql: `${MONTHLY_NEED} SELECT h.stock_code, h.data_date, h.issuer_name,
+          h.holder_key, h.investor_name, h.classification, h.investor_type,
+          h.origin, h.domicile, h.controller, h.scripless, h.scrip, h.total,
+          h.percentage_hundredths
+        FROM above_1_holding h JOIN need USING (stock_code, data_date)
+        ORDER BY h.stock_code, h.data_date, h.seq`,
+        params: [month ?? null],
+      },
+    ])
+  const periods = Schema.decodeUnknownSync(
+    Schema.Array(Schema.Struct({ data_date: Schema.String }))
+  )(monthRows).map(({ data_date }) => data_date)
+  const holdings = Schema.decodeUnknownSync(
+    Schema.Array(
+      Schema.Struct({
+        ...Above1HoldingRow.fields,
+        stock_code: StockCode,
+        issuer_name: Schema.String,
+      })
+    )
+  )(holdingRows)
+  const needed = yield* byStock(
+    Schema.decodeUnknownSync(Schema.Array(NeedRow))(needRows)
+  )
+  const holdingsOf = yield* byStock(holdings)
+  const stocks = yield* Effect.forEach(
+    needed,
+    Effect.fnUntraced(function* ([code, months]) {
+      const rows = holdingsOf.get(code) ?? []
+      return {
+        code,
+        issuerName: rows.at(-1)?.issuer_name ?? "",
+        months: yield* above1Months(months, rows),
+      } satisfies MonthlyMovesStock
+    })
+  )
+  return MonthlyMovesRead.make({
+    kind: "monthly",
+    periods,
+    period:
+      periods.find((each) => each.slice(0, 7) === month) ?? periods.at(-1),
+    stocks,
+  })
+})
+
+// The periods `kind` has parsed, and for `period` (Daily's `YYYY-MM-DD` or
+// Monthly's `YYYY-MM`, or undefined for the newest) the stocks that may have
+// moved in it or in a rail period.
+export const holderMovesRead = (
+  kind: MoveKind,
+  period: string | undefined
+): Effect.Effect<HolderMovesRead, HoldingsDbError, HoldingsDb> =>
+  kind === "daily" ? dailyMovesRead(period) : monthlyMovesRead(period)

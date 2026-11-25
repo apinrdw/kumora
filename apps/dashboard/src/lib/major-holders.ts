@@ -10,6 +10,8 @@ import {
   type Listed,
   type Move,
   type MoveRule,
+  trendOf,
+  type TrendCell,
   type Unlisted,
 } from "@/lib/holder-identity"
 import type {
@@ -44,6 +46,8 @@ export interface HolderLine {
   readonly shareChange: number | undefined
   // An earlier holder's: the month after its last listing.
   readonly offListSince: string | undefined
+  // Its change in shares over the last months up to this one.
+  readonly trend: ReadonlyArray<TrendCell>
 }
 
 // What the month's changes are against: the report month before, or why
@@ -122,7 +126,8 @@ const lineOf = Effect.fnUntraced(function* (
   now: Above1Holder,
   before: Above1Holder | undefined,
   change: Move | undefined,
-  offListSince: string | undefined
+  offListSince: string | undefined,
+  trend: ReadonlyArray<TrendCell>
 ) {
   const largest = yield* largestRow(now)
   return {
@@ -141,16 +146,9 @@ const lineOf = Effect.fnUntraced(function* (
       before && now.percentageHundredths - before.percentageHundredths,
     shareChange: before && now.total - before.total,
     offListSince,
+    trend,
   } satisfies HolderLine
 })
-
-const listedLine = ({ holder, now, before, move }: Listed<Above1Holder>) =>
-  lineOf(holder, now, before, move, undefined)
-
-const unlistedLine = (
-  { holder, last }: Unlisted<Above1Holder>,
-  offListSince: string | undefined
-) => lineOf(holder, last, undefined, "off list", offListSince)
 
 const byPercentage = (lines: ReadonlyArray<HolderLine>) =>
   Effect.succeed(
@@ -167,8 +165,40 @@ export const majorHolders = Effect.fnUntraced(function* (
   const selected =
     held.find(({ dataDate }) => dataDate.slice(0, 7) === month) ?? held.at(-1)
   if (selected === undefined) return undefined
-  const moves = (yield* monthMoves(months))[months.indexOf(selected)]
+  const every = yield* monthMoves(months)
+  const index = months.indexOf(selected)
+  const moves = every[index]
   if (moves === undefined) return undefined
+  const trend = (holder: HolderId) =>
+    trendOf(every, index, holder, BY_PERCENTAGE)
+  const listedLine = Effect.fnUntraced(function* ({
+    holder,
+    now,
+    before,
+    move,
+  }: Listed<Above1Holder>) {
+    return yield* lineOf(
+      holder,
+      now,
+      before,
+      move,
+      undefined,
+      yield* trend(holder)
+    )
+  })
+  const unlistedLine = Effect.fnUntraced(function* (
+    { holder, last }: Unlisted<Above1Holder>,
+    offListSince: string | undefined
+  ) {
+    return yield* lineOf(
+      holder,
+      last,
+      undefined,
+      "off list",
+      offListSince,
+      yield* trend(holder)
+    )
+  })
   const comparison: Comparison =
     moves.comparison.kind === "first"
       ? moves.comparison

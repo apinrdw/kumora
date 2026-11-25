@@ -132,7 +132,7 @@ export type Above1Holder = typeof Above1Holder.Type
 
 // An above-1% report month, its holders in the order of their first row;
 // none when the report has no row for the stock.
-const MajorHoldersMonth = Schema.Struct({
+export const MajorHoldersMonth = Schema.Struct({
   dataDate: Schema.String,
   holders: Schema.Array(Above1Holder),
 })
@@ -313,7 +313,7 @@ const ABOVE_1_HOLDINGS = `
   ORDER BY data_date, seq`
 
 const Above1MonthRow = Schema.Struct({ data_date: Schema.String })
-const Above1HoldingRow = Schema.Struct({
+export const Above1HoldingRow = Schema.Struct({
   data_date: Schema.String,
   holder_key: Schema.String,
   investor_name: Schema.String,
@@ -328,7 +328,7 @@ const Above1HoldingRow = Schema.Struct({
   percentage_hundredths: Schema.Number,
 })
 
-type Above1HoldingRow = typeof Above1HoldingRow.Type
+export type Above1HoldingRow = typeof Above1HoldingRow.Type
 
 // A stored row as the report published it.
 const publishedRow = (row: Above1HoldingRow) =>
@@ -344,7 +344,7 @@ const publishedRow = (row: Above1HoldingRow) =>
   })
 
 // Each above-1% month's rows grouped into holders by holder key.
-const majorHolders = Effect.fnUntraced(function* (
+export const above1Months = Effect.fnUntraced(function* (
   monthRows: ReadonlyArray<typeof Above1MonthRow.Type>,
   holdingRows: ReadonlyArray<Above1HoldingRow>
 ) {
@@ -696,7 +696,7 @@ export const stockPage = Effect.fnUntraced(function* (
         holderSizeHoldingRows
       )
     ),
-    majorHolders: yield* majorHolders(
+    majorHolders: yield* above1Months(
       Schema.decodeUnknownSync(Schema.Array(Above1MonthRow))(above1MonthRows),
       Schema.decodeUnknownSync(Schema.Array(Above1HoldingRow))(
         above1HoldingRows

@@ -219,6 +219,7 @@ describe("Holder moves, Daily", () => {
   it.effect("reads only the stocks whose holders changed on a shown day", () =>
     Effect.gen(function* () {
       const read = yield* readOf(yield* parsed)
+      if (read.kind !== "daily") return assert.fail(read.kind)
       // CPGT and MAMIP hold the same blocks every day.
       assert.deepStrictEqual(
         read.stocks.map(({ code }) => code),

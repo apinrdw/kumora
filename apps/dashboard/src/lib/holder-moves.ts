@@ -1,19 +1,25 @@
 // The Holder moves page's view model (spec apinrdw/kumora#673, "Holder
-// moves"; apinrdw/kumora#679): from the Holder moves read, every holder that
-// moved in the selected period across the market, and the rail's periods'
-// counts, each by the Daily holders view model's rules, so the page and a
-// stock's Daily holders never disagree.
+// moves"; apinrdw/kumora#679, #680): from the Holder moves read, every
+// holder that moved in the selected period across the market, and the
+// rail's periods' counts, each by the Daily holders view model's rules for a
+// day or Major holders' for a month, so the page and a stock's panel never
+// disagree.
 import type { BrokerCode, StockCode } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { type MoveKind, RAIL_PERIODS } from "@/domain/holdings"
 import { dailyHolders, type HoldersDay } from "@/lib/daily-holders"
 import type { HolderId, Move, TrendCell } from "@/lib/holder-identity"
+import { majorHolders, type MonthHolders } from "@/lib/major-holders"
 import type {
   HolderMovesRead,
+  MonthlyMovesStock,
   MovesStock,
 } from "@/server/holdings/holder-moves"
-import type { DailyHoldersDay } from "@/server/holdings/stock-page"
+import type {
+  DailyHoldersDay,
+  MajorHoldersMonth,
+} from "@/server/holdings/stock-page"
 
 // What a filter button shows: every move, or one kind of move.
 const MOVE_FILTERS = ["all", "new", "up", "down", "off list"] as const
@@ -63,48 +69,155 @@ export interface HolderMoves {
 
 const NO_MOVES: MoveCounts = { new: 0, up: 0, down: 0, offList: 0 }
 
-// The stock's days that run, one parsed period after another, up to `period`
-// and at most `length` long; none when it doesn't have that period.
-const runTo = (
-  stock: MovesStock,
+// The stock's periods that run, one parsed period after another, up to
+// `period` and at most `length` long; none when it doesn't have that period.
+const runTo = <P extends { readonly dataDate: string }>(
+  held: ReadonlyArray<P>,
   periods: ReadonlyArray<string>,
   period: string,
   length: number
 ) =>
   Effect.sync(() => {
-    const at = stock.days.findIndex(({ dataDate }) => dataDate === period)
+    const at = held.findIndex(({ dataDate }) => dataDate === period)
     if (at === -1) return []
     let start = at
     while (
       start > 0 &&
       at - start + 1 < length &&
-      periods.indexOf(stock.days[start - 1]?.dataDate ?? "") ===
-        periods.indexOf(stock.days[start]?.dataDate ?? "") - 1
+      periods.indexOf(held[start - 1]?.dataDate ?? "") ===
+        periods.indexOf(held[start]?.dataDate ?? "") - 1
     )
       start -= 1
-    return stock.days.slice(start, at + 1)
+    return held.slice(start, at + 1)
   })
 
-const countsOn = Effect.fnUntraced(function* (
-  stocks: ReadonlyArray<MovesStock>,
+// A stock of the read: its lines in the selected period, and its counts in
+// any period of the rail, each by its kind's panel.
+interface StockMoves {
+  readonly lines: Effect.Effect<ReadonlyArray<MoveLine>>
+  readonly countsOn: (period: string) => Effect.Effect<MoveCounts | undefined>
+}
+
+const moved = <M extends Move | undefined>(
+  move: M
+): move is Exclude<M, "unchanged" | undefined> =>
+  move !== undefined && move !== "unchanged"
+
+// A Daily stock, by its Daily holders.
+const dailyStock = (
+  stock: MovesStock,
   periods: ReadonlyArray<string>,
   period: string
-) {
-  let sum = NO_MOVES
-  for (const stock of stocks) {
-    const pair = yield* runTo(stock, periods, period, 2)
-    const held = yield* dailyHolders(pair, period)
-    const counts = held?.dataDate === period ? held.counts : undefined
-    if (counts === undefined) continue
-    sum = {
-      new: sum.new + counts.new,
-      up: sum.up + counts.up,
-      down: sum.down + counts.down,
-      offList: sum.offList + counts.offList,
-    }
-  }
-  return sum
+): StockMoves => ({
+  lines: Effect.gen(function* () {
+    // The selected day, the trend's 19 days before it, and the day before
+    // those for the oldest bar.
+    const run: ReadonlyArray<DailyHoldersDay> = yield* runTo(
+      stock.days,
+      periods,
+      period,
+      TREND_RUN
+    )
+    const held: HoldersDay | undefined = yield* dailyHolders(run, period)
+    if (held?.dataDate !== period) return []
+    return [...held.listed, ...held.offList].flatMap((line): Array<MoveLine> =>
+      moved(line.move)
+        ? [
+            {
+              code: stock.code,
+              issuerName: stock.issuerName,
+              holder: line.holder,
+              name: line.name,
+              aliases: line.aliases,
+              renamedFrom: line.renamedFrom,
+              move: line.move,
+              through: line.through,
+              shareChange: line.shareChange,
+              stake: line.stake,
+              percentageChange: line.percentageChange,
+              trend: line.trend,
+            },
+          ]
+        : []
+    )
+  }),
+  countsOn: Effect.fnUntraced(function* (each) {
+    const held = yield* dailyHolders(
+      yield* runTo(stock.days, periods, each, 2),
+      each
+    )
+    return held?.dataDate === each ? held.counts : undefined
+  }),
 })
+
+// An above-1% month's holders of the stock, by its Major holders; undefined
+// when it has none in that month.
+const majorHoldersIn = Effect.fnUntraced(function* (
+  months: ReadonlyArray<MajorHoldersMonth>,
+  period: string
+) {
+  const held: MonthHolders | undefined = yield* majorHolders(
+    months,
+    period.slice(0, 7)
+  )
+  return held?.dataDate === period ? held : undefined
+})
+
+// A Monthly stock, by its Major holders: no Through, and the stake under
+// 1% on the side it isn't listed.
+const monthlyStock = (
+  stock: MonthlyMovesStock,
+  periods: ReadonlyArray<string>,
+  period: string
+): StockMoves => ({
+  lines: Effect.gen(function* () {
+    const held = yield* majorHoldersIn(
+      yield* runTo(stock.months, periods, period, TREND_RUN),
+      period
+    )
+    if (held === undefined) return []
+    return [...held.listed, ...held.offList].flatMap((line): Array<MoveLine> =>
+      moved(line.change)
+        ? [
+            {
+              code: stock.code,
+              issuerName: stock.issuerName,
+              holder: line.holder,
+              name: line.name,
+              aliases: [],
+              renamedFrom: undefined,
+              move: line.change,
+              through: [],
+              shareChange: line.shareChange,
+              stake:
+                line.change === "off list"
+                  ? { before: line.percentageHundredths }
+                  : {
+                      before:
+                        line.percentageChange === undefined
+                          ? undefined
+                          : line.percentageHundredths - line.percentageChange,
+                      now: line.percentageHundredths,
+                    },
+              percentageChange: line.percentageChange,
+              trend: line.trend,
+            },
+          ]
+        : []
+    )
+  }),
+  countsOn: Effect.fnUntraced(function* (each) {
+    const held = yield* majorHoldersIn(
+      yield* runTo(stock.months, periods, each, 2),
+      each
+    )
+    return held?.counts
+  }),
+})
+
+// The selected period, the trend's 19 before it, and the one before those
+// for the oldest bar.
+const TREND_RUN = 21
 
 const stakeOf = ({ stake }: MoveLine) => stake.now ?? stake.before ?? 0
 
@@ -113,38 +226,13 @@ const stakeOf = ({ stake }: MoveLine) => stake.now ?? stake.before ?? 0
 export const holderMovesView = Effect.fnUntraced(function* (
   read: HolderMovesRead
 ): Effect.fn.Return<HolderMoves | undefined> {
-  const { period, periods, stocks } = read
+  const { period, periods } = read
   if (period === undefined) return undefined
-  const lines: Array<MoveLine> = []
-  for (const stock of stocks) {
-    // The selected day, the trend's 19 days before it, and the day before
-    // those for the oldest bar.
-    const run: ReadonlyArray<DailyHoldersDay> = yield* runTo(
-      stock,
-      periods,
-      period,
-      21
-    )
-    const held: HoldersDay | undefined = yield* dailyHolders(run, period)
-    if (held?.dataDate !== period) continue
-    for (const line of [...held.listed, ...held.offList]) {
-      if (line.move === undefined || line.move === "unchanged") continue
-      lines.push({
-        code: stock.code,
-        issuerName: stock.issuerName,
-        holder: line.holder,
-        name: line.name,
-        aliases: line.aliases,
-        renamedFrom: line.renamedFrom,
-        move: line.move,
-        through: line.through,
-        shareChange: line.shareChange,
-        stake: line.stake,
-        percentageChange: line.percentageChange,
-        trend: line.trend,
-      })
-    }
-  }
+  const stocks: ReadonlyArray<StockMoves> =
+    read.kind === "daily"
+      ? read.stocks.map((stock) => dailyStock(stock, periods, period))
+      : read.stocks.map((stock) => monthlyStock(stock, periods, period))
+  const lines = (yield* Effect.forEach(stocks, (stock) => stock.lines)).flat()
   lines.sort((a, b) => a.code.localeCompare(b.code) || stakeOf(b) - stakeOf(a))
   const counted = (move: MoveLine["move"]) =>
     lines.filter((line) => line.move === move).length
@@ -163,10 +251,18 @@ export const holderMovesView = Effect.fnUntraced(function* (
     rail: yield* Effect.forEach(
       periods.slice(1).slice(-RAIL_PERIODS),
       Effect.fnUntraced(function* (each) {
-        return {
-          period: each,
-          counts: yield* countsOn(stocks, periods, each),
+        let counts = NO_MOVES
+        for (const stock of stocks) {
+          const of = yield* stock.countsOn(each)
+          if (of === undefined) continue
+          counts = {
+            new: counts.new + of.new,
+            up: counts.up + of.up,
+            down: counts.down + of.down,
+            offList: counts.offList + of.offList,
+          }
         }
+        return { period: each, counts }
       })
     ),
   } satisfies HolderMoves

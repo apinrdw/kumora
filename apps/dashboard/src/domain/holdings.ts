@@ -262,8 +262,9 @@ export const Classification = Schema.Literals(
 )
 export type Classification = typeof Classification.Type
 
-// What Holder moves shows: Daily is above-5% holders by trading day.
-export const MOVE_KINDS = ["daily"] as const
+// What Holder moves shows: Daily is above-5% holders by trading day,
+// Monthly ≥1% holders by above-1% report month.
+export const MOVE_KINDS = ["daily", "monthly"] as const
 export type MoveKind = (typeof MOVE_KINDS)[number]
 
 // The periods Holder moves' rail shows, newest last, each with one before
