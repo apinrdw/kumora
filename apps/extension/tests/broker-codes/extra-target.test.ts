@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import { StageUrl } from "@workspace/deploy/stage-url"
 import {
   BrokerCode,
   BrokerCodesProtocolVersion,
@@ -25,20 +26,19 @@ import type {
   WalkResult,
 } from "../../src/worker/broker-codes/run-queue.ts"
 import { makeTargetHold } from "../../src/worker/broker-codes/target-hold.ts"
-import { DashboardUrl } from "../../src/worker/settings.ts"
 
 const DAY = WibDate.make("2026-11-12")
 
 const PRODUCTION: BrokerCodesTarget = {
-  url: DashboardUrl.make("https://dashboard.example"),
+  url: StageUrl.make("https://dashboard.example"),
   token: "production-token",
 }
 const STAGING: BrokerCodesTarget = {
-  url: DashboardUrl.make("https://staging.example"),
+  url: StageUrl.make("https://staging.example"),
   token: "staging-token",
 }
 const PREVIEW: BrokerCodesTarget = {
-  url: DashboardUrl.make("https://preview.example"),
+  url: StageUrl.make("https://preview.example"),
   token: "preview-token",
 }
 
@@ -369,7 +369,7 @@ describe("the extra target", () => {
           extra,
           settings: Option.some({
             ...STAGING,
-            url: DashboardUrl.make("https://staging.example/dashboard"),
+            url: StageUrl.make("https://staging.example/dashboard"),
           }),
         })
         yield* fakeWalk(target.post).walk(DAY)

@@ -1,18 +1,16 @@
 // The extra target's Ajaib catch-up position over a chrome.storage.local
 // kept in memory: another extra target starts its own.
 import { afterEach, assert, describe, it, vi } from "@effect/vitest"
+import type { StageUrl } from "@workspace/deploy/stage-url"
 import { WibDate } from "@workspace/relay"
 import { Effect, Option } from "effect"
 
 import type { AjaibWalkPosition } from "../../src/worker/broker-codes/ajaib-walk.ts"
-import {
-  ajaibCatchUpStore,
-  type DashboardUrl,
-} from "../../src/worker/settings.ts"
+import { ajaibCatchUpStore } from "../../src/worker/settings.ts"
 
 const DAY = WibDate.make("2026-11-12")
-const STAGING = "https://staging.example.com" as DashboardUrl
-const PREVIEW = "https://preview.example.com" as DashboardUrl
+const STAGING = "https://staging.example.com" as StageUrl
+const PREVIEW = "https://preview.example.com" as StageUrl
 
 const memoryLocal = () => {
   const memory: Record<string, unknown> = {}

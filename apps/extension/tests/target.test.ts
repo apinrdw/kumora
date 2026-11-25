@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import { StageUrl } from "@workspace/deploy/stage-url"
 import {
   EncodedIngestUp,
   IngestCloseCode,
@@ -13,7 +14,7 @@ import { Effect, Layer, PubSub, SubscriptionRef } from "effect"
 import * as Socket from "effect/socket/Socket"
 import { TestClock } from "effect/testing"
 
-import { DashboardUrl, type TargetState } from "../src/worker/settings.ts"
+import { type TargetState } from "../src/worker/settings.ts"
 import { runTarget } from "../src/worker/target.ts"
 
 type Listener = (event: Socket.WebSocketEvent) => void
@@ -61,13 +62,13 @@ class FakeIngest implements Socket.WebSocketLike {
   }
 }
 
-const DASHBOARD = DashboardUrl.make("http://localhost:3001")
+const DASHBOARD = StageUrl.make("http://localhost:3001")
 
 // `catchUp`: what every fresh socket is sent after the token. With
 // `handshake`, the first socket opens only when the test says. The dashboard
 // is DASHBOARD unless `url` names another.
 const harness = Effect.fnUntraced(function* (options?: {
-  readonly url?: DashboardUrl
+  readonly url?: StageUrl
   readonly catchUp?: ReadonlyArray<EncodedIngestUp>
   readonly handshake?: boolean
 }) {
@@ -131,7 +132,7 @@ describe("a target's ingest socket", () => {
   it.effect("opens under a dashboard served at a path", () =>
     Effect.gen(function* () {
       const { sockets, settle } = yield* harness({
-        url: DashboardUrl.make("https://staging.example/dashboard"),
+        url: StageUrl.make("https://staging.example/dashboard"),
       })
       yield* settle
       assert.strictEqual(

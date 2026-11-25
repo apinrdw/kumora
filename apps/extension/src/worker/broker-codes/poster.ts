@@ -1,6 +1,7 @@
 // Posting broker codes batches to a target (spec apinrdw/kumora#244, "The
 // extension: targets"). Production drives the walks; each batch a walk
 // builds goes through one poster per target.
+import { StageUrl } from "@workspace/deploy/stage-url"
 import {
   BROKER_CODES_AUTH_SCHEME,
   brokerCodesPath,
@@ -9,12 +10,12 @@ import {
 } from "@workspace/relay"
 import { Duration, Effect, Option } from "effect"
 
-import { DashboardUrl, type Settings, type TargetState } from "../settings.ts"
+import { type Settings, type TargetState } from "../settings.ts"
 import { FIRST_RETRY, LAST_RETRY } from "../target.ts"
 
 // Where a target takes batches: its dashboard and its ingest token.
 export interface BrokerCodesTarget {
-  readonly url: DashboardUrl
+  readonly url: StageUrl
   readonly token: string
 }
 
@@ -23,7 +24,7 @@ export interface BrokerCodesTarget {
 export const brokerCodesTargets = (settings: Settings) =>
   Effect.sync(() => ({
     production: Option.some<BrokerCodesTarget>({
-      url: DashboardUrl.make(__PRODUCTION_DASHBOARD__),
+      url: StageUrl.make(__PRODUCTION_DASHBOARD__),
       token: settings.productionToken,
     }).pipe(Option.filter(({ token }) => token !== "")),
     extra: Option.filter(

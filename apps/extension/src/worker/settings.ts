@@ -1,5 +1,6 @@
 // What the options page sets and what the service worker reports back, both
 // kept in chrome.storage (spec apinrdw/kumora#138, "Batching and targets").
+import { StageUrl } from "@workspace/deploy/stage-url"
 import { Feed, WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
@@ -21,15 +22,6 @@ import {
 import { CodeListCache, RelayOutcome, type CodeListStore } from "./code-list.ts"
 import { ErrorLogEntry, redact, type ErrorLogStore } from "./error-log.ts"
 
-// Where a dashboard serves: its http(s) URL, a path allowed, as in
-// `https://host/dashboard` or `http://host:port`. It never ends in `/` and
-// carries no query or fragment, so a root-relative path from
-// `@workspace/relay` joins onto it as `${url}${path}`.
-export const DashboardUrl = Schema.String.check(
-  Schema.isPattern(/^https?:\/\/[^/\s?#]+(?:\/[^\s?#]*[^/\s?#])?$/)
-).pipe(Schema.brand("DashboardUrl"))
-export type DashboardUrl = typeof DashboardUrl.Type
-
 // Production is always relayed; one extra target (Staging, a Preview or a Dev
 // stage) is optional.
 const TargetName = Schema.Literals(["production", "extra"])
@@ -42,7 +34,7 @@ const Settings = Schema.Struct({
   extra: Schema.NullOr(
     // Stored as `origin`, its name from when it held an origin only, so an
     // earlier relay's settings still load.
-    Schema.Struct({ url: DashboardUrl, token: Schema.String }).pipe(
+    Schema.Struct({ url: StageUrl, token: Schema.String }).pipe(
       Schema.encodeKeys({ url: "origin" })
     )
   ),
@@ -359,14 +351,14 @@ const keptForUrl = <A, I>(
   key: string,
   value: Schema.Codec<A, I>,
   // The extra target's URL while its operation's settings hold.
-  url: Effect.Effect<Option.Option<DashboardUrl>>
+  url: Effect.Effect<Option.Option<StageUrl>>
 ) =>
   Effect.sync(() => {
     // Stored as `origin`, as the settings' extra target is.
-    const Kept = Schema.Struct({ url: DashboardUrl, value }).pipe(
+    const Kept = Schema.Struct({ url: StageUrl, value }).pipe(
       Schema.encodeKeys({ url: "origin" })
     )
-    let loaded = Option.none<DashboardUrl>()
+    let loaded = Option.none<StageUrl>()
     return {
       load: Effect.gen(function* () {
         loaded = yield* url
@@ -418,7 +410,7 @@ const ajaibWalkStoreAt = (key: string) =>
 
 export const ajaibWalkStore = ajaibWalkStoreAt("brokerCodesAjaibWalk")
 export const ajaibCatchUpStore = (
-  url: Effect.Effect<Option.Option<DashboardUrl>>
+  url: Effect.Effect<Option.Option<StageUrl>>
 ) =>
   keptForUrl(
     "brokerCodesAjaibCatchUp",
@@ -488,7 +480,7 @@ export const historyStore: HistoryStore = {
 }
 
 export const historyCatchUpStore = (
-  url: Effect.Effect<Option.Option<DashboardUrl>>
+  url: Effect.Effect<Option.Option<StageUrl>>
 ) =>
   keptForUrl(
     "brokerCodesHistoryTradesCatchUp",

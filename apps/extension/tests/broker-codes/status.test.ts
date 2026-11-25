@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import { StageUrl } from "@workspace/deploy/stage-url"
 import {
   BrokerCodesProtocolVersion,
   TradeNumber,
@@ -11,11 +12,10 @@ import { TestClock } from "effect/testing"
 
 import type { BrokerCodesTarget } from "../../src/worker/broker-codes/poster.ts"
 import { makeBrokerCodesStatus } from "../../src/worker/broker-codes/status.ts"
-import { DashboardUrl } from "../../src/worker/settings.ts"
 
 const DAY = WibDate.make("2026-11-12")
 const PRODUCTION: BrokerCodesTarget = {
-  url: DashboardUrl.make("https://dashboard.example"),
+  url: StageUrl.make("https://dashboard.example"),
   token: "ingest-token",
 }
 const STATUS: BrokerCodesStatus = {
@@ -80,7 +80,7 @@ describe("reading a day's broker codes status", () => {
         target: Effect.succeed(
           Option.some({
             ...PRODUCTION,
-            url: DashboardUrl.make("https://dashboard.example/dashboard"),
+            url: StageUrl.make("https://dashboard.example/dashboard"),
           })
         ),
         get: target.get,

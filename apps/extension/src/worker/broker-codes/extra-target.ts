@@ -3,6 +3,7 @@
 // walks: each batch a walk builds goes to Production and is handed to the
 // extra target without waiting on it. Whatever the extra target misses, it
 // catches up from its own status once Production's queue is empty.
+import type { StageUrl } from "@workspace/deploy/stage-url"
 import type {
   BrokerCodesBatch,
   BrokerCodesStatus,
@@ -20,7 +21,6 @@ import {
   type Send,
 } from "./poster.ts"
 import type { CatchUpResult, CatchUpWalk, WalkResult } from "./run-queue.ts"
-import type { DashboardUrl } from "../settings.ts"
 import { askStatus, statusOnce, type Get } from "./status.ts"
 import type { TargetHold } from "./target-hold.ts"
 
@@ -159,7 +159,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
   // The URL of `target` while the hold lets it go on.
   const urlWhile = (target: Option.Option<BrokerCodesTarget>) =>
     Option.match(target, {
-      onNone: () => Effect.succeed(Option.none<DashboardUrl>()),
+      onNone: () => Effect.succeed(Option.none<StageUrl>()),
       onSome: (own) =>
         Effect.map(hold.haltOf(own), (halt) =>
           Option.isSome(halt) ? Option.none() : Option.some(own.url)
@@ -266,7 +266,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
           day: WibDate,
           after?: TradeNumber
         ) => Effect.Effect<Option.Option<BrokerCodesStatus>>
-        readonly url: Effect.Effect<Option.Option<DashboardUrl>>
+        readonly url: Effect.Effect<Option.Option<StageUrl>>
       }) => Effect.Effect<
         { readonly walk: (day: WibDate) => Effect.Effect<WalkResult> },
         E,
