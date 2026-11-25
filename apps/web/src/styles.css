@@ -1,0 +1,179 @@
+@import "@workspace/ui/globals.css";
+@import "@fontsource-variable/archivo/wdth.css";
+@import "@fontsource-variable/doto";
+
+/* The Market Passbook: the page is an open bank passbook lying on its cobalt
+   cloth cover. Paper is pale green security stock; the ledger is dot-matrix
+   ribbon ink; stamps are violet; green and red appear only on prices. */
+:root {
+  --cloth: #1b3b78;
+  --cloth-deep: #132c5c;
+  --cloth-thread: #24488c;
+  --foil: #e9eef8;
+  --foil-dim: #b9c6de;
+  --paper: #e4eee7;
+  --paper-edge: #d3e0d7;
+  --rule: #9fb8aa;
+  --ink: #241d30;
+  --ink-soft: #4b4458;
+  --ink-faint: #6d6679;
+  --stamp: #6a3b9c;
+  --up: #146b40;
+  --down: #a8202b;
+
+  --font-form: "Archivo Variable", "Arial Narrow", Arial, sans-serif;
+  --font-dot: "Doto Variable", "Courier New", monospace;
+
+  color-scheme: light;
+}
+
+@theme inline {
+  --font-sans: var(--font-form);
+  --font-heading: var(--font-form);
+  --font-dot: var(--font-dot);
+  --color-cloth: var(--cloth);
+  --color-cloth-deep: var(--cloth-deep);
+  --color-foil: var(--foil);
+  --color-foil-dim: var(--foil-dim);
+  --color-paper: var(--paper);
+  --color-rule: var(--rule);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-stamp: var(--stamp);
+  --color-up: var(--up);
+  --color-down: var(--down);
+}
+
+@layer base {
+  html {
+    background: var(--cloth);
+  }
+  body {
+    background:
+      repeating-linear-gradient(
+        90deg,
+        transparent 0 2px,
+        color-mix(in srgb, var(--cloth-thread) 55%, transparent) 2px 3px
+      ),
+      repeating-linear-gradient(
+        0deg,
+        transparent 0 2px,
+        color-mix(in srgb, var(--cloth-deep) 45%, transparent) 2px 3px
+      ),
+      var(--cloth);
+    color: var(--ink);
+    font-family: var(--font-form);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--stamp) 28%, transparent);
+    color: var(--ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--stamp);
+    outline-offset: 3px;
+  }
+  a {
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+  }
+}
+
+/* The security paper: one guilloche unit (passbook-guilloche.svg) that tiles
+   whole at every width, under a faint paper grain. */
+@utility paper {
+  background-color: var(--paper);
+  background-image: url("/passbook-guilloche.svg");
+  background-size: 96px 96px;
+  background-repeat: repeat;
+}
+
+/* The ledger's one print size. Rank inside the ledger comes from weight
+   (double strike), underline, reversal and stamps, never a bigger size. */
+@utility print {
+  font-family: var(--font-dot);
+  font-size: 15px;
+  line-height: 24px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+@utility double-strike {
+  font-weight: 900;
+  text-shadow: 0.6px 0 0 currentColor;
+}
+
+/* A rubber stamp: violet ink, a slight tilt, uneven inking. */
+@utility stamp {
+  display: inline-block;
+  border: 2px solid var(--stamp);
+  border-radius: 3px;
+  color: var(--stamp);
+  font-family: var(--font-form);
+  font-stretch: 80%;
+  font-weight: 800;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 4px 6px 3px;
+  transform: rotate(-4deg);
+  /* Uneven rubber-stamp inking: the border breaks and the ink pools
+     (#stamp-ink is the filter the landing page renders once). */
+  filter: url(#stamp-ink);
+}
+
+@keyframes print-line {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* The print head's carriage crossing the line it prints. */
+@keyframes carriage {
+  from {
+    left: 0;
+    opacity: 1;
+  }
+  90% {
+    left: calc(100% - 0.5rem);
+    opacity: 1;
+  }
+  to {
+    left: calc(100% - 0.5rem);
+    opacity: 0;
+  }
+}
+
+@keyframes ticket-out {
+  from {
+    clip-path: inset(0 0 100% 0);
+    transform: translateY(-12px);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    transform: translateY(0);
+  }
+}
+
+@keyframes stamp-down {
+  0% {
+    opacity: 0;
+    transform: rotate(-4deg) scale(1.35);
+  }
+  60% {
+    opacity: 1;
+    transform: rotate(-4deg) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(-4deg) scale(1);
+  }
+}

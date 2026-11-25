@@ -6,7 +6,7 @@ This repo is multi-context. Each pnpm workspace owns its own `GLOSSARY.md`, and 
 | --------- | ---------------- | ------------------------------------------------------------------------------------------------- | ---------------------------- | ---- |
 | Root      | repo root        | Root scripts and config (`scripts/`, `.github/`, `turbo.json`, `pnpm-workspace.yaml`) and system-wide decisions. | none | `docs/adr/` |
 | Dashboard | `apps/dashboard` | The market terminal: the shell, sign-in and accounts, /account and the admin pages. | `apps/dashboard/GLOSSARY.md` | `apps/dashboard/docs/adr/` |
-| Web       | `apps/web`       | Public site. Starter landing page today.                                                          | `apps/web/GLOSSARY.md`       | none |
+| Web       | `apps/web`       | Public site: the landing page and its waitlist.                                                   | `apps/web/GLOSSARY.md`       | `apps/web/docs/adr/` |
 | Extension | `apps/extension` | The relay: an unpacked MV3 extension that sends broker tabs' raw frames to the dashboard's ingest socket. Never deployed. | `apps/extension/GLOSSARY.md` | `apps/extension/docs/adr/` |
 | E2E       | `apps/e2e`       | Playwright smoke tests for both apps. No domain terms of its own.                                 | none                         | `apps/e2e/docs/adr/` |
 | Deploy    | `packages/deploy` | Branch to Stage, Worker names, the stack options and the deploy and teardown scripts. Deploy-time only. | `packages/deploy/GLOSSARY.md` | `packages/deploy/docs/adr/` |

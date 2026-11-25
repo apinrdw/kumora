@@ -14,10 +14,13 @@
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "catalog:",
+    "@fontsource-variable/archivo": "5.3.0",
+    "@fontsource-variable/doto": "5.3.0",
     "@tailwindcss/vite": "^4",
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/react-start": "latest",
+    "@workspace/client": "workspace:*",
     "@workspace/deploy": "workspace:*",
     "@workspace/server": "workspace:*",
     "@workspace/ui": "workspace:*",
