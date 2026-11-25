@@ -3,7 +3,7 @@
 // memory HoldingsDb, for the reads' bounded-memory tests. Each row is a
 // block of one account, the most objects a day's rows make, and every
 // block's shares differ from the day before's, so every stock moves.
-import type { MemoryHoldingsDb } from "./memory-holdings-db.ts"
+import type { MemoryD1 } from "../memory-d1.ts"
 
 export const ABOVE_5_DAY_ROWS = 8_000
 
@@ -12,7 +12,7 @@ const padded = (text: string, length: number) => text.padEnd(length, "X")
 
 // `dates`' days, each with `stocks` stocks of `blocks` blocks each.
 export const seedAbove5AtCap = (
-  db: MemoryHoldingsDb,
+  db: Pick<MemoryD1, "database">,
   dates: ReadonlyArray<string>,
   stocks: ReadonlyArray<string>,
   blocks: number
@@ -66,3 +66,31 @@ export const datesOf = (count: number) =>
   Array.from({ length: count }, (_, index) =>
     new Date(Date.UTC(2026, 0, 1 + index)).toISOString().slice(0, 10)
   )
+
+// Every other day of `dates`, each holder's name, key and account renamed
+// (the last X a Y) with shares no holder of the day before has, so each
+// day's every holder is New and the day before's every holder is Off list:
+// the most Holder moves lines a day can have.
+export const renameEveryOtherDay = (
+  { database }: Pick<MemoryD1, "database">,
+  dates: ReadonlyArray<string>
+) => {
+  const odd = JSON.stringify(dates.filter((_, at) => at % 2 === 1))
+  database
+    .prepare(
+      `UPDATE above_5_holder SET
+        holder_name = substr(holder_name, 1, length(holder_name) - 1) || 'Y',
+        holder_key = substr(holder_key, 1, length(holder_key) - 1) || 'Y',
+        scripless = scripless + 500000
+      WHERE data_date IN (SELECT value FROM json_each(?))`
+    )
+    .run(odd)
+  database
+    .prepare(
+      `UPDATE above_5_account SET
+        account_name = substr(account_name, 1, length(account_name) - 1) || 'Y',
+        scripless = scripless + 500000
+      WHERE data_date IN (SELECT value FROM json_each(?))`
+    )
+    .run(odd)
+}

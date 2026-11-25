@@ -1,26 +1,15 @@
 // A Node worker thread that parses the report it is given, KSEI's or one of
 // IDX's, and posts the number of stocks parsed or the parse's
 // failure message. It runs in plain Node, outside Vitest's aliases, so it
-// resolves `@/` to src/ itself.
-import { registerHooks } from "node:module"
+// resolves `@/` to src/ itself (src-alias.ts).
+import "./src-alias.ts"
+
 import { parentPort, workerData } from "node:worker_threads"
 
 import { Effect } from "effect"
 
 import { HoldingsDb } from "../../../src/server/holdings/db.ts"
 import type { Report } from "./bounded-heap.ts"
-
-const SRC = new URL("../../../src/", import.meta.url)
-
-registerHooks({
-  resolve: (specifier, context, next) =>
-    next(
-      specifier.startsWith("@/")
-        ? new URL(`${specifier.slice(2)}.ts`, SRC).href
-        : specifier,
-      context
-    ),
-})
 
 const { report, bytes } = workerData as {
   readonly report: Report
