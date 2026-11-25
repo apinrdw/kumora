@@ -5,6 +5,8 @@ import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
+import { StageUrl } from "./stage-url.ts"
+
 export const APPS = ["web", "dashboard"] as const
 export type App = (typeof APPS)[number]
 
@@ -211,14 +213,18 @@ export const PRODUCTION_ZONE = "pusat.ai"
 export const stageUrl = Effect.fnUntraced(function* (
   app: App,
   stage: Stage
-): Effect.fn.Return<string> {
+): Effect.fn.Return<StageUrl> {
   const kind = yield* stageKind(stage)
   if (kind === "production")
     return `https://${PRODUCTION_HOST}${APP_PATHS[app]}`
   if (kind === "dev" || kind === "test")
-    return `http://localhost:${yield* devPort(app)}${APP_PATHS[app]}`
+    return StageUrl.make(
+      `http://localhost:${yield* devPort(app)}${APP_PATHS[app]}`
+    )
   const { workerName } = yield* stageTarget(app, stage)
-  return `https://${workerName}.${WORKERS_DEV_SUBDOMAIN}.workers.dev${APP_PATHS[app]}`
+  return StageUrl.make(
+    `https://${workerName}.${WORKERS_DEV_SUBDOMAIN}.workers.dev${APP_PATHS[app]}`
+  )
 })
 
 export const deployTarget = Effect.fnUntraced(function* (

@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
-import { DashboardBasePath } from "@workspace/client"
 
+import { KUMORA_MARK_SRC } from "@/lib/kumora-mark"
 import { NAV, visibleNav } from "@/lib/nav"
 import type { NavItem } from "@/lib/nav"
 import type { Viewer } from "@/server/auth/gate"
@@ -21,7 +21,7 @@ export function AppSidebar({ viewer }: { viewer: Viewer }) {
         className="flex h-14 items-center justify-center gap-2.5 border-b border-sidebar-border px-0 xl:justify-start xl:px-4"
       >
         <img
-          src={`${DashboardBasePath}/kumora-mark.png`}
+          src={KUMORA_MARK_SRC}
           alt="KUMORA AI"
           className="size-7 xl:size-9"
         />

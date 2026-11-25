@@ -14,7 +14,7 @@ import {
   brokerCodesDay,
   recordedDayRequest,
 } from "@workspace/relay"
-import { pathUnderBase } from "@workspace/client"
+import { pathUnderBase } from "@workspace/client/base-path"
 import { WorkerEnv } from "@workspace/server"
 import { DateTime, Effect, Layer, Option, Schema } from "effect"
 

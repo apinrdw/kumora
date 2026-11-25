@@ -12,7 +12,8 @@
   },
   "exports": {
     ".": "./src/target.ts",
-    "./stack": "./src/stack.ts"
+    "./stack": "./src/stack.ts",
+    "./stage-url": "./src/stage-url.ts"
   },
   "devDependencies": {
     "@effect/platform-node": "catalog:",

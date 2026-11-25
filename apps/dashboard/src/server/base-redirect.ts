@@ -13,8 +13,9 @@ import { DashboardBasePath, pathUnderBase } from "@workspace/client/base-path"
 import { Effect, Option } from "effect"
 
 // Cloudflare's own paths on every host, such as `alchemy dev`'s local R2
-// endpoint (apps/e2e/support/archive-bucket.ts).
-const CLOUDFLARE_PATH = "/cdn-cgi/"
+// endpoint (apps/e2e/support/archive-bucket.ts). The dev server
+// (vite.config.ts) passes them through too.
+export const CLOUDFLARE_PATH = "/cdn-cgi/"
 
 // The bindings the entry's redirects read.
 // Decision: Production alone redirects other hosts to its Stage URL

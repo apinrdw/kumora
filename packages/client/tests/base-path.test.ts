@@ -3,7 +3,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Option } from "effect"
 
-import { pathUnderBase } from "@workspace/client"
+import { pathUnderBase } from "@workspace/client/base-path"
 
 describe("path under the base path", () => {
   it.effect("drops the base from a path under it", () =>

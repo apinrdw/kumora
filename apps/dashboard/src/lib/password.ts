@@ -1,7 +1,5 @@
-import { DashboardBasePath } from "@workspace/client/base-path"
-import { Effect } from "effect"
-
 import type { FileRoutesByFullPath } from "../routeTree.gen.ts"
+import { hostPath } from "./redirect.ts"
 
 // Better Auth enforces it (server/auth/options.ts); the sign-up form hints it.
 export const MIN_PASSWORD_LENGTH = 8
@@ -15,7 +13,4 @@ const RESET_PASSWORD_PATH =
  * to `redirect`, a router path, once the password is set.
  */
 export const resetPasswordPage = (redirect: string) =>
-  Effect.sync(
-    () =>
-      `${DashboardBasePath}${RESET_PASSWORD_PATH}?redirect=${encodeURIComponent(redirect)}`
-  )
+  hostPath(`${RESET_PASSWORD_PATH}?redirect=${encodeURIComponent(redirect)}`)

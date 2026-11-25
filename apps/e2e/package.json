@@ -15,6 +15,7 @@
     "@playwright/test": "1.64.1",
     "@types/node": "^22",
     "@types/ws": "^8.18.2",
+    "@workspace/client": "workspace:*",
     "@workspace/deploy": "workspace:*",
     "@workspace/relay": "workspace:*",
     "effect": "catalog:",
