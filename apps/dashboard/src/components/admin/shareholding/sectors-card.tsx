@@ -5,6 +5,7 @@ import { IconPlayerPlay } from "@tabler/icons-react"
 import { useHydrated } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
 import { loadServerFn } from "@workspace/server/loader"
+import { cn } from "@workspace/ui/lib/utils"
 import { Effect, Exit } from "effect"
 
 import {
@@ -90,27 +91,43 @@ export function SectorsCard({
       title="Sectors"
       meta={
         <p className="text-secondary-text text-[13px]">
-          Production fills stock_sector from IDX's company profiles at{" "}
-          {SECTOR_TIME_WIB}. Other stages fill it with Run now.
+          Production fills{" "}
+          <span className="font-data text-xs">stock_sector</span> from IDX's
+          company profiles at {SECTOR_TIME_WIB}. Other stages fill it with Run
+          now.
         </p>
       }
       stats={
         <dl className={archiveRowStats}>
-          <div className="flex flex-col-reverse gap-0.5">
+          {/* Set like the other rows' counts, a 0 muted, so the ledger's
+              columns read as one. */}
+          <div className="flex flex-col-reverse justify-end gap-0.5">
             <dt className="text-secondary-text text-[13px]">Rows</dt>
-            <dd className="num text-[22px] leading-7 font-semibold">{rows}</dd>
+            <dd
+              className={cn(
+                "font-data text-xl leading-7 font-semibold tabular-nums",
+                rows === 0 && "text-muted-foreground"
+              )}
+            >
+              {rows}
+            </dd>
           </div>
-          <div className="col-span-1 flex flex-col-reverse gap-0.5 sm:col-span-3">
+          <div className="flex flex-col-reverse justify-end gap-0.5">
             <dt className="text-secondary-text text-[13px]">Last filled</dt>
-            <dd className="num text-[15px] leading-7 font-semibold">
+            <dd
+              className={cn(
+                "num text-[15px] leading-7 font-semibold",
+                fetchedAt === null && "text-muted-foreground"
+              )}
+            >
               {fetchedAt === null
                 ? "Never"
                 : Effect.runSync(dateTime(fetchedAt))}
             </dd>
           </div>
-          <div className="col-span-full flex flex-col-reverse gap-0.5">
+          <div className="col-span-full flex flex-col-reverse justify-end gap-0.5 sm:col-span-2">
             <dt className="text-secondary-text text-[13px]">Last run</dt>
-            <dd className="text-[13px] leading-5">
+            <dd className="text-[13px] leading-7">
               <LastRun lastRun={lastRun} />
             </dd>
           </div>
