@@ -14,6 +14,7 @@ import {
   SplitOrigin,
 } from "@/domain/holdings"
 
+import { MAX_ROWS } from "./above-5.ts"
 import { HoldingsDb } from "./db.ts"
 
 // Shares held, by origin. `local` and `foreign` are absent in a month whose
@@ -203,8 +204,8 @@ const StockPage = Schema.Struct({
   // Every parsed above-1% month, oldest first, with the stock's ≥1%
   // holders.
   majorHolders: Schema.Array(MajorHoldersMonth),
-  // Every parsed above-5% day, oldest first, with the stock's above-5%
-  // holders.
+  // The newest parsed above-5% days that fit DAILY_HOLDERS_ROWS, oldest
+  // first, with the stock's above-5% holders.
   dailyHolders: Schema.Array(DailyHoldersDay),
 })
 export type StockPage = typeof StockPage.Type
@@ -378,23 +379,54 @@ export const above1Months = Effect.fnUntraced(function* (
   }))
 })
 
-// Every parsed above-5% day, its listed shares for the stock, and the
-// stock's blocks and accounts in report order. ?1 is the code.
-const ABOVE_5_DAYS = `
+// Decision: Daily holders reads the stock's newest above-5% days that fit
+// a row budget (apps/dashboard/docs/adr/0133-daily-holders-reads-the-newest-days-that-fit-a-row-budget.md)
+//
+// Each day costs its row and its blocks' and accounts' rows: at the parse's
+// cap a day holds MAX_ROWS accounts, each its own block, so the newest day
+// and the one before always fit.
+const DAILY_HOLDERS_ROWS = 2 * (2 * MAX_ROWS + 1)
+
+// The newest parsed above-5% days whose rows of the stock fit
+// DAILY_HOLDERS_ROWS, as the CTE `read_day`. ?1 is the code.
+const ABOVE_5_READ = `
+  WITH cost AS (
+    SELECT d.data_date, 1 + (
+      SELECT COUNT(*) FROM above_5_holder h
+      WHERE h.stock_code = ?1 AND h.data_date = d.data_date
+    ) + (
+      SELECT COUNT(*) FROM above_5_account a
+      WHERE a.stock_code = ?1 AND a.data_date = d.data_date
+    ) AS rows
+    FROM above_5_day d
+  ),
+  read_day AS (
+    SELECT data_date FROM (
+      SELECT data_date, SUM(rows) OVER (ORDER BY data_date DESC) AS total
+      FROM cost
+    )
+    WHERE total <= ${DAILY_HOLDERS_ROWS}
+  )`
+
+// Those days, the stock's listed shares on each, and its blocks and
+// accounts in report order.
+const ABOVE_5_DAYS = `${ABOVE_5_READ}
   SELECT d.data_date, (
     SELECT s.shares_outstanding FROM investor_type_stock_month s
     WHERE s.stock_code = ?1 AND s.data_date <= d.data_date
     ORDER BY s.data_date DESC LIMIT 1
   ) AS listed_shares
-  FROM above_5_day d ORDER BY d.data_date`
-const ABOVE_5_HOLDERS = `
+  FROM read_day d ORDER BY d.data_date`
+const ABOVE_5_HOLDERS = `${ABOVE_5_READ}
   SELECT data_date, no, issuer_name, holder_name, holder_key, scripless,
     percentage_hundredths
-  FROM above_5_holder WHERE stock_code = ?1
+  FROM above_5_holder
+  WHERE stock_code = ?1 AND data_date IN (SELECT data_date FROM read_day)
   ORDER BY data_date, no`
-const ABOVE_5_ACCOUNTS = `
+const ABOVE_5_ACCOUNTS = `${ABOVE_5_READ}
   SELECT data_date, no, custodian, account_name, origin, domicile, scripless
-  FROM above_5_account WHERE stock_code = ?1
+  FROM above_5_account
+  WHERE stock_code = ?1 AND data_date IN (SELECT data_date FROM read_day)
   ORDER BY data_date, no, ordinal`
 
 const Above5DayRow = Schema.Struct({

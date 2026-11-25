@@ -39,7 +39,7 @@ const unreadable = (message: string) => new Above5Unreadable({ message })
 
 // Decision: a report's parse is bounded to fit 48 MiB of the Worker's heap
 // (apps/dashboard/docs/adr/0045-a-holdings-parse-fits-a-bounded-heap.md)
-const MAX_ROWS = 8_000
+export const MAX_ROWS = 8_000
 const MAX_NAME_LENGTH = 256
 const MAX_TEXT_LENGTH = 128
 // The integer cells one side of a block may leave ambiguous: each doubles
