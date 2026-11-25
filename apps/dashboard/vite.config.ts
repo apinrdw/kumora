@@ -3,14 +3,13 @@ import { devtools } from "@tanstack/devtools-vite"
 import { tanstackStart } from "@tanstack/react-start/plugin/vite"
 import viteReact from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
-import { DashboardBasePath } from "@workspace/client"
+import { DashboardBasePath } from "@workspace/client/base-path"
 import { Effect, Option } from "effect"
 
-import { redirectIntoBase } from "./src/server/base-redirect.ts"
-
-// Cloudflare's own paths, such as `alchemy dev`'s local R2 endpoint
-// (apps/e2e/support/archive-bucket.ts), which the local runtime serves.
-const CLOUDFLARE_PATH = "/cdn-cgi/"
+import {
+  CLOUDFLARE_PATH,
+  redirectIntoBase,
+} from "./src/server/base-redirect.ts"
 
 // The Worker entry's redirect into the base path, on the dev server too: Vite
 // answers a path outside `base` itself, before the Worker sees it, and so it
