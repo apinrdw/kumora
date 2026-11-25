@@ -349,7 +349,7 @@
       "name": "Foil Navigation",
       "kind": "nav",
       "description": "Foil links set directly on the cobalt cloth.",
-      "html": "<nav class=\"ds-nav\"><a href=\"#\">Bahasa Indonesia</a><span>Already have access? <a href=\"#\">Sign in</a></span></nav>",
+      "html": "<nav class=\"ds-nav\"><a href=\"#\">Bahasa Indonesia</a></nav>",
       "css": ".ds-nav { display: flex; gap: 20px; align-items: center; padding: 16px; background: var(--cloth, #1b3b78); color: var(--foil-dim, #b9c6de); font-family: \"Archivo Variable\", \"Arial Narrow\", Arial, sans-serif; font-size: 14px; } .ds-nav a { color: var(--foil, #e9eef8); font-weight: 650; text-decoration: underline; text-decoration-color: rgb(185 198 222 / 0.7); text-underline-offset: 3px; text-decoration-thickness: 1px; } .ds-nav a:hover { text-decoration-color: var(--foil, #e9eef8); } .ds-nav a:focus-visible { outline: 2px solid var(--stamp, #6a3b9c); outline-offset: 3px; }"
     },
     {

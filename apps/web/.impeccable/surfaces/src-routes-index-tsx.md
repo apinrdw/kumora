@@ -7,7 +7,7 @@ related_targets: []
 
 # Landing page (/)
 
-Mode: Persuade. Audience: IDX retail day and swing traders arriving from a shared link or group chat, desktop or phone. Job: understand that KUMORA shows the buyer and seller broker (foreign or domestic) behind every trade, see it on a real recorded day, and join the waitlist. Action: email into the waitlist slip in the first viewport; a quiet "Already have access? Sign in" link to the dashboard. Proof: a real recorded slice (BBRI, 10 Nov 2026, 09:01:48–09:02:00 WIB, labelled RECORDED), no testimonials, counts, returns or pricing. English first with an Indonesian switch. Anti-goals: get-rich hype, crypto glow, Wall Street imagery, savings-bank calm with no live market.
+Mode: Persuade. Audience: IDX retail day and swing traders arriving from a shared link or group chat, desktop or phone. Job: understand that KUMORA shows the buyer and seller broker (foreign or domestic) behind every trade, see it on a real recorded day, and join the waitlist. Action: email into the waitlist slip in the first viewport. The "Already have access? Sign in" link is hidden for now (owner, 2026-11-25). Proof: a real recorded slice (BBRI, 10 Nov 2026, 09:01:48–09:02:00 WIB, labelled RECORDED), no testimonials, counts, returns or pricing. English first with an Indonesian switch. Anti-goals: get-rich hype, crypto glow, Wall Street imagery, savings-bank calm with no live market.
 
 Unresolved: the dashboard's open sign-up still has to close behind the waitlist (separate work); Indonesian copy and the legal lines are drafts awaiting the owner's review.
 

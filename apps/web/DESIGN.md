@@ -231,7 +231,7 @@ Tactile and stationery-plain: a cobalt key with foil lettering.
 - **Error / Disabled:** invalid turns the baseline red and replaces the privacy line with a red message (14px); disabled drops to 60%.
 
 ### Navigation
-Foil on cloth, top right: the language switch (Archivo 650, underlined in dim foil, full foil on hover) and a dim-foil "Already have access?" with an underlined Sign in. On phones the two stack right-aligned and the sign-in line moves under the slip.
+Foil on cloth, top right: the language switch (Archivo 650, underlined in dim foil, full foil on hover). The sign-in link for people already let in is hidden for now.
 
 ### Sheet
 The container for everything below the fold: security paper with the 96px guilloche tile, 3px corners, the sheet shadow, 40px by 56px padding from sm.
