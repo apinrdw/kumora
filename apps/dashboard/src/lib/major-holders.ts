@@ -3,7 +3,7 @@
 // each against the report month before, and those off the list since.
 import { Effect } from "effect"
 
-import { CLASSIFICATIONS, KSEI_TYPE_LABELS } from "@/domain/holdings"
+import { CLASSIFICATIONS, KSEI_TYPE_LABELS, reportOf } from "@/domain/holdings"
 import {
   earlierHolders,
   type HolderId,
@@ -155,15 +155,15 @@ const lineOf = Effect.fnUntraced(function* (
   } satisfies HolderLine
 })
 
-// The month `month` (`YYYY-MM`) names when the stock has holders in it,
-// else its newest such month; undefined when it has none in any.
-export const majorHolders = Effect.fnUntraced(function* (
+// The report dated `dataDate` when the stock has holders in it, else its
+// newest such report; undefined when it has none in any.
+export const majorHoldersOn = Effect.fnUntraced(function* (
   months: ReadonlyArray<MajorHoldersMonth>,
-  month: string | undefined
+  dataDate: string | undefined
 ) {
   const held = months.filter(({ holders }) => holders.length > 0)
   const selected =
-    held.find(({ dataDate }) => dataDate.slice(0, 7) === month) ?? held.at(-1)
+    held.find((each) => each.dataDate === dataDate) ?? held.at(-1)
   if (selected === undefined) return undefined
   const every = yield* monthMoves(months)
   const index = months.indexOf(selected)
@@ -245,3 +245,17 @@ export const majorHolders = Effect.fnUntraced(function* (
         : undefined,
   } satisfies MonthHolders
 })
+
+// The report the month `month` (`YYYY-MM`) shows (reportOf), as
+// majorHoldersOn reads it.
+export const majorHolders = (
+  months: ReadonlyArray<MajorHoldersMonth>,
+  month: string | undefined
+) =>
+  Effect.flatMap(
+    reportOf(
+      months.map(({ dataDate }) => dataDate),
+      month
+    ),
+    (dataDate) => majorHoldersOn(months, dataDate)
+  )

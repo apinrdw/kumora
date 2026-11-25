@@ -15,6 +15,24 @@ export type Month = typeof Month.Type
 export const monthOf = (dataDate: string) =>
   Effect.sync(() => Month.make(dataDate.slice(0, 7)))
 
+// The report a month (`YYYY-MM`) shows, of those dated `dataDates`: the
+// newest dated in it, since one calendar month can hold two reports;
+// undefined when it holds none. Holder moves' read picks a month's report
+// by the same rule in SQL (SELECTED in server/holdings/holder-moves.ts).
+export const reportOf = <D extends string>(
+  dataDates: ReadonlyArray<D>,
+  month: string | undefined
+) =>
+  Effect.sync(() =>
+    dataDates
+      .filter((dataDate) => dataDate.slice(0, 7) === month)
+      .reduce<D | undefined>(
+        (newest, dataDate) =>
+          newest === undefined || dataDate > newest ? dataDate : newest,
+        undefined
+      )
+  )
+
 // Whether holdings are local or foreign: KSEI's holdings always are, and a
 // split classification report month's.
 export const SplitOrigin = Schema.Literals(["local", "foreign"])

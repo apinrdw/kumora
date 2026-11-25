@@ -13,7 +13,7 @@
 import { StockCode, type WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
-import { type HolderLine, majorHolders } from "@/lib/major-holders"
+import { type HolderLine, majorHoldersOn } from "@/lib/major-holders"
 
 import { decodeRows } from "../d1.ts"
 import { HoldingsDb } from "./db.ts"
@@ -137,12 +137,12 @@ const monthlyLines = Effect.fnUntraced(function* (
   month: WibDate
 ) {
   const holdings = yield* decodeRows(HoldingOfStock)(rows.get(code) ?? [])
-  const held = yield* majorHolders(
+  const held = yield* majorHoldersOn(
     yield* above1Months(
       read.map((data_date) => ({ data_date })),
       holdings
     ),
-    month.slice(0, 7)
+    month
   )
   const lines: Array<StockMoveLine> = []
   if (held?.dataDate === month)

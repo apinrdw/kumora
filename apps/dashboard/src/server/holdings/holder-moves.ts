@@ -52,8 +52,8 @@ const HolderMovesRead = Schema.Struct({
   kind: Schema.Literals(MOVE_KINDS),
   // Every derived period, oldest first.
   periods: Schema.Array(WibDate),
-  // The period asked for when derived, else the newest; undefined when
-  // there is none.
+  // The period asked for when derived, a month's being its newest report,
+  // else the newest; undefined when there is none.
   period: Schema.UndefinedOr(WibDate),
   // The period the moves are against; undefined on the first parsed one.
   against: Schema.UndefinedOr(WibDate),
@@ -82,6 +82,7 @@ const MoveRow = Schema.Struct({
 const DerivedRow = Schema.Struct({
   data_date: WibDate,
   against: Schema.NullOr(WibDate),
+  selected: Schema.BooleanFromBit,
 })
 
 const RailRow = Schema.Struct({
@@ -98,13 +99,11 @@ const KINDS = {
     lines: "above_5_move",
     derived: "above_5_move_day",
     match: "data_date = ?1",
-    matches: (date: WibDate, asked: string) => date === asked,
   },
   monthly: {
     lines: "above_1_move",
     derived: "above_1_move_month",
     match: "substr(data_date, 1, 7) = ?1",
-    matches: (date: WibDate, asked: string) => date.slice(0, 7) === asked,
   },
 } satisfies Record<
   MoveKind,
@@ -112,9 +111,21 @@ const KINDS = {
     readonly lines: string
     readonly derived: string
     readonly match: string
-    readonly matches: (date: WibDate, asked: string) => boolean
   }
 >
+
+// The CTE `selected`: the one derived period the read shows. It is the
+// newest that matches ?1, since one calendar month can hold two reports
+// (reportOf in domain/holdings.ts picks a month's report by the same rule),
+// else the newest of all. The period's lines and its date both come from
+// it.
+const SELECTED = (derived: string, match: string) => `
+  selected AS (
+    SELECT COALESCE(
+      (SELECT MAX(data_date) FROM ${derived} WHERE ${match}),
+      (SELECT MAX(data_date) FROM ${derived})
+    ) AS data_date
+  )`
 
 // The derived periods, and for `asked` (undefined for the newest) its
 // stored lines and the rail's counts of theirs, in one batch, so a parse
@@ -127,20 +138,19 @@ const derivedMovesRead = Effect.fnUntraced(function* (
   kind: MoveKind,
   asked: string | undefined
 ) {
-  const { lines, derived, match, matches } = KINDS[kind]
+  const { lines, derived, match } = KINDS[kind]
+  const withSelected = `WITH ${SELECTED(derived, match)}`
   const [periodRows = [], lineRows = [], railRows = []] =
     yield* (yield* HoldingsDb).batch([
       {
-        sql: `SELECT data_date, against FROM ${derived} ORDER BY data_date`,
-        params: [],
+        sql: `${withSelected}
+        SELECT data_date, against,
+          data_date = (SELECT data_date FROM selected) AS selected
+        FROM ${derived} ORDER BY data_date`,
+        params: [asked ?? null],
       },
       {
-        sql: `WITH selected AS (
-          SELECT COALESCE(
-            (SELECT MAX(data_date) FROM ${derived} WHERE ${match}),
-            (SELECT MAX(data_date) FROM ${derived})
-          ) AS data_date
-        )
+        sql: `${withSelected}
         SELECT stock_code, holder, issuer_name, name, aliases, renamed_from,
           move, through, share_change, stake_before, stake_now,
           percentage_change, trend
@@ -160,9 +170,7 @@ const derivedMovesRead = Effect.fnUntraced(function* (
     ])
   const rows = yield* decodeRows(DerivedRow)(periodRows)
   const periods = rows.map(({ data_date }) => data_date)
-  const period =
-    periods.find((each) => asked !== undefined && matches(each, asked)) ??
-    periods.at(-1)
+  const shown = rows.find(({ selected }) => selected)
   const counts = yield* decodeRows(RailRow)(railRows)
   const countOf = (date: WibDate, move: DerivedMoveLine["move"]) =>
     counts.find((each) => each.data_date === date && each.move === move)
@@ -170,9 +178,8 @@ const derivedMovesRead = Effect.fnUntraced(function* (
   return HolderMovesRead.make({
     kind,
     periods,
-    period,
-    against:
-      rows.find(({ data_date }) => data_date === period)?.against ?? undefined,
+    period: shown?.data_date,
+    against: shown?.against ?? undefined,
     lines: (yield* decodeRows(MoveRow)(lineRows)).map(
       (row): DerivedMoveLine => ({
         code: row.stock_code,
