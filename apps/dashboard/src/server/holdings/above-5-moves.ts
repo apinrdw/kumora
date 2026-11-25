@@ -37,10 +37,10 @@ import {
 } from "./stock-page.ts"
 
 // The stocks whose holders may have moved on ?1 against ?2. A stock-day's
-// marks are its blocks (by place, key and shares) and their accounts
-// (custodian, name and shares): when none differ from the day before's, the
-// day's holders, collapsed and matched, are the day before's, each
-// unchanged.
+// marks are its blocks (by place, key and shares) and their securities
+// accounts (custodian, name and shares): when none differ from the day
+// before's, the day's holders, collapsed and matched, are the day before's,
+// each unchanged.
 const MOVED = `
   block AS (
     SELECT data_date, stock_code, no, holder_key, scripless,
@@ -101,8 +101,8 @@ const AccountOfStock = Schema.Struct({
   stock_code: StockCode,
 })
 
-// The rows of `stocks`' blocks and accounts, each from its since through
-// `day`, by stock, as read.
+// The rows of `stocks`' blocks and securities accounts, each from its since
+// through `day`, by stock, as read.
 const readStocks = Effect.fnUntraced(function* (
   stocks: ReadonlyArray<MovedStock>,
   day: WibDate

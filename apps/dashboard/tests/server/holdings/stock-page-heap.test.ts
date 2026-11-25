@@ -38,7 +38,8 @@ const VIEW_HEAP_MIB = 88
 const PAGE_HEAP_MIB = 88
 
 // What the Daily holders of a stock of `days` days show, each day with
-// `holders` holders no other day has, of `accounts` accounts each.
+// `holders` holders no other day has, of `accounts` securities accounts
+// each.
 const dailyHoldersInBoundedHeap = (
   days: number,
   holders: number,

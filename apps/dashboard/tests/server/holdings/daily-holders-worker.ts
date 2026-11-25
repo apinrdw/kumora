@@ -20,7 +20,7 @@ import { workerHoldingsDb } from "./worker-holdings-db.ts"
 const { migrations, dates, holders, accounts } = workerData as {
   readonly migrations: Record<string, string>
   readonly dates: ReadonlyArray<string>
-  // A day's holders, and each one's accounts.
+  // A day's holders, and each one's securities accounts.
   readonly holders: number
   readonly accounts: number
 }

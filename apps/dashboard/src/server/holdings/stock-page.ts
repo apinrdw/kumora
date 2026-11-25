@@ -111,7 +111,7 @@ const Above1HolderRow = Schema.Struct({
   // Undefined in Feb–Mar 2026, which publish a type instead, or when blank.
   classification: Schema.UndefinedOr(Classification),
   type: Schema.UndefinedOr(KseiType),
-  // Undefined for a special scrip account.
+  // Undefined for a special scrip securities account.
   origin: Schema.UndefinedOr(SplitOrigin),
   domicile: Schema.UndefinedOr(Schema.String),
   controller: Schema.UndefinedOr(Controller),
@@ -141,12 +141,12 @@ export type MajorHoldersMonth = typeof MajorHoldersMonth.Type
 
 // One securities account of an above-5% holder's block as published.
 const Above5SecuritiesAccount = Schema.Struct({
-  // The broker or bank holding the account.
+  // The broker or bank holding the securities account.
   custodian: Schema.String,
   name: Schema.String,
   origin: SplitOrigin,
   domicile: Schema.UndefinedOr(Schema.String),
-  // 0 for an account the report lists emptied that day.
+  // 0 for a securities account the report lists emptied that day.
   scripless: Schema.Number,
 })
 export type Above5SecuritiesAccount = typeof Above5SecuritiesAccount.Type
@@ -405,7 +405,7 @@ const drained = <A>(rows: Array<unknown>, decode: (row: unknown) => A) =>
   }))
 
 // Those above-5% days, the stock's listed shares on each, and its blocks
-// and accounts in report order.
+// and securities accounts in report order.
 const ABOVE_5_DAYS = `${READ}
   SELECT d.data_date, (
     SELECT s.shares_outstanding FROM investor_type_stock_month s
@@ -448,8 +448,8 @@ export const Above5SecuritiesAccountRow = Schema.Struct({
   scripless: Schema.Number,
 })
 
-// Each of `dayRows`' days with the stock's blocks, each with its accounts;
-// none on a day without a block.
+// Each of `dayRows`' days with the stock's blocks, each with its
+// securities accounts; none on a day without a block.
 export const above5Days = (
   dayRows: ReadonlyArray<typeof Above5DayRow.Type>,
   holderRows: ReadonlyArray<typeof Above5HolderRow.Type>,

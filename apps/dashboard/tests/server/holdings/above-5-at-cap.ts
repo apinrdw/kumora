@@ -1,8 +1,8 @@
 // Parsed above-5% days at the parse's caps (ADR 0045: 8,000 rows a day,
 // names of 256 characters and other text of 128), written straight into a
 // memory HoldingsDb, for the reads' bounded-memory tests. Each row is a
-// block of one account, the most objects a day's rows make, and every
-// block's shares differ from the day before's, so every stock moves.
+// block of one securities account, the most objects a day's rows make, and
+// every block's shares differ from the day before's, so every stock moves.
 import type { MemoryD1 } from "../memory-d1.ts"
 
 export const ABOVE_5_DAY_ROWS = 8_000
@@ -62,9 +62,9 @@ export const seedAbove5AtCap = (
 }
 
 // `dates`' days of the stock `code`, each with `holders` holders no other
-// day has, each of `accounts` accounts: every day's holders are New and the
-// day before's Off list, and every holder before those is an earlier one, so
-// the stock has the most earlier holders its days can.
+// day has, each of `accounts` securities accounts: every day's holders are
+// New and the day before's Off list, and every holder before those is an
+// earlier one, so the stock has the most earlier holders its days can.
 export const seedAbove5Churn = (
   { database }: Pick<MemoryD1, "database">,
   dates: ReadonlyArray<string>,
@@ -120,10 +120,10 @@ export const datesOf = (count: number) =>
     new Date(Date.UTC(2026, 0, 1 + index)).toISOString().slice(0, 10)
   )
 
-// Every other day of `dates`, each holder's name, key and account renamed
-// (the last X a Y) with shares no holder of the day before has, so each
-// day's every holder is New and the day before's every holder is Off list:
-// the most Holder moves lines a day can have.
+// Every other day of `dates`, each holder's name, key and securities
+// account renamed (the last X a Y) with shares no holder of the day before
+// has, so each day's every holder is New and the day before's every holder
+// is Off list: the most Holder moves lines a day can have.
 export const renameEveryOtherDay = (
   { database }: Pick<MemoryD1, "database">,
   dates: ReadonlyArray<string>
