@@ -1,0 +1,25 @@
+// How many checks pass each stage of each rule, per tier, at the defaults (or SET).
+// usage: [SET='{"fb":{"ret":5}}'] node funnel.mjs <cacheDir> <day>[,<day>...]
+import { loadDay, replayCode, tiersOf, withParams, funnel } from "./replay.mjs"
+
+const [cacheDir, dayList] = process.argv.slice(2)
+const P = withParams(JSON.parse(process.env.SET ?? "{}"))
+const out = {}
+for (const d of dayList.split(",")) {
+  const day = loadDay(cacheDir, d)
+  const { tiers } = tiersOf(day)
+  for (const data of day.codes) {
+    const t = tiers.get(data.code) ?? "untiered"
+    for (const k of Object.keys(funnel)) delete funnel[k]
+    const ev = replayCode(day.day, day.gaps, data, P)
+    out[t] ??= {}
+    for (const [k, v] of Object.entries(funnel))
+      out[t][k] = (out[t][k] ?? 0) + v
+    for (const e of ev) out[t][`= ${e.kind}`] = (out[t][`= ${e.kind}`] ?? 0) + 1
+  }
+}
+for (const t of ["busy", "mid", "quiet", "untiered"]) {
+  console.log(t)
+  for (const [k, v] of Object.entries(out[t] ?? {}).sort())
+    console.log("  ", k.padEnd(56), v)
+}

@@ -1,0 +1,34 @@
+# Match Ajaib Done Details rows to Stockbit trades. usage: join.py <aj-dd json> <sb rows json>
+import json,sys,collections,gzip
+def ld(p): return json.load((gzip.open if p.endswith('.gz') else open)(p,'rt'))
+aj=ld(sys.argv[1]); aj=aj['rows'] if isinstance(aj,dict) else aj
+sb=ld(sys.argv[2]); sb=sb if isinstance(sb,list) else sb['data']['running_trade']
+norm=lambda t: t if len(t)==8 else t+':00'
+ak=lambda r:(norm(r['time']),r['board'],int(r['price']),float(r['qty']),r['buyer']['broker_code'],r['seller']['broker_code'])
+sk=lambda r:(r['time'],r['market_board'],int(str(r['price']).replace(',','')),float(r['lot'].replace(',','')),r['buyer'].split(' ')[0],r['seller'].split(' ')[0])
+A=collections.defaultdict(list); B=collections.defaultdict(list)
+for r in aj: A[ak(r)].append(r)
+for r in sb: B[sk(r)].append(r)
+print(f'ajaib rows {len(aj)}, stockbit trades {len(sb)}, ajaib keys {len(A)}, stockbit keys {len(B)}')
+agree=sum(len(B[k]) for k in B if len(A.get(k,[]))==len(B[k]))
+print('trades in keys whose counts agree:',agree,'| keys only in stockbit:',sum(1 for k in B if k not in A),'| only in ajaib:',sum(1 for k in A if k not in B),'| count differs:',sum(1 for k in B if k in A and len(A[k])!=len(B[k])))
+ties=[k for k in B if len(B[k])>1 and len(A.get(k,[]))==len(B[k])]
+print('agreeing keys with 2+ trades (ties):',len(ties),'trades',sum(len(B[k]) for k in ties))
+# order numbers: same set per key?
+same=diff=0; ex=[]
+hl=collections.Counter()
+for k,bs in B.items():
+    as_=A.get(k,[])
+    if len(as_)!=len(bs): continue
+    sbo=sorted((int(r['buy_order_number']),int(r['sell_order_number'])) for r in bs)
+    ajo=sorted((int(r['buyer']['order_id'][8:]),int(r['seller']['order_id'][8:])) for r in as_)
+    if sbo==ajo: same+=len(bs)
+    else:
+        diff+=len(bs); ex.append((k,sbo[:2],ajo[:2]))
+    if len(bs)==1:
+        a,b=as_[0],bs[0]
+        hl[(b['action'], 'buyer_hl' if a['buyer']['is_highlighted'] else '', 'seller_hl' if a['seller']['is_highlighted'] else '', 'aj_buy>sell' if int(a['buyer']['order_id'])>int(a['seller']['order_id']) else 'aj_sell>buy')]+=1
+print('order numbers equal (last 10 digits of order_id == stockbit number):',same,'differ:',diff, ex[:3])
+print('side check (stockbit action, ajaib is_highlighted, larger ajaib order):'); [print(' ',k,v) for k,v in hl.most_common()]
+miss=[k for k in B if k not in A]; print('stockbit-only keys sample',miss[:5])
+print('ajaib-only sample',[k for k in A if k not in B][:5])

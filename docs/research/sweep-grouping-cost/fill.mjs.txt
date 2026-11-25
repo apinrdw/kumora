@@ -1,0 +1,65 @@
+// Fills the trades the tape GET cannot reach (over 200 trades share one
+// instant, so the newest-200 page hides the lower-numbered rest) with
+// synthetic regular-board trades, so each stock code's minute matches its
+// recorded candle's frequency. A missing trade number takes the time of the
+// next known trade above it (the instant whose page hid it). Codes are drawn
+// from each code's deficit; price, lots and side from the deficit's candle.
+// Writes filled.json.
+import { readFileSync, readdirSync, writeFileSync } from "node:fs"
+const from = 1794794400000, to = 1794794580000
+let seed = 506
+const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648)
+const kinds = new Map(JSON.parse(readFileSync("codes.json")).codes.map((c) => [c.code, c.kind]))
+const all = new Map()
+for (const f of readdirSync("pages")) for (const t of JSON.parse(readFileSync("pages/" + f)).trades) all.set(Number(t.tradeNumber), t)
+const known = [...all.keys()].sort((a, b) => a - b)
+const real = JSON.parse(readFileSync("trades.json"))
+// Missing numbers by minute, each timed at its upper neighbour.
+const pool = new Map()
+for (let i = 1; i < known.length; i++) {
+  const upper = all.get(known[i])
+  if (upper.time < from || upper.time >= to) continue
+  for (let n = known[i - 1] + 1; n < known[i]; n++) {
+    const m = Math.floor(upper.time / 60000) * 60000
+    if (!pool.has(m)) pool.set(m, [])
+    pool.get(m).push({ n, time: upper.time })
+  }
+}
+const got = new Map()
+for (const t of real) if (t.board === "RG") {
+  const k = t.code + "|" + Math.floor(t.time / 60000) * 60000
+  const g = got.get(k) ?? { n: 0, lots: 0, buy: 0, sell: 0 }
+  g.n++; g.lots += t.lots
+  if (t.side === "buy") g.buy += t.price * t.lots * 100
+  if (t.side === "sell") g.sell += t.price * t.lots * 100
+  got.set(k, g)
+}
+const want = new Map()
+for (const f of readdirSync("candles")) {
+  const code = f.slice(0, -5)
+  if (kinds.get(code) === "index") continue
+  for (const c of JSON.parse(readFileSync("candles/" + f))) {
+    const g = got.get(code + "|" + c.minute) ?? { n: 0, lots: 0, buy: 0, sell: 0 }
+    const d = c.frequency - g.n
+    if (d <= 0) continue
+    if (!want.has(c.minute)) want.set(c.minute, [])
+    const buy = Math.max(0, c.buyValue - g.buy), sell = Math.max(0, c.sellValue - g.sell)
+    for (let i = 0; i < d; i++)
+      want.get(c.minute).push({ code, low: c.low, high: c.high, lots: Math.max(1, Math.round((c.volume - g.lots) / d)), pBuy: buy + sell > 0 ? buy / (buy + sell) : 0.5 })
+  }
+}
+const synthetic = []
+let extra = 9_000_000
+const report = {}
+for (const [minute, needs] of want) {
+  for (let i = needs.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [needs[i], needs[j]] = [needs[j], needs[i]] }
+  const slots = pool.get(minute) ?? []
+  report[new Date(minute).toISOString().slice(11, 16)] = { deficit: needs.length, missingNumbers: slots.length }
+  needs.forEach((need, i) => {
+    const slot = slots[i] ?? { n: extra++, time: minute + Math.floor(rand() * 60000) }
+    synthetic.push({ tradeNumber: String(slot.n), time: slot.time, code: need.code, price: need.low + Math.round(rand() * (need.high - need.low)), lots: need.lots, side: rand() < need.pBuy ? "buy" : "sell", board: "RG", feeds: ["Stockbit"] })
+  })
+}
+const filled = [...real, ...synthetic].sort((a, b) => Number(a.tradeNumber) - Number(b.tradeNumber))
+writeFileSync("filled.json", JSON.stringify(filled))
+console.log({ report, real: real.length, synthetic: synthetic.length, filled: filled.length, unnumbered: extra - 9_000_000 })

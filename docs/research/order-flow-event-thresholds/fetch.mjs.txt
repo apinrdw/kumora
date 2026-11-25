@@ -1,0 +1,54 @@
+// Fetch sealed days' stock code lists, relay gaps and every share's whole-day candles and footprints, cached on disk (gzipped).
+// usage: node fetch.mjs <cookieFile> <cacheDir> <day>[,<day>...]
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
+import { gzipSync } from "node:zlib"
+
+const [cookieFile, cacheDir, dayList] = process.argv.slice(2)
+const cookie = `__Secure-better-auth.session_token=${readFileSync(cookieFile, "utf8").trim()}`
+const base = "https://kumora-dashboard.kumora.workers.dev/market-live/days"
+
+const get = async (path) => {
+  for (let i = 0; i < 6; i++) {
+    try {
+      const r = await fetch(base + path, { headers: { cookie } })
+      if (r.ok) return r.json()
+      if (r.status === 404) return null
+      if (r.status === 401) throw new Error("Unauthorized")
+    } catch (e) {
+      if (String(e).includes("Unauthorized")) throw e
+    }
+    await new Promise((s) => setTimeout(s, 500 * (i + 1)))
+  }
+  throw new Error(`failed ${path}`)
+}
+const save = (file, body) => writeFileSync(file, gzipSync(JSON.stringify(body)))
+
+const jobs = []
+for (const day of dayList.split(",")) {
+  const dir = `${cacheDir}/${day}`
+  mkdirSync(`${dir}/candles`, { recursive: true })
+  for (const name of ["codes", "gaps"])
+    if (!existsSync(`${dir}/${name}.json.gz`))
+      save(`${dir}/${name}.json.gz`, await get(`/${day}/${name}`))
+  const { codes } = JSON.parse(
+    (await import("node:zlib"))
+      .gunzipSync(readFileSync(`${dir}/codes.json.gz`))
+      .toString()
+  )
+  // Shares only: indices have no aggressor side, and warrants and rights are not stocks.
+  for (const { code, kind } of codes)
+    if (kind === "share")
+      jobs.push({ day, code, file: `${dir}/candles/${code}.json.gz` })
+}
+
+let next = 0,
+  done = 0
+const worker = async () => {
+  while (next < jobs.length) {
+    const { day, code, file } = jobs[next++]
+    if (!existsSync(file)) save(file, await get(`/${day}/candles/${code}?v=7`))
+    if (++done % 500 === 0) console.error(done, "/", jobs.length)
+  }
+}
+await Promise.all(Array.from({ length: 16 }, worker))
+console.error("done", jobs.length)

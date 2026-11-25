@@ -1,0 +1,26 @@
+## HOPE: 1305 RG session trades, 571 aggressor orders, 540 per-broker pieces (side+second+broker)
+pieces with 2+ orders: 13; same-broker consecutive order pairs: 31; with another broker's aggressor order between: 1
+step buckets: {'<=1': 11, '<=2': 3, '<=3': 2, '<=5': 4, '<=10': 4, '<=20': 3, '<=50': 3, '>1000': 1}
+gap 1: 560 sweeps (orders 571, pieces 540)
+gap 2: 557 sweeps (orders 571, pieces 540)
+gap 3: 555 sweeps (orders 571, pieces 540)
+gap 5: 551 sweeps (orders 571, pieces 540)
+gap 10: 547 sweeps (orders 571, pieces 540)
+gap 20: 544 sweeps (orders 571, pieces 540)
+gap 50: 541 sweeps (orders 571, pieces 540)
+gap 100: 541 sweeps (orders 571, pieces 540)
+gap 1000: 541 sweeps (orders 571, pieces 540)
+order numbers per second (whole sequence): 112
+## BBCA: 20942 RG session trades, 9336 aggressor orders, 7737 per-broker pieces (side+second+broker)
+pieces with 2+ orders: 571; same-broker consecutive order pairs: 1599; with another broker's aggressor order between: 393
+step buckets: {'<=1': 219, '<=2': 86, '<=3': 69, '<=5': 129, '<=10': 211, '<=20': 157, '<=50': 146, '<=100': 116, '<=1000': 347, '>1000': 119}
+gap 1: 9117 sweeps (orders 9336, pieces 7737)
+gap 2: 9031 sweeps (orders 9336, pieces 7737)
+gap 3: 8962 sweeps (orders 9336, pieces 7737)
+gap 5: 8833 sweeps (orders 9336, pieces 7737)
+gap 10: 8622 sweeps (orders 9336, pieces 7737)
+gap 20: 8465 sweeps (orders 9336, pieces 7737)
+gap 50: 8319 sweeps (orders 9336, pieces 7737)
+gap 100: 8203 sweeps (orders 9336, pieces 7737)
+gap 1000: 7856 sweeps (orders 9336, pieces 7737)
+order numbers per second (whole sequence): 113

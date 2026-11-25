@@ -1,0 +1,329 @@
+// Replays one sealed day's one-minute candles and footprints through the three order flow event rules
+// (Exhaustion #595, Delta divergence #596, Failed break #597). Imported by sweep.mjs and spot.mjs.
+import { readFileSync, readdirSync } from "node:fs"
+import { gunzipSync } from "node:zlib"
+
+export const DEFAULTS = {
+  exh: {
+    push: 5,
+    lots: 0.5,
+    range: 0.5,
+    near: 2,
+    floor: 100e6,
+    skipFirst: 0,
+    minWidest: 0,
+  },
+  div: { gap: 10, pullback: 3, margin: 100e6, acrossGaps: false },
+  fb: { age: 10, ticks: 1, value: 100e6, ret: 3 },
+}
+// A parameter set is DEFAULTS with some leaves replaced: {"exh":{"lots":0.33}}.
+export const withParams = (over = {}) =>
+  Object.fromEntries(
+    Object.entries(DEFAULTS).map(([k, v]) => [k, { ...v, ...over[k] }])
+  )
+
+// packages/relay/src/ticks.ts
+const BANDS = [
+  { from: 0, tick: 1 },
+  { from: 200, tick: 2 },
+  { from: 500, tick: 5 },
+  { from: 2000, tick: 10 },
+  { from: 5000, tick: 25 },
+]
+export const tickAt = (p) =>
+  BANDS.reduce((t, b) => (p >= b.from ? b.tick : t), 1)
+export const ticksBetween = (lo, hi) => {
+  let n = 0
+  BANDS.forEach((b, i) => {
+    const to = BANDS[i + 1]?.from ?? Infinity
+    const span = Math.min(hi, to) - Math.max(lo, b.from)
+    if (span > 0) n += span / b.tick
+  })
+  return Math.round(n)
+}
+
+const MIN = 60_000
+const read = (file) => JSON.parse(gunzipSync(readFileSync(file)).toString())
+export const wib = (ms) => new Date(ms + 7 * 3600e3).toISOString().slice(11, 16)
+
+// packages/relay/src/schedule.ts: continuous trading, in WIB minutes of the day, end exclusive.
+// Session 1 ends 12:00:00 (11:30:00 Friday); its last one-second minute is left out.
+export const sessionsOf = (day) => {
+  const fri = new Date(`${day}T00:00:00Z`).getUTCDay() === 5
+  return fri
+    ? [
+        [540, 690],
+        [840, 950],
+      ]
+    : [
+        [540, 720],
+        [810, 950],
+      ]
+}
+
+export const loadDay = (cacheDir, day) => {
+  const dir = `${cacheDir}/${day}`
+  const gaps = read(`${dir}/gaps.json.gz`)?.gaps ?? []
+  const codes = []
+  for (const f of readdirSync(`${dir}/candles`)) {
+    const d = read(`${dir}/candles/${f}`)
+    if (!d || d.candles.length === 0) continue
+    codes.push(d)
+  }
+  return { day, gaps, codes }
+}
+
+// One code's minutes in time order: every candle (auctions included) plus every continuous minute without one.
+const timeline = (day, { candles, footprints }) => {
+  const dayStart = Date.parse(`${day}T00:00:00+07:00`)
+  const fps = new Map(footprints.map((f) => [f.minute, f.cells]))
+  const byMinute = new Map(candles.map((c) => [c.minute, c]))
+  const sessions = sessionsOf(day)
+  const all = new Set(candles.map((c) => c.minute))
+  sessions.forEach(([a, b]) => {
+    for (let m = a; m < b; m++) all.add(dayStart + m * MIN)
+  })
+  return [...all]
+    .sort((a, b) => a - b)
+    .map((minute) => {
+      const mod = (minute - dayStart) / MIN
+      const session = sessions.findIndex(([a, b]) => mod >= a && mod < b)
+      const c = byMinute.get(minute)
+      const cells = fps.get(minute) ?? []
+      let buy = 0,
+        sell = 0
+      for (const x of cells) {
+        buy += x.buy
+        sell += x.sell
+      }
+      return { minute, session, c, cells, buy, sell }
+    })
+}
+
+const touchesGap = (gaps, from, to) =>
+  gaps.some((g) => g.from < to && g.to > from)
+
+// Replays one code. Returns its events and its continuous-minute count per bucket.
+// How many checks reached each stage of each rule, summed over every replay (spot.mjs prints it).
+export const funnel = {}
+const pass = (stage) => (funnel[stage] = (funnel[stage] ?? 0) + 1)
+
+export const replayCode = (day, gaps, data, P) => {
+  const tl = timeline(day, data)
+  const events = []
+  const code = data.code
+  // Per side: s=+1 is the day's high (buy aggressors), s=-1 the day's low (sell aggressors).
+  const sides = [+1, -1]
+  const st = {}
+  for (const s of sides) st[s] = { ext: null, setAt: -1, exhFiredAt: null }
+  let last = null // last traded price
+  let cum = 0 // cumulative delta in lots at the minute's close
+  const cumAt = [] // cumulative delta at each index's close
+  const extAfter = { 1: [], [-1]: [] } // the day's extreme after each index
+  const setAtAfter = { 1: [], [-1]: [] }
+  const better = (s, a, b) => (s > 0 ? a > b : a < b) // a beyond b on side s
+  const hiOf = (m, s) => (m.c ? (s > 0 ? m.c.high : m.c.low) : last)
+  const loOf = (m, s) => (m.c ? (s > 0 ? m.c.low : m.c.high) : last)
+  const aggr = (m, s) => (s > 0 ? m.buy : m.sell)
+  // From the footprint, not the candle's buyValue/sellValue: candles recorded before those fields
+  // (2026-11-16 and earlier) carry 0. On later days the two agree exactly.
+  const aggrValue = (m, s) =>
+    m.cells.reduce((a, x) => a + (s > 0 ? x.buy : x.sell) * 100 * x.price, 0)
+  const rangeTicks = (m) => (m.c ? ticksBetween(m.c.low, m.c.high) : 0)
+  const gapAt = (i, j) => touchesGap(gaps, tl[i].minute, tl[j].minute + MIN)
+  // Consecutive continuous minutes i-n..i, all in i's session.
+  const sameSession = (i, n) => {
+    if (tl[i].session < 0 || i - n < 0) return false
+    for (let k = i - n; k < i; k++)
+      if (
+        tl[k].session !== tl[i].session ||
+        tl[k + 1].minute - tl[k].minute !== MIN
+      )
+        return false
+    return true
+  }
+
+  for (let i = 0; i < tl.length; i++) {
+    const m = tl[i]
+    cum += m.buy - m.sell
+    cumAt[i] = cum
+    if (m.c) last = m.c.close
+    for (const s of sides) {
+      const S = st[s]
+      const ext0 = S.ext,
+        setAt0 = S.setAt
+      const x = m.c ? (s > 0 ? m.c.high : m.c.low) : null
+      const newExt = x !== null && (ext0 === null || better(s, x, ext0))
+      if (newExt) {
+        S.ext = x
+        S.setAt = i
+      }
+      extAfter[s][i] = S.ext
+      setAtAfter[s][i] = S.setAt
+      if (m.session < 0 || ext0 === null) continue
+
+      // Exhaustion at latest minute i.
+      const E = P.exh
+      // skipFirst (not in #595): the push may not start in the session's first `skipFirst` minutes.
+      if (
+        !newExt &&
+        sameSession(i, E.push + E.skipFirst) &&
+        !gapAt(i - E.push, i)
+      ) {
+        const pushFrom = i - E.push
+        if (
+          S.setAt >= pushFrom &&
+          S.setAt < i &&
+          (S.exhFiredAt === null || better(s, S.ext, S.exhFiredAt))
+        ) {
+          pass("exh 1 push set the extreme, not yet fired at it")
+          const near = ticksBetween(
+            ...(s > 0 ? [hiOf(m, s), S.ext] : [S.ext, hiOf(m, s)])
+          )
+          let busiest = pushFrom,
+            widest = 0
+          for (let k = pushFrom; k < i; k++) {
+            if (aggr(tl[k], s) > aggr(tl[busiest], s)) busiest = k
+            widest = Math.max(widest, rangeTicks(tl[k]))
+          }
+          const peak = aggr(tl[busiest], s)
+          if (near <= E.near) pass("exh 2a near")
+          if (aggr(m, s) <= E.lots * peak) pass("exh 2b dried up")
+          if (rangeTicks(m) <= E.range * widest) pass("exh 2c slowed")
+          if (aggrValue(tl[busiest], s) >= E.floor) pass("exh 2d floor")
+          if (
+            near <= E.near &&
+            aggr(m, s) <= E.lots * peak &&
+            rangeTicks(m) <= E.range * widest &&
+            aggrValue(tl[busiest], s) >= E.floor &&
+            widest >= E.minWidest && // not in #595: the push's widest minute spans at least this many ticks
+            peak > 0
+          ) {
+            S.exhFiredAt = S.ext
+            events.push({
+              kind: "exhaustion",
+              side: s,
+              code,
+              i,
+              minute: m.minute,
+              ext: S.ext,
+              extMinute: tl[S.setAt].minute,
+              peakLots: peak,
+              lots: aggr(m, s),
+              peakValue: aggrValue(tl[busiest], s),
+              peakMinute: tl[busiest].minute,
+              widest,
+              range: rangeTicks(m),
+              near,
+            })
+          }
+        }
+      }
+
+      // Delta divergence at new extreme minute i; the earlier extreme is setAt0.
+      const V = P.div
+      // acrossGaps (not in #596) measures what the gap rule costs.
+      if (
+        newExt &&
+        m.minute - tl[setAt0].minute >= V.gap * MIN &&
+        (V.acrossGaps || !gapAt(setAt0, i))
+      ) {
+        pass("div 1 new extreme, earlier one far enough back, no gap")
+        let pull = 0
+        for (let k = setAt0 + 1; k < i; k++) {
+          const lo = loOf(tl[k], s)
+          if (lo !== null)
+            pull = Math.max(
+              pull,
+              s > 0 ? ticksBetween(lo, ext0) : ticksBetween(ext0, lo)
+            )
+        }
+        const marginLots = V.margin / (100 * x)
+        const d0 = cumAt[setAt0],
+          d1 = cum
+        if (pull >= V.pullback) pass("div 2 and pulled back")
+        if (pull >= V.pullback && (s > 0 ? d0 - d1 : d1 - d0) >= marginLots) {
+          events.push({
+            kind: "divergence",
+            side: s,
+            code,
+            i,
+            minute: m.minute,
+            ext: x,
+            ext0,
+            ext0Minute: tl[setAt0].minute,
+            cum: d1,
+            cum0: d0,
+            pull,
+            marginValue: Math.abs(d0 - d1) * 100 * x,
+          })
+        }
+      }
+
+      // Failed break: minute i is the first beyond a level set at least `age` minutes before.
+      const F = P.fb
+      if (
+        newExt &&
+        m.minute - tl[setAt0].minute >= F.age * MIN &&
+        (s > 0 ? ticksBetween(ext0, x) : ticksBetween(x, ext0)) >= F.ticks
+      ) {
+        pass("fb 1 break of an old enough level")
+        let value = 0,
+          far = x
+        for (let r = i; r < i + F.ret && r < tl.length; r++) {
+          const n = tl[r]
+          if (n.session !== m.session || n.minute - m.minute !== (r - i) * MIN)
+            break
+          for (const cell of n.cells)
+            if (better(s, cell.price, ext0))
+              value += (s > 0 ? cell.buy : cell.sell) * 100 * cell.price
+          if (n.c && better(s, n.c[s > 0 ? "high" : "low"], far))
+            far = n.c[s > 0 ? "high" : "low"]
+          if (n.c && better(s, ext0, n.c.close)) {
+            pass("fb 2 closed back inside in time")
+            if (value >= F.value && !gapAt(i, r))
+              events.push({
+                kind: "failedBreak",
+                side: s,
+                code,
+                i: r,
+                minute: n.minute,
+                level: ext0,
+                levelMinute: tl[setAt0].minute,
+                breakMinute: m.minute,
+                far,
+                value,
+                close: n.c.close,
+                after: r - i,
+              })
+            break
+          }
+        }
+      }
+    }
+  }
+  return events
+}
+
+// Every share's events on one day, with its tier.
+export const replayDay = ({ day, gaps, codes }, P) =>
+  codes.flatMap((d) => replayCode(day, gaps, d, P))
+
+// Tiers by the day's regular-board value: busy = top 50, mid = next 150, quiet = the rest with at least
+// 100 trades and Rp1 billion. Codes below that are not counted.
+export const tiersOf = ({ codes }) => {
+  const ranked = codes
+    .map((d) => ({
+      code: d.code,
+      value: d.candles.reduce((a, c) => a + c.value, 0),
+      trades: d.candles.reduce((a, c) => a + c.frequency, 0),
+    }))
+    .sort((a, b) => b.value - a.value)
+  const tiers = new Map()
+  ranked.forEach((r, k) => {
+    if (k < 50) tiers.set(r.code, "busy")
+    else if (k < 200) tiers.set(r.code, "mid")
+    else if (r.trades >= 100 && r.value >= 1e9) tiers.set(r.code, "quiet")
+  })
+  return { tiers, ranked }
+}

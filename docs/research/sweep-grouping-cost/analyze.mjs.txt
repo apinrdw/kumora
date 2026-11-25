@@ -1,0 +1,17 @@
+// Summarises results-*.json: per run, peak minute (02:00Z) and whole window.
+import { readFileSync } from "node:fs"
+const pct = (xs, p) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.ceil((p / 100) * s.length) - 1)] }
+const f = (x) => x.toFixed(2)
+for (const file of process.argv.slice(2)) {
+  const r = JSON.parse(readFileSync(file))
+  console.log(`${file}: ${r.trades} trades, ${r.codes} codes, node ${r.node}`)
+  for (const { run, ingested, deltas } of r.results) {
+    for (const [label, lo, hi] of [["peak 02:00", 1794794400000, 1794794460000], ["all 3 min", 0, Infinity]]) {
+      const d = deltas.filter((x) => x.windowStart >= lo && x.windowStart < hi)
+      const t = d.map((x) => x.todayMs), e = d.map((x) => x.everyMs)
+      const sum = (k) => d.reduce((a, x) => a + x[k], 0)
+      const worst = d.reduce((a, x) => (x.everyMs > a.everyMs ? x : a))
+      console.log(`  run ${run} ${label}: deltas ${d.length}, trades ${sum("trades")} | today p50 ${f(pct(t, 50))} p95 ${f(pct(t, 95))} max ${f(Math.max(...t))} | every p50 ${f(pct(e, 50))} p95 ${f(pct(e, 95))} max ${f(Math.max(...e))} (worst at +${(worst.windowStart - 1794794400000) / 1000}s: ${worst.everySweepMinutes} slots, ${worst.everyGroupedTrades} trades grouped) | every total ${f(sum("everyMs"))} ms, sweepMinutes ${sum("everySweepMinutes")}, grouped ${sum("everyGroupedTrades")}; today sweepMinutes ${sum("todaySweepMinutes")}`)
+    }
+  }
+}

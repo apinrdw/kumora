@@ -1,0 +1,183 @@
+// TEMPORARY benchmark for apinrdw/kumora#506; deleted before finishing.
+import { readFileSync, writeFileSync } from "node:fs"
+import { Session } from "node:inspector"
+
+import { it } from "@effect/vitest"
+import {
+  StockCode,
+  TradeNumber,
+  type RunningTrade,
+} from "@workspace/relay"
+import { DateTime, Effect } from "effect"
+import { TestClock } from "effect/testing"
+
+import { makeCandleBook } from "@/server/market-live/candles"
+import { makeDayStore } from "@/server/market-live/day-store"
+
+import { memorySql } from "./sql"
+
+const BENCH = process.env.BENCH_DIR!
+const DATA = process.env.BENCH_DATA ?? "filled.json"
+const RUNS = Number(process.env.BENCH_RUNS ?? 3)
+const WARMUP = Number(process.env.BENCH_WARMUP ?? 1)
+const OPEN = 1794794400000
+const END = 1794794580000
+const DELTA = 250
+
+interface Raw {
+  tradeNumber: string
+  time: number
+  code: string
+  price: number
+  lots: number
+  side: "buy" | "sell" | "unknown"
+  board: string
+  feeds: Array<string>
+}
+
+const raw: Array<Raw> = JSON.parse(readFileSync(`${BENCH}/${DATA}`, "utf8"))
+const trades: Array<RunningTrade> = raw
+  .map(
+    (t) =>
+      ({
+        tradeNumber: TradeNumber.make(t.tradeNumber),
+        time: DateTime.makeUnsafe(t.time),
+        code: StockCode.make(t.code),
+        price: t.price,
+        lots: t.lots,
+        side: t.side,
+        board: t.board,
+        feeds: t.feeds,
+      }) as RunningTrade
+  )
+  .sort((a, b) => {
+    const d = DateTime.toEpochMillis(a.time) - DateTime.toEpochMillis(b.time)
+    return d !== 0 ? d : Number(a.tradeNumber) - Number(b.tradeNumber)
+  })
+const every = new Set(trades.map((t) => t.code))
+const today = new Set(["BBCA", "GOTO", "BUMI"].map((c) => StockCode.make(c)))
+
+const makePair = Effect.gen(function* () {
+  const store = yield* makeDayStore(memorySql(), { today: true })
+  const book = yield* makeCandleBook(store, () => {})
+  return { store, book }
+})
+
+type Pair = Effect.Success<typeof makePair>
+
+const flush = Effect.fnUntraced(function* ({ store, book }: Pair) {
+  const settled = yield* book.takeSettled(false)
+  yield* store.write({
+    ...settled,
+    livePrices: [],
+    chunks: [],
+    ajaibBooks: [],
+    facts: {},
+  })
+  yield* book.written
+})
+
+const timed = Effect.fnUntraced(function* (
+  pair: Pair,
+  selected: ReadonlySet<StockCode>
+) {
+  const start = performance.now()
+  const out = yield* pair.book.takeChanged(selected)
+  const ms = performance.now() - start
+  let grouped = 0
+  for (const minute of out.sweeps)
+    for (const sweep of minute.sweeps) grouped += sweep.trades
+  return {
+    ms,
+    candles: out.candles.length,
+    footprints: out.footprints.length,
+    sweepMinutes: out.sweeps.length,
+    groupedTrades: grouped,
+  }
+})
+
+const replay = Effect.fnUntraced(function* (run: number) {
+  const a = yield* makePair
+  const b = yield* makePair
+  const deltas: Array<Record<string, number>> = []
+  let next = 0
+  let flushAt = OPEN + 5_000
+  for (let windowStart = OPEN; windowStart < END; windowStart += DELTA) {
+    const windowEnd = windowStart + DELTA
+    if (windowEnd > flushAt) {
+      yield* TestClock.setTime(flushAt)
+      yield* flush(a)
+      yield* flush(b)
+      flushAt += 60_000
+    }
+    yield* TestClock.setTime(windowEnd)
+    let count = 0
+    while (
+      next < trades.length &&
+      DateTime.toEpochMillis(trades[next]!.time) < windowEnd
+    ) {
+      yield* a.book.trade(undefined, trades[next]!)
+      yield* b.book.trade(undefined, trades[next]!)
+      next++
+      count++
+    }
+    if (!(yield* a.book.hasChanges)) continue
+    // Alternate which mode goes first so neither always runs on a warmer cache.
+    const first = deltas.length % 2 === 0
+    const t1 = first ? yield* timed(a, today) : yield* timed(b, every)
+    const t2 = first ? yield* timed(b, every) : yield* timed(a, today)
+    const todayResult = first ? t1 : t2
+    const everyResult = first ? t2 : t1
+    deltas.push({
+      run,
+      windowStart,
+      trades: count,
+      todayMs: todayResult.ms,
+      everyMs: everyResult.ms,
+      candles: everyResult.candles,
+      todaySweepMinutes: todayResult.sweepMinutes,
+      everySweepMinutes: everyResult.sweepMinutes,
+      everyFootprints: everyResult.footprints,
+      everyGroupedTrades: everyResult.groupedTrades,
+    })
+  }
+  let swept = 0
+  for (const code of every)
+    for (const sweep of yield* b.book.sweepsOf(code)) swept += sweep.trades
+  const rg = trades.filter((t) => t.board === "RG").length
+  console.log(`run ${run}: sweeps cover ${swept} trades; RG trades ${rg}`)
+  return { deltas, ingested: next }
+})
+
+it.effect(
+  "bench 506",
+  () =>
+    Effect.gen(function* () {
+      const session = new Session()
+      if (process.env.BENCH_PROF) {
+        session.connect()
+        session.post("Profiler.enable")
+        session.post("Profiler.start")
+      }
+      const results = []
+      for (let run = 0; run < WARMUP + RUNS; run++) {
+        const { deltas, ingested } = yield* replay(run)
+        if (run >= WARMUP) results.push({ run, ingested, deltas })
+      }
+      if (process.env.BENCH_PROF)
+        session.post("Profiler.stop", (_e, r) =>
+          writeFileSync(`${BENCH}/prof/bench.cpuprofile`, JSON.stringify(r.profile))
+        )
+      writeFileSync(
+        `${BENCH}/results-${DATA.replace(".json", "")}-${process.env.BENCH_TAG ?? "x"}.json`,
+        JSON.stringify({
+          data: DATA,
+          trades: trades.length,
+          codes: every.size,
+          node: process.version,
+          results,
+        })
+      )
+    }),
+  600_000
+)
