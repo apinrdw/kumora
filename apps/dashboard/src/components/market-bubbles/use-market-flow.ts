@@ -1,4 +1,5 @@
 import {
+  DashboardBasePath,
   StockCode,
   clientRuntime,
   fetchBubbles,
@@ -147,7 +148,7 @@ const followMarketFlow = Effect.fnUntraced(
     const scheme = window.location.protocol === "https:" ? "wss" : "ws"
     const select = yield* SubscriptionRef.make(SELECT)
     const messages = viewerMessages({
-      url: `${scheme}://${window.location.host}${MarketLivePath.live}`,
+      url: `${scheme}://${window.location.host}${DashboardBasePath}${MarketLivePath.live}`,
       select,
       onReconnecting: conditionsReconnecting,
     })

@@ -1,3 +1,4 @@
+import { DashboardBasePath } from "@workspace/client"
 import type { SectorName, StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
@@ -428,7 +429,7 @@ export function BubbleCanvas({
         // Served by the dashboard itself (src/routes/logos/$code.ts).
         // Same origin, so drawing it never taints the canvas and
         // the snapshot still exports. See apinrdw/kumora#432.
-        image.src = `/logos/${encodeURIComponent(code)}`
+        image.src = `${DashboardBasePath}/logos/${encodeURIComponent(code)}`
         held.set(code, image)
       }
       const image = held.get(code)

@@ -34,20 +34,22 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 
+import { DashboardBasePath } from "./base-path.ts"
 import { SignInRequired } from "./market-live-socket.ts"
 
-// The body of a 200 answer to `path`; `fresh` asks the Worker past the
-// browser's copy.
+// The body of a 200 answer to the relay's root-relative `path`, under the
+// dashboard base path; `fresh` asks the Worker past the browser's copy.
 export const getRecorded = Effect.fnUntraced(function* (
   path: string,
   fresh = false
 ) {
   const client = yield* HttpClient.HttpClient
+  const url = `${DashboardBasePath}${path}`
   const response = yield* fresh
-    ? Effect.provideService(client.get(path), FetchHttpClient.RequestInit, {
+    ? Effect.provideService(client.get(url), FetchHttpClient.RequestInit, {
         cache: "reload",
       })
-    : client.get(path)
+    : client.get(url)
   if (response.status === 401) return yield* new SignInRequired()
   if (response.status === 404) return Option.none<string>()
   const ok = yield* HttpClientResponse.filterStatusOk(response)
