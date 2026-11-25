@@ -16,9 +16,8 @@ export function AppSidebar({ viewer }: { viewer: Viewer }) {
       aria-label="Main navigation"
       className="sticky top-(--banner-h,0px) hidden h-[calc(100svh-var(--banner-h,0px))] w-16 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex xl:w-[244px]"
     >
-      {/* An <a>, not a Link: with no routes yet, `/` is not a typed target. */}
-      <a
-        href="/"
+      <Link
+        to="/"
         className="flex h-14 items-center justify-center gap-2.5 border-b border-sidebar-border px-0 xl:justify-start xl:px-4"
       >
         <img
@@ -34,7 +33,7 @@ export function AppSidebar({ viewer }: { viewer: Viewer }) {
             IDX
           </span>
         </span>
-      </a>
+      </Link>
 
       <div className="flex-1 overflow-y-auto px-1.5 py-3 xl:px-2.5">
         {Effect.runSync(visibleNav(NAV, viewer.features)).map((group) => (

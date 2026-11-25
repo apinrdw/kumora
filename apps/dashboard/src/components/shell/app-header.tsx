@@ -14,13 +14,13 @@ import { UserMenu } from "./user-menu"
 export function AppHeader({ viewer }: { viewer: Viewer }) {
   return (
     <header className="bg-canvas/82 sticky top-(--banner-h,0px) z-20 flex h-14 items-center gap-3 border-b border-border px-4 backdrop-blur-[16px]">
-      <a href="/" className="shrink-0 md:hidden">
+      <Link to="/" className="shrink-0 md:hidden">
         <img
           src={`${DashboardBasePath}/kumora-mark.png`}
           alt="KUMORA AI"
           className="size-7"
         />
-      </a>
+      </Link>
       <Breadcrumbs />
       <span className="flex-1" />
       <StockSearch />
