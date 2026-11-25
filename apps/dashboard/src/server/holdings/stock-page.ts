@@ -15,7 +15,7 @@ import {
 } from "@/domain/holdings"
 
 import { HoldingsDb } from "./db.ts"
-import { DAILY_WINDOW, MONTHLY_WINDOW, readFrom } from "./holders-window.ts"
+import { pageReadFrom } from "./holders-window.ts"
 
 // Shares held, by origin. `local` and `foreign` are absent in a month whose
 // report doesn't split them, never 0.
@@ -201,10 +201,10 @@ const StockPage = Schema.Struct({
   // Every parsed investor-type month, oldest first, with the stock's
   // holdings where it has a row.
   holderSize: Schema.Array(HolderSizeMonth),
-  // The newest parsed above-1% months that fit MONTHLY_WINDOW's budget,
-  // oldest first, with the stock's ≥1% holders.
+  // The newest parsed above-1% months the page's row budget reads
+  // (holders-window.ts), oldest first, with the stock's ≥1% holders.
   majorHolders: Schema.Array(MajorHoldersMonth),
-  // The newest parsed above-5% days that fit DAILY_WINDOW's budget, oldest
+  // The newest parsed above-5% days the page's row budget reads, oldest
   // first, with the stock's above-5% holders.
   dailyHolders: Schema.Array(DailyHoldersDay),
 })
@@ -306,21 +306,21 @@ type HolderSizeHoldingRow = typeof HolderSizeHoldingRow.Type
 // Decision: a stock's holders are read from its newest periods that fit a
 // row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
 //
-// The stock's newest parsed periods of a kind whose rows fit its budget, as
-// the CTE `read_from`'s `since`. ?1 is the code.
-const ABOVE_1_READ = `WITH ${readFrom(MONTHLY_WINDOW, "SELECT ?1 AS stock_code")}`
-const ABOVE_5_READ = `WITH ${readFrom(DAILY_WINDOW, "SELECT ?1 AS stock_code")}`
-const SINCE = `(SELECT since FROM read_from)`
+// The stock's newest parsed periods of each kind that fit the page's one
+// row budget, as the CTEs `months_read` and `days_read`. ?1 is the code.
+const READ = `WITH ${pageReadFrom("?1")}`
+const MONTHS_SINCE = `(SELECT since FROM months_read)`
+const DAYS_SINCE = `(SELECT since FROM days_read)`
 
 // Those above-1% months, and the stock's rows in each in file order.
-const ABOVE_1_MONTHS = `${ABOVE_1_READ}
-  SELECT data_date FROM above_1_month WHERE data_date >= ${SINCE}
+const ABOVE_1_MONTHS = `${READ}
+  SELECT data_date FROM above_1_month WHERE data_date >= ${MONTHS_SINCE}
   ORDER BY data_date`
-const ABOVE_1_HOLDINGS = `${ABOVE_1_READ}
+const ABOVE_1_HOLDINGS = `${READ}
   SELECT data_date, holder_key, investor_name, classification,
     investor_type, origin, domicile, controller, scripless, scrip, total,
     percentage_hundredths
-  FROM above_1_holding WHERE stock_code = ?1 AND data_date >= ${SINCE}
+  FROM above_1_holding WHERE stock_code = ?1 AND data_date >= ${MONTHS_SINCE}
   ORDER BY data_date, seq`
 
 const Above1MonthRow = Schema.Struct({ data_date: Schema.String })
@@ -357,7 +357,7 @@ const publishedRow = (row: Above1HoldingRow) =>
 // Each above-1% month's rows grouped into holders by holder key.
 export const above1Months = Effect.fnUntraced(function* (
   monthRows: ReadonlyArray<typeof Above1MonthRow.Type>,
-  holdingRows: ReadonlyArray<Above1HoldingRow>
+  holdingRows: Iterable<Above1HoldingRow>
 ) {
   const byMonth = new Map<string, Map<string, Above1Holder>>(
     monthRows.map(({ data_date }) => [data_date, new Map()])
@@ -389,25 +389,40 @@ export const above1Months = Effect.fnUntraced(function* (
   }))
 })
 
+// `rows` decoded one at a time, in order, each let go once it is taken.
+// Rows as read weigh more than the holders made of them, and the page's
+// budget of both, held whole together, pass its heap bound
+// (tests/server/holdings/stock-page-heap.test.ts).
+const drained = <A>(rows: Array<unknown>, decode: (row: unknown) => A) =>
+  Effect.sync((): Iterable<A> => ({
+    *[Symbol.iterator]() {
+      for (let at = 0; at < rows.length; at++) {
+        const row = rows[at]
+        rows[at] = undefined
+        yield decode(row)
+      }
+    },
+  }))
+
 // Those above-5% days, the stock's listed shares on each, and its blocks
 // and accounts in report order.
-const ABOVE_5_DAYS = `${ABOVE_5_READ}
+const ABOVE_5_DAYS = `${READ}
   SELECT d.data_date, (
     SELECT s.shares_outstanding FROM investor_type_stock_month s
     WHERE s.stock_code = ?1 AND s.data_date <= d.data_date
     ORDER BY s.data_date DESC LIMIT 1
   ) AS listed_shares
-  FROM above_5_day d WHERE d.data_date >= ${SINCE} ORDER BY d.data_date`
-const ABOVE_5_HOLDERS = `${ABOVE_5_READ}
+  FROM above_5_day d WHERE d.data_date >= ${DAYS_SINCE} ORDER BY d.data_date`
+const ABOVE_5_HOLDERS = `${READ}
   SELECT data_date, no, issuer_name, holder_name, holder_key, scripless,
     percentage_hundredths
   FROM above_5_holder
-  WHERE stock_code = ?1 AND data_date >= ${SINCE}
+  WHERE stock_code = ?1 AND data_date >= ${DAYS_SINCE}
   ORDER BY data_date, no`
-const ABOVE_5_ACCOUNTS = `${ABOVE_5_READ}
+const ABOVE_5_ACCOUNTS = `${READ}
   SELECT data_date, no, custodian, account_name, origin, domicile, scripless
   FROM above_5_account
-  WHERE stock_code = ?1 AND data_date >= ${SINCE}
+  WHERE stock_code = ?1 AND data_date >= ${DAYS_SINCE}
   ORDER BY data_date, no, ordinal`
 
 const Above5DayRow = Schema.Struct({
@@ -638,7 +653,7 @@ export const stockPage = Effect.fnUntraced(function* (
     above5DayRows = [],
     above5HolderRows = [],
     above5AccountRows = [],
-  ] = yield* (yield* HoldingsDb).batch([
+  ] = (yield* (yield* HoldingsDb).batch([
     { sql: MONTHS, params: [code] },
     { sql: HOLDINGS, params: [code, month ?? null] },
     { sql: SERIES_MONTHS, params: [code] },
@@ -650,7 +665,11 @@ export const stockPage = Effect.fnUntraced(function* (
     { sql: ABOVE_5_DAYS, params: [code] },
     { sql: ABOVE_5_HOLDERS, params: [code] },
     { sql: ABOVE_5_ACCOUNTS, params: [code] },
-  ])
+  ])).map(
+    // Its own copy of each statement's rows, to let them go as they are
+    // taken (drained).
+    (rows): Array<Record<string, unknown> | undefined> => [...rows]
+  )
   const above5Holders = Schema.decodeUnknownSync(Schema.Array(Above5HolderRow))(
     above5HolderRows
   )
@@ -711,8 +730,9 @@ export const stockPage = Effect.fnUntraced(function* (
     ),
     majorHolders: yield* above1Months(
       Schema.decodeUnknownSync(Schema.Array(Above1MonthRow))(above1MonthRows),
-      Schema.decodeUnknownSync(Schema.Array(Above1HoldingRow))(
-        above1HoldingRows
+      yield* drained(
+        above1HoldingRows,
+        Schema.decodeUnknownSync(Above1HoldingRow)
       )
     ),
     dailyHolders: yield* above5Days(

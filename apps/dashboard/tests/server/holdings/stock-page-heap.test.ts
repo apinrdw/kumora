@@ -5,7 +5,11 @@ import { assert, describe, it } from "@effect/vitest"
 import { StockCode } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { DAILY_WINDOW } from "@/server/holdings/holders-window"
+import {
+  DAILY_WINDOW,
+  MONTHLY_WINDOW,
+  PAGE_BUDGET,
+} from "@/server/holdings/holders-window"
 import { stockPage } from "@/server/holdings/stock-page"
 
 import { retainedHeap } from "../../support/retained-heap.ts"
@@ -152,26 +156,67 @@ describe("the stock page's Major holders read", () => {
   )
 })
 
+// Each kind's periods the stock page reads, as their holders' numbers, of a
+// stock whose every day has `blocks` blocks of one securities account and
+// whose every month has `holders` holders.
+const pageInBoundedHeap = (
+  days: number,
+  blocks: number,
+  months: number,
+  holders: number
+) =>
+  inBoundedHeap(
+    new URL("./stock-page-worker.ts", import.meta.url),
+    {
+      migrations: MIGRATIONS,
+      days: datesOf(days),
+      blocks,
+      months: monthsOf(months),
+      holders,
+    },
+    PAGE_HEAP_MIB
+  )
+
 describe("the stock page's read of both Daily holders and Major holders", () => {
   // 62,004 rows read together took 144 MiB of heap, more than a Worker has
-  // (apinrdw/kumora#673's review).
+  // (apinrdw/kumora#673's review). The months leave no day at the cap room.
   it.effect(
     "fits 88 MiB of heap for a stock at both parses' caps",
     () =>
       Effect.gen(function* () {
         assert.strictEqual(
-          yield* inBoundedHeap(
-            new URL("./stock-page-worker.ts", import.meta.url),
-            {
-              migrations: MIGRATIONS,
-              days: datesOf(3),
-              blocks: ABOVE_5_DAY_ROWS,
-              months: monthsOf(3),
-              holders: ABOVE_1_MONTH_ROWS,
-            },
-            PAGE_HEAP_MIB
-          ),
+          yield* pageInBoundedHeap(3, ABOVE_5_DAY_ROWS, 3, ABOVE_1_MONTH_ROWS),
           `days [], months [${ABOVE_1_MONTH_ROWS},${ABOVE_1_MONTH_ROWS}]`
+        )
+      }),
+    { timeout: 120_000 }
+  )
+
+  // The page's whole budget, in its heaviest rows: the months' 30,002 and
+  // 5,998 of days.
+  it.effect(
+    "fits it with two months at the cap and the days that fit beside them",
+    () =>
+      Effect.gen(function* () {
+        const blocks = Math.floor(
+          ((PAGE_BUDGET - MONTHLY_WINDOW.budget) / 2 - 1) / 2
+        )
+        assert.strictEqual(
+          yield* pageInBoundedHeap(3, blocks, 3, ABOVE_1_MONTH_ROWS),
+          `days [${blocks},${blocks}], months [${ABOVE_1_MONTH_ROWS},${ABOVE_1_MONTH_ROWS}]`
+        )
+      }),
+    { timeout: 120_000 }
+  )
+
+  it.effect(
+    "keeps a day at the cap and the one before beside 4,000 rows of months",
+    () =>
+      Effect.gen(function* () {
+        const holders = (PAGE_BUDGET - DAILY_WINDOW.budget) / 2 - 1
+        assert.strictEqual(
+          yield* pageInBoundedHeap(3, ABOVE_5_DAY_ROWS, 2, holders),
+          `days [${ABOVE_5_DAY_ROWS},${ABOVE_5_DAY_ROWS}], months [${holders},${holders}]`
         )
       }),
     { timeout: 120_000 }
