@@ -2,7 +2,8 @@ import type { TablerIcon } from "@tabler/icons-react"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import type { ReactNode } from "react"
-import { DashboardBasePath } from "@workspace/client"
+
+import { KUMORA_MARK_SRC } from "@/lib/kumora-mark"
 
 // Variant A of the sign-in prototype (branch prototype/sign-in-flow): a page
 // with no shell, the brand panel beside the form, the form only on narrow
@@ -89,11 +90,7 @@ export function FormError({ children }: { children: ReactNode }) {
 function Wordmark() {
   return (
     <span className="flex items-center gap-2.5">
-      <img
-        src={`${DashboardBasePath}/kumora-mark.png`}
-        alt=""
-        className="size-8"
-      />
+      <img src={KUMORA_MARK_SRC} alt="" className="size-8" />
       <b className="text-[15px] font-extrabold tracking-[-0.01em]">
         KUMORA<i className="text-primary not-italic">Terminal</i>
       </b>
