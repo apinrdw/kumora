@@ -1,20 +1,38 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
-import { devPort, stackName } from "@workspace/deploy"
-import { stackOptions, websiteProps } from "@workspace/deploy/stack"
+import { devPort, stackName, stageKind } from "@workspace/deploy"
+import { stackOptions, stackStage, websiteProps } from "@workspace/deploy/stack"
 import * as Alchemy from "alchemy"
+import * as RemovalPolicy from "alchemy/RemovalPolicy"
 import { Stack } from "alchemy/Stack"
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
+
+// The waitlist: one row per visitor who left an email on the landing page,
+// with their queue number (src/server/waitlist/).
+// Decision: the waitlist gets its own D1 in apac, kept on destroy only in Production
+// (apps/web/docs/adr/0001-the-waitlist-gets-its-own-d1-kept-only-in-production.md)
+const WaitlistDb = Cloudflare.D1.Database("WaitlistDb", {
+  migrations: "./waitlist-migrations",
+  primaryLocationHint: "apac",
+})
 
 export const Website = Cloudflare.Website.Vite(
   "Web",
   Effect.gen(function* () {
     const { stage } = yield* Stack
+    const kind = yield* stageKind(yield* Effect.orDie(stackStage(stage)))
     return {
       ...(yield* websiteProps("web", stage)),
       rootDir: import.meta.dirname,
       dev: { port: yield* devPort("web"), strictPort: true },
-      env: { DEPLOY_PROBE_SECRET: Config.Redacted("DEPLOY_PROBE_SECRET") },
+      env: {
+        DEPLOY_PROBE_SECRET: Config.Redacted("DEPLOY_PROBE_SECRET"),
+        // Decision: the waitlist gets its own D1 in apac, kept on destroy only in Production
+        // (apps/web/docs/adr/0001-the-waitlist-gets-its-own-d1-kept-only-in-production.md)
+        WAITLIST_DB: WaitlistDb.pipe(
+          RemovalPolicy.retain(kind === "production")
+        ),
+      },
     }
   })
 )

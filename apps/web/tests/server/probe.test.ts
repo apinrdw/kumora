@@ -14,7 +14,11 @@ const ASSETS = {
 
 const withSecret = (secret: string) =>
   Effect.provide(
-    Layer.succeed(WorkerEnv, { ASSETS, DEPLOY_PROBE_SECRET: secret })
+    // The probe reads no other binding.
+    Layer.succeed(WorkerEnv, {
+      ASSETS,
+      DEPLOY_PROBE_SECRET: secret,
+    } as unknown as WorkerEnv["Service"])
   )
 
 const answer = (secret: string, url = "https://kumora.test/probe?x=1") =>
