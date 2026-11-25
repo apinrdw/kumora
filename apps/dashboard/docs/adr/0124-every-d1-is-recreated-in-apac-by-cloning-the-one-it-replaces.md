@@ -14,7 +14,9 @@ We rejected these alternatives:
 
 If a deploy fails partway through a clone, the new database exists but is incomplete, and the next deploy will not clone again. Delete the new database before retrying.
 
-A database's `clone` is removed once its production cutover is confirmed. Until then, recreating a database that was deleted outside Alchemy fails, because `clone` points at the deleted one.
+`clone` came out once every production cutover had landed: AuthDb and HoldingsDb on 2026-11-24, BrokerTotalsDb on 2026-11-25, each reported in APAC (Tokyo) by the D1 API. Left in, it would copy again on any later replace, from a source that may be gone. The declarations now carry only the hint, so a later change that replaces a database copies nothing and loses its data unless that change brings back a clone of its own.
+
+The move took admin pages' fresh session read (`authorize`) from a p50 of about 390 ms to about 180 ms from Singapore, measured on 2026-11-25. That is short of the hoped-for well under 100 ms: `apac` placed the primaries in Tokyo, not Singapore, and the hint can be no finer.
 
 Sites:
 - `apps/dashboard/alchemy.run.ts`
