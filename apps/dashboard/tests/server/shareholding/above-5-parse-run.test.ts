@@ -1,11 +1,13 @@
 // The Above-5% parse run: the shareholding archive's daily holders-above-5%
 // reports parsed into above-5% holders.
 import { assert, describe, it } from "@effect/vitest"
+import { StockCode } from "@workspace/relay"
 import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
 import { RunId } from "@/server/archive/run"
 import { ParseRunResult } from "@/server/holdings/parse-run-result"
+import { stockPage } from "@/server/holdings/stock-page"
 import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 import { above5ParseRuns } from "@/server/shareholding/above-5-parse"
 import { archiveRun } from "@/server/shareholding/archive-run"
@@ -138,66 +140,33 @@ const runRecord = (
     storedRun(archiveDbOf(bucket), shareholdingParse(kind), id)
   )
 
-// A stock's stored above-5% holders of `dataDate`, in block order, each with
-// its accounts' shares.
-// No page reads above-5% holders yet; the stock page's Daily holders read
-// (apinrdw/kumora#676) replaces this.
-const StoredAccounts = Schema.Array(
-  Schema.Struct({
-    no: Schema.Number,
-    custodian: Schema.String,
-    account_name: Schema.String,
-    origin: Schema.String,
-    domicile: Schema.NullOr(Schema.String),
-    scripless: Schema.Number,
-  })
-)
-const StoredHolders = Schema.Array(
-  Schema.Struct({
-    no: Schema.Number,
-    issuer_name: Schema.String,
-    holder_name: Schema.String,
-    holder_key: Schema.String,
-    scripless: Schema.Number,
-    percentage_hundredths: Schema.Number,
-  })
-)
-
-const storedDay = ({ holdings }: World, dataDate: string, code: string) => {
-  const accounts = Schema.decodeUnknownSync(StoredAccounts)(
-    holdings.database
-      .prepare(
-        "SELECT no, custodian, account_name, origin, domicile, scripless FROM above_5_account WHERE data_date = ? AND stock_code = ? ORDER BY no, ordinal"
-      )
-      .all(dataDate, code)
+// A stock's page as the stock page reads it.
+const pageOf = ({ holdings }: World, code: string) =>
+  stockPage(StockCode.make(code), undefined).pipe(
+    Effect.provide(holdings.layer)
   )
-  const holders = Schema.decodeUnknownSync(StoredHolders)(
-    holdings.database
-      .prepare(
-        "SELECT no, issuer_name, holder_name, holder_key, scripless, percentage_hundredths FROM above_5_holder WHERE data_date = ? AND stock_code = ? ORDER BY no"
-      )
-      .all(dataDate, code)
-  )
-  return holders.map(({ no, ...holder }) => ({
-    ...holder,
-    accounts: accounts
-      .filter((account) => account.no === no)
-      .map(({ no: _, ...account }) => account),
-  }))
-}
 
-const holderNamed = (
+// A stock's above-5% blocks of `dataDate` as the stock page reads them, in
+// report order.
+const heldOn = (w: World, dataDate: string, code: string) =>
+  Effect.map(
+    pageOf(w, code),
+    ({ dailyHolders }) =>
+      dailyHolders.find((day) => day.dataDate === dataDate)?.holders ?? []
+  )
+
+const holderNamed = Effect.fnUntraced(function* (
   w: World,
   dataDate: string,
   code: string,
   name: string
-) => {
-  const holder = storedDay(w, dataDate, code).find(
-    ({ holder_name }) => holder_name === name
+) {
+  const holder = (yield* heldOn(w, dataDate, code)).find(
+    (each) => each.name === name
   )
   assert.isDefined(holder, `${dataDate} ${code} ${name}`)
   return holder
-}
+})
 
 describe("an above-5% parse run", () => {
   it.effect("parses every archived above-5% day on its first run", () =>
@@ -213,11 +182,16 @@ describe("an above-5% parse run", () => {
 
       // BIKE's SENDI: `75,176,540` text, `20.6` read as 20,600 and `765` as
       // 765,000, the one reading that sums to its `75,962,140`.
-      const sendi = holderNamed(w, "2026-06-11", "BIKE", "SENDI")
+      const sendi = yield* holderNamed(w, "2026-06-11", "BIKE", "SENDI")
+      // No classification report here: the page names BIKE as its newest
+      // above-5% report does, after its issuer's rename.
+      assert.strictEqual(
+        (yield* pageOf(w, "BIKE")).issuerName,
+        "BHINEKA INOVASI KETAHANAN ENERGI Tbk, PT"
+      )
       assert.deepInclude(sendi, {
-        issuer_name: "SEPEDA BERSAMA INDONESIA Tbk, PT",
         scripless: 75_962_140,
-        percentage_hundredths: 587,
+        percentageHundredths: 587,
       })
       assert.deepStrictEqual(
         sendi.accounts.map(({ scripless }) => scripless),
@@ -225,7 +199,7 @@ describe("an above-5% parse run", () => {
       )
       // 19 Nov's fourth account, `57.4`, is 57,400.
       assert.deepStrictEqual(
-        holderNamed(w, "2026-11-19", "BIKE", "SENDI").accounts.map(
+        (yield* holderNamed(w, "2026-11-19", "BIKE", "SENDI")).accounts.map(
           ({ scripless }) => scripless
         ),
         [1_015_200, 57_400, 75_176_540, 20_600]
@@ -235,11 +209,11 @@ describe("an above-5% parse run", () => {
       // `500` at 8.33% is 500,000 and `863` at 14.38% is 863,000; `447.5`
       // is 447,500.
       assert.deepStrictEqual(
-        storedDay(w, "2026-06-11", "MAMIP").map(
-          ({ holder_name, scripless, percentage_hundredths, accounts }) => [
-            holder_name,
+        (yield* heldOn(w, "2026-06-11", "MAMIP")).map(
+          ({ name, scripless, percentageHundredths, accounts }) => [
+            name,
             scripless,
-            percentage_hundredths,
+            percentageHundredths,
             accounts.map((account) => account.scripless),
           ]
         ),
@@ -254,21 +228,20 @@ describe("an above-5% parse run", () => {
 
       // CPGT's two investors under one name are two holders.
       assert.lengthOf(
-        storedDay(w, "2026-11-20", "CPGT").filter(
-          ({ holder_name }) =>
-            holder_name === "ASIA ARGENTUM ASSETS HONG KONG LIMITED"
+        (yield* heldOn(w, "2026-11-20", "CPGT")).filter(
+          ({ name }) => name === "ASIA ARGENTUM ASSETS HONG KONG LIMITED"
         ),
         2
       )
       // ASRI's repeat blocks, one per name variant, until 20 Nov.
-      assert.lengthOf(storedDay(w, "2026-11-19", "ASRI"), 5)
-      assert.lengthOf(storedDay(w, "2026-11-20", "ASRI"), 3)
+      assert.lengthOf(yield* heldOn(w, "2026-11-19", "ASRI"), 5)
+      assert.lengthOf(yield* heldOn(w, "2026-11-20", "ASRI"), 3)
       // TRUE's code is a boolean cell.
-      assert.isNotEmpty(storedDay(w, "2026-11-20", "TRUE"))
+      assert.isNotEmpty(yield* heldOn(w, "2026-11-20", "TRUE"))
       // An account's origin and domicile, and the shared holder key.
       assert.deepInclude(
-        holderNamed(w, "2026-06-11", "BIKE", "PT PENAJAM MAKMUR JAYA"),
-        { holder_key: "JAYA MAKMUR PENAJAM" }
+        yield* holderNamed(w, "2026-06-11", "BIKE", "PT PENAJAM MAKMUR JAYA"),
+        { key: "JAYA MAKMUR PENAJAM" }
       )
       assert.deepInclude(sendi.accounts[0], {
         origin: "local",
@@ -290,17 +263,17 @@ describe("an above-5% parse run", () => {
     Effect.gen(function* () {
       const w = world()
       yield* archiveAndParse(w, "cron-2026-11-25")
-      assert.isNotEmpty(storedDay(w, "2026-11-20", "ENRG"))
-      const bike = storedDay(w, "2026-11-20", "BIKE")
+      assert.isNotEmpty(yield* heldOn(w, "2026-11-20", "ENRG"))
+      const bike = yield* heldOn(w, "2026-11-20", "BIKE")
 
       republish(w, "2026-11-20", "republished")
       yield* archive(w, "cron-2026-11-26T13")
       const result = yield* parse(w, "cron-2026-11-26")
       assert.deepInclude(result, { outcome: "complete", monthsParsed: 1 })
       // 20 Nov now reads exactly as the republished file: BIKE alone.
-      assert.isEmpty(storedDay(w, "2026-11-20", "ENRG"))
-      assert.deepStrictEqual(storedDay(w, "2026-11-20", "BIKE"), bike)
-      assert.isNotEmpty(storedDay(w, "2026-11-19", "ENRG"))
+      assert.isEmpty(yield* heldOn(w, "2026-11-20", "ENRG"))
+      assert.deepStrictEqual(yield* heldOn(w, "2026-11-20", "BIKE"), bike)
+      assert.isNotEmpty(yield* heldOn(w, "2026-11-19", "ENRG"))
     })
   )
 
@@ -329,7 +302,7 @@ describe("an above-5% parse run", () => {
           message:
             "MAMIP ONGKO DARMAWAN (row 34)'s Saham Gabungan Per Investor (P) is ambiguous, and no parsed investor-type report on or before the day lists the stock's listed shares",
         })
-        assert.isEmpty(storedDay(w, "2026-11-20", "BIKE"))
+        assert.isEmpty(yield* heldOn(w, "2026-11-20", "BIKE"))
       })
   )
 
@@ -399,7 +372,7 @@ describe("an above-5% report that doesn't match what's expected", () => {
         Effect.gen(function* () {
           const w = world()
           yield* archiveAndParse(w, "cron-2026-11-25")
-          const before = storedDay(w, "2026-11-20", "BIKE")
+          const before = yield* heldOn(w, "2026-11-20", "BIKE")
           assert.lengthOf(before, 2)
 
           republish(w, "2026-11-20", fixture)
@@ -413,7 +386,7 @@ describe("an above-5% report that doesn't match what's expected", () => {
             runRecord(w, "above-5", "cron-2026-11-26"),
             failed
           )
-          assert.deepStrictEqual(storedDay(w, "2026-11-20", "BIKE"), before)
+          assert.deepStrictEqual(yield* heldOn(w, "2026-11-20", "BIKE"), before)
 
           const retried = yield* parse(w, "cron-2026-11-27")
           assert.deepInclude(retried, { outcome: "partial", monthsParsed: 0 })

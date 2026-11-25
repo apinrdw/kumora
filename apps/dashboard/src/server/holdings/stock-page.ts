@@ -138,9 +138,45 @@ const MajorHoldersMonth = Schema.Struct({
 })
 export type MajorHoldersMonth = typeof MajorHoldersMonth.Type
 
+// One account of an above-5% holder's block as published.
+const Above5Account = Schema.Struct({
+  // The broker or bank holding the account.
+  custodian: Schema.String,
+  name: Schema.String,
+  origin: SplitOrigin,
+  domicile: Schema.UndefinedOr(Schema.String),
+  // 0 for an account the report lists emptied that day.
+  scripless: Schema.Number,
+})
+type Above5Account = typeof Above5Account.Type
+
+// One block of the daily above-5% report as published: repeat blocks of one
+// investor are each their own, collapsed by the Daily holders view model.
+const Above5Holder = Schema.Struct({
+  name: Schema.String,
+  key: Schema.String,
+  scripless: Schema.Number,
+  percentageHundredths: Schema.Number,
+  // In the block's order.
+  accounts: Schema.Array(Above5Account),
+})
+type Above5Holder = typeof Above5Holder.Type
+
+// A parsed above-5% day: the stock's blocks in report order, none when no
+// holder of it is above 5% that day, and its listed shares then.
+const DailyHoldersDay = Schema.Struct({
+  dataDate: Schema.String,
+  // The newest parsed investor-type report's on or before the day;
+  // undefined when none lists the stock.
+  listedShares: Schema.UndefinedOr(Schema.Number),
+  holders: Schema.Array(Above5Holder),
+})
+type DailyHoldersDay = typeof DailyHoldersDay.Type
+
 const StockPage = Schema.Struct({
   code: StockCode,
-  // As the newest classification report holding the stock prints it.
+  // As the newest classification report holding the stock prints it, else
+  // the newest above-5% report holding it.
   issuerName: Schema.UndefinedOr(Schema.String),
   // Every parsed classification month, oldest first, and whether the stock
   // has a row in it.
@@ -167,6 +203,9 @@ const StockPage = Schema.Struct({
   // Every parsed above-1% month, oldest first, with the stock's ≥1%
   // holders.
   majorHolders: Schema.Array(MajorHoldersMonth),
+  // Every parsed above-5% day, oldest first, with the stock's above-5%
+  // holders.
+  dailyHolders: Schema.Array(DailyHoldersDay),
 })
 export type StockPage = typeof StockPage.Type
 
@@ -339,6 +378,88 @@ const majorHolders = Effect.fnUntraced(function* (
   }))
 })
 
+// Every parsed above-5% day, its listed shares for the stock, and the
+// stock's blocks and accounts in report order. ?1 is the code.
+const ABOVE_5_DAYS = `
+  SELECT d.data_date, (
+    SELECT s.shares_outstanding FROM investor_type_stock_month s
+    WHERE s.stock_code = ?1 AND s.data_date <= d.data_date
+    ORDER BY s.data_date DESC LIMIT 1
+  ) AS listed_shares
+  FROM above_5_day d ORDER BY d.data_date`
+const ABOVE_5_HOLDERS = `
+  SELECT data_date, no, issuer_name, holder_name, holder_key, scripless,
+    percentage_hundredths
+  FROM above_5_holder WHERE stock_code = ?1
+  ORDER BY data_date, no`
+const ABOVE_5_ACCOUNTS = `
+  SELECT data_date, no, custodian, account_name, origin, domicile, scripless
+  FROM above_5_account WHERE stock_code = ?1
+  ORDER BY data_date, no, ordinal`
+
+const Above5DayRow = Schema.Struct({
+  data_date: Schema.String,
+  listed_shares: Schema.NullOr(Schema.Number),
+})
+const Above5HolderRow = Schema.Struct({
+  data_date: Schema.String,
+  no: Schema.Number,
+  issuer_name: Schema.String,
+  holder_name: Schema.String,
+  holder_key: Schema.String,
+  scripless: Schema.Number,
+  percentage_hundredths: Schema.Number,
+})
+const Above5AccountRow = Schema.Struct({
+  data_date: Schema.String,
+  no: Schema.Number,
+  custodian: Schema.String,
+  account_name: Schema.String,
+  origin: SplitOrigin,
+  domicile: Schema.NullOr(Schema.String),
+  scripless: Schema.Number,
+})
+
+// Each parsed above-5% day with the stock's blocks, each with its accounts.
+const dailyHolders = (
+  dayRows: ReadonlyArray<typeof Above5DayRow.Type>,
+  holderRows: ReadonlyArray<typeof Above5HolderRow.Type>,
+  accountRows: ReadonlyArray<typeof Above5AccountRow.Type>
+) =>
+  Effect.sync(() => {
+    const accounts = new Map<string, Array<Above5Account>>()
+    for (const row of accountRows) {
+      const block = `${row.data_date} ${row.no}`
+      accounts.set(block, [
+        ...(accounts.get(block) ?? []),
+        {
+          custodian: row.custodian,
+          name: row.account_name,
+          origin: row.origin,
+          domicile: row.domicile ?? undefined,
+          scripless: row.scripless,
+        },
+      ])
+    }
+    const holders = new Map<string, Array<Above5Holder>>()
+    for (const row of holderRows)
+      holders.set(row.data_date, [
+        ...(holders.get(row.data_date) ?? []),
+        {
+          name: row.holder_name,
+          key: row.holder_key,
+          scripless: row.scripless,
+          percentageHundredths: row.percentage_hundredths,
+          accounts: accounts.get(`${row.data_date} ${row.no}`) ?? [],
+        },
+      ])
+    return dayRows.map(({ data_date, listed_shares }): DailyHoldersDay => ({
+      dataDate: data_date,
+      listedShares: listed_shares ?? undefined,
+      holders: holders.get(data_date) ?? [],
+    }))
+  })
+
 // A new record of each of the 9 KSEI investor types holding `none`.
 const noneOfEachType = <A>(none: A) =>
   Effect.sync(
@@ -500,6 +621,9 @@ export const stockPage = Effect.fnUntraced(function* (
     holderSizeHoldingRows = [],
     above1MonthRows = [],
     above1HoldingRows = [],
+    above5DayRows = [],
+    above5HolderRows = [],
+    above5AccountRows = [],
   ] = yield* (yield* HoldingsDb).batch([
     { sql: MONTHS, params: [code] },
     { sql: HOLDINGS, params: [code, month ?? null] },
@@ -509,7 +633,13 @@ export const stockPage = Effect.fnUntraced(function* (
     { sql: HOLDER_SIZE_HOLDINGS, params: [code] },
     { sql: ABOVE_1_MONTHS, params: [] },
     { sql: ABOVE_1_HOLDINGS, params: [code] },
+    { sql: ABOVE_5_DAYS, params: [code] },
+    { sql: ABOVE_5_HOLDERS, params: [code] },
+    { sql: ABOVE_5_ACCOUNTS, params: [code] },
   ])
+  const above5Holders = Schema.decodeUnknownSync(Schema.Array(Above5HolderRow))(
+    above5HolderRows
+  )
   const months = Schema.decodeUnknownSync(Schema.Array(MonthRow))(monthRows)
   const holdings = Schema.decodeUnknownSync(Schema.Array(HoldingRow))(
     holdingRows
@@ -541,7 +671,7 @@ export const stockPage = Effect.fnUntraced(function* (
   )
   return StockPage.make({
     code,
-    issuerName: held.at(-1)?.issuer_name ?? undefined,
+    issuerName: held.at(-1)?.issuer_name ?? above5Holders.at(-1)?.issuer_name,
     // The series is empty only when no KSEI report has the stock.
     inKsei: series.length > 0,
     months: months.map(({ data_date, total_scripless }) => ({
@@ -569,6 +699,13 @@ export const stockPage = Effect.fnUntraced(function* (
       Schema.decodeUnknownSync(Schema.Array(Above1MonthRow))(above1MonthRows),
       Schema.decodeUnknownSync(Schema.Array(Above1HoldingRow))(
         above1HoldingRows
+      )
+    ),
+    dailyHolders: yield* dailyHolders(
+      Schema.decodeUnknownSync(Schema.Array(Above5DayRow))(above5DayRows),
+      above5Holders,
+      Schema.decodeUnknownSync(Schema.Array(Above5AccountRow))(
+        above5AccountRows
       )
     ),
   })
