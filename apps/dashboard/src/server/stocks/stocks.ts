@@ -10,7 +10,9 @@ import { Auth } from "@/server/auth/auth"
 import { decide } from "@/server/auth/policy"
 import { refusal } from "@/server/auth/refusal"
 import { accountOf } from "@/server/auth/session-account"
+import type { MoveKind } from "@/domain/holdings"
 import { brokerInventory } from "@/server/broker-totals/inventory"
+import { holderMovesRead } from "@/server/holdings/holder-moves"
 import { stockList, stockPage } from "@/server/holdings/stock-page"
 import { marketToday } from "@/server/market-live/market-clock"
 
@@ -60,4 +62,15 @@ export const stockListView = Effect.fn("stockListView")(function* (
 ) {
   yield* authorize(headers, href)
   return yield* stockList
+})
+
+// /holder-moves' read, open to every signed-in member as the stock page is.
+// `day` is the URL's `YYYY-MM-DD`.
+export const holderMovesPageView = Effect.fn("holderMovesPageView")(function* (
+  headers: Headers,
+  kind: MoveKind,
+  day: string | undefined
+) {
+  yield* authorize(headers, "/holder-moves")
+  return yield* holderMovesRead(kind, day)
 })

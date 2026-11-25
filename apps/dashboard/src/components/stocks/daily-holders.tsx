@@ -4,19 +4,21 @@
 // above-5% holders, each against the trading day before by shares with its
 // accounts listed under it, the day's Off list greyed below them, then every
 // earlier holder as Off list since the day it left.
-import type { BrokerCode, StockCode } from "@workspace/relay"
+import type { StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import { Fragment } from "react"
 
 import { kCard, kFocus } from "@/components/k/styles"
 import {
+  BrokerChip,
   changeTone,
   lotsChangeText,
   MoveChip,
   OwnershipBar,
   percentChangeText,
   percentOf,
+  Trend,
 } from "@/components/stocks/holder-cells"
 import {
   type AccountLine,
@@ -25,7 +27,6 @@ import {
   type HoldersDay,
 } from "@/lib/daily-holders"
 import { count, lotsOfShares } from "@/lib/format"
-import type { TrendCell } from "@/lib/holder-identity"
 import { dayDateLabel } from "@/lib/stock-page-display"
 import type { DailyHoldersDay } from "@/server/holdings/stock-page"
 
@@ -354,106 +355,5 @@ function AccountRow({ account }: { account: AccountLine }) {
         {Effect.runSync(lotsOfShares(account.shares))} lots
       </td>
     </tr>
-  )
-}
-
-// A broker code, or Custodian for an account at a bank or other custodian
-// that is not an exchange member.
-function BrokerChip({ broker }: { broker: BrokerCode | "custodian" }) {
-  return (
-    <span
-      data-chip
-      className={cn(
-        "rounded-xs border border-border px-1 text-[11px] leading-4 font-semibold whitespace-nowrap",
-        broker === "custodian" ? "text-muted-foreground" : "num text-foreground"
-      )}
-    >
-      {broker === "custodian" ? "Custodian" : broker}
-    </span>
-  )
-}
-
-const TREND_SLOTS = 20
-const TREND_WIDTH = 160
-const TREND_HEIGHT = 26
-
-// One bar per trading day, the selected day last and shaded: a change in
-// shares up or down from the midline on a square-root scale, a full bar
-// where the holder entered (blue) or left (grey) the list.
-function Trend({
-  cells,
-  name,
-}: {
-  cells: ReadonlyArray<TrendCell>
-  name: string
-}) {
-  const slot = TREND_WIDTH / TREND_SLOTS
-  const offset = TREND_SLOTS - cells.length
-  const middle = TREND_HEIGHT / 2
-  const largest = Math.max(
-    1,
-    ...cells.map((cell) =>
-      typeof cell === "number" ? Math.sqrt(Math.abs(cell)) : 0
-    )
-  )
-  return (
-    <svg
-      width={TREND_WIDTH}
-      height={TREND_HEIGHT}
-      viewBox={`0 0 ${TREND_WIDTH} ${TREND_HEIGHT}`}
-      role="img"
-      aria-label={`${name}: change in lots on each of the last ${cells.length} trading days`}
-      className="ml-auto block"
-    >
-      <line
-        x1={0}
-        x2={TREND_WIDTH}
-        y1={middle}
-        y2={middle}
-        className="stroke-border"
-        strokeDasharray="2 2"
-      />
-      {cells.map((cell, index) => {
-        if (cell === null || cell === 0) return null
-        const x = (offset + index) * slot + 1
-        const width = Math.max(slot - 2, 1.4)
-        if (typeof cell === "string")
-          return (
-            <rect
-              key={index}
-              data-cell={cell}
-              x={x}
-              y={1}
-              width={width}
-              height={TREND_HEIGHT - 2}
-              opacity={0.8}
-              className={cell === "in" ? "fill-info" : "fill-neutral"}
-            />
-          )
-        const height = Math.max(
-          2.5,
-          (Math.sqrt(Math.abs(cell)) / largest) * (middle - 1)
-        )
-        return (
-          <rect
-            key={index}
-            data-cell={cell > 0 ? "up" : "down"}
-            x={x}
-            y={cell > 0 ? middle - height : middle}
-            width={width}
-            height={height}
-            className={cell > 0 ? "fill-up" : "fill-down"}
-          />
-        )
-      })}
-      <rect
-        x={(TREND_SLOTS - 1) * slot}
-        y={0}
-        width={slot}
-        height={TREND_HEIGHT}
-        className="fill-foreground"
-        opacity={0.1}
-      />
-    </svg>
   )
 }

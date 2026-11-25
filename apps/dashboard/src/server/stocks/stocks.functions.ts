@@ -4,13 +4,19 @@ import { runServerEffect } from "@workspace/server"
 import { WibDate } from "@workspace/relay"
 import { Effect, Layer, Schema } from "effect"
 
+import { MOVE_KINDS } from "@/domain/holdings"
 import { RANGE_PRESETS } from "@/lib/broker-inventory"
 import { safeRedirect } from "@/lib/redirect"
 import { Auth } from "@/server/auth/auth"
 import { brokerTotalsDbD1 } from "@/server/broker-totals/db"
 import { holdingsDbD1 } from "@/server/holdings/db"
 
-import { brokerInventoryView, stockListView, stockPageView } from "./stocks.ts"
+import {
+  brokerInventoryView,
+  holderMovesPageView,
+  stockListView,
+  stockPageView,
+} from "./stocks.ts"
 
 const services = Layer.mergeAll(Auth.layer, holdingsDbD1, brokerTotalsDbD1)
 
@@ -60,5 +66,23 @@ export const stockListFn = createServerFn({ method: "GET" })
   .handler(({ data }) =>
     runServerEffect(
       stockListView(getRequest().headers, data).pipe(Effect.provide(services))
+    )
+  )
+
+const decodeHolderMoves = Schema.decodeUnknownSync(
+  Schema.Struct({
+    kind: Schema.Literals(MOVE_KINDS),
+    day: Schema.optional(WibDate),
+  })
+)
+
+// /holder-moves' loader.
+export const holderMovesFn = createServerFn({ method: "GET" })
+  .validator(decodeHolderMoves)
+  .handler(({ data }) =>
+    runServerEffect(
+      holderMovesPageView(getRequest().headers, data.kind, data.day).pipe(
+        Effect.provide(services)
+      )
     )
   )

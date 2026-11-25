@@ -1,12 +1,14 @@
-// What Major holders and Daily holders show alike: the ownership bar, the
-// move chip, and a change of a % or of lots under its figure.
+// What Major holders, Daily holders and Holder moves show alike: the
+// ownership bar, the move chip, a change of a % or of lots under its figure,
+// a broker chip, and a trend's bars.
+import type { BrokerCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 
 import { kFocus } from "@/components/k/styles"
 import { KTooltip } from "@/components/k/tooltip"
 import { MOVEMENT } from "@/components/stocks/holder-movement"
-import type { Move } from "@/lib/holder-identity"
+import type { Move, TrendCell } from "@/lib/holder-identity"
 import { lotsOfShares, MINUS, plain } from "@/lib/format"
 
 /** 4110 → `41.10%` */
@@ -192,5 +194,106 @@ function Swatch({ className }: { className: string }) {
         className
       )}
     />
+  )
+}
+
+// A broker code, or Custodian for an account at a bank or other custodian
+// that is not an exchange member.
+export function BrokerChip({ broker }: { broker: BrokerCode | "custodian" }) {
+  return (
+    <span
+      data-chip
+      className={cn(
+        "rounded-xs border border-border px-1 text-[11px] leading-4 font-semibold whitespace-nowrap",
+        broker === "custodian" ? "text-muted-foreground" : "num text-foreground"
+      )}
+    >
+      {broker === "custodian" ? "Custodian" : broker}
+    </span>
+  )
+}
+
+const TREND_SLOTS = 20
+const TREND_WIDTH = 160
+const TREND_HEIGHT = 26
+
+// One bar per trading day, the selected day last and shaded: a change in
+// shares up or down from the midline on a square-root scale, a full bar
+// where the holder entered (blue) or left (grey) the list.
+export function Trend({
+  cells,
+  name,
+}: {
+  cells: ReadonlyArray<TrendCell>
+  name: string
+}) {
+  const slot = TREND_WIDTH / TREND_SLOTS
+  const offset = TREND_SLOTS - cells.length
+  const middle = TREND_HEIGHT / 2
+  const largest = Math.max(
+    1,
+    ...cells.map((cell) =>
+      typeof cell === "number" ? Math.sqrt(Math.abs(cell)) : 0
+    )
+  )
+  return (
+    <svg
+      width={TREND_WIDTH}
+      height={TREND_HEIGHT}
+      viewBox={`0 0 ${TREND_WIDTH} ${TREND_HEIGHT}`}
+      role="img"
+      aria-label={`${name}: change in lots on each of the last ${cells.length} trading days`}
+      className="ml-auto block"
+    >
+      <line
+        x1={0}
+        x2={TREND_WIDTH}
+        y1={middle}
+        y2={middle}
+        className="stroke-border"
+        strokeDasharray="2 2"
+      />
+      {cells.map((cell, index) => {
+        if (cell === null || cell === 0) return null
+        const x = (offset + index) * slot + 1
+        const width = Math.max(slot - 2, 1.4)
+        if (typeof cell === "string")
+          return (
+            <rect
+              key={index}
+              data-cell={cell}
+              x={x}
+              y={1}
+              width={width}
+              height={TREND_HEIGHT - 2}
+              opacity={0.8}
+              className={cell === "in" ? "fill-info" : "fill-neutral"}
+            />
+          )
+        const height = Math.max(
+          2.5,
+          (Math.sqrt(Math.abs(cell)) / largest) * (middle - 1)
+        )
+        return (
+          <rect
+            key={index}
+            data-cell={cell > 0 ? "up" : "down"}
+            x={x}
+            y={cell > 0 ? middle - height : middle}
+            width={width}
+            height={height}
+            className={cell > 0 ? "fill-up" : "fill-down"}
+          />
+        )
+      })}
+      <rect
+        x={(TREND_SLOTS - 1) * slot}
+        y={0}
+        width={slot}
+        height={TREND_HEIGHT}
+        className="fill-foreground"
+        opacity={0.1}
+      />
+    </svg>
   )
 }
