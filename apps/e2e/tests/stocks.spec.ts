@@ -450,8 +450,8 @@ const atLeast5Row = (page: Page, label: string) =>
     .getByRole("row", { name: new RegExp(`^${label}`) })
 
 // BBCA's above-5% holders on 23 and 24 Nov 2026: Dwimuria up 1,000 lots
-// through one of its two accounts, listed in another order, and Bank Gamma
-// off the list. 20 Nov is left unseeded, since shareholding-admin.spec.ts's
+// through one of its two accounts (BCA Sekuritas, SQ), listed in another
+// order, and Bank Gamma, held at a bank, off the list. 20 Nov is left unseeded, since shareholding-admin.spec.ts's
 // Parse now parses it into the same HoldingsDb, with no BBCA holder.
 const dwimuria = (kb: number) => ({
   name: "PT DWIMURIA INVESTAMA ANDALAN",
@@ -1238,17 +1238,18 @@ test.describe.serial("the stock page", () => {
           .getByRole("row")
           .filter({ hasText: "PT DWIMURIA INVESTAMA ANDALAN" })
           .first()
-      ).toContainText(/Up\s*\+1,000\s*54\.94% → 54\.95%\s*\+0\.01%/)
-      // Its accounts, largest first; the shuffled one pairs unchanged.
+      ).toContainText(/Up\s*SQ\s*\+1,000\s*54\.94% → 54\.95%\s*\+0\.01%/)
+      // Its accounts, largest first, each with its broker code or Custodian;
+      // the shuffled one pairs unchanged.
       await expect(
         table.getByRole("row").filter({ hasText: "PT BANK CENTRAL ASIA TBK" })
-      ).toContainText("±0")
+      ).toContainText(/Custodian\s*PT BANK CENTRAL ASIA TBK.*±0/)
       await expect(
         table.getByRole("row").filter({ hasText: "PT BCA SEKURITAS" })
-      ).toContainText("+1,000")
+      ).toContainText(/SQ\s*PT BCA SEKURITAS.*\+1,000/)
       await expect(
         table.getByRole("row").filter({ hasText: "BANK GAMMA LTD" }).first()
-      ).toContainText(/Off list\s*—\s*5\.10% → under 5%/)
+      ).toContainText(/Off list\s*Custodian\s*—\s*5\.10% → under 5%/)
 
       // Retried, since a click before hydration does nothing.
       await expect(async () => {

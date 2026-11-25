@@ -4,7 +4,7 @@
 // above-5% holders, each against the trading day before by shares with its
 // accounts listed under it, the day's Off list greyed below them, then every
 // earlier holder as Off list since the day it left.
-import type { StockCode } from "@workspace/relay"
+import type { BrokerCode, StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import { Fragment } from "react"
@@ -86,10 +86,13 @@ export function DailyHolders({ code, days, day, onDay }: DailyHoldersProps) {
           <HoldersTable holders={holders} />
           <p className="text-[12px] text-muted-foreground">
             Percent of listed shares as IDX publishes it each trading day;
-            holders under 5% are not listed. Moves follow shares. Trend: the
-            change in lots on each of the last 20 trading days up to the
-            selected one, green up and red down on a square-root scale, blue
-            where the holder entered the list and grey where it left.
+            holders under 5% are not listed. Moves follow shares. Through: the
+            broker codes of the accounts whose shares changed, largest change
+            first; Custodian for an account at a bank or other custodian that is
+            not an exchange member. Trend: the change in lots on each of the
+            last 20 trading days up to the selected one, green up and red down
+            on a square-root scale, blue where the holder entered the list and
+            grey where it left.
           </p>
         </>
       )}
@@ -177,6 +180,9 @@ function HoldersTable({ holders }: { holders: HoldersDay }) {
             <th scope="col" className="text-left">
               Move
             </th>
+            <th scope="col" className="text-left">
+              Through
+            </th>
             <th scope="col" className="text-right">
               Lots
             </th>
@@ -204,7 +210,7 @@ function HoldersTable({ holders }: { holders: HoldersDay }) {
           {holders.history.length > 0 && (
             <tr className="border-b border-border">
               <td
-                colSpan={6}
+                colSpan={7}
                 className="pt-3.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase"
               >
                 Earlier holders · {holders.history.length}
@@ -287,6 +293,13 @@ function HolderRow({
           offListTip="Sold out or fell below 5%; the report can't tell which"
         />
       </td>
+      <td data-through>
+        <div className="flex flex-wrap gap-1">
+          {line.through.map((broker) => (
+            <BrokerChip key={broker} broker={broker} />
+          ))}
+        </div>
+      </td>
       <td className="num text-right whitespace-nowrap">
         {line.shareChange === undefined ? (
           "—"
@@ -319,10 +332,14 @@ function AccountRow({ account }: { account: AccountLine }) {
   return (
     <tr data-account className="text-[12px] text-muted-foreground">
       <td className="pl-6">
-        <div className="text-foreground">{account.custodian}</div>
+        <div className="flex items-start gap-1.5 text-foreground">
+          <BrokerChip broker={account.broker ?? "custodian"} />
+          <span>{account.custodian}</span>
+        </div>
         <div>{account.name}</div>
       </td>
-      <td className="whitespace-nowrap">
+      {/* Across Move and Through: its broker chip leads its custodian. */}
+      <td colSpan={2} className="whitespace-nowrap">
         {ORIGIN_LABEL[account.origin]}
         {account.domicile && ` · ${account.domicile}`}
       </td>
@@ -337,6 +354,22 @@ function AccountRow({ account }: { account: AccountLine }) {
         {Effect.runSync(lotsOfShares(account.shares))} lots
       </td>
     </tr>
+  )
+}
+
+// A broker code, or Custodian for an account at a bank or other custodian
+// that is not an exchange member.
+function BrokerChip({ broker }: { broker: BrokerCode | "custodian" }) {
+  return (
+    <span
+      data-chip
+      className={cn(
+        "rounded-xs border border-border px-1 text-[11px] leading-4 font-semibold whitespace-nowrap",
+        broker === "custodian" ? "text-muted-foreground" : "num text-foreground"
+      )}
+    >
+      {broker === "custodian" ? "Custodian" : broker}
+    </span>
   )
 }
 

@@ -104,12 +104,19 @@ const text = () => container.textContent ?? ""
 
 const table = () => container.querySelector('table[aria-label="Daily holders"]')
 
-// Each holder row's name and cells: move, lots, stake, change.
+// Chips in `cell`, space-separated.
+const chips = (cell: Element) =>
+  [...cell.querySelectorAll("[data-chip]")]
+    .map((chip) => chip.textContent)
+    .join(" ")
+
+// Each holder row's name and cells: move, through, lots, stake, change.
 const holderRows = () =>
   [...(table()?.querySelectorAll("tbody tr[data-holder]") ?? [])].map((tr) => [
     tr.querySelector("[data-holder-name]")?.textContent,
     ...[...tr.querySelectorAll(":scope > td:not([data-trend-cell])")].map(
-      (cell) => cell.textContent
+      (cell) =>
+        cell.hasAttribute("data-through") ? chips(cell) : cell.textContent
     ),
   ])
 
@@ -118,12 +125,20 @@ const holderRow = (name: string) =>
     (tr) => tr.querySelector("[data-holder-name]")?.textContent === name
   )
 
-// The account rows under `name`'s row, up to the next holder.
+// The account rows under `name`'s row, up to the next holder: the broker
+// chip, then each cell's text without it.
 const accountsOf = (name: string) => {
   const rows: Array<Array<string | null>> = []
   let next = holderRow(name)?.nextElementSibling
   while (next?.hasAttribute("data-account")) {
-    rows.push([...next.querySelectorAll("td")].map((cell) => cell.textContent))
+    rows.push([
+      chips(next),
+      ...[...next.querySelectorAll("td")].map((cell) => {
+        const copy = cell.cloneNode(true) as Element
+        copy.querySelectorAll("[data-chip]").forEach((chip) => chip.remove())
+        return copy.textContent
+      }),
+    ])
     next = next.nextElementSibling
   }
   return rows
@@ -176,16 +191,20 @@ describe("Daily holders", () => {
     expect(header).toEqual([
       "Holder",
       "Move",
+      "Through",
       "Lots",
       "Stake",
       "Change",
       "Trend",
     ])
     expect(holderRows()).toEqual([
-      ["PT ALPHA", "Up", "+1", "10.00% → 11.00%", "+1.00%"],
-      ["BETA", "Up", "+0.2", "7.00% → 7.20%", "+0.20%"],
-      ["DELTA LTD", "New", "—", "under 5% → 5.50%", "—"],
-      ["GAMMA", "Off list", "—", "6.00% → under 5%", "—"],
+      // Only the KB account moved.
+      ["PT ALPHA", "Up", "CP", "+1", "10.00% → 11.00%", "+1.00%"],
+      ["BETA", "Up", "ZP", "+0.2", "7.00% → 7.20%", "+0.20%"],
+      // Every account of a New holder, largest first.
+      ["DELTA LTD", "New", "YU SQ", "—", "under 5% → 5.50%", "—"],
+      // The accounts an Off-list holder held the day before.
+      ["GAMMA", "Off list", "Custodian", "—", "6.00% → under 5%", "—"],
     ])
     expect(text()).toContain(
       "3 holders hold 23.70% of listed shares · vs 17 Nov 2026: 1 new, 2 up, 0 down, 1 off list"
@@ -214,20 +233,27 @@ describe("Daily holders", () => {
 
   test("lists every account under its holder, largest first, paired across days", async () => {
     await render({ day: "2026-11-18" })
-    // Custodian and account, origin and domicile, change, lots.
+    // Broker, custodian and account, origin and domicile, change, lots.
     expect(accountsOf("PT ALPHA")).toEqual([
-      ["PT KB VALBURY SEKURITASALPHA", "Local · INDONESIA", "+1", "7 lots"],
-      ["PT TRUST SEKURITASALPHA", "Local · INDONESIA", "±0", "4 lots"],
+      [
+        "CP",
+        "PT KB VALBURY SEKURITASALPHA",
+        "Local · INDONESIA",
+        "+1",
+        "7 lots",
+      ],
+      ["BR", "PT TRUST SEKURITASALPHA", "Local · INDONESIA", "±0", "4 lots"],
     ])
     // A new holder's accounts have no change.
     expect(accountsOf("DELTA LTD")).toEqual([
       [
+        "YU",
         "PT CGS INTERNATIONAL SEKURITAS INDONESIADELTA",
         "Foreign · SINGAPORE",
         "",
         "3 lots",
       ],
-      ["PT BCA SEKURITASDELTA", "Local · INDONESIA", "", "2.5 lots"],
+      ["SQ", "PT BCA SEKURITASDELTA", "Local · INDONESIA", "", "2.5 lots"],
     ])
   })
 
@@ -287,11 +313,43 @@ describe("Daily holders", () => {
       "3 holders hold 23.00% of listed shares · First day parsed, nothing to compare"
     )
     expect(holderRows()).toEqual([
-      ["PT ALPHA", "", "—", "10.00%", "—"],
-      ["BETA - REGISTRAR", "", "—", "7.00%", "—"],
-      ["GAMMA", "", "—", "6.00%", "—"],
+      ["PT ALPHA", "", "", "—", "10.00%", "—"],
+      ["BETA - REGISTRAR", "", "", "—", "7.00%", "—"],
+      ["GAMMA", "", "", "—", "6.00%", "—"],
     ])
-    expect(accountsOf("PT ALPHA").map((cells) => cells[2])).toEqual(["", ""])
+    expect(accountsOf("PT ALPHA").map((cells) => cells[3])).toEqual(["", ""])
+  })
+
+  test("shows each account's broker code, a closed member's from its name, or Custodian", async () => {
+    const custodians = [
+      "PT INDO PREMIER SEKURITAS",
+      "PANIN SEKURITAS Tbk, PT",
+      "PT Sinergi Millenium Sekuritas (REKENING TAMPUNGAN KSEI UNTUK CLOSED MEMBER-SM001)",
+      "PT POOL ADVISTA SEKURITAS (TAMP QA001)",
+      "PT EKUATOR SWARNA SEKURITAS (TAMPUNGAN MK001)",
+      "PT BANK DBS INDONESIA",
+    ]
+    await render({
+      days: [
+        day("2026-11-19", [
+          block(
+            "OMEGA",
+            "OMEGA",
+            custodians.map((custodian, at) =>
+              account(custodian, "OMEGA", 1000 - at * 100)
+            )
+          ),
+        ]),
+      ],
+    })
+    expect(accountsOf("OMEGA").map(([broker]) => broker)).toEqual([
+      "PD",
+      "GR",
+      "SM",
+      "QA",
+      "MK",
+      "Custodian",
+    ])
   })
 
   test("says so for a stock without an above-5% holder on any day", async () => {
