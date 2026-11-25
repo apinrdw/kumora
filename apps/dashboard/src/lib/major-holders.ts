@@ -8,6 +8,7 @@ import {
   type HolderId,
   holderMoves,
   type Listed,
+  mostFirst,
   type Move,
   type MoveRule,
   trendOf,
@@ -104,11 +105,17 @@ const labelOf = ({ classification, type }: Row) =>
 
 // Major holders' change rule, which the table's chips and the Every month
 // grid's marks both follow: the change in summed percentage.
+//
+// Decision: a holder matches by key, then as returning; a month has no rename
+// pass (apps/dashboard/docs/adr/0129-a-renamed-or-returning-holder-keeps-its-identity.md)
 const BY_PERCENTAGE: MoveRule<Above1Holder> = {
   change: (before, now) =>
     Effect.succeed(now.percentageHundredths - before.percentageHundredths),
   shares: (holder) => Effect.succeed(holder.total),
 }
+
+const byPercentage = ({ percentageHundredths }: HolderLine) =>
+  percentageHundredths
 
 // Every month's moves, in `months`' order.
 export const monthMoves = (months: ReadonlyArray<MajorHoldersMonth>) =>
@@ -149,11 +156,6 @@ const lineOf = Effect.fnUntraced(function* (
     trend,
   } satisfies HolderLine
 })
-
-const byPercentage = (lines: ReadonlyArray<HolderLine>) =>
-  Effect.succeed(
-    [...lines].sort((a, b) => b.percentageHundredths - a.percentageHundredths)
-  )
 
 // The month `month` (`YYYY-MM`) names when the stock has holders in it,
 // else its newest such month; undefined when it has none in any.
@@ -203,13 +205,15 @@ export const majorHolders = Effect.fnUntraced(function* (
     moves.comparison.kind === "first"
       ? moves.comparison
       : { kind: moves.comparison.kind, dataDate: moves.comparison.period }
-  const listed = yield* byPercentage(
-    yield* Effect.forEach(moves.listed, listedLine)
+  const listed = yield* mostFirst(
+    yield* Effect.forEach(moves.listed, listedLine),
+    byPercentage
   )
-  const offList = yield* byPercentage(
+  const offList = yield* mostFirst(
     yield* Effect.forEach(moves.offList, (each) =>
       unlistedLine(each, undefined)
-    )
+    ),
+    byPercentage
   )
   const unsorted = yield* Effect.forEach(moves.history, (each) =>
     unlistedLine(each, each.since)

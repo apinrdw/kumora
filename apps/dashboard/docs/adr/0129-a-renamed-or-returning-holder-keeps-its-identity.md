@@ -15,5 +15,6 @@ A rename with a trade and no shared account still shows as Off list plus New. Un
 Sites:
 - `apps/dashboard/src/lib/holder-identity.ts`
 - `apps/dashboard/src/lib/daily-holders.ts`
+- `apps/dashboard/src/lib/major-holders.ts`
 
 Source: apinrdw/kumora#674, apinrdw/kumora#677

@@ -8,6 +8,7 @@ import { Effect } from "effect"
 import { kFocus } from "@/components/k/styles"
 import { KTooltip } from "@/components/k/tooltip"
 import { MOVEMENT } from "@/components/stocks/holder-movement"
+import { type MoveKind, TREND_PERIODS } from "@/domain/holdings"
 import type { Move, TrendCell } from "@/lib/holder-identity"
 import { lotsOfShares, MINUS, plain } from "@/lib/format"
 
@@ -30,7 +31,36 @@ export const lotsChangeText = Effect.fnUntraced(function* (shares: number) {
 })
 
 export const changeTone = (value: number) =>
-  value > 0 ? "text-up" : value < 0 ? "text-down" : "text-muted-foreground"
+  Effect.succeed(
+    value > 0 ? "text-up" : value < 0 ? "text-down" : "text-muted-foreground"
+  )
+
+// The % from which IDX lists a holder: the daily above-5% report's, or the
+// monthly above-1% report's.
+export const THRESHOLDS = {
+  daily: "5%",
+  monthly: "1%",
+} as const satisfies Record<MoveKind, string>
+
+// Off list's tooltip on Daily holders and Holder moves.
+export const offListText = (kind: MoveKind) =>
+  Effect.succeed(
+    `Sold out or fell below ${THRESHOLDS[kind]}; the report can't tell which`
+  )
+
+// One side of a stake: its %, or `under 5%` where the holder isn't listed.
+export const stakeSideText = (hundredths: number | undefined, kind: MoveKind) =>
+  hundredths === undefined
+    ? Effect.succeed(`under ${THRESHOLDS[kind]}`)
+    : percentOf(hundredths)
+
+/** `{ before: 510 }` → `5.10% → under 5%` */
+export const stakeChangeText = Effect.fnUntraced(function* (
+  stake: { readonly before?: number; readonly now?: number },
+  kind: MoveKind
+) {
+  return `${yield* stakeSideText(stake.before, kind)} → ${yield* stakeSideText(stake.now, kind)}`
+})
 
 export function Delta({
   value,
@@ -41,9 +71,25 @@ export function Delta({
 }) {
   if (value === undefined) return null
   return (
-    <div className={cn("text-[12px]", changeTone(value))}>
+    <div className={cn("text-[12px]", Effect.runSync(changeTone(value)))}>
       {Effect.runSync(text(value))}
     </div>
+  )
+}
+
+// A change in its tone, or a dash without one.
+export function Change({
+  value,
+  text,
+}: {
+  value: number | undefined
+  text: (value: number) => Effect.Effect<string>
+}) {
+  if (value === undefined) return "—"
+  return (
+    <span className={Effect.runSync(changeTone(value))}>
+      {Effect.runSync(text(value))}
+    </span>
   )
 }
 
@@ -213,7 +259,6 @@ export function BrokerChip({ broker }: { broker: BrokerCode | "custodian" }) {
   )
 }
 
-const TREND_SLOTS = 20
 const TREND_WIDTH = 160
 const TREND_HEIGHT = 26
 
@@ -230,8 +275,8 @@ export function Trend({
   // What a bar is, plural: "trading days", "months".
   periods: string
 }) {
-  const slot = TREND_WIDTH / TREND_SLOTS
-  const offset = TREND_SLOTS - cells.length
+  const slot = TREND_WIDTH / TREND_PERIODS
+  const offset = TREND_PERIODS - cells.length
   const middle = TREND_HEIGHT / 2
   const largest = Math.max(
     1,
@@ -290,7 +335,7 @@ export function Trend({
         )
       })}
       <rect
-        x={(TREND_SLOTS - 1) * slot}
+        x={(TREND_PERIODS - 1) * slot}
         y={0}
         width={slot}
         height={TREND_HEIGHT}

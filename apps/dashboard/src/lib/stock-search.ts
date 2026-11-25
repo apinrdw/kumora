@@ -10,7 +10,7 @@
 import { BrokerCode, WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
-import { SplitOrigin } from "@/domain/holdings"
+import { Month, SplitOrigin } from "@/domain/holdings"
 import {
   type Chip,
   ChipGroup,
@@ -23,11 +23,6 @@ import {
   type Lens,
   RANGE_PRESETS,
 } from "@/lib/broker-inventory"
-
-// `YYYY-MM`; absent for the stock's newest month.
-export const Month = Schema.String.check(
-  Schema.isPattern(/^\d{4}-(0[1-9]|1[0-2])$/)
-)
 
 // The origin the panel or the chart shows: one, or all holdings.
 export type OriginShown = SplitOrigin | "all"
@@ -61,19 +56,20 @@ const decodeGroup = Schema.decodeUnknownOption(ChipGroup)
 const decodeBroker = Schema.decodeUnknownOption(BrokerCode)
 
 export interface StockSearch {
-  readonly month?: string | undefined
+  // Absent for the stock's newest month, as are the other months.
+  readonly month?: Month | undefined
   // The panel's origin; absent for all scripless.
   readonly panel?: SplitOrigin | undefined
   // The chart's origin; absent for all.
   readonly chart?: SplitOrigin | undefined
   readonly view?: typeof ChartView.Type | undefined
   // Holder size's month, origin (absent for all), denominator and view.
-  readonly sizeMonth?: string | undefined
+  readonly sizeMonth?: Month | undefined
   readonly sizeOrigin?: SplitOrigin | undefined
   readonly sizeBase?: typeof SizeBase.Type | undefined
   readonly sizeView?: typeof ChartView.Type | undefined
   // Major holders' month.
-  readonly holdersMonth?: string | undefined
+  readonly holdersMonth?: Month | undefined
   // Daily holders' trading day; absent for the stock's newest.
   readonly holdersDay?: WibDate | undefined
   readonly tab?: typeof Tab.Type | undefined

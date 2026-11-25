@@ -7,6 +7,7 @@ import { Effect } from "effect"
 import { useCallback, useEffect, useMemo } from "react"
 
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
+import { monthOf } from "@/domain/holdings"
 import { BrokerInventory } from "@/components/stocks/broker-inventory"
 import { DailyHolders } from "@/components/stocks/daily-holders"
 import { HolderSize } from "@/components/stocks/holder-size"
@@ -259,7 +260,10 @@ function Holdings({
           origin={panel}
           onMonth={(dataDate) =>
             setSearch({
-              month: dataDate === newest ? undefined : dataDate.slice(0, 7),
+              month:
+                dataDate === newest
+                  ? undefined
+                  : Effect.runSync(monthOf(dataDate)),
             })
           }
           onOrigin={(origin) =>
@@ -313,7 +317,8 @@ function StockMajorHolders({
       month={holdersMonth}
       onMonth={(dataDate) =>
         setSearch({
-          holdersMonth: dataDate === newest ? undefined : dataDate.slice(0, 7),
+          holdersMonth:
+            dataDate === newest ? undefined : Effect.runSync(monthOf(dataDate)),
         })
       }
     />
@@ -370,7 +375,8 @@ function StockHolderSize({
       view={sizeView}
       onMonth={(dataDate) =>
         setSearch({
-          sizeMonth: dataDate === newest ? undefined : dataDate.slice(0, 7),
+          sizeMonth:
+            dataDate === newest ? undefined : Effect.runSync(monthOf(dataDate)),
         })
       }
       onOrigin={(origin) =>

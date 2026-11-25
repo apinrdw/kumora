@@ -10,6 +10,7 @@ import {
   type MoveLine,
 } from "@/lib/holder-moves"
 import { majorHolders } from "@/lib/major-holders"
+import { Month } from "@/domain/holdings"
 import { holderMovesRead } from "@/server/holdings/holder-moves"
 import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 
@@ -38,7 +39,10 @@ const parsed = Effect.gen(function* () {
 })
 
 const readOf = (w: World, month?: string) =>
-  holderMovesRead("monthly", month).pipe(Effect.provide(w.holdings.layer))
+  holderMovesRead({
+    kind: "monthly",
+    month: month === undefined ? undefined : Month.make(month),
+  }).pipe(Effect.provide(w.holdings.layer))
 
 const movesOf = Effect.fnUntraced(function* (w: World, month?: string) {
   const moves = yield* holderMovesView(yield* readOf(w, month))

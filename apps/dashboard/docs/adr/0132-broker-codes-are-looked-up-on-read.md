@@ -4,5 +4,6 @@ IDX's daily above-5% report names each account's custodian, never its broker cod
 
 Sites:
 - `apps/dashboard/src/lib/broker-code.ts`
+- `scripts/write-exchange-members.mts`
 
 Source: apinrdw/kumora#673

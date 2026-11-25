@@ -1,5 +1,8 @@
 // `pnpm idx:exchange-members`: rewrites the dashboard's exchange-member table
 // from IDX's list (exchange-members.mts).
+//
+// Decision: broker codes come from a checked-in table of IDX's member list,
+// looked up on read (apps/dashboard/docs/adr/0132-broker-codes-are-looked-up-on-read.md)
 import { Console, Effect, FileSystem, Path } from "effect"
 import { FetchHttpClient } from "effect/http"
 

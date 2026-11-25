@@ -4,10 +4,10 @@
 // rail's periods' counts, each by the Daily holders view model's rules for a
 // day or Major holders' for a month, so the page and a stock's panel never
 // disagree.
-import type { BrokerCode, StockCode } from "@workspace/relay"
+import type { BrokerCode, StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { type MoveKind, RAIL_PERIODS } from "@/domain/holdings"
+import { type MoveKind, RAIL_PERIODS, TREND_PERIODS } from "@/domain/holdings"
 import { dailyHolders, type HoldersDay } from "@/lib/daily-holders"
 import type { HolderId, Move, TrendCell } from "@/lib/holder-identity"
 import { majorHolders, type MonthHolders } from "@/lib/major-holders"
@@ -52,9 +52,10 @@ export interface MoveCounts {
 
 export interface HolderMoves {
   readonly kind: MoveKind
-  readonly period: string
+  // A data date: Daily's trading day, or Monthly's report month's.
+  readonly period: WibDate
   // The period the moves are against; undefined on the first parsed one.
-  readonly against: string | undefined
+  readonly against: WibDate | undefined
   // By stock code, then most % first.
   readonly lines: ReadonlyArray<MoveLine>
   readonly counts: MoveCounts
@@ -62,7 +63,7 @@ export interface HolderMoves {
   readonly stockCount: number
   // The last RAIL_PERIODS periods with one before, oldest first.
   readonly rail: ReadonlyArray<{
-    readonly period: string
+    readonly period: WibDate
     readonly counts: MoveCounts
   }>
 }
@@ -91,11 +92,15 @@ const runTo = <P extends { readonly dataDate: string }>(
     return held.slice(start, at + 1)
   })
 
+// The selected period, the trend's other periods before it, and the one
+// before those for the oldest bar.
+const TREND_RUN = TREND_PERIODS + 1
+
 // A stock of the read: its lines in the selected period, and its counts in
 // any period of the rail, each by its kind's panel.
 interface StockMoves {
   readonly lines: Effect.Effect<ReadonlyArray<MoveLine>>
-  readonly countsOn: (period: string) => Effect.Effect<MoveCounts | undefined>
+  readonly countsOn: (period: WibDate) => Effect.Effect<MoveCounts | undefined>
 }
 
 const moved = <M extends Move | undefined>(
@@ -106,12 +111,10 @@ const moved = <M extends Move | undefined>(
 // A Daily stock, by its Daily holders.
 const dailyStock = (
   stock: MovesStock,
-  periods: ReadonlyArray<string>,
-  period: string
+  periods: ReadonlyArray<WibDate>,
+  period: WibDate
 ): StockMoves => ({
   lines: Effect.gen(function* () {
-    // The selected day, the trend's 19 days before it, and the day before
-    // those for the oldest bar.
     const run: ReadonlyArray<DailyHoldersDay> = yield* runTo(
       stock.days,
       periods,
@@ -167,8 +170,8 @@ const majorHoldersIn = Effect.fnUntraced(function* (
 // 1% on the side it isn't listed.
 const monthlyStock = (
   stock: MonthlyMovesStock,
-  periods: ReadonlyArray<string>,
-  period: string
+  periods: ReadonlyArray<WibDate>,
+  period: WibDate
 ): StockMoves => ({
   lines: Effect.gen(function* () {
     const held = yield* majorHoldersIn(
@@ -214,10 +217,6 @@ const monthlyStock = (
     return held?.counts
   }),
 })
-
-// The selected period, the trend's 19 before it, and the one before those
-// for the oldest bar.
-const TREND_RUN = 21
 
 const stakeOf = ({ stake }: MoveLine) => stake.now ?? stake.before ?? 0
 

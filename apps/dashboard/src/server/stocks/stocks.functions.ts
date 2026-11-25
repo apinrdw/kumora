@@ -4,10 +4,9 @@ import { runServerEffect } from "@workspace/server"
 import { WibDate } from "@workspace/relay"
 import { Effect, Layer, Schema } from "effect"
 
-import { MOVE_KINDS } from "@/domain/holdings"
+import { MovesSelection } from "@/domain/holdings"
 import { RANGE_PRESETS } from "@/lib/broker-inventory"
 import { safeRedirect } from "@/lib/redirect"
-import { Month } from "@/lib/stock-search"
 import { Auth } from "@/server/auth/auth"
 import { brokerTotalsDbD1 } from "@/server/broker-totals/db"
 import { holdingsDbD1 } from "@/server/holdings/db"
@@ -70,20 +69,14 @@ export const stockListFn = createServerFn({ method: "GET" })
     )
   )
 
-const decodeHolderMoves = Schema.decodeUnknownSync(
-  Schema.Struct({
-    kind: Schema.Literals(MOVE_KINDS),
-    // A Daily day, `YYYY-MM-DD`, or a Monthly month, `YYYY-MM`.
-    period: Schema.optional(Schema.Union([WibDate, Month])),
-  })
-)
+const decodeHolderMoves = Schema.decodeUnknownSync(MovesSelection)
 
 // /holder-moves' loader.
 export const holderMovesFn = createServerFn({ method: "GET" })
   .validator(decodeHolderMoves)
   .handler(({ data }) =>
     runServerEffect(
-      holderMovesPageView(getRequest().headers, data.kind, data.period).pipe(
+      holderMovesPageView(getRequest().headers, data).pipe(
         Effect.provide(services)
       )
     )

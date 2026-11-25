@@ -12,14 +12,20 @@ import { Fragment } from "react"
 import { kCard, kFocus } from "@/components/k/styles"
 import {
   BrokerChip,
+  Change,
   changeTone,
   lotsChangeText,
   MoveChip,
+  offListText,
   OwnershipBar,
   percentChangeText,
   percentOf,
+  stakeChangeText,
+  stakeSideText,
+  THRESHOLDS,
   Trend,
 } from "@/components/stocks/holder-cells"
+import { TREND_PERIODS } from "@/domain/holdings"
 import {
   type AccountLine,
   type DailyHolderLine,
@@ -37,8 +43,6 @@ export type DailyHoldersProps = {
   day: string | undefined
   onDay: (dataDate: string) => void
 }
-
-const dayText = (date: string) => Effect.runSync(dayDateLabel(date))
 
 export function DailyHolders({ code, days, day, onDay }: DailyHoldersProps) {
   const holders = Effect.runSync(dailyHolders(days, day))
@@ -75,7 +79,7 @@ export function DailyHolders({ code, days, day, onDay }: DailyHoldersProps) {
               shares: line.shares,
               gold: false,
             }))}
-            threshold="5%"
+            threshold={THRESHOLDS.daily}
             restShares={
               holders.listedShares === undefined
                 ? undefined
@@ -91,9 +95,9 @@ export function DailyHolders({ code, days, day, onDay }: DailyHoldersProps) {
             broker codes of the accounts whose shares changed, largest change
             first; Custodian for an account at a bank or other custodian that is
             not an exchange member. Trend: the change in lots on each of the
-            last 20 trading days up to the selected one, green up and red down
-            on a square-root scale, blue where the holder entered the list and
-            grey where it left.
+            last {TREND_PERIODS} trading days up to the selected one, green up
+            and red down on a square-root scale, blue where the holder entered
+            the list and grey where it left.
           </p>
         </>
       )}
@@ -148,7 +152,7 @@ function DayPicker({
       >
         {holders.days.map((each) => (
           <option key={each} value={each}>
-            {dayText(each)}
+            {Effect.runSync(dayDateLabel(each))}
           </option>
         ))}
       </select>
@@ -233,20 +237,12 @@ const ORIGIN_LABEL = {
   mixed: "Mixed",
 } as const
 
-const UNDER_5 = "under 5%"
-
-const stakeText = (line: DailyHolderLine, compared: boolean) => {
-  const now =
-    line.stake.now === undefined
-      ? UNDER_5
-      : Effect.runSync(percentOf(line.stake.now))
-  if (!compared && line.move !== "off list") return now
-  const before =
-    line.stake.before === undefined
-      ? UNDER_5
-      : Effect.runSync(percentOf(line.stake.before))
-  return `${before} → ${now}`
-}
+// Its stake against the day before, or this day's alone with nothing to
+// compare.
+const stakeText = (line: DailyHolderLine, compared: boolean) =>
+  compared || line.move === "off list"
+    ? stakeChangeText(line.stake, "daily")
+    : stakeSideText(line.stake.now, "daily")
 
 function HolderRow({
   line,
@@ -289,9 +285,9 @@ function HolderRow({
           since={
             line.offListSince === undefined
               ? undefined
-              : dayText(line.offListSince)
+              : Effect.runSync(dayDateLabel(line.offListSince))
           }
-          offListTip="Sold out or fell below 5%; the report can't tell which"
+          offListTip={Effect.runSync(offListText("daily"))}
         />
       </td>
       <td data-through>
@@ -302,25 +298,13 @@ function HolderRow({
         </div>
       </td>
       <td className="num text-right whitespace-nowrap">
-        {line.shareChange === undefined ? (
-          "—"
-        ) : (
-          <span className={changeTone(line.shareChange)}>
-            {Effect.runSync(lotsChangeText(line.shareChange))}
-          </span>
-        )}
+        <Change value={line.shareChange} text={lotsChangeText} />
       </td>
       <td className="num text-right whitespace-nowrap">
-        {stakeText(line, compared)}
+        {Effect.runSync(stakeText(line, compared))}
       </td>
       <td className="num text-right whitespace-nowrap">
-        {line.percentageChange === undefined ? (
-          "—"
-        ) : (
-          <span className={changeTone(line.percentageChange)}>
-            {Effect.runSync(percentChangeText(line.percentageChange))}
-          </span>
-        )}
+        <Change value={line.percentageChange} text={percentChangeText} />
       </td>
       <td data-trend-cell className="text-right">
         <Trend cells={line.trend} name={line.name} periods="trading days" />
@@ -346,7 +330,7 @@ function AccountRow({ account }: { account: AccountLine }) {
       </td>
       <td className="num text-right whitespace-nowrap">
         {account.shareChange !== undefined && (
-          <span className={changeTone(account.shareChange)}>
+          <span className={Effect.runSync(changeTone(account.shareChange))}>
             {Effect.runSync(lotsChangeText(account.shareChange))}
           </span>
         )}

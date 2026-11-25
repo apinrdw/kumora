@@ -5,7 +5,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router"
-import { BrokerCode, StockCode } from "@workspace/relay"
+import { BrokerCode, StockCode, WibDate } from "@workspace/relay"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 import { act, useState } from "react"
 import { createRoot } from "react-dom/client"
@@ -84,14 +84,20 @@ const LINES = [
 
 const MOVES: HolderMoves = {
   kind: "daily",
-  period: "2026-11-20",
-  against: "2026-11-19",
+  period: WibDate.make("2026-11-20"),
+  against: WibDate.make("2026-11-19"),
   lines: LINES,
   counts: { new: 1, up: 1, down: 1, offList: 1 },
   stockCount: 2,
   rail: [
-    { period: "2026-11-19", counts: { new: 3, up: 6, down: 3, offList: 1 } },
-    { period: "2026-11-20", counts: { new: 1, up: 1, down: 1, offList: 1 } },
+    {
+      period: WibDate.make("2026-11-19"),
+      counts: { new: 3, up: 6, down: 3, offList: 1 },
+    },
+    {
+      period: WibDate.make("2026-11-20"),
+      counts: { new: 1, up: 1, down: 1, offList: 1 },
+    },
   ],
 }
 
@@ -305,7 +311,7 @@ describe("Holder moves", () => {
     expect(text()).toContain("No holder entered or left.")
     await render({
       ...MOVES,
-      period: "2026-06-11",
+      period: WibDate.make("2026-06-11"),
       against: undefined,
       lines: [],
       rail: [],
@@ -347,8 +353,8 @@ describe("Holder moves", () => {
 
 const MONTHLY: HolderMoves = {
   kind: "monthly",
-  period: "2026-08-31",
-  against: "2026-04-30",
+  period: WibDate.make("2026-08-31"),
+  against: WibDate.make("2026-04-30"),
   lines: [
     {
       ...line("TLKM", "DANANTARA", "new", [], { now: 5157 }),
@@ -367,8 +373,14 @@ const MONTHLY: HolderMoves = {
   counts: { new: 1, up: 1, down: 0, offList: 1 },
   stockCount: 2,
   rail: [
-    { period: "2026-04-30", counts: { new: 3, up: 3, down: 5, offList: 6 } },
-    { period: "2026-08-31", counts: { new: 1, up: 1, down: 0, offList: 1 } },
+    {
+      period: WibDate.make("2026-04-30"),
+      counts: { new: 3, up: 3, down: 5, offList: 6 },
+    },
+    {
+      period: WibDate.make("2026-08-31"),
+      counts: { new: 1, up: 1, down: 0, offList: 1 },
+    },
   ],
 }
 
@@ -429,7 +441,7 @@ describe("Holder moves, Monthly", () => {
   test("says when the month is the first parsed", async () => {
     await render({
       ...MONTHLY,
-      period: "2026-02-27",
+      period: WibDate.make("2026-02-27"),
       against: undefined,
       lines: [],
       rail: [],

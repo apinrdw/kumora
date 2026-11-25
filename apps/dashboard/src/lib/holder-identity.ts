@@ -4,6 +4,8 @@
 // module never reads which.
 import { Effect } from "effect"
 
+import { TREND_PERIODS } from "@/domain/holdings"
+
 // Against the period before: absent from it (new), from this one (off list),
 // else up, down or unchanged by the caller's rule.
 export type Move = "new" | "up" | "down" | "unchanged" | "off list"
@@ -275,8 +277,6 @@ export const holderMoves = Effect.fnUntraced(function* <
 // is known (not listed, or no comparable period before).
 export type TrendCell = number | "in" | "out" | null
 
-const TREND_PERIODS = 20
-
 // `holder`'s trend over the TREND_PERIODS periods ending at `index` of
 // `moves`, oldest first; fewer when the stock has fewer.
 export const trendOf = Effect.fnUntraced(function* <H>(
@@ -322,3 +322,9 @@ export const collapseRepeats = Effect.fnUntraced(function* <
   }
   return [...bySignature.values()]
 })
+
+// `lines` with the most % first, by `of`; none counts as 0.
+export const mostFirst = <L>(
+  lines: ReadonlyArray<L>,
+  of: (line: L) => number | undefined
+) => Effect.sync(() => [...lines].sort((a, b) => (of(b) ?? 0) - (of(a) ?? 0)))

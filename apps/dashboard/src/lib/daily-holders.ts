@@ -11,6 +11,7 @@ import {
   type HolderId,
   holderMoves,
   type Listed,
+  mostFirst,
   type Move,
   type MoveRule,
   trendOf,
@@ -67,7 +68,8 @@ export interface DailyHolderLine {
   // changed (a New holder's all, an Off-list holder's all the day before's);
   // none without a move this day.
   readonly through: ReadonlyArray<BrokerCode | "custodian">
-  // The last 20 trading days up to the selected one, oldest first.
+  // The last TREND_PERIODS trading days up to the selected one, oldest
+  // first.
   readonly trend: ReadonlyArray<TrendCell>
   // Largest first, then those emptied since the day before.
   readonly accounts: ReadonlyArray<AccountLine>
@@ -235,11 +237,6 @@ const originOf = (accounts: ReadonlyArray<Above5Account>) =>
         : "local"
   })
 
-const byPercentage = (
-  lines: ReadonlyArray<DailyHolderLine>,
-  of: (line: DailyHolderLine) => number | undefined
-) => Effect.succeed([...lines].sort((a, b) => (of(b) ?? 0) - (of(a) ?? 0)))
-
 // The day `day` (`YYYY-MM-DD`) names when it is among the stock's days, else
 // its newest; undefined when no parsed day has a holder of the stock.
 export const dailyHolders = Effect.fnUntraced(function* (
@@ -319,11 +316,11 @@ export const dailyHolders = Effect.fnUntraced(function* (
     } satisfies DailyHolderLine
   })
 
-  const listed = yield* byPercentage(
+  const listed = yield* mostFirst(
     yield* Effect.forEach(selectedMoves.listed, listedLine),
     ({ stake }) => stake.now
   )
-  const offList = yield* byPercentage(
+  const offList = yield* mostFirst(
     yield* Effect.forEach(selectedMoves.offList, (each) =>
       unlistedLine(each, undefined)
     ),

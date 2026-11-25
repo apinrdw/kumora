@@ -5,21 +5,24 @@
 // and the holders that entered or left the list. A row opens its stock's
 // Daily holders at that day, or Major holders in that month.
 import { Link } from "@tanstack/react-router"
-import { WibDate } from "@workspace/relay"
+import type { WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 
 import { kCard, kFocus } from "@/components/k/styles"
 import {
   BrokerChip,
-  changeTone,
+  Change,
   lotsChangeText,
   MoveChip,
+  offListText,
   percentChangeText,
   percentOf,
+  stakeChangeText,
+  THRESHOLDS,
   Trend,
 } from "@/components/stocks/holder-cells"
-import type { MoveKind } from "@/domain/holdings"
+import { monthOf, type MoveKind, TREND_PERIODS } from "@/domain/holdings"
 import { count } from "@/lib/format"
 import {
   type HolderMoves,
@@ -29,6 +32,7 @@ import {
   visibleLines,
 } from "@/lib/holder-moves"
 import { dayDateLabel, monthLabel } from "@/lib/stock-page-display"
+import type { StockSearch } from "@/lib/stock-search"
 
 export type HolderMovesPageProps = {
   kind: MoveKind
@@ -38,59 +42,74 @@ export type HolderMovesPageProps = {
   search: string
   onFilter: (filter: MoveFilter) => void
   onSearch: (search: string) => void
-  onPeriod: (period: string) => void
+  onPeriod: (period: WibDate) => void
   onKind: (kind: MoveKind) => void
 }
 
-const percentText = (hundredths: number) =>
-  Effect.runSync(percentOf(hundredths))
+const COLUMNS = [
+  ["Stock", "text-left"],
+  ["Holder", "text-left"],
+  ["Move", "text-left"],
+  ["Through", "text-left"],
+  ["Lots", "text-right"],
+  ["Stake", "text-right"],
+  ["Change", "text-right"],
+  ["Trend", "text-right"],
+] as const
+type Column = (typeof COLUMNS)[number]
+
+// Where a row leads: its stock's panel of the kind, at the period.
+interface StockLink {
+  readonly search: Pick<StockSearch, "holdersDay" | "holdersMonth">
+  readonly hash: string
+}
 
 // What differs between a trading day's above-5% moves and a month's ≥1%.
 const KINDS: Record<
   MoveKind,
   {
     readonly label: string
-    readonly threshold: string
-    readonly under: string
-    readonly period: (date: string) => Effect.Effect<string>
+    readonly period: (date: WibDate) => Effect.Effect<string>
     // The rail's tick under a period's bars.
-    readonly tick: (date: string) => string
+    readonly tick: (date: WibDate) => Effect.Effect<string>
     readonly unit: string
     readonly units: string
     // How the headline puts the period: "on 20 Nov 2026", "in Oct 2026".
     readonly at: string
-    readonly offListTip: string
+    readonly columns: ReadonlyArray<Column>
+    readonly link: (period: WibDate) => Effect.Effect<StockLink>
     readonly note: string
   }
 > = {
   daily: {
     label: "Daily",
-    threshold: "5%",
-    under: "under 5%",
     period: dayDateLabel,
-    tick: (date) => date.slice(8, 10),
+    tick: (date) => Effect.succeed(date.slice(8, 10)),
     unit: "day",
     units: "trading days",
     at: "on",
-    offListTip: "Sold out or fell below 5%; the report can't tell which",
-    note: "Percent of listed shares as IDX publishes it each trading day; holders under 5% are not listed. Moves follow shares, against the parsed day before. Through: the broker codes of the accounts whose shares changed, largest change first; Custodian for an account at a bank or other custodian that is not an exchange member. Trend: the change in lots on each of the last 20 trading days up to the selected one, blue where the holder entered the list and grey where it left.",
+    columns: COLUMNS,
+    link: (holdersDay) =>
+      Effect.succeed({ search: { holdersDay }, hash: "daily-holders" }),
+    note: `Percent of listed shares as IDX publishes it each trading day; holders under 5% are not listed. Moves follow shares, against the parsed day before. Through: the broker codes of the accounts whose shares changed, largest change first; Custodian for an account at a bank or other custodian that is not an exchange member. Trend: the change in lots on each of the last ${TREND_PERIODS} trading days up to the selected one, blue where the holder entered the list and grey where it left.`,
   },
   monthly: {
     label: "Monthly",
-    threshold: "1%",
-    under: "under 1%",
     period: monthLabel,
-    tick: (date) => Effect.runSync(monthLabel(date)).slice(0, 3),
+    tick: (date) => Effect.map(monthLabel(date), (label) => label.slice(0, 3)),
     unit: "month",
     units: "months",
     at: "in",
-    offListTip: "Sold out or fell below 1%; the report can't tell which",
-    note: "Percent of listed shares as IDX publishes it each month; holders under 1% are not listed. Moves follow the change in percent against the report month before, as Major holders' do. Lots: the change in total holding, scrip included. Trend: the change in lots in each of the last 20 report months up to the selected one, blue where the holder entered the list and grey where it left.",
+    // The above-1% report lists no accounts.
+    columns: COLUMNS.filter(([label]) => label !== "Through"),
+    link: (period) =>
+      Effect.map(monthOf(period), (holdersMonth) => ({
+        search: { holdersMonth },
+        hash: "major-holders",
+      })),
+    note: `Percent of listed shares as IDX publishes it each month; holders under 1% are not listed. Moves follow the change in percent against the report month before, as Major holders' do. Lots: the change in total holding, scrip included. Trend: the change in lots in each of the last ${TREND_PERIODS} report months up to the selected one, blue where the holder entered the list and grey where it left.`,
   },
 }
-
-const periodText = (kind: MoveKind, date: string) =>
-  Effect.runSync(KINDS[kind].period(date))
 
 const FILTERS: ReadonlyArray<{
   filter: MoveFilter
@@ -148,7 +167,7 @@ export function HolderMovesPage({
         </div>
         <p className="text-[13px] text-muted-foreground">
           {moves === undefined
-            ? `No ${KINDS[kind].unit} of IDX's above-${KINDS[kind].threshold} report is parsed yet.`
+            ? `No ${KINDS[kind].unit} of IDX's above-${THRESHOLDS[kind]} report is parsed yet.`
             : Effect.runSync(headline(moves))}
         </p>
       </div>
@@ -214,29 +233,15 @@ const headline = Effect.fnUntraced(function* (moves: HolderMoves) {
   const period = yield* of.period(moves.period)
   if (moves.against === undefined)
     return `${period} is the first ${of.unit} parsed, so nothing to compare it with.`
+  const threshold = THRESHOLDS[moves.kind]
   const moved = yield* count(
     moves.lines.length,
-    `holder above ${of.threshold} moved`,
-    `holders above ${of.threshold} moved`
+    `holder above ${threshold} moved`,
+    `holders above ${threshold} moved`
   )
   const stocks = yield* count(moves.stockCount, "stock", "stocks")
   return `${moved} across ${stocks} ${of.at} ${period}, against ${yield* of.period(moves.against)}.`
 })
-
-const COLUMNS = [
-  ["Stock", "text-left"],
-  ["Holder", "text-left"],
-  ["Move", "text-left"],
-  ["Through", "text-left"],
-  ["Lots", "text-right"],
-  ["Stake", "text-right"],
-  ["Change", "text-right"],
-  ["Trend", "text-right"],
-] as const
-
-// A month's moves have no Through: the above-1% report lists no accounts.
-const columnsOf = (kind: MoveKind) =>
-  kind === "daily" ? COLUMNS : COLUMNS.filter(([label]) => label !== "Through")
 
 function MovesTable({
   moves,
@@ -246,12 +251,12 @@ function MovesTable({
   lines: ReadonlyArray<MoveLine>
 }) {
   const of = KINDS[moves.kind]
-  const columns = columnsOf(moves.kind)
+  const { columns } = of
   const empty =
     moves.against === undefined
       ? `Nothing to compare on the first ${of.unit} parsed.`
       : moves.lines.length === 0
-        ? `No holder above ${of.threshold} moved ${of.at} ${periodText(moves.kind, moves.period)}.`
+        ? `No holder above ${THRESHOLDS[moves.kind]} moved ${of.at} ${Effect.runSync(of.period(moves.period))}.`
         : "No holder matches. Clear the search or pick All."
   return (
     <div className="overflow-x-auto">
@@ -291,11 +296,6 @@ function MovesTable({
   )
 }
 
-const stakeText = (kind: MoveKind, { stake }: MoveLine) => {
-  const { under } = KINDS[kind]
-  return `${stake.before === undefined ? under : percentText(stake.before)} → ${stake.now === undefined ? under : percentText(stake.now)}`
-}
-
 function MoveRow({
   line,
   kind,
@@ -303,50 +303,83 @@ function MoveRow({
 }: {
   line: MoveLine
   kind: MoveKind
-  period: string
+  period: WibDate
 }) {
   return (
     <tr data-move className="border-t border-border">
-      <td className="whitespace-nowrap">
-        <Link
-          to="/stocks/$code"
-          params={{ code: line.code }}
-          search={
-            kind === "daily"
-              ? { holdersDay: WibDate.make(period) }
-              : { holdersMonth: period.slice(0, 7) }
-          }
-          hash={kind === "daily" ? "daily-holders" : "major-holders"}
-          aria-label={`${line.code} ${line.issuerName}`}
-          className={cn("rounded-xs hover:underline", kFocus)}
-        >
-          <span className="num font-semibold">{line.code}</span>
-          <span className="ml-2 text-[12px] text-muted-foreground">
-            {line.issuerName}
-          </span>
-        </Link>
-      </td>
-      <th scope="row" className="min-w-56 text-left font-normal">
-        <div className="font-medium">{line.name}</div>
-        {line.renamedFrom && (
-          <div className="text-[12px] text-muted-foreground">
-            Renamed from {line.renamedFrom}
-          </div>
-        )}
-        {line.aliases.length > 0 && (
-          <div className="text-[12px] text-muted-foreground">
-            Also listed as {line.aliases.join("; ")}
-          </div>
-        )}
-      </th>
-      <td>
-        <MoveChip
-          move={line.move}
-          since={undefined}
-          offListTip={KINDS[kind].offListTip}
+      {KINDS[kind].columns.map(([column]) => (
+        <MoveCell
+          key={column}
+          column={column}
+          line={line}
+          kind={kind}
+          period={period}
         />
-      </td>
-      {kind === "daily" && (
+      ))}
+    </tr>
+  )
+}
+
+function MoveCell({
+  column,
+  line,
+  kind,
+  period,
+}: {
+  column: Column[0]
+  line: MoveLine
+  kind: MoveKind
+  period: WibDate
+}) {
+  switch (column) {
+    case "Stock": {
+      const { search, hash } = Effect.runSync(KINDS[kind].link(period))
+      return (
+        <td className="whitespace-nowrap">
+          <Link
+            to="/stocks/$code"
+            params={{ code: line.code }}
+            search={search}
+            hash={hash}
+            aria-label={`${line.code} ${line.issuerName}`}
+            className={cn("rounded-xs hover:underline", kFocus)}
+          >
+            <span className="num font-semibold">{line.code}</span>
+            <span className="ml-2 text-[12px] text-muted-foreground">
+              {line.issuerName}
+            </span>
+          </Link>
+        </td>
+      )
+    }
+    case "Holder":
+      return (
+        <th scope="row" className="min-w-56 text-left font-normal">
+          <div className="font-medium">{line.name}</div>
+          {line.renamedFrom && (
+            <div className="text-[12px] text-muted-foreground">
+              Renamed from {line.renamedFrom}
+            </div>
+          )}
+          {line.aliases.length > 0 && (
+            <div className="text-[12px] text-muted-foreground">
+              Also listed as {line.aliases.join("; ")}
+            </div>
+          )}
+        </th>
+      )
+    case "Move":
+      return (
+        <td>
+          <MoveChip
+            move={line.move}
+            since={undefined}
+            offListTip={Effect.runSync(offListText(kind))}
+          />
+        </td>
+      )
+    case "Through":
+      return (
         <td data-through>
           <div className="flex flex-wrap gap-1">
             {line.through.map((broker) => (
@@ -354,37 +387,36 @@ function MoveRow({
             ))}
           </div>
         </td>
-      )}
-      <td className="num text-right whitespace-nowrap">
-        {line.shareChange === undefined ? (
-          "—"
-        ) : (
-          <span className={changeTone(line.shareChange)}>
-            {Effect.runSync(lotsChangeText(line.shareChange))}
-          </span>
-        )}
-      </td>
-      <td className="num text-right whitespace-nowrap">
-        {stakeText(kind, line)}
-      </td>
-      <td className="num text-right whitespace-nowrap">
-        {line.percentageChange === undefined ? (
-          "—"
-        ) : (
-          <span className={changeTone(line.percentageChange)}>
-            {Effect.runSync(percentChangeText(line.percentageChange))}
-          </span>
-        )}
-      </td>
-      <td className="text-right">
-        <Trend
-          cells={line.trend}
-          name={line.name}
-          periods={KINDS[kind].units}
-        />
-      </td>
-    </tr>
-  )
+      )
+    case "Lots":
+      return (
+        <td className="num text-right whitespace-nowrap">
+          <Change value={line.shareChange} text={lotsChangeText} />
+        </td>
+      )
+    case "Stake":
+      return (
+        <td className="num text-right whitespace-nowrap">
+          {Effect.runSync(stakeChangeText(line.stake, kind))}
+        </td>
+      )
+    case "Change":
+      return (
+        <td className="num text-right whitespace-nowrap">
+          <Change value={line.percentageChange} text={percentChangeText} />
+        </td>
+      )
+    case "Trend":
+      return (
+        <td className="text-right">
+          <Trend
+            cells={line.trend}
+            name={line.name}
+            periods={KINDS[kind].units}
+          />
+        </td>
+      )
+  }
 }
 
 const BAR_HEIGHT = 64
@@ -394,7 +426,7 @@ function Rail({
   onPeriod,
 }: {
   moves: HolderMoves
-  onPeriod: (period: string) => void
+  onPeriod: (period: WibDate) => void
 }) {
   const largest = Math.max(
     1,
@@ -429,7 +461,7 @@ function Rail({
                 key={period}
                 type="button"
                 aria-pressed={period === moves.period}
-                aria-label={`${periodText(moves.kind, period)}: ${ins} new or up, ${outs} down or off list`}
+                aria-label={`${Effect.runSync(of.period(period))}: ${ins} new or up, ${outs} down or off list`}
                 onClick={() => onPeriod(period)}
                 className={cn(
                   "flex flex-col items-center gap-1 rounded-md border border-transparent py-1.5 aria-pressed:border-border aria-pressed:bg-muted",
@@ -450,7 +482,7 @@ function Rail({
                   />
                 </span>
                 <span className="num text-[10.5px] text-muted-foreground">
-                  {of.tick(period)}
+                  {Effect.runSync(of.tick(period))}
                 </span>
               </button>
             )
@@ -500,8 +532,8 @@ function Rail({
                   )}
                 >
                   {line.move === "new"
-                    ? `In at ${percentText(line.stake.now ?? 0)}`
-                    : `Out ${percentText(line.stake.before ?? 0)} → ${of.under}`}
+                    ? `In at ${Effect.runSync(percentOf(line.stake.now ?? 0))}`
+                    : `Out ${Effect.runSync(stakeChangeText({ before: line.stake.before }, moves.kind))}`}
                 </span>
               </li>
             ))}

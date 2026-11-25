@@ -8,11 +8,11 @@ import { holderMovesView } from "@/lib/holder-moves"
 import {
   filterOf,
   type HolderMovesSearch,
-  kindOf,
+  kindSearch,
   moveSearch,
   parseHolderMovesSearch,
-  periodOf,
   periodSearch,
+  selectionOf,
 } from "@/lib/holder-moves-search"
 import type { HolderMovesRead } from "@/server/holdings/holder-moves"
 import { holderMovesFn } from "@/server/stocks/stocks.functions"
@@ -27,17 +27,12 @@ export const Route = createFileRoute("/_app/holder-moves")({
   // The filter and the search narrow the rows already read, and the other
   // kind's period waits in the URL for the toggle.
   loaderDeps: ({ search }) => ({
-    kind: Effect.runSync(kindOf(search)),
-    period: Effect.runSync(periodOf(search)),
+    selection: Effect.runSync(selectionOf(search)),
   }),
   // Declared, so the route's type doesn't depend on itself through
   // loadServerFn.
   loader: ({ deps }): Promise<HolderMovesRead> =>
-    runLoader(
-      loadServerFn(() =>
-        holderMovesFn({ data: { kind: deps.kind, period: deps.period } })
-      )
-    ),
+    runLoader(loadServerFn(() => holderMovesFn({ data: deps.selection }))),
   head: () => ({ meta: [{ title: "Holder moves · KUMORA Terminal" }] }),
   component: HolderMovesRoute,
 })
@@ -68,9 +63,7 @@ function HolderMovesRoute() {
       onPeriod={(period) =>
         setSearch(Effect.runSync(periodSearch(read.kind, period, read.periods)))
       }
-      onKind={(kind) =>
-        setSearch({ kind: kind === "daily" ? undefined : kind })
-      }
+      onKind={(kind) => setSearch(Effect.runSync(kindSearch(kind)))}
     />
   )
 }

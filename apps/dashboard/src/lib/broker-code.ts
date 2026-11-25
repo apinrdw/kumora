@@ -21,10 +21,7 @@ const normalized = (name: string) =>
     .join(" ")
 
 const MEMBERS = new Map(
-  EXCHANGE_MEMBERS.map(([code, name]) => [
-    normalized(name),
-    BrokerCode.make(code),
-  ])
+  EXCHANGE_MEMBERS.map(([code, name]) => [normalized(name), code])
 )
 
 // KSEI's holding account for a closed member names its code with a serial:

@@ -3,6 +3,7 @@
 // real investor-type and above-5% parse runs parsed them, through the Holder
 // moves view model.
 import { assert, describe, it } from "@effect/vitest"
+import { WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { type DailyHolderLine, dailyHolders } from "@/lib/daily-holders"
@@ -33,7 +34,10 @@ const parsed = Effect.gen(function* () {
 })
 
 const readOf = (w: World, day?: string) =>
-  holderMovesRead("daily", day).pipe(Effect.provide(w.holdings.layer))
+  holderMovesRead({
+    kind: "daily",
+    day: day === undefined ? undefined : WibDate.make(day),
+  }).pipe(Effect.provide(w.holdings.layer))
 
 const movesOf = Effect.fnUntraced(function* (w: World, day?: string) {
   const moves = yield* holderMovesView(yield* readOf(w, day))
