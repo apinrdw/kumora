@@ -12,6 +12,8 @@ const handle = ({ request }: { readonly request: Request }) =>
     }).pipe(Effect.provide(Auth.layer))
   )
 
+// Mounted at AUTH_PATH (src/lib/auth-path.ts). The route generator reads this
+// path as a literal, so it is written out here.
 export const Route = createFileRoute("/api/auth/$")({
   server: { handlers: { GET: handle, POST: handle } },
 })
