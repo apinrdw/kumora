@@ -32,8 +32,8 @@ export type TargetName = typeof TargetName.Type
 const Settings = Schema.Struct({
   productionToken: Schema.String,
   extra: Schema.NullOr(
-    // Stored as `origin`, its name from when it held an origin only, so an
-    // earlier relay's settings still load.
+    // Decision: a target's URL is stored under the key `origin`
+    // (apps/extension/docs/adr/0024-a-target-s-url-is-stored-under-the-key-origin.md)
     Schema.Struct({ url: StageUrl, token: Schema.String }).pipe(
       Schema.encodeKeys({ url: "origin" })
     )
@@ -354,7 +354,8 @@ const keptForUrl = <A, I>(
   url: Effect.Effect<Option.Option<StageUrl>>
 ) =>
   Effect.sync(() => {
-    // Stored as `origin`, as the settings' extra target is.
+    // Decision: a target's URL is stored under the key `origin`
+    // (apps/extension/docs/adr/0024-a-target-s-url-is-stored-under-the-key-origin.md)
     const Kept = Schema.Struct({ url: StageUrl, value }).pipe(
       Schema.encodeKeys({ url: "origin" })
     )
