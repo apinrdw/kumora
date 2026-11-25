@@ -4,8 +4,6 @@
 // day so each day has the most lines a day can have (renameEveryOtherDay);
 // and 21 parsed months at the above-1% parse's caps, 50 stocks of 300
 // holders a month, renamed every other month (seedAbove1AtCap).
-import { Worker } from "node:worker_threads"
-
 import { assert, describe, it } from "@effect/vitest"
 import { WibDate } from "@workspace/relay"
 import { Effect } from "effect"
@@ -27,6 +25,7 @@ import {
   renameEveryOtherDay,
   seedAbove5AtCap,
 } from "./above-5-at-cap.ts"
+import { inBoundedHeap } from "./bounded-heap.ts"
 import { memoryHoldingsDb, MIGRATIONS } from "./memory-holdings-db.ts"
 
 // Decision: Holder moves are derived at parse time
@@ -54,28 +53,17 @@ const HOLDERS = ABOVE_1_MONTH_ROWS / STOCKS.length
 const MONTH_LINES = 2 * ABOVE_1_MONTH_ROWS
 
 // What deriving a kind's newest period posts (derive-worker.ts), derived in
-// a worker thread whose heap stops at DERIVE_HEAP_MIB. A derivation past it
-// fails with the worker's out-of-memory error.
+// a worker thread whose heap stops at DERIVE_HEAP_MIB.
 const deriveInBoundedHeap = (
   kind: "daily" | "monthly",
   dates: ReadonlyArray<string>,
   holders: number
 ) =>
-  Effect.callback<string, Error>((resume) => {
-    const worker = new Worker(new URL("./derive-worker.ts", import.meta.url), {
-      workerData: {
-        kind,
-        migrations: MIGRATIONS,
-        dates,
-        stocks: STOCKS,
-        holders,
-      },
-      resourceLimits: { maxOldGenerationSizeMb: DERIVE_HEAP_MIB },
-    })
-    worker.once("message", (message: string) => resume(Effect.succeed(message)))
-    worker.once("error", (error) => resume(Effect.fail(error)))
-    return Effect.promise(() => worker.terminate())
-  })
+  inBoundedHeap(
+    new URL("./derive-worker.ts", import.meta.url),
+    { kind, migrations: MIGRATIONS, dates, stocks: STOCKS, holders },
+    DERIVE_HEAP_MIB
+  )
 
 describe("Holder moves' Daily derivation and read", () => {
   it.effect(

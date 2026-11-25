@@ -13,20 +13,6 @@ export type Report =
   | "above-1"
   | "above-5"
 
-// What parsing `bytes` as `report` posts (parse-worker.ts), parsed in a
-// worker thread whose heap stops at PARSE_HEAP_MIB. A parse past it fails
-// with the worker's out-of-memory error.
-export const parseInBoundedHeap = (report: Report, bytes: Uint8Array) =>
-  Effect.callback<string, Error>((resume) => {
-    const worker = new Worker(new URL("./parse-worker.ts", import.meta.url), {
-      workerData: { report, bytes },
-      resourceLimits: { maxOldGenerationSizeMb: PARSE_HEAP_MIB },
-    })
-    worker.once("message", (message: string) => resume(Effect.succeed(message)))
-    worker.once("error", (error) => resume(Effect.fail(error)))
-    return Effect.promise(() => worker.terminate())
-  })
-
 // What the worker thread `worker` posts when handed `data`, its heap stopped
 // at `mib`. Work past it fails with the worker's out-of-memory error.
 export const inBoundedHeap = (worker: URL, data: unknown, mib: number) =>
@@ -39,3 +25,12 @@ export const inBoundedHeap = (worker: URL, data: unknown, mib: number) =>
     thread.once("error", (error) => resume(Effect.fail(error)))
     return Effect.promise(() => thread.terminate())
   })
+
+// What parsing `bytes` as `report` posts (parse-worker.ts), parsed in a
+// worker thread whose heap stops at PARSE_HEAP_MIB.
+export const parseInBoundedHeap = (report: Report, bytes: Uint8Array) =>
+  inBoundedHeap(
+    new URL("./parse-worker.ts", import.meta.url),
+    { report, bytes },
+    PARSE_HEAP_MIB
+  )
