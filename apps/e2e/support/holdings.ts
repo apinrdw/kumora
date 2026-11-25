@@ -292,9 +292,22 @@ export type SeededAbove5Days = Readonly<
   >
 >
 
-/** Replaces every parsed above-5% day with `days`. */
+const ABOVE_5_TABLES = [
+  "above_5_account",
+  "above_5_holder",
+  "above_5_day",
+  "above_5_move",
+  "above_5_move_pending",
+  "above_5_move_day",
+]
+
+/**
+ * Replaces every parsed above-5% day with `days`, and drops Holder moves'
+ * lines derived from the days before, which the next above-5% parse run
+ * derives again.
+ */
 export function seedAbove5Days(days: SeededAbove5Days) {
-  replaceTables(["above_5_account", "above_5_holder", "above_5_day"], (db) => {
+  replaceTables(ABOVE_5_TABLES, (db) => {
     const record = db.prepare(
       "INSERT INTO above_5_day VALUES (?, ?, 1, '2026-11-25T14:00:00.000Z')"
     )
