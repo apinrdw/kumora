@@ -56,7 +56,8 @@ export interface DailyHolderLine {
   readonly stake: { readonly before?: number; readonly now?: number }
   // Its combined shares, or its last listing's when off the list.
   readonly shares: number
-  // Undefined without a listing the day before to compare with.
+  // Against the day before: a New holder's whole holding, the day's Off
+  // list's whole last holding out; undefined without a move this day.
   readonly shareChange: number | undefined
   readonly percentageChange: number | undefined
   // Undefined on the stock's first parsed day.
@@ -281,7 +282,11 @@ export const dailyHolders = Effect.fnUntraced(function* (
         now: now.percentageHundredths,
       },
       shares: now.scripless,
-      shareChange: before && now.scripless - before.scripless,
+      // A New holder's whole holding came in.
+      shareChange:
+        move === "new"
+          ? now.scripless
+          : before && now.scripless - before.scripless,
       percentageChange:
         before && now.percentageHundredths - before.percentageHundredths,
       move,
@@ -305,7 +310,9 @@ export const dailyHolders = Effect.fnUntraced(function* (
       origin: yield* originOf(last.accounts),
       stake: { before: last.percentageHundredths },
       shares: last.scripless,
-      shareChange: undefined,
+      // The day's Off list took its whole last holding out; an earlier
+      // holder didn't move this day.
+      shareChange: offListSince === undefined ? -last.scripless : undefined,
       percentageChange: undefined,
       move: "off list",
       offListSince,

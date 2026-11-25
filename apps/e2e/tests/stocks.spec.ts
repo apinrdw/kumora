@@ -1249,7 +1249,7 @@ test.describe.serial("the stock page", () => {
       ).toContainText(/SQ\s*PT BCA SEKURITAS.*\+1,000/)
       await expect(
         table.getByRole("row").filter({ hasText: "BANK GAMMA LTD" }).first()
-      ).toContainText(/Off list\s*Custodian\s*—\s*5\.10% → under 5%/)
+      ).toContainText(/Off list\s*Custodian\s*−63,000,000\s*5\.10% → under 5%/)
 
       // Retried, since a click before hydration does nothing.
       await expect(async () => {

@@ -189,14 +189,19 @@ describe("the stock page's Daily holders", () => {
         // PT SAMUEL TUMBUH BERSAMA: listed 11 Jun, off list 12 Jun, back 25
         // Jun, off list again 19 Nov.
         const left = yield* shown("NSSS", "2026-06-12")
-        assert.deepInclude(named(left.offList, "PT SAMUEL TUMBUH BERSAMA"), {
+        const gone = named(left.offList, "PT SAMUEL TUMBUH BERSAMA")
+        assert.deepInclude(gone, {
           move: "off list",
           stake: { before: 587 },
           offListSince: undefined,
         })
+        // Its Lots: its whole last holding out.
+        assert.strictEqual(gone.shareChange, -gone.shares)
         const away = yield* shown("NSSS", "2026-06-24")
         assert.deepInclude(named(away.history, "PT SAMUEL TUMBUH BERSAMA"), {
           offListSince: "2026-06-12",
+          // An earlier holder didn't move this day.
+          shareChange: undefined,
         })
         assert.deepStrictEqual(moves(away.listed).at(-1), [
           "PARADISO RESOURCES LTD",
@@ -204,11 +209,10 @@ describe("the stock page's Daily holders", () => {
         ])
         const back = yield* shown("NSSS", "2026-06-25")
         const returned = named(back.listed, "PT SAMUEL TUMBUH BERSAMA")
-        assert.deepInclude(returned, {
-          move: "new",
-          stake: { now: 3430 },
-          shareChange: undefined,
-        })
+        assert.deepInclude(returned, { move: "new", stake: { now: 3430 } })
+        // Its Lots: its whole new holding in.
+        assert.isAbove(returned.shares, 0)
+        assert.strictEqual(returned.shareChange, returned.shares)
         assert.deepStrictEqual(returned.trend, [null, "out", null, "in"])
         // Never also an earlier holder.
         assert.notInclude(

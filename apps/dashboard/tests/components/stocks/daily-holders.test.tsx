@@ -202,9 +202,9 @@ describe("Daily holders", () => {
       ["PT ALPHA", "Up", "CP", "+1", "10.00% → 11.00%", "+1.00%"],
       ["BETA", "Up", "ZP", "+0.2", "7.00% → 7.20%", "+0.20%"],
       // Every account of a New holder, largest first.
-      ["DELTA LTD", "New", "YU SQ", "—", "under 5% → 5.50%", "—"],
+      ["DELTA LTD", "New", "YU SQ", "+5.5", "under 5% → 5.50%", "—"],
       // The accounts an Off-list holder held the day before.
-      ["GAMMA", "Off list", "Custodian", "—", "6.00% → under 5%", "—"],
+      ["GAMMA", "Off list", "Custodian", "−6", "6.00% → under 5%", "—"],
     ])
     expect(text()).toContain(
       "3 holders hold 23.70% of listed shares · vs 17 Nov 2026: 1 new, 2 up, 0 down, 1 off list"

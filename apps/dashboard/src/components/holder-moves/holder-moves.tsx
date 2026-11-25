@@ -91,7 +91,7 @@ const KINDS: Record<
     columns: COLUMNS,
     link: (holdersDay) =>
       Effect.succeed({ search: { holdersDay }, hash: "daily-holders" }),
-    note: `Percent of listed shares as IDX publishes it each trading day; holders under 5% are not listed. Moves follow shares, against the parsed day before. Through: the broker codes of the accounts whose shares changed, largest change first; Custodian for an account at a bank or other custodian that is not an exchange member. Trend: the change in lots on each of the last ${TREND_PERIODS} trading days up to the selected one, blue where the holder entered the list and grey where it left.`,
+    note: `Percent of listed shares as IDX publishes it each trading day; holders under 5% are not listed. Moves follow shares, against the parsed day before. Lots: the change in shares, a New holder's whole holding in and an Off-list holder's last out. Through: the broker codes of the accounts whose shares changed, largest change first; Custodian for an account at a bank or other custodian that is not an exchange member. Trend: the change in lots on each of the last ${TREND_PERIODS} trading days up to the selected one, blue where the holder entered the list and grey where it left.`,
   },
   monthly: {
     label: "Monthly",
@@ -107,7 +107,7 @@ const KINDS: Record<
         search: { holdersMonth },
         hash: "major-holders",
       })),
-    note: `Percent of listed shares as IDX publishes it each month; holders under 1% are not listed. Moves follow the change in percent against the report month before, as Major holders' do. Lots: the change in total holding, scrip included. Trend: the change in lots in each of the last ${TREND_PERIODS} report months up to the selected one, blue where the holder entered the list and grey where it left.`,
+    note: `Percent of listed shares as IDX publishes it each month; holders under 1% are not listed. Moves follow the change in percent against the report month before, as Major holders' do. Lots: the change in total holding, scrip included, a New holder's whole holding in and an Off-list holder's last out. Trend: the change in lots in each of the last ${TREND_PERIODS} report months up to the selected one, blue where the holder entered the list and grey where it left.`,
   },
 }
 

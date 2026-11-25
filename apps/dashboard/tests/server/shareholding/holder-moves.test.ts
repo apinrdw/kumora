@@ -184,7 +184,8 @@ describe("Holder moves, Daily", () => {
       // showing the exit and the entry.
       assert.strictEqual(samuel.move, "new")
       assert.deepStrictEqual(samuel.stake, { now: 3430 })
-      assert.isUndefined(samuel.shareChange)
+      // Its Lots: its whole holding in, as on its Daily holders.
+      assert.isAbove(samuel.shareChange ?? 0, 0)
       assert.deepStrictEqual(samuel.trend, [null, "out", null, "in"])
       const paradiso = nsss.find(
         ({ name }) => name === "PARADISO RESOURCES LTD"

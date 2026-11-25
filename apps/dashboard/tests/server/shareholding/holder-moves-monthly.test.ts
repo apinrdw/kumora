@@ -98,7 +98,13 @@ describe("Holder moves, Monthly", () => {
                         line.holder,
                         line.name,
                         line.change,
-                        line.shareChange,
+                        // Lots: a New holder's whole holding in, an
+                        // Off-list one's last out.
+                        line.change === "new"
+                          ? line.total
+                          : line.change === "off list"
+                            ? -line.total
+                            : line.shareChange,
                         line.percentageChange,
                         line.trend,
                       ])
@@ -135,10 +141,11 @@ describe("Holder moves, Monthly", () => {
       assert.strictEqual(april?.move, "off list")
       assert.isDefined(april?.stake.before)
       assert.isUndefined(april?.stake.now)
+      assert.isBelow(april?.shareChange ?? 0, 0)
       const august = danantara(yield* movesOf(w, "2026-08"))
       assert.strictEqual(august?.move, "new")
       assert.isUndefined(august?.stake.before)
-      assert.isUndefined(august?.shareChange)
+      assert.isAbove(august?.shareChange ?? 0, 0)
       assert.deepStrictEqual(august?.trend, [null, "out", "in"])
     })
   )

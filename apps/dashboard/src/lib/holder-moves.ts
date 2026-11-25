@@ -34,8 +34,9 @@ export interface MoveLine {
   readonly renamedFrom: string | undefined
   readonly move: Exclude<Move, "unchanged">
   readonly through: ReadonlyArray<BrokerCode | "custodian">
-  // Undefined for a New or Off-list holder, whose shares under the
-  // threshold the report doesn't give.
+  // Against the period before: a New holder's whole holding, an Off-list
+  // holder's whole last holding out, as the report gives no shares under
+  // its threshold.
   readonly shareChange: number | undefined
   // % × 100; absent on the side where it isn't listed.
   readonly stake: { readonly before?: number; readonly now?: number }
@@ -191,7 +192,14 @@ const monthlyStock = (
               renamedFrom: undefined,
               move: line.change,
               through: [],
-              shareChange: line.shareChange,
+              // A New holder's whole holding came in, an Off-list one's
+              // last went out.
+              shareChange:
+                line.change === "new"
+                  ? line.total
+                  : line.change === "off list"
+                    ? -line.total
+                    : line.shareChange,
               stake:
                 line.change === "off list"
                   ? { before: line.percentageHundredths }

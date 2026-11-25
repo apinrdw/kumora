@@ -76,10 +76,22 @@ const LINES = [
     },
     -500
   ),
-  line("NSSS", "PT SAMUEL TUMBUH BERSAMA", "new", ["IF"], { now: 3430 }),
-  line("NSSS", "PARADISO RESOURCES LTD", "off list", ["custodian"], {
-    before: 531,
-  }),
+  line(
+    "NSSS",
+    "PT SAMUEL TUMBUH BERSAMA",
+    "new",
+    ["IF"],
+    { now: 3430 },
+    8_162_940_500
+  ),
+  line(
+    "NSSS",
+    "PARADISO RESOURCES LTD",
+    "off list",
+    ["custodian"],
+    { before: 531 },
+    -1_263_800_000
+  ),
 ]
 
 const MOVES: HolderMoves = {
@@ -209,7 +221,7 @@ describe("Holder moves", () => {
         "PT SAMUEL TUMBUH BERSAMA",
         "New",
         "IF",
-        "—",
+        "+81,629,405",
         "under 5% → 34.30%",
         "—",
       ],
@@ -218,7 +230,7 @@ describe("Holder moves", () => {
         "PARADISO RESOURCES LTD",
         "Off list",
         "Custodian",
-        "—",
+        "−12,638,000",
         "5.31% → under 5%",
         "—",
       ],
@@ -357,7 +369,7 @@ const MONTHLY: HolderMoves = {
   against: WibDate.make("2026-04-30"),
   lines: [
     {
-      ...line("TLKM", "DANANTARA", "new", [], { now: 5157 }),
+      ...line("TLKM", "DANANTARA", "new", [], { now: 5157 }, 5_000_000_000),
       trend: [null, "out", "in"],
     },
     line(
@@ -368,7 +380,7 @@ const MONTHLY: HolderMoves = {
       { before: 594, now: 631 },
       362_889_000
     ),
-    line("TRUE", "DJONI", "off list", [], { before: 509 }),
+    line("TRUE", "DJONI", "off list", [], { before: 509 }, -200_000_000),
   ],
   counts: { new: 1, up: 1, down: 0, offList: 1 },
   stockCount: 2,
@@ -394,7 +406,7 @@ describe("Holder moves, Monthly", () => {
       [...container.querySelectorAll("thead th")].map((th) => th.textContent)
     ).toEqual(["Stock", "Holder", "Move", "Lots", "Stake", "Change", "Trend"])
     expect(rows().map((row) => row.slice(1, 6))).toEqual([
-      ["DANANTARA", "New", "—", "under 1% → 51.57%", "—"],
+      ["DANANTARA", "New", "+50,000,000", "under 1% → 51.57%", "—"],
       [
         "THE BANK OF NEW YORK MELLON",
         "Up",
@@ -402,7 +414,7 @@ describe("Holder moves, Monthly", () => {
         "5.94% → 6.31%",
         "+0.37%",
       ],
-      ["DJONI", "Off list", "—", "5.09% → under 1%", "—"],
+      ["DJONI", "Off list", "−2,000,000", "5.09% → under 1%", "—"],
     ])
     expect(
       container

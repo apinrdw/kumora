@@ -91,13 +91,14 @@ export function DailyHolders({ code, days, day, onDay }: DailyHoldersProps) {
           <HoldersTable holders={holders} />
           <p className="text-[12px] text-muted-foreground">
             Percent of listed shares as IDX publishes it each trading day;
-            holders under 5% are not listed. Moves follow shares. Through: the
-            broker codes of the accounts whose shares changed, largest change
-            first; Custodian for an account at a bank or other custodian that is
-            not an exchange member. Trend: the change in lots on each of the
-            last {TREND_PERIODS} trading days up to the selected one, green up
-            and red down on a square-root scale, blue where the holder entered
-            the list and grey where it left.
+            holders under 5% are not listed. Moves follow shares. Lots: the
+            change in shares, a New holder's whole holding in and an Off-list
+            holder's last out. Through: the broker codes of the accounts whose
+            shares changed, largest change first; Custodian for an account at a
+            bank or other custodian that is not an exchange member. Trend: the
+            change in lots on each of the last {TREND_PERIODS} trading days up
+            to the selected one, green up and red down on a square-root scale,
+            blue where the holder entered the list and grey where it left.
           </p>
         </>
       )}
