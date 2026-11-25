@@ -4,12 +4,14 @@ import type { ReactNode } from "react"
 
 import { ArchiveCard } from "@/components/admin/archive/archive-card"
 import {
+  DayGrid,
   MarkLegend,
   type MarkStyle,
   MonthGrid,
 } from "@/components/admin/archive/month-grid"
 import { dateTime } from "@/lib/format"
 import type {
+  DailyParseCoverage,
   ParseCoverage,
   ParseCoverageMonth,
   ParseCoverageState,
@@ -61,20 +63,22 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-// The selected month's detail, under its grid.
-function MonthDetail({
+// The selected month's or day's detail, under its grid.
+function CellDetail({
   title,
+  unit,
   name,
-  month: { date, state, newestSha256, parsed, staleCauses, failure },
+  cell: { date, state, newestSha256, parsed, staleCauses, failure },
 }: {
   title: string
+  unit: "month" | "day"
   name: string
-  month: ParseCoverageMonth
+  cell: ParseCoverageMonth
 }) {
   const causes = staleCauses.map((cause) => STALE_CAUSE[cause]).join(", ")
   return (
     <section
-      aria-label={`${title} month detail`}
+      aria-label={`${title} ${unit} detail`}
       className="bg-canvas/40 flex flex-col gap-3 rounded-sm border border-border px-4 py-3 text-sm leading-5"
     >
       <h4 className="text-[15px] leading-6 font-semibold">
@@ -126,37 +130,55 @@ function MonthDetail({
   )
 }
 
+// A kind's parse coverage: a monthly kind's year by month, or a daily
+// kind's (the Above-5% parse run's) month by day.
+type Grid = { readonly title: string } & (
+  | { readonly layout: "month"; readonly parseCoverage: ParseCoverage }
+  | { readonly layout: "day"; readonly parseCoverage: DailyParseCoverage }
+)
+
 /**
  * Each grid's kind, a Report kind or a KSEI report kind: every archived
- * month's parse coverage
+ * month's, or for a daily kind every archived trading day's, parse coverage
  * (server/holdings/parse-coverage.ts), titled by the kind. Read-only: Parse
  * now on the parse run card parses every month not parsed. Selecting a
- * month shows its detail under its grid.
+ * month or day shows its detail under its grid. A daily kind's grid spans
+ * the card's width, for its 31 columns.
  */
-export function ParseCoverageCard({
-  grids,
-}: {
-  grids: ReadonlyArray<{ title: string; parseCoverage: ParseCoverage }>
-}) {
+export function ParseCoverageCard({ grids }: { grids: ReadonlyArray<Grid> }) {
   return (
     <ArchiveCard title="Parse coverage" aside={null}>
       <MarkLegend styles={Object.values(STATE)} />
       <div className="@container">
         <div className="grid gap-6 @2xl:grid-cols-2">
-          {grids.map(({ title, parseCoverage }) => (
-            <MonthGrid
-              key={title}
-              title={title}
-              label={`${title} parse coverage`}
-              years={parseCoverage}
-              empty={`No ${title} report is archived yet.`}
-              mark={({ state }) => STATE[state]}
-              describe={({ date }) => `(${date})`}
-              detail={(month, name) => (
-                <MonthDetail title={title} name={name} month={month} />
-              )}
-            />
-          ))}
+          {grids.map((grid) => {
+            const shared = {
+              title: grid.title,
+              label: `${grid.title} parse coverage`,
+              empty: `No ${grid.title} report is archived yet.`,
+              mark: ({ state }: ParseCoverageMonth) => STATE[state],
+              describe: ({ date }: ParseCoverageMonth) => `(${date})`,
+              detail: (cell: ParseCoverageMonth, name: string) => (
+                <CellDetail
+                  title={grid.title}
+                  unit={grid.layout}
+                  name={name}
+                  cell={cell}
+                />
+              ),
+            }
+            return grid.layout === "month" ? (
+              <MonthGrid
+                key={grid.title}
+                years={grid.parseCoverage}
+                {...shared}
+              />
+            ) : (
+              <div key={grid.title} className="min-w-0 @2xl:col-span-2">
+                <DayGrid months={grid.parseCoverage} {...shared} />
+              </div>
+            )
+          })}
         </div>
       </div>
     </ArchiveCard>

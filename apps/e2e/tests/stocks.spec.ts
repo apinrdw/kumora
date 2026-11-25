@@ -11,6 +11,7 @@ import {
 import {
   seedClassificationMonths,
   seedAbove1Months,
+  seedAbove5Days,
   seedInvestorTypeMonths,
   seedKseiMonths,
 } from "../support/holdings"
@@ -448,6 +449,70 @@ const atLeast5Row = (page: Page, label: string) =>
     .getByRole("table", { name: "≥5% holders by month" })
     .getByRole("row", { name: new RegExp(`^${label}`) })
 
+// BBCA's above-5% holders on 23 and 24 Nov 2026: Dwimuria up 1,000 lots
+// through one of its two accounts (BCA Sekuritas, SQ), listed in another
+// order, and Bank Gamma, held at a bank, off the list. 20 Nov is left unseeded, since shareholding-admin.spec.ts's
+// Parse now parses it into the same HoldingsDb, with no BBCA holder.
+const dwimuria = (kb: number) => ({
+  name: "PT DWIMURIA INVESTAMA ANDALAN",
+  holderKey: "ANDALAN DWIMURIA INVESTAMA",
+  hundredths: kb === 3_000_000_000 ? 5494 : 5495,
+  accounts: [
+    {
+      custodian: "PT BCA SEKURITAS",
+      name: "DWIMURIA INVESTAMA ANDALAN, PT",
+      origin: "local" as const,
+      domicile: "INDONESIA",
+      scripless: kb,
+    },
+    {
+      custodian: "PT BANK CENTRAL ASIA TBK",
+      name: "PT DWIMURIA INVESTAMA ANDALAN",
+      origin: "local" as const,
+      domicile: "INDONESIA",
+      scripless: 64_729_950_100,
+    },
+  ],
+})
+const ABOVE_5_DAYS = {
+  "2026-11-23": {
+    BBCA: {
+      issuer: BBCA,
+      holders: [
+        dwimuria(3_000_000_000),
+        {
+          name: "BANK GAMMA LTD",
+          holderKey: "BANK GAMMA",
+          hundredths: 510,
+          accounts: [
+            {
+              custodian: "PT BANK HSBC INDONESIA",
+              name: "BANK GAMMA LTD",
+              origin: "foreign" as const,
+              domicile: "SINGAPORE",
+              scripless: 6_300_000_000,
+            },
+          ],
+        },
+      ],
+    },
+  },
+  "2026-11-24": {
+    BBCA: {
+      issuer: BBCA,
+      holders: [
+        {
+          ...dwimuria(3_000_100_000),
+          accounts: [...dwimuria(3_000_100_000).accounts].reverse(),
+        },
+      ],
+    },
+  },
+}
+
+const dailyHolders = (page: Page) =>
+  page.getByRole("region", { name: "Daily holders" })
+
 const majorHolders = (page: Page) =>
   page.getByRole("region", { name: "Major holders" })
 
@@ -486,6 +551,7 @@ test.describe.serial("the stock page", () => {
     seedKseiMonths(KSEI_MONTHS)
     seedInvestorTypeMonths(INVESTOR_TYPE_MONTHS)
     seedAbove1Months(ABOVE_1_MONTHS)
+    seedAbove5Days(ABOVE_5_DAYS)
   })
 
   test.describe("for a member", () => {
@@ -718,12 +784,14 @@ test.describe.serial("the stock page", () => {
       page,
     }) => {
       await page.goto(`${DASHBOARD}/stocks/BBCA`)
-      // Between the two composition panels, Major holders last.
+      // Between the two composition panels, Major holders then Daily
+      // holders last.
       await expect(page.getByRole("heading", { level: 2 })).toHaveText([
         "Shareholders composition",
         "Holder size",
         "Holding composition (scripless)",
         "Major holders",
+        "Daily holders",
       ])
       await expect(sizeChoice(page, "Month", "Oct 2026")).toHaveAttribute(
         "aria-pressed",
@@ -1150,6 +1218,61 @@ test.describe.serial("the stock page", () => {
     })
   })
 
+  test.describe("Daily holders, for a member", () => {
+    test.use({ storageState: MEMBER.storageState })
+
+    test("opens on the newest parsed day, each holder against the day before", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      const daily = dailyHolders(page)
+      await expect(
+        daily.getByRole("combobox", { name: "Trading day" })
+      ).toHaveValue("2026-11-24")
+      await expect(daily).toContainText(
+        "1 holder holds 54.95% of listed shares · vs 23 Nov 2026: 0 new, 1 up, 0 down, 1 off list"
+      )
+      const table = daily.getByRole("table", { name: "Daily holders" })
+      await expect(
+        table
+          .getByRole("row")
+          .filter({ hasText: "PT DWIMURIA INVESTAMA ANDALAN" })
+          .first()
+      ).toContainText(/Up\s*SQ\s*\+1,000\s*54\.94% → 54\.95%\s*\+0\.01%/)
+      // Its accounts, largest first, each with its broker code or Custodian;
+      // the shuffled one pairs unchanged.
+      await expect(
+        table.getByRole("row").filter({ hasText: "PT BANK CENTRAL ASIA TBK" })
+      ).toContainText(/Custodian\s*PT BANK CENTRAL ASIA TBK.*±0/)
+      await expect(
+        table.getByRole("row").filter({ hasText: "PT BCA SEKURITAS" })
+      ).toContainText(/SQ\s*PT BCA SEKURITAS.*\+1,000/)
+      await expect(
+        table.getByRole("row").filter({ hasText: "BANK GAMMA LTD" }).first()
+      ).toContainText(/Off list\s*Custodian\s*−63,000,000\s*5\.10% → under 5%/)
+
+      // Retried, since a click before hydration does nothing.
+      await expect(async () => {
+        await daily
+          .getByRole("button", { name: "Previous trading day" })
+          .click()
+        await expect(page).toHaveURL(/\/stocks\/BBCA\?holdersDay=2026-11-23$/, {
+          timeout: 1000,
+        })
+      }).toPass()
+      await expect(daily).toContainText(
+        "2 holders hold 60.04% of listed shares"
+      )
+    })
+
+    test("says so for a stock without an above-5% holder", async ({ page }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBRI`)
+      await expect(dailyHolders(page)).toContainText(
+        "BBRI has no holder above 5% on any day parsed from IDX's daily report."
+      )
+    })
+  })
+
   test.describe("Major holders, for a member", () => {
     test.use({ storageState: MEMBER.storageState })
 
@@ -1171,24 +1294,27 @@ test.describe.serial("the stock page", () => {
       await expect(
         holderRow(page, "PT DWIMURIA INVESTAMA ANDALAN")
       ).toContainText(
-        /Controller·Corporate·Local\s*Unchanged\s*54\.94%±0\.00 pp\s*67\.73 B\+100/
+        /Controller·Corporate·Local\s*Unchanged\s*54\.94%±0\.00%\s*677,299,501\+1/
       )
       await expect(holderRow(page, "ANTHONI SALIM")).toContainText(
-        /Affiliate of controller·Individual·Local\s*Up\s*1\.60%\+0\.10 pp/
+        /Affiliate of controller·Individual·Local\s*Up\s*1\.60%\+0\.10%/
       )
       await expect(holderRow(page, "BLACKROCK INC")).toContainText(
-        /Investment manager·Foreign·UNITED STATES\s*Down\s*1\.10%−0\.20 pp/
+        /Investment manager·Foreign·UNITED STATES\s*Down\s*1\.10%−0\.20%/
       )
       // A holder on two rows shows once, summed, its scrip row included.
       const salim = holderRow(page, "PT. SALIM GROUP")
-      await expect(salim).toContainText(/New\s*1\.50%\s*1\.85 B\s*27%/)
+      await expect(salim).toContainText(/New\s*1\.50%\s*18,491,257\.5\s*27%/)
       await expect(async () => {
         await salim
           .getByRole("button", { name: "2 rows in the report" })
           .click()
-        await expect(salim).toContainText("SALIM GROUP, PT · 493.1 M · 0.40%", {
-          timeout: 1000,
-        })
+        await expect(salim).toContainText(
+          "SALIM GROUP, PT · 4,931,002 lots · 0.40%",
+          {
+            timeout: 1000,
+          }
+        )
       }).toPass()
       // Off list, greyed at the bottom with its last %.
       const gamma = majorHolders(page)
@@ -1236,10 +1362,14 @@ test.describe.serial("the stock page", () => {
         }
       }
       await expectBar([
-        ["PT DWIMURIA INVESTAMA ANDALAN 54.94%", "54.94%", "gold"],
-        ["ANTHONI SALIM 1.60%", "1.6%", "gold"],
-        ["PT. SALIM GROUP 1.50%", "1.5%", "blue"],
-        ["BLACKROCK INC 1.10%", "1.1%", "blue"],
+        [
+          "PT DWIMURIA INVESTAMA ANDALAN 54.94% · 677,299,501 lots",
+          "54.94%",
+          "gold",
+        ],
+        ["ANTHONI SALIM 1.60% · 19,724,008 lots", "1.6%", "gold"],
+        ["PT. SALIM GROUP 1.50% · 18,491,257.5 lots", "1.5%", "blue"],
+        ["BLACKROCK INC 1.10% · 13,560,255.5 lots", "1.1%", "blue"],
         ["Holders under 1% 40.86%", "40.86%", "under"],
       ])
       await expect(legend).toHaveText([
@@ -1259,10 +1389,14 @@ test.describe.serial("the stock page", () => {
         })
       }).toPass()
       await expectBar([
-        ["PT DWIMURIA INVESTAMA ANDALAN 54.94%", "54.94%", "blue"],
-        ["ANTHONI SALIM 1.50%", "1.5%", "blue"],
-        ["BLACKROCK INC 1.30%", "1.3%", "blue"],
-        ["GAMMA FUND LTD 1.20%", "1.2%", "blue"],
+        [
+          "PT DWIMURIA INVESTAMA ANDALAN 54.94% · 677,299,500 lots",
+          "54.94%",
+          "blue",
+        ],
+        ["ANTHONI SALIM 1.50% · 18,491,257.5 lots", "1.5%", "blue"],
+        ["BLACKROCK INC 1.30% · 16,025,756.5 lots", "1.3%", "blue"],
+        ["GAMMA FUND LTD 1.20% · 14,793,006 lots", "1.2%", "blue"],
         ["Holders under 1% 41.06%", "41.06%", "under"],
       ])
       await expect(legend.nth(4)).toHaveText("Under 1% 41.06%")

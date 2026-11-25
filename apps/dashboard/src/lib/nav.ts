@@ -1,5 +1,6 @@
 import {
   IconArchive,
+  IconArrowsUpDown,
   IconChartBubble,
   IconChartCandle,
   IconFileZip,
@@ -57,6 +58,13 @@ export const NAV: ReadonlyArray<NavGroup> = [
         link: { to: "/order-book-radar" },
         feature: "market-live",
         mobile: true,
+      },
+      {
+        label: "Holder moves",
+        shortLabel: "Moves",
+        icon: IconArrowsUpDown,
+        link: { to: "/holder-moves" },
+        feature: "stocks",
       },
     ],
   },

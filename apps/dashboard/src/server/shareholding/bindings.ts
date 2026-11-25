@@ -8,6 +8,7 @@ import {
   boundWorkflowAs,
 } from "../archive/workflow-binding.ts"
 import { Above1ParseWorkflow } from "./above-1-parse.ts"
+import { Above5ParseWorkflow } from "./above-5-parse.ts"
 import { ClassificationParseWorkflow } from "./classification-parse.ts"
 import { InvestorTypeParseWorkflow } from "./investor-type-parse.ts"
 
@@ -32,4 +33,9 @@ export const investorTypeParseWorkflowBinding = boundWorkflowAs(
 export const above1ParseWorkflowBinding = boundWorkflowAs(
   Above1ParseWorkflow,
   (env) => env.ABOVE_1_PARSE
+)
+
+export const above5ParseWorkflowBinding = boundWorkflowAs(
+  Above5ParseWorkflow,
+  (env) => env.ABOVE_5_PARSE
 )

@@ -74,12 +74,14 @@ const FIXTURE_FETCHED_AT = "2026-11-14T13:00:00.000Z"
  * (apps/dashboard/tests/server/shareholding/fixtures/), such as
  * `classification-2026-03-31.xlsx` of kind `investor-classification`, under
  * `dataDate` as an archive run would: the .xlsx under its SHA-256, then a
- * record whose key the kind's parse run reads.
+ * record whose key the kind's parse run reads. A later `fetchedAt` makes it
+ * the date's newest version over one seeded before.
  */
 export async function seedReportFixture(
-  kind: "investor-classification" | "investor-type" | "above-1",
+  kind: "investor-classification" | "investor-type" | "above-1" | "above-5",
   filename: string,
-  dataDate: string
+  dataDate: string,
+  fetchedAt = FIXTURE_FETCHED_AT
 ) {
   const bytes = new Uint8Array(
     readFileSync(
@@ -101,7 +103,7 @@ export async function seedReportFixture(
         record: `${prefix}${yield* recordName(
           dataDate,
           sha256,
-          FIXTURE_FETCHED_AT,
+          fetchedAt,
           `https://www.idx.co.id/Media/${filename}\n`
         )}`,
       }
@@ -111,7 +113,7 @@ export async function seedReportFixture(
     kind,
     reportDate: dataDate,
     sha256: keys.sha256,
-    fetchedAt: FIXTURE_FETCHED_AT,
+    fetchedAt,
     fileKey: keys.report,
     file: bytes,
     contentType: XLSX,

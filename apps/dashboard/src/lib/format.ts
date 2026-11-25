@@ -1,4 +1,4 @@
-import type { WibDate } from "@workspace/relay"
+import { SHARES_PER_LOT, type WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 export const MINUS = "−"
@@ -105,6 +105,9 @@ export const compactIdr = Effect.fnUntraced(function* (n: number) {
 
 /** 1,250 or 0.25: a lot is SHARES_PER_LOT shares, so an odd lot needs its hundredths */
 export const lots = (n: number) => Effect.sync(() => nfUpTo2.format(n))
+
+/** A share count in lots: 1,250,025 shares → 12,500.25 */
+export const lotsOfShares = (n: number) => lots(n / SHARES_PER_LOT)
 
 /** 12.4 M shares */
 export const shares = (n: number) =>

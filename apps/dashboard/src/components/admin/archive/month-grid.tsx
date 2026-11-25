@@ -1,5 +1,6 @@
 // The year × month grid an archive admin page's month cards share: one row
-// per year, a mark per month, blank where there is none. Each kind of mark
+// per year, a mark per month, blank where there is none; and its month × day
+// grid, for a kind published by the trading day. Each kind of mark
 // differs in shape as well as color, and a legend names each. A grid with
 // a detail panel makes each mark a button that selects its month.
 import type { IconCheck } from "@tabler/icons-react"
@@ -20,6 +21,16 @@ const MONTHS = [
   "November",
   "December",
 ]
+
+const MONTH_COLUMNS = MONTHS.map((month, i) => ({
+  abbr: month,
+  header: String(i + 1).padStart(2, "0"),
+}))
+
+const DAY_COLUMNS = Array.from({ length: 31 }, (_, i) => ({
+  abbr: `Day ${i + 1}`,
+  header: String(i + 1).padStart(2, "0"),
+}))
 
 export interface MarkStyle {
   readonly label: string
@@ -98,19 +109,15 @@ export function MarkLegend({ styles }: { styles: ReadonlyArray<MarkStyle> }) {
   )
 }
 
-/**
- * `years`, oldest first, each with its months from January; a month that is
- * null, or past the end of its year's list, is blank. `mark` styles a month,
- * and `describe` adds to its tooltip after the month and its mark's label.
- * With `detail`, clicking or tapping a month selects it, nothing at first,
- * and `detail` renders the selected month, named like `August 2026`, under
- * the grid. With no years, `empty` shows under the title instead of the
- * grid.
- */
-export function MonthGrid<Month>({
+// A table of marks, its columns' cells under a header each, one row per
+// `rows`, selectable when it has a `detail`. A cell is named by its row's
+// `name`, as `August 2026`, in its tooltip and its detail.
+function MarkTable<Cell>({
   title,
   label,
-  years,
+  rowHeader,
+  columns,
+  rows,
   mark,
   describe,
   detail,
@@ -118,27 +125,30 @@ export function MonthGrid<Month>({
 }: {
   title: ReactNode
   label: string
-  years: ReadonlyArray<{
-    readonly year: number
-    readonly months: ReadonlyArray<Month | null>
+  // What a row is, for a screen reader: Year or Month.
+  rowHeader: string
+  columns: ReadonlyArray<{ readonly abbr: string; readonly header: string }>
+  rows: ReadonlyArray<{
+    readonly key: string
+    readonly header: string
+    readonly cells: ReadonlyArray<Cell | null>
+    readonly name: (index: number) => string
   }>
-  mark: (month: Month) => MarkStyle
-  describe?: (month: Month) => string
-  detail?: (month: Month, name: string) => ReactNode
+  mark: (cell: Cell) => MarkStyle
+  describe?: (cell: Cell) => string
+  detail?: (cell: Cell, name: string) => ReactNode
   empty?: string
 }) {
-  // Selected by position (year, month index), not by the month
-  // value, so a month stays selected when the page reloads its data.
-  const [selected, setSelected] = useState<{ year: number; index: number }>()
-  const selectedYear = years.find(({ year }) => year === selected?.year)
-  const selectedMonth =
-    selected === undefined
-      ? null
-      : (selectedYear?.months[selected.index] ?? null)
+  // Selected by position (row, cell index), not by the cell's value, so a
+  // cell stays selected when the page reloads its data.
+  const [selected, setSelected] = useState<{ row: string; index: number }>()
+  const selectedRow = rows.find(({ key }) => key === selected?.row)
+  const selectedCell =
+    selected === undefined ? null : (selectedRow?.cells[selected.index] ?? null)
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <h3 className="text-[15px] leading-6 font-semibold">{title}</h3>
-      {years.length === 0 && empty !== undefined ? (
+      {rows.length === 0 && empty !== undefined ? (
         <p className="text-secondary-text border-strong rounded-sm border border-dashed px-4 py-6 text-center text-sm leading-5 text-pretty">
           {empty}
         </p>
@@ -152,40 +162,40 @@ export function MonthGrid<Month>({
             <thead>
               <tr>
                 <th scope="col">
-                  <span className="sr-only">Year</span>
+                  <span className="sr-only">{rowHeader}</span>
                 </th>
-                {MONTHS.map((month, i) => (
+                {columns.map(({ abbr, header }) => (
                   <th
-                    key={month}
+                    key={abbr}
                     scope="col"
-                    abbr={month}
+                    abbr={abbr}
                     className="font-data text-secondary-text w-[18px] text-center text-[11px] font-medium"
                   >
-                    {String(i + 1).padStart(2, "0")}
+                    {header}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {years.map(({ year, months }) => (
-                <tr key={year}>
+              {rows.map(({ key, header, cells, name }) => (
+                <tr key={key}>
                   <th
                     scope="row"
-                    className="font-data text-secondary-text pr-2 text-left text-[11px] font-medium"
+                    className="font-data text-secondary-text pr-2 text-left text-[11px] font-medium whitespace-nowrap"
                   >
-                    {year}
+                    {header}
                   </th>
-                  {MONTHS.map((name, i) => {
-                    const month = months[i] ?? null
-                    const style = month === null ? undefined : mark(month)
+                  {columns.map(({ abbr }, i) => {
+                    const cell = cells[i] ?? null
+                    const style = cell === null ? undefined : mark(cell)
                     const tooltip =
-                      month === null || style === undefined
+                      cell === null || style === undefined
                         ? undefined
-                        : `${name} ${year}: ${style.label}${describe ? ` ${describe(month)}` : ""}`
+                        : `${name(i)}: ${style.label}${describe ? ` ${describe(cell)}` : ""}`
                     const pressed =
-                      selected?.year === year && selected.index === i
+                      selected?.row === key && selected.index === i
                     return (
-                      <td key={name} title={tooltip}>
+                      <td key={abbr} title={tooltip}>
                         {style &&
                           (detail === undefined ? (
                             <MarkWithLabel style={style} />
@@ -196,7 +206,7 @@ export function MonthGrid<Month>({
                               pressed={pressed}
                               onToggle={() =>
                                 setSelected(
-                                  pressed ? undefined : { year, index: i }
+                                  pressed ? undefined : { row: key, index: i }
                                 )
                               }
                             />
@@ -212,8 +222,86 @@ export function MonthGrid<Month>({
       )}
       {detail !== undefined &&
         selected !== undefined &&
-        selectedMonth !== null &&
-        detail(selectedMonth, `${MONTHS[selected.index]} ${selected.year}`)}
+        selectedCell !== null &&
+        detail(selectedCell, selectedRow?.name(selected.index) ?? "")}
     </div>
+  )
+}
+
+/**
+ * `years`, oldest first, each with its months from January; a month that is
+ * null, or past the end of its year's list, is blank. `mark` styles a month,
+ * and `describe` adds to its tooltip after the month and its mark's label.
+ * With `detail`, clicking or tapping a month selects it, nothing at first,
+ * and `detail` renders the selected month, named like `August 2026`, under
+ * the grid. With no years, `empty` shows under the title instead of the
+ * grid.
+ */
+export function MonthGrid<Month>({
+  years,
+  ...table
+}: {
+  title: ReactNode
+  label: string
+  years: ReadonlyArray<{
+    readonly year: number
+    readonly months: ReadonlyArray<Month | null>
+  }>
+  mark: (month: Month) => MarkStyle
+  describe?: (month: Month) => string
+  detail?: (month: Month, name: string) => ReactNode
+  empty?: string
+}) {
+  return (
+    <MarkTable
+      {...table}
+      rowHeader="Year"
+      columns={MONTH_COLUMNS}
+      rows={years.map(({ year, months }) => ({
+        key: String(year),
+        header: String(year),
+        cells: months,
+        name: (index) => `${MONTHS[index]} ${year}`,
+      }))}
+    />
+  )
+}
+
+/**
+ * `months`, oldest first, each a month (YYYY-MM) with its days from the 1st;
+ * a day that is null, or past the end of its month's list, is blank. As
+ * MonthGrid, with a day named like `20 November 2026`.
+ */
+export function DayGrid<Day>({
+  months,
+  ...table
+}: {
+  title: ReactNode
+  label: string
+  months: ReadonlyArray<{
+    readonly month: string
+    readonly days: ReadonlyArray<Day | null>
+  }>
+  mark: (day: Day) => MarkStyle
+  describe?: (day: Day) => string
+  detail?: (day: Day, name: string) => ReactNode
+  empty?: string
+}) {
+  return (
+    <MarkTable
+      {...table}
+      rowHeader="Month"
+      columns={DAY_COLUMNS}
+      rows={months.map(({ month, days }) => {
+        const year = month.slice(0, 4)
+        const name = MONTHS[Number(month.slice(5, 7)) - 1] ?? month
+        return {
+          key: month,
+          header: `${name.slice(0, 3)} ${year}`,
+          cells: days,
+          name: (index) => `${index + 1} ${name} ${year}`,
+        }
+      })}
+    />
   )
 }

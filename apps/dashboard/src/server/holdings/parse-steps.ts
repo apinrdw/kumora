@@ -1,6 +1,7 @@
 // The steps that parse an archive's months into parsed holdings: `reconcile`
 // picks the months to parse (months-to-parse.ts), then one `parse:<date>`
-// step per month. Every parse run (parse-runs.ts) runs them: the
+// step per month; for a kind that derives from its parsed holdings, then
+// `derive-reconcile` and one `derive:<date>` step per stale date. Every parse run (parse-runs.ts) runs them: the
 // classification parse run on classification reports, the investor-type
 // parse run on holdings by investor type reports, the KSEI parse run on Securities
 // holdings reports.
@@ -113,4 +114,48 @@ export const parseMonths = Effect.fnUntraced(function* (
         )
     ),
   }
+})
+
+// What a kind derives from its parsed holdings, a date at a time, after its
+// months are parsed: Holder moves' Daily lines from the above-5% days
+// (above-5-moves.ts), and its Monthly lines from the above-1% months
+// (above-1-moves.ts).
+export interface Derived {
+  // How a failure names what failed to derive, as "Holder moves".
+  readonly name: string
+  // The dates whose derived rows are stale, oldest first.
+  readonly stale: Effect.Effect<
+    ReadonlyArray<string>,
+    HoldingsDbError,
+    HoldingsDb
+  >
+  // Replaces a date's derived rows.
+  readonly derive: (
+    date: string
+  ) => Effect.Effect<unknown, HoldingsDbError, HoldingsDb>
+}
+
+// `derive-reconcile`, then a `derive:` step per stale date. Fails only when
+// `derive-reconcile` does. A date that fails to derive keeps its derived
+// rows as they were, stale, and the next run's `derive-reconcile` picks it
+// again; its failure is the run's, named by the date.
+export const deriveDates = Effect.fnUntraced(function* (
+  steps: WorkflowSteps<HoldingsDb>,
+  derived: Derived
+): Effect.fn.Return<ReadonlyArray<typeof ParseFailure.Type>, StepFailed> {
+  const dates = yield* steps.do("derive-reconcile", derived.stale)
+  const failed = yield* Effect.forEach(dates, (date) =>
+    steps.do(`derive:${date}`, derived.derive(date)).pipe(
+      Effect.flip,
+      Effect.map(({ message }) => ({ date, message })),
+      Effect.option
+    )
+  )
+  return yield* Effect.forEach(
+    failed.flatMap((each) => (each._tag === "Some" ? [each.value] : [])),
+    ({ date, message }) =>
+      Effect.map(runError(`${derived.name}: ${message}`), (reason) =>
+        ParseFailure.make({ date, message: reason })
+      )
+  )
 })

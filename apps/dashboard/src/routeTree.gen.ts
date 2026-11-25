@@ -20,6 +20,7 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppSplatRouteImport } from './routes/_app/$'
 import { Route as AppAccountRouteImport } from './routes/_app/account'
 import { Route as AppDeleteAccountRouteImport } from './routes/_app/delete-account'
+import { Route as AppHolderMovesRouteImport } from './routes/_app/holder-moves'
 import { Route as AppMarketBubblesRouteImport } from './routes/_app/market-bubbles'
 import { Route as AppMarketLiveRouteImport } from './routes/_app/market-live'
 import { Route as AppOrderBookRadarRouteImport } from './routes/_app/order-book-radar'
@@ -85,6 +86,11 @@ const AppDeleteAccountRoute = AppDeleteAccountRouteImport.update({
   path: '/delete-account',
   getParentRoute: () => AppRoute,
 } as any)
+const AppHolderMovesRoute = AppHolderMovesRouteImport.update({
+  id: '/holder-moves',
+  path: '/holder-moves',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppMarketBubblesRoute = AppMarketBubblesRouteImport.update({
   id: '/market-bubbles',
   path: '/market-bubbles',
@@ -147,6 +153,7 @@ export interface FileRoutesByFullPath {
   '/$': typeof AppSplatRoute
   '/account': typeof AppAccountRoute
   '/delete-account': typeof AppDeleteAccountRoute
+  '/holder-moves': typeof AppHolderMovesRoute
   '/market-bubbles': typeof AppMarketBubblesRoute
   '/market-live': typeof AppMarketLiveRoute
   '/order-book-radar': typeof AppOrderBookRadarRoute
@@ -168,6 +175,7 @@ export interface FileRoutesByTo {
   '/$': typeof AppSplatRoute
   '/account': typeof AppAccountRoute
   '/delete-account': typeof AppDeleteAccountRoute
+  '/holder-moves': typeof AppHolderMovesRoute
   '/market-bubbles': typeof AppMarketBubblesRoute
   '/market-live': typeof AppMarketLiveRoute
   '/order-book-radar': typeof AppOrderBookRadarRoute
@@ -192,6 +200,7 @@ export interface FileRoutesById {
   '/_app/$': typeof AppSplatRoute
   '/_app/account': typeof AppAccountRoute
   '/_app/delete-account': typeof AppDeleteAccountRoute
+  '/_app/holder-moves': typeof AppHolderMovesRoute
   '/_app/market-bubbles': typeof AppMarketBubblesRoute
   '/_app/market-live': typeof AppMarketLiveRoute
   '/_app/order-book-radar': typeof AppOrderBookRadarRoute
@@ -217,6 +226,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/account'
     | '/delete-account'
+    | '/holder-moves'
     | '/market-bubbles'
     | '/market-live'
     | '/order-book-radar'
@@ -238,6 +248,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/account'
     | '/delete-account'
+    | '/holder-moves'
     | '/market-bubbles'
     | '/market-live'
     | '/order-book-radar'
@@ -261,6 +272,7 @@ export interface FileRouteTypes {
     | '/_app/$'
     | '/_app/account'
     | '/_app/delete-account'
+    | '/_app/holder-moves'
     | '/_app/market-bubbles'
     | '/_app/market-live'
     | '/_app/order-book-radar'
@@ -365,6 +377,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDeleteAccountRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/holder-moves': {
+      id: '/_app/holder-moves'
+      path: '/holder-moves'
+      fullPath: '/holder-moves'
+      preLoaderRoute: typeof AppHolderMovesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/market-bubbles': {
       id: '/_app/market-bubbles'
       path: '/market-bubbles'
@@ -442,6 +461,7 @@ interface AppRouteChildren {
   AppSplatRoute: typeof AppSplatRoute
   AppAccountRoute: typeof AppAccountRoute
   AppDeleteAccountRoute: typeof AppDeleteAccountRoute
+  AppHolderMovesRoute: typeof AppHolderMovesRoute
   AppMarketBubblesRoute: typeof AppMarketBubblesRoute
   AppMarketLiveRoute: typeof AppMarketLiveRoute
   AppOrderBookRadarRoute: typeof AppOrderBookRadarRoute
@@ -457,6 +477,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSplatRoute: AppSplatRoute,
   AppAccountRoute: AppAccountRoute,
   AppDeleteAccountRoute: AppDeleteAccountRoute,
+  AppHolderMovesRoute: AppHolderMovesRoute,
   AppMarketBubblesRoute: AppMarketBubblesRoute,
   AppMarketLiveRoute: AppMarketLiveRoute,
   AppOrderBookRadarRoute: AppOrderBookRadarRoute,

@@ -219,9 +219,21 @@ export type SeededAbove1Months = Readonly<
   >
 >
 
-/** Replaces every parsed above-1% month with `months`. */
+const ABOVE_1_TABLES = [
+  "above_1_holding",
+  "above_1_month",
+  "above_1_move",
+  "above_1_move_pending",
+  "above_1_move_month",
+]
+
+/**
+ * Replaces every parsed above-1% month with `months`, and drops Holder
+ * moves' lines derived from the months before, which the next above-1%
+ * parse run derives again.
+ */
 export function seedAbove1Months(months: SeededAbove1Months) {
-  replaceTables(["above_1_holding", "above_1_month"], (db) => {
+  replaceTables(ABOVE_1_TABLES, (db) => {
     const record = db.prepare(
       "INSERT INTO above_1_month VALUES (?, ?, 1, '2026-11-14T14:00:00.000Z')"
     )
@@ -250,6 +262,101 @@ export function seedAbove1Months(months: SeededAbove1Months) {
             row.total,
             row.hundredths
           )
+        }
+    }
+  })
+}
+
+/** One account of an above-5% block, as the above-5% parse stores it. */
+export interface SeededAbove5Account {
+  readonly custodian: string
+  readonly name: string
+  readonly origin: "local" | "foreign"
+  readonly domicile: string
+  readonly scripless: number
+}
+
+/**
+ * One block of a daily above-5% report: `holderKey` is the key
+ * src/server/holdings/holder-key.ts builds from `name`, `hundredths` the
+ * published % × 100.
+ */
+export interface SeededAbove5Holder {
+  readonly name: string
+  readonly holderKey: string
+  readonly hundredths: number
+  readonly accounts: ReadonlyArray<SeededAbove5Account>
+}
+
+/** Above-5% days by data date, then by stock code, blocks in file order. */
+export type SeededAbove5Days = Readonly<
+  Record<
+    string,
+    Readonly<
+      Record<
+        string,
+        {
+          readonly issuer: string
+          readonly holders: ReadonlyArray<SeededAbove5Holder>
+        }
+      >
+    >
+  >
+>
+
+const ABOVE_5_TABLES = [
+  "above_5_account",
+  "above_5_holder",
+  "above_5_day",
+  "above_5_move",
+  "above_5_move_pending",
+  "above_5_move_day",
+]
+
+/**
+ * Replaces every parsed above-5% day with `days`, and drops Holder moves'
+ * lines derived from the days before, which the next above-5% parse run
+ * derives again.
+ */
+export function seedAbove5Days(days: SeededAbove5Days) {
+  replaceTables(ABOVE_5_TABLES, (db) => {
+    const record = db.prepare(
+      "INSERT INTO above_5_day VALUES (?, ?, 1, '2026-11-25T14:00:00.000Z')"
+    )
+    const holder = db.prepare(
+      "INSERT INTO above_5_holder VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    const account = db.prepare(
+      "INSERT INTO above_5_account VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)"
+    )
+    for (const [dataDate, stocks] of Object.entries(days)) {
+      record.run(dataDate, `sha-${dataDate}`)
+      let no = 0
+      for (const [code, { issuer, holders }] of Object.entries(stocks))
+        for (const each of holders) {
+          no += 1
+          holder.run(
+            dataDate,
+            code,
+            no,
+            issuer,
+            each.name,
+            each.holderKey,
+            each.accounts.reduce((held, { scripless }) => held + scripless, 0),
+            each.hundredths
+          )
+          for (const [index, held] of each.accounts.entries())
+            account.run(
+              dataDate,
+              code,
+              no,
+              index + 1,
+              held.custodian,
+              held.name,
+              held.origin,
+              held.domicile,
+              held.scripless
+            )
         }
     }
   })

@@ -10,6 +10,7 @@ import { HttpClient, HttpClientResponse } from "effect/http"
 
 import { LISTING_URL } from "@/server/shareholding/listing"
 
+import above5Listing from "./fixtures/idx-listing-2026-11-25-above-5.json"
 import recorded from "./fixtures/idx-listing-2026-11-14.json"
 
 export type ListingItem = (typeof recorded.items)[number]
@@ -114,7 +115,9 @@ export const classificationIdx = () =>
 // date (~/.t3/notes/kumora/402/trim-investor-type-xlsx.py): Nov 2025's
 // unsplit layout with blank cells, Apr 2026's split layout with blank cells,
 // TRUE's code a boolean cell and empty styled cells past its header's total
-// column, and Oct 2026's split layout writing no holding as 0.
+// column, and Oct 2026's split layout writing no holding as 0. Oct 2026's
+// also holds the above-5% fixtures' stocks (ASRI, BIKE, CPGT, ENRG, MAMIP,
+// NSSS), for their listed shares.
 // Nov 2025's holds only AADI, which stocks.spec.ts seeds with the
 // same rows, and TRUE, which it never opens, so shareholding-admin.spec.ts's
 // Parse now can parse it into the Test stage's HoldingsDb beside that spec.
@@ -214,15 +217,97 @@ export const above1Item = (dataDate: Above1Fixture) => {
 export const above1Items = () =>
   (Object.keys(ABOVE_1_FIXTURES) as Array<Above1Fixture>).map(above1Item)
 
-// What IDX serves at a listed URL: an investor-type or above-1% report with
-// a fixture its fixture's bytes, a classification report its fixture's
-// bytes, or the Mar–Aug layout's May fixture for a month with none.
+// Real daily above-5% reports, trimmed to their title, header and legend
+// rows and the stocks ASRI, BIKE, CPGT, ENRG, MAMIP, NSSS and TRUE, their
+// blocks renumbered (~/.t3/notes/kumora/673/trim-above-5-xlsx.py), by data
+// date: 11 and 12 Jun 2026 (ENRG's listed shares change, NSSS's PT SAMUEL
+// TUMBUH BERSAMA leaves), 24 and 25 Jun (it returns), 19 Nov (ASRI's
+// repeat blocks) and 20 Nov (repeats gone, renames). Every day holds BIKE's
+// SENDI, whose accounts are a text, a fractional and an ambiguous integer
+// count, MAMIP's single-account blocks with ambiguous counts, CPGT's two
+// investors named ASIA ARGENTUM ASSETS HONG KONG LIMITED, and TRUE's code
+// as a boolean cell. Their listing items were recorded on 25 Nov 2026.
+const ABOVE_5_FIXTURES = {
+  "2026-06-11": "peng-2026-06-11-00009-lima-persen.xlsx",
+  "2026-06-12": "peng-2026-06-12-00010-lima-persen.xlsx",
+  "2026-06-24": "peng-2026-06-24-00017-lima-persen.xlsx",
+  "2026-06-25": "peng-2026-06-25-00018-lima-persen.xlsx",
+  "2026-11-19": "peng-2026-11-19-00121-lima-persen.xlsx",
+  "2026-11-20": "peng-2026-11-20-00122-lima-persen.xlsx",
+} as const
+export type Above5Fixture = keyof typeof ABOVE_5_FIXTURES
+
+// Copies of 20 Nov's, each broken one way
+// (~/.t3/notes/kumora/673/break-above-5-xlsx.py): its Perubahan label
+// renamed, its title a day on, BIKE's SENDI one share past its accounts'
+// sum, its first account's Perubahan wrong, its % below 5, and the legend's
+// last row dropped.
+export type BrokenAbove5Fixture =
+  | "unknown-header"
+  | "mismatched-date"
+  | "unresolvable-count"
+  | "wrong-change"
+  | "below-5"
+  | "missing-legend"
+
+// 20 Nov's, trimmed to BIKE alone: a version IDX republishes in place.
+export type RepublishedAbove5Fixture = "republished"
+
+export const above5Fixture = (
+  name: Above5Fixture | BrokenAbove5Fixture | RepublishedAbove5Fixture
+) => {
+  const dataUrl = FIXTURE_FILES[`./fixtures/above-5-${name}.xlsx`]
+  assert.isDefined(dataUrl)
+  return new Uint8Array(Buffer.from(dataUrl.split(",")[1] ?? "", "base64"))
+}
+
+export const above5Item = (dataDate: Above5Fixture) => {
+  const item = above5Listing.items.find((listed) =>
+    listed.Prospectus.endsWith(`/${ABOVE_5_FIXTURES[dataDate]}`)
+  )
+  assert.isDefined(item)
+  return item
+}
+
+// The listing items of every above-5% fixture's report.
+export const above5Items = () =>
+  (Object.keys(ABOVE_5_FIXTURES) as Array<Above5Fixture>).map(above5Item)
+
+// May 2026's investor-type report, trimmed to the above-5% fixtures' stocks
+// (~/.t3/notes/kumora/402/trim-investor-type-xlsx.py): the listed shares in
+// force on the June days. Apart from INVESTOR_TYPE_FIXTURES, so the
+// investor-type tests' months stay three.
+const LISTED_SHARES_FIXTURE = "peng-05-00010-tipe.xlsx"
+
+// The listing items of the investor-type reports whose listed shares the
+// above-5% fixtures' days resolve against: May's and Oct 2026's.
+export const listedSharesItems = () => {
+  const may = recorded.items.find((listed) =>
+    listed.Prospectus.endsWith(`/${LISTED_SHARES_FIXTURE}`)
+  )
+  assert.isDefined(may)
+  return [may, investorTypeItem("2026-10-30")]
+}
+
+// What IDX serves at a listed URL: an investor-type, above-1% or above-5%
+// report with a fixture its fixture's bytes, a classification report its
+// fixture's bytes, or the Mar–Aug layout's May fixture for a month with none.
 const fileBody = (prospectus: string) => {
   const [above1] =
     Object.entries(ABOVE_1_FIXTURES).find(([, file]) =>
       prospectus.endsWith(`/${file}`)
     ) ?? []
   if (above1 !== undefined) return above1Fixture(above1 as Above1Fixture)
+  const [above5] =
+    Object.entries(ABOVE_5_FIXTURES).find(([, file]) =>
+      prospectus.endsWith(`/${file}`)
+    ) ?? []
+  if (above5 !== undefined) return above5Fixture(above5 as Above5Fixture)
+  if (prospectus.endsWith(`/${LISTED_SHARES_FIXTURE}`)) {
+    const dataUrl = FIXTURE_FILES["./fixtures/investor-type-2026-05-29.xlsx"]
+    assert.isDefined(dataUrl)
+    return new Uint8Array(Buffer.from(dataUrl.split(",")[1] ?? "", "base64"))
+  }
   const [investorType] =
     Object.entries(INVESTOR_TYPE_FIXTURES).find(([, file]) =>
       prospectus.endsWith(`/${file}`)

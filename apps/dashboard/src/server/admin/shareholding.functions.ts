@@ -8,6 +8,7 @@ import { Auth } from "@/server/auth/auth"
 import { holdingsDbD1 } from "@/server/holdings/db"
 import {
   above1ParseWorkflowBinding,
+  above5ParseWorkflowBinding,
   archiveBucketR2,
   archiveWorkflowBinding,
   classificationParseWorkflowBinding,
@@ -16,6 +17,7 @@ import {
 
 import {
   parseAbove1Now,
+  parseAbove5Now,
   parseClassificationNow,
   parseInvestorTypeNow,
   runArchiveNow,
@@ -30,7 +32,8 @@ const services = Layer.mergeAll(
   archiveWorkflowBinding,
   classificationParseWorkflowBinding,
   investorTypeParseWorkflowBinding,
-  above1ParseWorkflowBinding
+  above1ParseWorkflowBinding,
+  above5ParseWorkflowBinding
 )
 
 export const shareholdingArchiveFn = createServerFn({ method: "GET" }).handler(
@@ -69,5 +72,13 @@ export const parseAbove1NowFn = createServerFn({
 }).handler(() =>
   runServerEffect(
     parseAbove1Now(getRequest().headers).pipe(Effect.provide(services))
+  )
+)
+
+export const parseAbove5NowFn = createServerFn({
+  method: "POST",
+}).handler(() =>
+  runServerEffect(
+    parseAbove5Now(getRequest().headers).pipe(Effect.provide(services))
   )
 )

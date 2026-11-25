@@ -16,13 +16,14 @@ import {
 
 import type { SqlValue } from "../d1.ts"
 import { excerpt } from "./excerpt.ts"
+import { holderKey } from "./holder-key.ts"
 import { monthRows, replaceMonth } from "./month-replace.ts"
 import type { MonthTables } from "./months-to-parse.ts"
 import {
   CellError,
-  columnLetters,
+  cellText,
   forEachRow,
-  type ReadCell,
+  headerMismatch,
   type ReadRow,
 } from "./xlsx.ts"
 
@@ -39,55 +40,9 @@ const unreadable = (message: string) => new Above1Unreadable({ message })
 
 // Decision: a report's parse is bounded to fit 48 MiB of the Worker's heap
 // (apps/dashboard/docs/adr/0045-a-holdings-parse-fits-a-bounded-heap.md)
-const MAX_ROWS = 15_000
+export const MAX_HOLDING_ROWS = 15_000
 const MAX_NAME_LENGTH = 256
 const MAX_TEXT_LENGTH = 128
-
-// Words the holder key drops once punctuation is spaces: legal forms, then
-// honorifics.
-// `DR` is kept: it marks TLKM's depositary-receipt account at BNY
-// Mellon, `THE BANK OF NEW YORK MELLON DR`, and dropping it merges that with
-// BNY Mellon's own holding in the same month. Without it the list merges no
-// two holders within any month of Feb–Oct 2026. See apinrdw/kumora#478.
-const DROPPED_WORDS: ReadonlySet<string> = new Set([
-  "PT",
-  "TBK",
-  "TB",
-  "PERSERO",
-  "IR",
-  "DRS",
-  "DRA",
-  "H",
-  "HJ",
-  "HJH",
-  "PROF",
-  "SE",
-  "SH",
-  "ST",
-  "MM",
-  "MBA",
-  "MSC",
-  "SKOM",
-  "SPD",
-  "ME",
-  "MSI",
-  "SKED",
-])
-
-// The name a ≥1% holder is matched by, from one month to the next and
-// across a month's rows: INVESTOR_NAME uppercased, each of .,;:'"()-/& a
-// space, DROPPED_WORDS dropped, and the words sorted. `IR. T. PERMADI
-// RACHMAT` and `T PERMADI RACHMAT` are both `PERMADI RACHMAT T`.
-const holderKey = (name: string) =>
-  Effect.sync(() =>
-    name
-      .toUpperCase()
-      .replaceAll(/[.,;:'"()\-/&]/g, " ")
-      .split(/\s+/)
-      .filter((word) => word !== "" && !DROPPED_WORDS.has(word))
-      .sort()
-      .join(" ")
-  )
 
 // The column a layout reads each label from.
 type Label =
@@ -156,27 +111,16 @@ interface Found extends Layout {
 const CODE = 1
 const INVESTOR = 4
 
-const labelOf = (cell: ReadCell | undefined) =>
-  Effect.sync(() =>
-    cell instanceof CellError
-      ? cell.text
-      : typeof cell === "string"
-        ? cell.trim()
-        : cell === undefined
-          ? ""
-          : String(cell)
-  )
-
 // The layout a header row names, checked label by label; undefined for a
 // row naming no SHARE_CODE in B, which is above the header.
 const headerLayout = Effect.fnUntraced(function* (
   rowNumber: number,
   cells: ReadRow
 ) {
-  if ((yield* labelOf(cells.get(CODE))) !== "SHARE_CODE") return undefined
-  const investor = yield* labelOf(cells.get(INVESTOR))
+  if ((yield* cellText(cells.get(CODE))) !== "SHARE_CODE") return undefined
+  const investor = yield* cellText(cells.get(INVESTOR))
   const controller =
-    (yield* labelOf(cells.get(INVESTOR + 1))) === "CONTROLLER_OR_AFFILIATE"
+    (yield* cellText(cells.get(INVESTOR + 1))) === "CONTROLLER_OR_AFFILIATE"
   const layout = LAYOUTS.find(
     (each) => each.investor === investor && each.controller === controller
   )
@@ -184,18 +128,8 @@ const headerLayout = Effect.fnUntraced(function* (
     return yield* unreadable(
       `Header row ${rowNumber}'s E is neither INVESTOR_TYPE nor INVESTOR_CLASSIFICATION: ${yield* excerpt(investor)}`
     )
-  const last = Math.max(layout.labels.length - 1, ...cells.keys())
-  for (let column = 0; column <= last; column++) {
-    const label = yield* labelOf(cells.get(column))
-    const want: string = layout.labels[column] ?? ""
-    if (label === want) continue
-    const where = `Header row ${rowNumber}'s ${yield* columnLetters(column)}`
-    return yield* unreadable(
-      want === ""
-        ? `${where} isn't empty: ${yield* excerpt(label)}`
-        : `${where} isn't ${want}: ${yield* excerpt(label)}`
-    )
-  }
+  const mismatch = yield* headerMismatch(rowNumber, cells, layout.labels)
+  if (mismatch !== undefined) return yield* unreadable(mismatch)
   return {
     ...layout,
     column: new Map(layout.labels.map((label, column) => [label, column])),
@@ -437,9 +371,9 @@ const parseSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
       }
       const stock = yield* rowStock(rowNumber, cells)
       if (stock === undefined) return
-      if (rowCount === MAX_ROWS)
+      if (rowCount === MAX_HOLDING_ROWS)
         return yield* unreadable(
-          `The report lists more than ${MAX_ROWS.toLocaleString("en-US")} holders`
+          `The report lists more than ${MAX_HOLDING_ROWS.toLocaleString("en-US")} holders`
         )
       rowCount++
       const seq = (seqs.get(stock) ?? 0) + 1

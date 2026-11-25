@@ -7,6 +7,7 @@ import { TestClock } from "effect/testing"
 
 import {
   parseAbove1Now,
+  parseAbove5Now,
   parseClassificationNow,
   parseInvestorTypeNow,
   runArchiveNow,
@@ -20,6 +21,7 @@ import { ArchiveWorkflow } from "@/server/archive/workflow"
 import type { Statement } from "@/server/d1"
 import type { ParseRunResult } from "@/server/holdings/parse-run-result"
 import { Above1ParseWorkflow } from "@/server/shareholding/above-1-parse"
+import { Above5ParseWorkflow } from "@/server/shareholding/above-5-parse"
 import { ClassificationParseWorkflow } from "@/server/shareholding/classification-parse"
 import { InvestorTypeParseWorkflow } from "@/server/shareholding/investor-type-parse"
 import { recordKey, reportKey } from "@/server/shareholding/keys"
@@ -119,6 +121,7 @@ const archive = () => {
   const classificationWorkflow = fakeWorkflow()
   const investorTypeWorkflow = fakeWorkflow()
   const above1Workflow = fakeWorkflow()
+  const above5Workflow = fakeWorkflow()
   return {
     ...auth,
     bucket,
@@ -127,6 +130,7 @@ const archive = () => {
     classificationWorkflow,
     investorTypeWorkflow,
     above1Workflow,
+    above5Workflow,
     // The report index gains what the bucket holds, as the next archive
     // run's `plan` would index it.
     indexed: Effect.gen(function* () {
@@ -150,6 +154,9 @@ const archive = () => {
       ).pipe(Layer.provide(investorTypeWorkflow.layer)),
       Layer.effect(Above1ParseWorkflow, Effect.service(ArchiveWorkflow)).pipe(
         Layer.provide(above1Workflow.layer)
+      ),
+      Layer.effect(Above5ParseWorkflow, Effect.service(ArchiveWorkflow)).pipe(
+        Layer.provide(above5Workflow.layer)
       )
     ),
   }
@@ -189,6 +196,7 @@ describe("the shareholding archive page", () => {
       classificationWorkflow,
       investorTypeWorkflow,
       above1Workflow,
+      above5Workflow,
     } = archive()
     return Effect.gen(function* () {
       const cookie = yield* verified(mails)("ayu@example.com", "Ayu")
@@ -208,6 +216,9 @@ describe("the shareholding archive page", () => {
       const parseAbove1 = yield* Effect.flip(parseAbove1Now(headers(cookie)))
       assert.strictEqual(parseAbove1._tag, "NotFound")
       assert.deepStrictEqual(createdIds(above1Workflow), [])
+      const parseAbove5 = yield* Effect.flip(parseAbove5Now(headers(cookie)))
+      assert.strictEqual(parseAbove5._tag, "NotFound")
+      assert.deepStrictEqual(createdIds(above5Workflow), [])
     }).pipe(Effect.provide(layer))
   })
 
@@ -222,6 +233,7 @@ describe("the shareholding archive page", () => {
       assert.isUndefined(page.lastClassificationParseRun)
       assert.isUndefined(page.lastInvestorTypeParseRun)
       assert.isUndefined(page.lastAbove1ParseRun)
+      assert.isUndefined(page.lastAbove5ParseRun)
       // 21:00 WIB, an hour after the evening archive run.
       assert.strictEqual(page.nextParseRun, "2026-11-14T14:00:00.000Z")
       assert.deepStrictEqual(page.recentRuns, [])
@@ -337,7 +349,7 @@ describe("the shareholding archive page", () => {
     }
   )
 
-  it.effect("shows each parsed kind's months' parse coverage", () => {
+  it.effect("shows each parsed kind's months' or days' parse coverage", () => {
     const { layer, mails, bucket, indexed } = archive()
     const store = (kind: ReportKind, date: string) =>
       storeReport(bucket, kind, date, "a".repeat(64), "xlsx")
@@ -362,8 +374,9 @@ describe("the shareholding archive page", () => {
     return Effect.gen(function* () {
       yield* store("investor-classification", "2026-10-30")
       yield* store("investor-type", "2026-09-30")
-      // Holders above 1% have no parser: not in either parse coverage.
+      // Holders above 1% show no parse coverage on this page.
       yield* store("above-1", "2026-08-31")
+      yield* store("above-5", "2026-11-13")
       yield* indexed
       yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
       const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
@@ -376,6 +389,24 @@ describe("the shareholding archive page", () => {
         page.investorTypeParseCoverage,
         only(9, "2026-09-30")
       )
+      // A daily kind's: November's row, its 13th the archived day.
+      assert.deepStrictEqual(page.above5ParseCoverage, [
+        {
+          month: "2026-11",
+          days: Array.from({ length: 13 }, (_, i) =>
+            i === 12
+              ? {
+                  date: "2026-11-13",
+                  state: "not-parsed" as const,
+                  newestSha256: "a".repeat(64),
+                  parsed: null,
+                  staleCauses: [],
+                  failure: null,
+                }
+              : null
+          ),
+        },
+      ])
     }).pipe(Effect.provide(layer))
   })
 })
@@ -405,15 +436,18 @@ describe("the shareholding archive page's ArchiveDb reads", () => {
         classificationWorkflow,
         investorTypeWorkflow,
         above1Workflow,
+        above5Workflow,
       } = archive()
       const classification = finishedParse("2026-10-31")
       const investorType = finishedParse("2026-09-30")
       const above1 = finishedParse("2026-08-31")
+      const above5 = finishedParse("2026-11-20")
       seedLatest(db, RUNNING)
       for (const [kind, run] of [
         ["investor-classification", classification],
         ["investor-type", investorType],
         ["above-1", above1],
+        ["above-5", above5],
       ] as const)
         seedRun(db, shareholdingParse(kind), run, { latest: true })
       return Effect.gen(function* () {
@@ -443,6 +477,7 @@ describe("the shareholding archive page's ArchiveDb reads", () => {
           classificationWorkflow,
           investorTypeWorkflow,
           above1Workflow,
+          above5Workflow,
         ])
           assert.deepStrictEqual(parse.statusReads, [])
         assert.strictEqual(page.lastRun?.result.id, RUNNING.id)
@@ -459,6 +494,7 @@ describe("the shareholding archive page's ArchiveDb reads", () => {
           investorType
         )
         assert.deepStrictEqual(page.lastAbove1ParseRun?.result, above1)
+        assert.deepStrictEqual(page.lastAbove5ParseRun?.result, above5)
         assert.strictEqual(page.totals.reports, 2)
         assert.deepInclude(page.classificationParseCoverage[0]?.months[9], {
           state: "failed",
@@ -494,8 +530,10 @@ describe("the shareholding archive page's ArchiveDb reads", () => {
           "lastClassificationParseRun",
           "lastInvestorTypeParseRun",
           "lastAbove1ParseRun",
+          "lastAbove5ParseRun",
           "classificationParseCoverage",
           "investorTypeParseCoverage",
+          "above5ParseCoverage",
           "reads",
         ]
       )
@@ -868,6 +906,51 @@ describe("Parse now on the above-1% parse run", () => {
           id: "admin-1763125033000",
         })
         assert.deepStrictEqual(createdIds(investorTypeWorkflow), [
+          "admin-1763125033000",
+        ])
+      }).pipe(Effect.provide(layer))
+    }
+  )
+})
+
+describe("Parse now on the above-5% parse run", () => {
+  it.effect(
+    "starts an above-5% parse run, then refuses while it runs, apart from the above-1% parse run",
+    () => {
+      const { layer, mails, above1Workflow, above5Workflow } = archive()
+      return Effect.gen(function* () {
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        yield* TestClock.setTime(1_763_125_032_000)
+        assert.deepStrictEqual(yield* parseAbove5Now(headers(cookie)), {
+          id: "admin-1763125032000",
+        })
+        assert.deepStrictEqual(
+          above5Workflow.instances.get("admin-1763125032000")?.options.params,
+          { trigger: "admin" }
+        )
+        const page = yield* shareholdingArchivePage(headers(cookie))
+        assert.isTrue(page.lastAbove5ParseRun?.inProgress)
+        assert.deepInclude(page.lastAbove5ParseRun?.result, {
+          trigger: "admin",
+          outcome: "running",
+          monthsParsed: 0,
+          parseFailures: [],
+        })
+        assert.isUndefined(page.lastAbove1ParseRun)
+
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(
+          yield* Effect.flip(parseAbove5Now(headers(cookie))),
+          new Conflict({ message: "A parse run is in progress." })
+        )
+        assert.deepStrictEqual(createdIds(above5Workflow), [
+          "admin-1763125032000",
+        ])
+        // An above-1% parse run starts while it runs.
+        assert.deepStrictEqual(yield* parseAbove1Now(headers(cookie)), {
+          id: "admin-1763125033000",
+        })
+        assert.deepStrictEqual(createdIds(above1Workflow), [
           "admin-1763125033000",
         ])
       }).pipe(Effect.provide(layer))

@@ -81,8 +81,11 @@ const investorTypeParseCard = (page: Page) =>
 const above1ParseCard = (page: Page) =>
   page.getByRole("region", { name: /Last above-1% parse run/ })
 
-// A month's mark in one parsed kind's grid on the Parse coverage card, by
-// its name: the month, then the mark's label.
+const above5ParseCard = (page: Page) =>
+  page.getByRole("region", { name: /Last above-5% parse run/ })
+
+// A month's (or a daily kind's day's) mark in one parsed kind's grid on the
+// Parse coverage card, by its name: the month or day, then the mark's label.
 const parseCoverageMark = (page: Page, kind: string, name: RegExp) =>
   page
     .getByRole("region", { name: "Parse coverage", exact: true })
@@ -271,7 +274,8 @@ test.describe("an admin's archive history", () => {
 // exact before the parse runs store reports into stocks.spec.ts's HoldingsDb,
 // unserialized: classification as Dec 2025, before its months; investor-type's
 // AADI as seeded there, TRUE never opened; Parse coverage taking that seed's
-// mark (apinrdw/kumora#404, #405); above-1%'s unseeded Feb and Apr 2026.
+// mark (apinrdw/kumora#404, #405); above-1%'s unseeded Feb and Apr 2026;
+// above-5%'s 20 Nov 2026, which no other spec reads.
 test.describe.serial("an admin's archive totals and parse runs", () => {
   test.use({ storageState: ADMIN.storageState })
 
@@ -415,5 +419,42 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     await expect(
       above1ParseCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
+  })
+
+  test("Parse now parses the held above-5% reports by the day", async ({
+    page,
+  }) => {
+    // 20 Nov 2026 trimmed to BIKE, whose counts its accounts resolve without
+    // listed shares.
+    await seedReportFixture("above-5", "above-5-republished.xlsx", "2026-11-20")
+
+    await page.goto(SHAREHOLDING)
+    const card = above5ParseCard(page)
+    await expect(card).toContainText("No above-5% parse run has happened yet.")
+    await card.getByRole("button", { name: "Parse now" }).click()
+    await expect(card).toContainText(/Started admin-\d+\./)
+
+    // The run ends on its own; the page shows it once reloaded.
+    await expect(async () => {
+      await page.reload()
+      await expect(above5ParseCard(page)).toContainText("Complete", {
+        timeout: 1000,
+      })
+    }).toPass({ timeout: 30_000 })
+    await expect(stat(above5ParseCard(page), "Days parsed")).toHaveText("1")
+    await expect(stat(above5ParseCard(page), "Parse failures")).toHaveText("0")
+    await expect(
+      above5ParseCard(page).getByRole("button", { name: "Parse now" })
+    ).toBeEnabled()
+    // The day is a square in November's row; selecting it shows its detail.
+    const day = parseCoverageMark(
+      page,
+      "Holders above 5%",
+      /^20 November 2026: Parsed /
+    )
+    await day.click()
+    await expect(
+      page.getByRole("region", { name: "Holders above 5% day detail" })
+    ).toContainText(/Stocks\s*1/)
   })
 })

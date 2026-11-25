@@ -3,6 +3,7 @@
 // classes the dashboard stack binds (alchemy.run.ts).
 import { parseWorkflowOf } from "../holdings/parse-workflow.ts"
 import { above1ParseRuns } from "./above-1-parse.ts"
+import { above5ParseRuns } from "./above-5-parse.ts"
 import { archiveBucketR2 } from "./bindings.ts"
 import { classificationParseRuns } from "./classification-parse.ts"
 import { investorTypeParseRuns } from "./investor-type-parse.ts"
@@ -18,3 +19,5 @@ export const InvestorTypeParse = parseWorkflowOf(
 )
 
 export const Above1Parse = parseWorkflowOf(above1ParseRuns, archiveBucketR2)
+
+export const Above5Parse = parseWorkflowOf(above5ParseRuns, archiveBucketR2)

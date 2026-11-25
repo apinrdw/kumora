@@ -5,6 +5,7 @@ import { StockCode } from "@workspace/relay"
 import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
+import { everyMonth } from "@/lib/every-month"
 import { majorHolders as monthHolders } from "@/lib/major-holders"
 import { RunId } from "@/server/archive/run"
 import { ParseRunResult } from "@/server/holdings/parse-run-result"
@@ -13,16 +14,12 @@ import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 import { archiveRun } from "@/server/shareholding/archive-run"
 import { investorTypeParseRuns } from "@/server/shareholding/investor-type-parse"
 
+import { republishAbove1 as republish } from "./above-5-world.ts"
 import {
-  type Above1Fixture,
-  above1Fixture,
-  above1Item,
   above1Items,
   type BrokenAbove1Fixture,
   type FakeIdx,
-  type SplitAbove1Fixture,
   fakeIdx,
-  idxIdUrl,
   investorTypeItems,
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
@@ -96,19 +93,6 @@ const runParse =
     )
 
 const parse = runParse(above1ParseRuns)
-
-// IDX replaces a month's report in place with a fixture's bytes.
-const republish = (
-  { idx }: World,
-  dataDate: Above1Fixture,
-  fixture: Above1Fixture | BrokenAbove1Fixture | SplitAbove1Fixture
-) => {
-  idx.files.set(idxIdUrl(above1Item(dataDate).Prospectus), {
-    body: above1Fixture(fixture),
-    etag: `"etag-${dataDate}:${fixture}"`,
-    lastModified: "Sat, 14 Nov 2026 09:00:00 GMT",
-  })
-}
 
 // A parse run's record as the admin page reads it.
 const runRecord = (
@@ -453,7 +437,7 @@ describe("an above-1% parse run", () => {
         const changes = Object.fromEntries(
           (october?.listed ?? []).map((line) => [
             line.name,
-            [line.change, line.ppChange, line.shareChange],
+            [line.change, line.percentageChange, line.shareChange],
           ])
         )
         assert.deepInclude(changes, {
@@ -461,6 +445,83 @@ describe("an above-1% parse run", () => {
           "GARIBALDI THOHIR": ["down", -12, 1_816_046_428],
           "EDWIN SOERYADJAYA": ["up", 8, 1_095_822_544],
         })
+      })
+  )
+
+  it.effect(
+    "keeps a holder that left as Off list since the month after it left, on every later month",
+    () =>
+      Effect.gen(function* () {
+        const w = world()
+        yield* archive(w, "cron-2026-11-14T13")
+        yield* parse(w, "cron-2026-11-14")
+        const { majorHolders: months } = yield* stockPage(
+          StockCode.make("BSDE"),
+          undefined
+        ).pipe(Effect.provide(w.holdings.layer))
+        const history = Effect.fnUntraced(function* (month: string) {
+          return (yield* monthHolders(months, month))?.history.map(
+            ({ name, offListSince }) => [name, offListSince]
+          )
+        })
+        const april = [
+          ["MORNING BRIGHT INVESTMENTS LIMITED", "2026-04-30"],
+          ["EUROTRADE DEVELOPMENTS LIMITED", "2026-04-30"],
+          ["PT.  PARAGA ARTA MIDA", "2026-04-30"],
+        ]
+        // April lists them as its Off list; every later month as history.
+        assert.deepStrictEqual(yield* history("2026-04"), [])
+        assert.deepStrictEqual(yield* history("2026-08"), april)
+        assert.deepStrictEqual(yield* history("2026-10"), [
+          ["GOVERNMENT OF NORWAY", "2026-09-30"],
+          ...april,
+        ])
+      })
+  )
+
+  it.effect(
+    "keeps a holder that leaves and returns as one holder, New on its return",
+    () =>
+      Effect.gen(function* () {
+        const w = world()
+        yield* archive(w, "cron-2026-11-14T13")
+        yield* parse(w, "cron-2026-11-14")
+        const { majorHolders: months } = yield* stockPage(
+          StockCode.make("TLKM"),
+          undefined
+        ).pipe(Effect.provide(w.holdings.layer))
+        const name =
+          "PERUSAHAAN PERSEROAN (PERSERO) PT DANANTARA ASSET MANAGEMENT"
+        const named = Effect.fnUntraced(function* (month: string) {
+          const shown = yield* monthHolders(months, month)
+          return [
+            ...(shown?.listed ?? []),
+            ...(shown?.offList ?? []),
+            ...(shown?.history ?? []),
+          ].filter((line) => line.name === name)
+        })
+        const [february] = yield* named("2026-02")
+        const [april] = yield* named("2026-04")
+        const [august] = yield* named("2026-08")
+        assert.strictEqual(april?.change, "off list")
+        assert.strictEqual(august?.change, "new")
+        assert.strictEqual(august?.holder, february?.holder)
+        assert.strictEqual(april?.holder, february?.holder)
+        // Listed in September: out of its history, and one row in the grid.
+        assert.lengthOf(yield* named("2026-09"), 1)
+        const grid = yield* everyMonth(months, "2026-09-30")
+        const cells = yield* Effect.forEach(
+          grid.rows.filter((row) => row.name === name),
+          ({ holder }) => grid.cellsOf(holder)
+        )
+        assert.deepStrictEqual(
+          cells.map((row) =>
+            row.map((cell) =>
+              cell === undefined ? "not listed" : (cell.move ?? "listed")
+            )
+          ),
+          [["listed", "not listed", "return", "listed", "not listed"]]
+        )
       })
   )
 
@@ -491,6 +552,34 @@ describe("an above-1% parse run", () => {
         monthsParsed: 0,
       })
     })
+  )
+
+  it.effect(
+    "keeps what it parsed when it can't read which months' moves are stale",
+    () =>
+      Effect.gen(function* () {
+        const w = world()
+        yield* archive(w, "cron-2026-11-14T06")
+        republish(w, "2026-10-30", "empty")
+        yield* archive(w, "cron-2026-11-14T13")
+        w.holdings.failBatch = (sql) =>
+          sql.some((statement) =>
+            statement.includes(
+              "SELECT data_date, basis FROM above_1_move_month"
+            )
+          )
+        const failure = yield* Effect.flip(parse(w, "cron-2026-11-14"))
+        assert.strictEqual(failure._tag, "StepFailed")
+        const record = runRecord(w, "above-1", "cron-2026-11-14")
+        assert.deepInclude(record, {
+          outcome: "failed",
+          error: failure.message,
+          monthsParsed: 4,
+        })
+        assert.deepStrictEqual(record.parseFailures, [
+          { date: "2026-10-30", message: "The report has no holders" },
+        ])
+      })
   )
 })
 

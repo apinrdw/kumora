@@ -1,12 +1,13 @@
 // What a parse cron firing starts: a classification parse run, an
-// investor-type parse run and an above-1% parse run, each apart from the
-// others.
+// investor-type parse run, an above-1% parse run and an above-5% parse run,
+// each apart from the others.
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
 import { ArchiveWorkflow } from "@/server/archive/workflow"
 import { Above1ParseWorkflow } from "@/server/shareholding/above-1-parse"
+import { Above5ParseWorkflow } from "@/server/shareholding/above-5-parse"
 import { ClassificationParseWorkflow } from "@/server/shareholding/classification-parse"
 import { InvestorTypeParseWorkflow } from "@/server/shareholding/investor-type-parse"
 import { scheduledParseRuns } from "@/server/shareholding/parse-runs"
@@ -20,11 +21,13 @@ const parseCron = () => {
   const classification = fakeWorkflow()
   const investorType = fakeWorkflow()
   const above1 = fakeWorkflow()
+  const above5 = fakeWorkflow()
   return {
     bucket,
     classification,
     investorType,
     above1,
+    above5,
     // One ArchiveDb holds every kind's runs, as on a stage.
     layer: Layer.mergeAll(
       bucket.layer,
@@ -39,6 +42,9 @@ const parseCron = () => {
       ).pipe(Layer.provide(investorType.layer)),
       Layer.effect(Above1ParseWorkflow, Effect.service(ArchiveWorkflow)).pipe(
         Layer.provide(above1.layer)
+      ),
+      Layer.effect(Above5ParseWorkflow, Effect.service(ArchiveWorkflow)).pipe(
+        Layer.provide(above5.layer)
       )
     ),
   }
@@ -49,11 +55,11 @@ const firing = Date.parse("2026-11-14T14:00:00Z")
 
 describe("the parse cron", () => {
   it.effect("starts a parse run of each kind, named by its date", () => {
-    const { layer, classification, investorType, above1 } = parseCron()
+    const { layer, classification, investorType, above1, above5 } = parseCron()
     return Effect.gen(function* () {
       yield* TestClock.setTime(firing)
       yield* scheduledParseRuns(firing)
-      for (const kind of [classification, investorType, above1])
+      for (const kind of [classification, investorType, above1, above5])
         assert.deepStrictEqual([...kind.instances.keys()], ["cron-2026-11-14"])
     }).pipe(Effect.provide(layer))
   })
@@ -105,15 +111,35 @@ describe("the parse cron", () => {
   )
 
   it.effect(
-    "starts the other two parse runs when the above-1% one can't start",
+    "starts the other three parse runs when the above-1% one can't start",
     () => {
-      const { layer, classification, investorType, above1 } = parseCron()
+      const { layer, classification, investorType, above1, above5 } =
+        parseCron()
       above1.refuseCreate = true
       return Effect.gen(function* () {
         yield* TestClock.setTime(firing)
         const failure = yield* Effect.flip(scheduledParseRuns(firing))
         assert.strictEqual(failure._tag, "WorkflowError")
-        for (const kind of [classification, investorType])
+        for (const kind of [classification, investorType, above5])
+          assert.deepStrictEqual(
+            [...kind.instances.keys()],
+            ["cron-2026-11-14"]
+          )
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect(
+    "starts the other three parse runs when the above-5% one can't start",
+    () => {
+      const { layer, classification, investorType, above1, above5 } =
+        parseCron()
+      above5.refuseCreate = true
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(firing)
+        const failure = yield* Effect.flip(scheduledParseRuns(firing))
+        assert.strictEqual(failure._tag, "WorkflowError")
+        for (const kind of [classification, investorType, above1])
           assert.deepStrictEqual(
             [...kind.instances.keys()],
             ["cron-2026-11-14"]

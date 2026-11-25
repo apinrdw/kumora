@@ -14,6 +14,7 @@ import { SectorsCard } from "@/components/admin/shareholding/sectors-card"
 import { sectorTableFn } from "@/server/admin/sectors.functions"
 import {
   parseAbove1NowFn,
+  parseAbove5NowFn,
   parseClassificationNowFn,
   parseInvestorTypeNowFn,
   shareholdingArchiveFn,
@@ -49,9 +50,11 @@ function ShareholdingPage() {
       lastClassificationParseRun,
       lastInvestorTypeParseRun,
       lastAbove1ParseRun,
+      lastAbove5ParseRun,
       nextParseRun,
       classificationParseCoverage,
       investorTypeParseCoverage,
+      above5ParseCoverage,
       ...lastRun
     },
     sectors,
@@ -67,7 +70,7 @@ function ShareholdingPage() {
         </h1>
         <p className="text-secondary-text max-w-[70ch]">
           IDX's shareholding reports: the runs that store and parse them, which
-          months each kind holds, and the sector table.
+          months or days each kind holds, and the sector table.
         </p>
       </header>
       <ArchiveLedger
@@ -105,21 +108,42 @@ function ShareholdingPage() {
           now={lastRun.now}
           frame="row"
         />
+        <ParseRunCard
+          title="Last above-5% parse run"
+          emptyMessage="No above-5% parse run has happened yet."
+          lastParseRun={lastAbove5ParseRun}
+          parseNow={parseAbove5NowFn}
+          times={PARSE_TIMES_WIB}
+          nextParseRun={nextParseRun}
+          now={lastRun.now}
+          frame="row"
+          unit="day"
+        />
         <SectorsCard {...sectors} />
       </ArchiveLedger>
       <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-2">
-        <ParseCoverageCard
-          grids={[
-            {
-              title: KIND_LABEL["investor-classification"],
-              parseCoverage: classificationParseCoverage,
-            },
-            {
-              title: KIND_LABEL["investor-type"],
-              parseCoverage: investorTypeParseCoverage,
-            },
-          ]}
-        />
+        {/* The whole row: the above-5% grid's 31 days need its width. */}
+        <div className="min-w-0 xl:col-span-2">
+          <ParseCoverageCard
+            grids={[
+              {
+                title: KIND_LABEL["investor-classification"],
+                layout: "month",
+                parseCoverage: classificationParseCoverage,
+              },
+              {
+                title: KIND_LABEL["investor-type"],
+                layout: "month",
+                parseCoverage: investorTypeParseCoverage,
+              },
+              {
+                title: KIND_LABEL["above-5"],
+                layout: "day",
+                parseCoverage: above5ParseCoverage,
+              },
+            ]}
+          />
+        </div>
         <ArchiveTotalsCard totals={totals} />
       </div>
       <RecentRunsCard runs={recentRuns} />
