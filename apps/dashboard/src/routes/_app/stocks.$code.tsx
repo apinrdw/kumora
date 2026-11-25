@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
+import { WibDate } from "@workspace/relay"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
@@ -7,6 +8,7 @@ import { useCallback, useEffect, useMemo } from "react"
 
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
 import { BrokerInventory } from "@/components/stocks/broker-inventory"
+import { DailyHolders } from "@/components/stocks/daily-holders"
 import { HolderSize } from "@/components/stocks/holder-size"
 import { HoldingComposition } from "@/components/stocks/holding-composition"
 import { MajorHolders } from "@/components/stocks/major-holders"
@@ -241,7 +243,8 @@ function Holdings({
     page.composition !== undefined ||
     page.inKsei ||
     newestSize !== undefined ||
-    page.majorHolders.some(({ holders }) => holders.length > 0)
+    page.majorHolders.some(({ holders }) => holders.length > 0) ||
+    page.dailyHolders.some(({ holders }) => holders.length > 0)
   return (
     <>
       {page.composition === undefined ? (
@@ -286,6 +289,7 @@ function Holdings({
         />
       )}
       {known && <StockMajorHolders page={page} setSearch={setSearch} />}
+      {known && <StockDailyHolders page={page} setSearch={setSearch} />}
     </>
   )
 }
@@ -310,6 +314,30 @@ function StockMajorHolders({
       onMonth={(dataDate) =>
         setSearch({
           holdersMonth: dataDate === newest ? undefined : dataDate.slice(0, 7),
+        })
+      }
+    />
+  )
+}
+
+// Daily holders with its day param, left out for the newest parsed day.
+function StockDailyHolders({
+  page,
+  setSearch,
+}: {
+  page: StockPage
+  setSearch: (change: StockSearch) => void
+}) {
+  const { holdersDay } = Route.useSearch()
+  const newest = page.dailyHolders.at(-1)?.dataDate
+  return (
+    <DailyHolders
+      code={page.code}
+      days={page.dailyHolders}
+      day={holdersDay}
+      onDay={(dataDate) =>
+        setSearch({
+          holdersDay: dataDate === newest ? undefined : WibDate.make(dataDate),
         })
       }
     />

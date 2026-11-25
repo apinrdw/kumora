@@ -26,6 +26,12 @@ const MONTHS = [
 export const monthLabel = (date: string) =>
   Effect.succeed(`${MONTHS[Number(date.slice(5, 7)) - 1]} ${date.slice(0, 4)}`)
 
+/** `2026-11-20` → `20 Nov 2026` */
+export const dayDateLabel = (date: string) =>
+  Effect.succeed(
+    `${Number(date.slice(8, 10))} ${MONTHS[Number(date.slice(5, 7)) - 1]} ${date.slice(0, 4)}`
+  )
+
 /** `2026-10` → `Oct 26` */
 export const shortMonth = (month: string) =>
   Effect.map(

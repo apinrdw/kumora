@@ -32,6 +32,20 @@ describe("Major holders' month in the URL", () => {
   )
 })
 
+describe("Daily holders' day in the URL", () => {
+  it.effect("keeps a `YYYY-MM-DD` and drops anything else", () =>
+    Effect.gen(function* () {
+      expect(
+        (yield* parseStockSearch({ holdersDay: "2026-11-19" })).holdersDay
+      ).toBe("2026-11-19")
+      for (const holdersDay of ["2026-11", "2026-11-31", "19 Nov", 20261119])
+        expect(
+          (yield* parseStockSearch({ holdersDay })).holdersDay
+        ).toBeUndefined()
+    })
+  )
+})
+
 describe("the stock page's Broker inventory search params", () => {
   it.effect("keeps the tab, a preset and a Custom range", () =>
     Effect.gen(function* () {
@@ -148,6 +162,7 @@ describe("the Broker inventory range in the URL", () => {
             month: "2026-09",
             sizeMonth: "2026-09",
             holdersMonth: "2026-09",
+            holdersDay: "2026-11-19",
             panel: "foreign",
           })
         )

@@ -2,7 +2,8 @@
 // params"): the Shareholders composition panel's month and origin, the
 // Holding composition chart's origin and view, the Holder size panel's
 // month, origin, denominator and view (spec apinrdw/kumora#402), the Major
-// holders panel's month (spec apinrdw/kumora#479), and the open tab and the
+// holders panel's month (spec apinrdw/kumora#479), the Daily holders panel's
+// day (apinrdw/kumora#677), and the open tab and the
 // Broker inventory tab's range, measure, investor filter, chips and drag
 // selection (spec apinrdw/kumora#437, "Dashboard: the stock page"). Each is
 // left out at its default, so a plain link stays short.
@@ -71,6 +72,8 @@ export interface StockSearch {
   readonly sizeView?: typeof ChartView.Type | undefined
   // Major holders' month.
   readonly holdersMonth?: string | undefined
+  // Daily holders' trading day; absent for the stock's newest.
+  readonly holdersDay?: WibDate | undefined
   readonly tab?: typeof Tab.Type | undefined
   readonly range?: typeof RangeParam.Type | undefined
   // A Custom range, both or neither, which replaces `range`.
@@ -179,6 +182,9 @@ export const parseStockSearch = (
       ),
       holdersMonth: Option.getOrUndefined(
         Schema.decodeUnknownOption(Month)(raw.holdersMonth)
+      ),
+      holdersDay: Option.getOrUndefined(
+        Schema.decodeUnknownOption(WibDate)(raw.holdersDay)
       ),
       tab: Option.getOrUndefined(Schema.decodeUnknownOption(Tab)(raw.tab)),
       range:

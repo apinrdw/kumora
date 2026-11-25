@@ -64,7 +64,7 @@ export interface DailyHolderLine {
   readonly accounts: ReadonlyArray<AccountLine>
 }
 
-interface HoldersDay {
+export interface HoldersDay {
   readonly dataDate: string
   // The trading day the moves are against; undefined on the stock's first
   // parsed day.

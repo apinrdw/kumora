@@ -255,6 +255,88 @@ export function seedAbove1Months(months: SeededAbove1Months) {
   })
 }
 
+/** One account of an above-5% block, as the above-5% parse stores it. */
+export interface SeededAbove5Account {
+  readonly custodian: string
+  readonly name: string
+  readonly origin: "local" | "foreign"
+  readonly domicile: string
+  readonly scripless: number
+}
+
+/**
+ * One block of a daily above-5% report: `holderKey` is the key
+ * src/server/holdings/holder-key.ts builds from `name`, `hundredths` the
+ * published % × 100.
+ */
+export interface SeededAbove5Holder {
+  readonly name: string
+  readonly holderKey: string
+  readonly hundredths: number
+  readonly accounts: ReadonlyArray<SeededAbove5Account>
+}
+
+/** Above-5% days by data date, then by stock code, blocks in file order. */
+export type SeededAbove5Days = Readonly<
+  Record<
+    string,
+    Readonly<
+      Record<
+        string,
+        {
+          readonly issuer: string
+          readonly holders: ReadonlyArray<SeededAbove5Holder>
+        }
+      >
+    >
+  >
+>
+
+/** Replaces every parsed above-5% day with `days`. */
+export function seedAbove5Days(days: SeededAbove5Days) {
+  replaceTables(["above_5_account", "above_5_holder", "above_5_day"], (db) => {
+    const record = db.prepare(
+      "INSERT INTO above_5_day VALUES (?, ?, 1, '2026-11-25T14:00:00.000Z')"
+    )
+    const holder = db.prepare(
+      "INSERT INTO above_5_holder VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    const account = db.prepare(
+      "INSERT INTO above_5_account VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)"
+    )
+    for (const [dataDate, stocks] of Object.entries(days)) {
+      record.run(dataDate, `sha-${dataDate}`)
+      let no = 0
+      for (const [code, { issuer, holders }] of Object.entries(stocks))
+        for (const each of holders) {
+          no += 1
+          holder.run(
+            dataDate,
+            code,
+            no,
+            issuer,
+            each.name,
+            each.holderKey,
+            each.accounts.reduce((held, { scripless }) => held + scripless, 0),
+            each.hundredths
+          )
+          for (const [index, held] of each.accounts.entries())
+            account.run(
+              dataDate,
+              code,
+              no,
+              index + 1,
+              held.custodian,
+              held.name,
+              held.origin,
+              held.domicile,
+              held.scripless
+            )
+        }
+    }
+  })
+}
+
 /** A stock's KSEI period end: shares by investor type, in each origin. */
 export interface SeededKseiStockMonth {
   readonly listedShares: number
