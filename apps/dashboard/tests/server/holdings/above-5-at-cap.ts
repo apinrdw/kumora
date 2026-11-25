@@ -61,6 +61,59 @@ export const seedAbove5AtCap = (
   database.exec("COMMIT")
 }
 
+// `dates`' days of the stock `code`, each with `holders` holders no other
+// day has, each of `accounts` accounts: every day's holders are New and the
+// day before's Off list, and every holder before those is an earlier one, so
+// the stock has the most earlier holders its days can.
+export const seedAbove5Churn = (
+  { database }: Pick<MemoryD1, "database">,
+  dates: ReadonlyArray<string>,
+  code: string,
+  holders: number,
+  accounts: number
+) => {
+  const day = database.prepare(
+    "INSERT INTO above_5_day VALUES (?, 'sha', 1, '2026-11-25T00:00:00Z')"
+  )
+  const holder = database.prepare(
+    "INSERT INTO above_5_holder VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  )
+  const account = database.prepare(
+    "INSERT INTO above_5_account VALUES (?, ?, ?, ?, ?, ?, 'foreign', ?, ?, ?)"
+  )
+  database.exec("BEGIN")
+  dates.forEach((date, at) => {
+    day.run(date)
+    for (let no = 1; no <= holders; no++) {
+      const name = `HOLDER ${at} ${no}`
+      const shares = 1_000_000 + at * 1_000 + no
+      holder.run(
+        date,
+        code,
+        no,
+        padded(`ISSUER ${code}`, 128),
+        padded(name, 256),
+        padded(name, 128),
+        shares * accounts,
+        500 + no
+      )
+      for (let ordinal = 1; ordinal <= accounts; ordinal++)
+        account.run(
+          date,
+          code,
+          no,
+          ordinal,
+          padded(`CUSTODIAN ${no} ${ordinal}`, 128),
+          padded(`${name} ${ordinal}`, 256),
+          padded("NATIONALITY", 128),
+          padded("DOMICILE", 128),
+          shares
+        )
+    }
+  })
+  database.exec("COMMIT")
+}
+
 // `count` trading days' dates from 2026-01-01, one a calendar day.
 export const datesOf = (count: number) =>
   Array.from({ length: count }, (_, index) =>

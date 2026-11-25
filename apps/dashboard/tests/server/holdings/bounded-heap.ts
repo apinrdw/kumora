@@ -26,3 +26,16 @@ export const parseInBoundedHeap = (report: Report, bytes: Uint8Array) =>
     worker.once("error", (error) => resume(Effect.fail(error)))
     return Effect.promise(() => worker.terminate())
   })
+
+// What the worker thread `worker` posts when handed `data`, its heap stopped
+// at `mib`. Work past it fails with the worker's out-of-memory error.
+export const inBoundedHeap = (worker: URL, data: unknown, mib: number) =>
+  Effect.callback<string, Error>((resume) => {
+    const thread = new Worker(worker, {
+      workerData: data,
+      resourceLimits: { maxOldGenerationSizeMb: mib },
+    })
+    thread.once("message", (message: string) => resume(Effect.succeed(message)))
+    thread.once("error", (error) => resume(Effect.fail(error)))
+    return Effect.promise(() => thread.terminate())
+  })

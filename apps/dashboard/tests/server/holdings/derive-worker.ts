@@ -15,6 +15,7 @@ import { HoldingsDb } from "../../../src/server/holdings/db.ts"
 import { memoryD1 } from "../memory-d1.ts"
 import { seedAbove1AtCap } from "./above-1-at-cap.ts"
 import { renameEveryOtherDay, seedAbove5AtCap } from "./above-5-at-cap.ts"
+import { workerHoldingsDb } from "./worker-holdings-db.ts"
 
 const { kind, migrations, dates, stocks, holders } = workerData as {
   readonly kind: "daily" | "monthly"
@@ -47,18 +48,6 @@ Effect.runFork(
     Effect.tap((message) =>
       Effect.sync(() => parentPort?.postMessage(message))
     ),
-    Effect.provideService(HoldingsDb, {
-      // The memory D1 keeps every statement it ran; D1 doesn't.
-      batch: (statements) =>
-        db.batch(statements).pipe(
-          Effect.map(({ rows }) => rows),
-          Effect.tap(() =>
-            Effect.sync(() => {
-              db.statements.length = 0
-            })
-          ),
-          Effect.orDie
-        ),
-    })
+    Effect.provideService(HoldingsDb, workerHoldingsDb(db))
   )
 )
