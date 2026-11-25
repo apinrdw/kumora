@@ -219,9 +219,21 @@ export type SeededAbove1Months = Readonly<
   >
 >
 
-/** Replaces every parsed above-1% month with `months`. */
+const ABOVE_1_TABLES = [
+  "above_1_holding",
+  "above_1_month",
+  "above_1_move",
+  "above_1_move_pending",
+  "above_1_move_month",
+]
+
+/**
+ * Replaces every parsed above-1% month with `months`, and drops Holder
+ * moves' lines derived from the months before, which the next above-1%
+ * parse run derives again.
+ */
 export function seedAbove1Months(months: SeededAbove1Months) {
-  replaceTables(["above_1_holding", "above_1_month"], (db) => {
+  replaceTables(ABOVE_1_TABLES, (db) => {
     const record = db.prepare(
       "INSERT INTO above_1_month VALUES (?, ?, 1, '2026-11-14T14:00:00.000Z')"
     )
