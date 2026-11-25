@@ -4,8 +4,9 @@
 // basis changed, so the Holder moves page reads one month's lines
 // (holder-moves.ts). A month's lines are each moving stock's Major holders
 // chips that moved in it (lib/major-holders.ts), the same view model the
-// stock page runs, from the stock's months its Trend needs. Spec
-// apinrdw/kumora#673, "Holder moves"; apinrdw/kumora#680.
+// stock page runs, from the stock's months the page reads up to it
+// (holders-window.ts). Spec apinrdw/kumora#673, "Holder moves";
+// apinrdw/kumora#680.
 //
 // Decision: Holder moves are derived at parse time
 // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
@@ -15,7 +16,6 @@ import { Effect, Schema } from "effect"
 import { type HolderLine, majorHolders } from "@/lib/major-holders"
 
 import { decodeRows } from "../d1.ts"
-import { MAX_HOLDING_ROWS } from "./above-1.ts"
 import { HoldingsDb } from "./db.ts"
 import {
   byStock,
@@ -26,14 +26,10 @@ import {
   type StockMoveLine,
   WANT,
 } from "./derived-moves.ts"
+import { MONTHLY_WINDOW } from "./holders-window.ts"
 import { above1Months, Above1HoldingRow } from "./stock-page.ts"
 
-// The most rows a stock's read, or a read of stocks, holds: a stock's month
-// and the month before at the parse's cap, each with its own row. A stock
-// read with fewer months than its Trend's has its oldest bars blank.
-const MONTHLY_MOVES_ROWS = 2 * (MAX_HOLDING_ROWS + 1)
-
-// The stocks whose holders may have moved in ?2 against ?3. A stock-month
+// The stocks whose holders may have moved in ?1 against ?2. A stock-month
 // is marked by its holders by holder key and summed %, Major holders'
 // change rule. It may have moved only with rows in both months: otherwise
 // each is unchanged, or the month before is a gap.
@@ -42,14 +38,14 @@ const MOVED = `
     SELECT data_date, stock_code, holder_key,
       SUM(percentage_hundredths) AS hundredths
     FROM above_1_holding
-    WHERE data_date IN (?2, ?3)
+    WHERE data_date IN (?1, ?2)
     GROUP BY data_date, stock_code, holder_key
   ),
   now_mark AS (
-    SELECT stock_code, holder_key, hundredths FROM mark WHERE data_date = ?2
+    SELECT stock_code, holder_key, hundredths FROM mark WHERE data_date = ?1
   ),
   prev_mark AS (
-    SELECT stock_code, holder_key, hundredths FROM mark WHERE data_date = ?3
+    SELECT stock_code, holder_key, hundredths FROM mark WHERE data_date = ?2
   ),
   moved AS (
     SELECT stock_code
@@ -59,12 +55,6 @@ const MOVED = `
     FROM (SELECT * FROM prev_mark EXCEPT SELECT * FROM now_mark)
     INTERSECT SELECT stock_code FROM now_mark
     INTERSECT SELECT stock_code FROM prev_mark
-  )`
-
-// A stock-month's rows: its own and its holdings'.
-const COST = `1 + (
-    SELECT COUNT(*) FROM above_1_holding h
-    WHERE h.stock_code = m.stock_code AND h.data_date = d.value
   )`
 
 // Only what a moved line reads (moveLine): a holder's key, name, shares
@@ -164,15 +154,13 @@ const monthlyLines = Effect.fnUntraced(function* (
 })
 
 const MONTHLY: MovesSource<StockRows> = {
-  // Bumped whenever deriving changes what it stores, the trend's run or
-  // MONTHLY_MOVES_ROWS included: the run then derives every month again.
+  // Bumped whenever deriving changes what it stores: the run then derives
+  // every month again.
   version: 1,
-  parsed: "above_1_month",
+  window: MONTHLY_WINDOW,
   lines: "above_1_move",
   derived: "above_1_move_month",
-  budget: MONTHLY_MOVES_ROWS,
   moved: MOVED,
-  cost: COST,
   read: readStocks,
   linesOf: monthlyLines,
 }

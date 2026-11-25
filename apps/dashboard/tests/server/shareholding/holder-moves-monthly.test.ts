@@ -238,33 +238,31 @@ describe("Holder moves, Monthly, as the above-1% parse run derives them", () => 
     })
   )
 
-  it.effect(
-    "derives a month parsed late, and again the months after it whose Trend reads it",
-    () =>
-      Effect.gen(function* () {
-        const w = world({ withAbove1: true })
-        const late = above1Item("2026-04-30")
-        const listing = w.idx.listing
-        w.idx.listing = listing.filter((item) => item !== late)
-        yield* archive(w, "cron-2026-11-25T13")
-        yield* parseAbove1(w, "cron-2026-11-25")
-        const before = yield* movesOf(w, "2026-08")
-        assert.strictEqual(before.against, "2026-02-27")
+  it.effect("derives a month parsed late, and again every month after it", () =>
+    Effect.gen(function* () {
+      const w = world({ withAbove1: true })
+      const late = above1Item("2026-04-30")
+      const listing = w.idx.listing
+      w.idx.listing = listing.filter((item) => item !== late)
+      yield* archive(w, "cron-2026-11-25T13")
+      yield* parseAbove1(w, "cron-2026-11-25")
+      const before = yield* movesOf(w, "2026-08")
+      assert.strictEqual(before.against, "2026-02-27")
 
-        w.idx.listing = listing
-        yield* archive(w, "cron-2026-11-26T13")
-        const result = yield* parseAbove1(w, "cron-2026-11-26")
-        assert.deepInclude(result, { outcome: "complete", monthsParsed: 1 })
-        const after = yield* movesOf(w, "2026-08")
-        assert.strictEqual(after.against, "2026-04-30")
-        assert.deepStrictEqual(
-          after.lines
-            .filter(({ code, name }) => code === "TLKM" && name === DANANTARA)
-            .map(({ move, trend }) => [move, trend]),
-          [["new", [null, "out", "in"]]]
-        )
-        for (const month of MONTHS.slice(1)) yield* assertMajorHolders(w, month)
-      })
+      w.idx.listing = listing
+      yield* archive(w, "cron-2026-11-26T13")
+      const result = yield* parseAbove1(w, "cron-2026-11-26")
+      assert.deepInclude(result, { outcome: "complete", monthsParsed: 1 })
+      const after = yield* movesOf(w, "2026-08")
+      assert.strictEqual(after.against, "2026-04-30")
+      assert.deepStrictEqual(
+        after.lines
+          .filter(({ code, name }) => code === "TLKM" && name === DANANTARA)
+          .map(({ move, trend }) => [move, trend]),
+        [["new", [null, "out", "in"]]]
+      )
+      for (const month of MONTHS.slice(1)) yield* assertMajorHolders(w, month)
+    })
   )
 
   it.effect("derives a month parsed again from its new version", () =>

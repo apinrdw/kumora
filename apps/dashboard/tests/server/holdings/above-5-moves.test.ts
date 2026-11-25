@@ -1,12 +1,12 @@
-// Holder moves' Daily derivation against the stock page's Daily holders,
-// over days written straight into a memory HoldingsDb: a holder's history
-// from before its Trend's days.
+// Holder moves' Daily derivation over days written straight into a memory
+// HoldingsDb: a holder's history from before its Trend's days, against the
+// stock page's Daily holders, and the days a parsed day makes stale.
 import { assert, describe, it } from "@effect/vitest"
 import { StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { dailyHolders } from "@/lib/daily-holders"
-import { deriveMoveDay } from "@/server/holdings/above-5-moves"
+import { deriveMoveDay, staleMoveDays } from "@/server/holdings/above-5-moves"
 import { holderMovesRead } from "@/server/holdings/holder-moves"
 import { stockPage } from "@/server/holdings/stock-page"
 
@@ -91,5 +91,27 @@ describe("Holder moves' Daily derivation", () => {
         ])
         assert.deepStrictEqual(trends.moves, trends.panel)
       })
+  )
+
+  it.effect("derives again every day after one parsed again", () =>
+    Effect.gen(function* () {
+      const db = memoryHoldingsDb()
+      const dates = datesOf(24)
+      seed(db, dates, () => ["ALPHA", 1_000])
+      const stale = yield* Effect.gen(function* () {
+        for (const day of yield* staleMoveDays()) yield* deriveMoveDay(day)
+        const derived = yield* staleMoveDays()
+        db.database
+          .prepare(
+            "UPDATE above_5_day SET sha256 = 'again' WHERE data_date = ?"
+          )
+          .run(dates[1] ?? "")
+        return { derived, again: yield* staleMoveDays() }
+      }).pipe(Effect.provide(db.layer))
+      assert.deepStrictEqual(stale, {
+        derived: [],
+        again: dates.slice(1).map((date) => WibDate.make(date)),
+      })
+    })
   )
 })

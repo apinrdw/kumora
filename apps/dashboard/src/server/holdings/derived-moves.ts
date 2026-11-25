@@ -4,23 +4,20 @@
 // The run derives each period whose basis changed, so the Holder moves page
 // reads one period's lines (holder-moves.ts). A period's lines are each
 // moving stock's movers in it by the kind's panel, from the stock's periods
-// its Trend needs. Spec apinrdw/kumora#673, "Holder moves".
+// the panel reads up to it (holders-window.ts). Spec apinrdw/kumora#673,
+// "Holder moves".
 //
 // Decision: Holder moves are derived at parse time
 // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
 import { StockCode, WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
-import { TREND_PERIODS } from "@/domain/holdings"
-
+import { sha256Hex } from "../archive/hash.ts"
 import { decodeRows } from "../d1.ts"
 import { HoldingsDb, type HoldingsDbError } from "./db.ts"
 import type { DerivedMoveLine } from "./holder-moves.ts"
+import { type HoldersWindow, readFrom } from "./holders-window.ts"
 import { inserts, monthRows } from "./month-replace.ts"
-
-// A period's lines read the period itself, the trend's other periods before
-// it, and the one before those for the oldest bar.
-const TREND_RUN = TREND_PERIODS + 1
 
 // A stock that may have moved in the period, the oldest of the periods read
 // its read starts at, and its rows from then.
@@ -36,23 +33,19 @@ export type StockMoveLine = Omit<DerivedMoveLine, "code" | "issuerName">
 
 // One kind's parsed periods, what it derives from them and how.
 export interface MovesSource<Rows> {
-  // Bumped whenever deriving changes what it stores, TREND_RUN or `budget`
-  // included: the run then derives every period again.
+  // Bumped whenever deriving changes what it stores: the run then derives
+  // every period again.
   readonly version: number
-  // Its parsed periods' table: data_date, sha256 and parser_version.
-  readonly parsed: string
+  // The periods of a stock its lines are derived from, as its panel reads
+  // them; a read of stocks holds at most its budget's rows.
+  readonly window: HoldersWindow
   // Its lines' table; `${lines}_pending` stages them.
   readonly lines: string
   // Its derived periods' table: data_date, against and basis.
   readonly derived: string
-  // The most rows a stock's read, or a read of stocks, holds.
-  readonly budget: number
   // CTEs ending in `moved AS (SELECT stock_code …)`: the stocks whose
-  // holders may have moved in ?2 against ?3.
+  // holders may have moved in ?1 against ?2.
   readonly moved: string
-  // A SQL expression: the rows of the stock `m.stock_code` in the period
-  // `d.value`, its own row included.
-  readonly cost: string
   // `stocks`' rows, each from its since through `period`.
   readonly read: (
     stocks: ReadonlyArray<MovedStock>,
@@ -89,37 +82,36 @@ const parsedPeriods = Effect.fnUntraced(function* (table: string) {
   return yield* decodeRows(ParsedRow)(rows)
 })
 
-// The parsed periods a period's lines read, oldest first, and what they were
-// derived from: the derivation's version and each of those periods' version.
-const basisOf = (
+// What each of `periods`' lines are derived from, in their order: a digest
+// of the derivation's version and of each parsed period up to it. A stock's
+// lines read its periods as far back as its window's budget fits, and a
+// holder's identity comes from all of them, so a period depends on every
+// period before it.
+const basesOf = Effect.fnUntraced(function* (
   version: number,
-  periods: ReadonlyArray<ParsedRow>,
-  at: number
-) =>
-  Effect.sync(() => {
-    const read = periods.slice(Math.max(0, at - TREND_RUN + 1), at + 1)
-    return {
-      read: read.map(({ data_date }) => data_date),
-      basis: JSON.stringify([
-        version,
-        read.map(({ data_date, sha256, parser_version }) => [
-          data_date,
-          sha256,
-          parser_version,
-        ]),
-      ]),
-    }
-  })
+  periods: ReadonlyArray<ParsedRow>
+) {
+  const encoder = new TextEncoder()
+  const bases: Array<string> = []
+  let basis = String(version)
+  for (const { data_date, sha256, parser_version } of periods) {
+    basis = yield* sha256Hex(
+      encoder.encode(JSON.stringify([basis, data_date, sha256, parser_version]))
+    )
+    bases.push(basis)
+  }
+  return bases
+})
 
 const DerivedRow = Schema.Struct({ data_date: WibDate, basis: Schema.String })
 
 // The parsed periods whose lines are missing or derived from another basis,
-// oldest first: a period newly parsed or parsed again, and the TREND_PERIODS
-// parsed periods after it, whose Trends read it.
+// oldest first: a period newly parsed or parsed again, and every parsed
+// period after it.
 export const stalePeriods = Effect.fnUntraced(function* <Rows>(
   source: MovesSource<Rows>
 ) {
-  const periods = yield* parsedPeriods(source.parsed)
+  const periods = yield* parsedPeriods(source.window.parsed)
   const [rows = []] = yield* (yield* HoldingsDb).batch([
     { sql: `SELECT data_date, basis FROM ${source.derived}`, params: [] },
   ])
@@ -129,36 +121,18 @@ export const stalePeriods = Effect.fnUntraced(function* <Rows>(
       basis,
     ])
   )
-  const stale: Array<WibDate> = []
-  for (const [at, { data_date }] of periods.entries())
-    if (
-      derived.get(data_date) !==
-      (yield* basisOf(source.version, periods, at)).basis
-    )
-      stale.push(data_date)
-  return stale
+  const bases = yield* basesOf(source.version, periods)
+  return periods.flatMap(({ data_date }, at) =>
+    derived.get(data_date) === bases[at] ? [] : [data_date]
+  )
 })
 
-// The stocks of `source.moved`, each with the oldest of the periods ?1 (a
-// JSON array, oldest first, ending at ?2) its read starts at: its newest
-// periods whose rows fit the budget.
-const movedStocks = <Rows>({ moved, cost, budget }: MovesSource<Rows>) => `
+// The stocks of `source.moved`, each with the oldest period its read starts
+// at and its rows from then through ?1: its window up to ?1.
+const movedStocks = <Rows>({ moved, window }: MovesSource<Rows>) => `
   WITH ${moved},
-  cost AS (
-    SELECT m.stock_code, d.value AS data_date, ${cost} AS rows
-    FROM moved m, json_each(?1) d
-  )
-  SELECT stock_code, MIN(data_date) AS since, SUM(rows) AS rows
-  FROM (
-    SELECT stock_code, data_date, rows,
-      SUM(rows) OVER (
-        PARTITION BY stock_code ORDER BY data_date DESC
-      ) AS total
-    FROM cost
-  )
-  WHERE total <= ${budget}
-  GROUP BY stock_code
-  ORDER BY stock_code`
+  ${readFrom(window, "SELECT stock_code FROM moved", "?1")}
+  SELECT stock_code, since, rows FROM read_from ORDER BY stock_code`
 
 // `stocks` in reads, in order, whose rows together fit `budget`; each
 // stock's own rows fit it, as movedStocks reads them.
@@ -264,8 +238,8 @@ const stageStockLines = Effect.fnUntraced(function* <Rows>(
 
 // Replaces `period`'s lines with those derived from its parsed periods now,
 // and records its basis. Each stock that may have moved in it is read with
-// as many of its periods as its Trend reads, at most `budget` rows at once,
-// and its lines staged; one batch then swaps the staged lines in, so a
+// its window's periods up to it, at most the window's budget of rows at
+// once, and its lines staged; one batch then swaps the staged lines in, so a
 // reader, or a failed attempt, sees the period's lines whole. The number of
 // lines.
 export const derivePeriod = Effect.fnUntraced(function* <Rows>(
@@ -273,10 +247,11 @@ export const derivePeriod = Effect.fnUntraced(function* <Rows>(
   period: WibDate
 ) {
   const db = yield* HoldingsDb
-  const periods = yield* parsedPeriods(source.parsed)
+  const periods = yield* parsedPeriods(source.window.parsed)
   const at = periods.findIndex(({ data_date }) => data_date === period)
-  if (at === -1) return 0
-  const { read, basis } = yield* basisOf(source.version, periods, at)
+  const basis = (yield* basesOf(source.version, periods))[at]
+  if (basis === undefined) return 0
+  const read = periods.slice(0, at + 1).map(({ data_date }) => data_date)
   const against = read.at(-2)
   const pending = `${source.lines}_pending`
   // What an earlier attempt staged is gone first.
@@ -287,14 +262,14 @@ export const derivePeriod = Effect.fnUntraced(function* <Rows>(
       : [
           {
             sql: movedStocks(source),
-            params: [JSON.stringify(read), period, against],
+            params: [period, against],
           },
         ]),
   ])
   let count = 0
   for (const stocks of yield* readsOf(
     yield* decodeRows(MovedStock)(stockRows),
-    source.budget
+    source.window.budget
   ))
     count += yield* stageStockLines(source, stocks, read, period)
   yield* db.batch([

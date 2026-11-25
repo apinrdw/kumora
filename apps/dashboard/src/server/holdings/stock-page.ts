@@ -14,8 +14,8 @@ import {
   SplitOrigin,
 } from "@/domain/holdings"
 
-import { MAX_ROWS } from "./above-5.ts"
 import { HoldingsDb } from "./db.ts"
+import { DAILY_WINDOW, MONTHLY_WINDOW, readFrom } from "./holders-window.ts"
 
 // Shares held, by origin. `local` and `foreign` are absent in a month whose
 // report doesn't split them, never 0.
@@ -201,10 +201,10 @@ const StockPage = Schema.Struct({
   // Every parsed investor-type month, oldest first, with the stock's
   // holdings where it has a row.
   holderSize: Schema.Array(HolderSizeMonth),
-  // Every parsed above-1% month, oldest first, with the stock's ≥1%
-  // holders.
+  // The newest parsed above-1% months that fit MONTHLY_WINDOW's budget,
+  // oldest first, with the stock's ≥1% holders.
   majorHolders: Schema.Array(MajorHoldersMonth),
-  // The newest parsed above-5% days that fit DAILY_HOLDERS_ROWS, oldest
+  // The newest parsed above-5% days that fit DAILY_WINDOW's budget, oldest
   // first, with the stock's above-5% holders.
   dailyHolders: Schema.Array(DailyHoldersDay),
 })
@@ -303,14 +303,24 @@ const HolderSizeHoldingRow = Schema.Struct({
 
 type HolderSizeHoldingRow = typeof HolderSizeHoldingRow.Type
 
-// Every above-1% month, and the stock's rows in each in file order. ?1 is
-// the code.
-const ABOVE_1_MONTHS = `SELECT data_date FROM above_1_month ORDER BY data_date`
-const ABOVE_1_HOLDINGS = `
+// Decision: a stock's holders are read from its newest periods that fit a
+// row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
+//
+// The stock's newest parsed periods of a kind whose rows fit its budget, as
+// the CTE `read_from`'s `since`. ?1 is the code.
+const ABOVE_1_READ = `WITH ${readFrom(MONTHLY_WINDOW, "SELECT ?1 AS stock_code")}`
+const ABOVE_5_READ = `WITH ${readFrom(DAILY_WINDOW, "SELECT ?1 AS stock_code")}`
+const SINCE = `(SELECT since FROM read_from)`
+
+// Those above-1% months, and the stock's rows in each in file order.
+const ABOVE_1_MONTHS = `${ABOVE_1_READ}
+  SELECT data_date FROM above_1_month WHERE data_date >= ${SINCE}
+  ORDER BY data_date`
+const ABOVE_1_HOLDINGS = `${ABOVE_1_READ}
   SELECT data_date, holder_key, investor_name, classification,
     investor_type, origin, domicile, controller, scripless, scrip, total,
     percentage_hundredths
-  FROM above_1_holding WHERE stock_code = ?1
+  FROM above_1_holding WHERE stock_code = ?1 AND data_date >= ${SINCE}
   ORDER BY data_date, seq`
 
 const Above1MonthRow = Schema.Struct({ data_date: Schema.String })
@@ -379,54 +389,25 @@ export const above1Months = Effect.fnUntraced(function* (
   }))
 })
 
-// Decision: Daily holders reads the stock's newest above-5% days that fit
-// a row budget (apps/dashboard/docs/adr/0133-daily-holders-reads-the-newest-days-that-fit-a-row-budget.md)
-//
-// Each day costs its row and its blocks' and accounts' rows: at the parse's
-// cap a day holds MAX_ROWS accounts, each its own block, so the newest day
-// and the one before always fit.
-export const DAILY_HOLDERS_ROWS = 2 * (2 * MAX_ROWS + 1)
-
-// The newest parsed above-5% days whose rows of the stock fit
-// DAILY_HOLDERS_ROWS, as the CTE `read_day`. ?1 is the code.
-const ABOVE_5_READ = `
-  WITH cost AS (
-    SELECT d.data_date, 1 + (
-      SELECT COUNT(*) FROM above_5_holder h
-      WHERE h.stock_code = ?1 AND h.data_date = d.data_date
-    ) + (
-      SELECT COUNT(*) FROM above_5_account a
-      WHERE a.stock_code = ?1 AND a.data_date = d.data_date
-    ) AS rows
-    FROM above_5_day d
-  ),
-  read_day AS (
-    SELECT data_date FROM (
-      SELECT data_date, SUM(rows) OVER (ORDER BY data_date DESC) AS total
-      FROM cost
-    )
-    WHERE total <= ${DAILY_HOLDERS_ROWS}
-  )`
-
-// Those days, the stock's listed shares on each, and its blocks and
-// accounts in report order.
+// Those above-5% days, the stock's listed shares on each, and its blocks
+// and accounts in report order.
 const ABOVE_5_DAYS = `${ABOVE_5_READ}
   SELECT d.data_date, (
     SELECT s.shares_outstanding FROM investor_type_stock_month s
     WHERE s.stock_code = ?1 AND s.data_date <= d.data_date
     ORDER BY s.data_date DESC LIMIT 1
   ) AS listed_shares
-  FROM read_day d ORDER BY d.data_date`
+  FROM above_5_day d WHERE d.data_date >= ${SINCE} ORDER BY d.data_date`
 const ABOVE_5_HOLDERS = `${ABOVE_5_READ}
   SELECT data_date, no, issuer_name, holder_name, holder_key, scripless,
     percentage_hundredths
   FROM above_5_holder
-  WHERE stock_code = ?1 AND data_date IN (SELECT data_date FROM read_day)
+  WHERE stock_code = ?1 AND data_date >= ${SINCE}
   ORDER BY data_date, no`
 const ABOVE_5_ACCOUNTS = `${ABOVE_5_READ}
   SELECT data_date, no, custodian, account_name, origin, domicile, scripless
   FROM above_5_account
-  WHERE stock_code = ?1 AND data_date IN (SELECT data_date FROM read_day)
+  WHERE stock_code = ?1 AND data_date >= ${SINCE}
   ORDER BY data_date, no, ordinal`
 
 const Above5DayRow = Schema.Struct({
@@ -664,7 +645,7 @@ export const stockPage = Effect.fnUntraced(function* (
     { sql: SERIES_HOLDINGS, params: [code] },
     { sql: HOLDER_SIZE_MONTHS, params: [code] },
     { sql: HOLDER_SIZE_HOLDINGS, params: [code] },
-    { sql: ABOVE_1_MONTHS, params: [] },
+    { sql: ABOVE_1_MONTHS, params: [code] },
     { sql: ABOVE_1_HOLDINGS, params: [code] },
     { sql: ABOVE_5_DAYS, params: [code] },
     { sql: ABOVE_5_HOLDERS, params: [code] },

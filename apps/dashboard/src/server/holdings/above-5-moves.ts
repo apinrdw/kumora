@@ -4,7 +4,8 @@
 // changed, so the Holder moves page reads one day's lines (holder-moves.ts).
 // A day's lines are each moving stock's Daily holders movers on it
 // (lib/daily-holders.ts), the same view model the stock page runs, from the
-// stock's days its Trend needs. Spec apinrdw/kumora#673, "Holder moves".
+// stock's days the page reads up to it (holders-window.ts). Spec
+// apinrdw/kumora#673, "Holder moves".
 //
 // Decision: Holder moves are derived at parse time
 // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
@@ -28,22 +29,18 @@ import {
   type StockMoveLine,
   WANT,
 } from "./derived-moves.ts"
+import { DAILY_WINDOW } from "./holders-window.ts"
 import {
   Above5SecuritiesAccountRow,
   above5Days,
   Above5HolderRow,
-  DAILY_HOLDERS_ROWS,
 } from "./stock-page.ts"
 
-// Decision: Daily holders reads the stock's newest above-5% days that fit
-// a row budget (apps/dashboard/docs/adr/0133-daily-holders-reads-the-newest-days-that-fit-a-row-budget.md)
-//
-// The stocks whose holders may have moved on ?2 against ?3, each read from
-// its newest days whose rows fit DAILY_HOLDERS_ROWS, as the stock page
-// reads them. A stock-day's marks are its blocks (by place,
-// key and shares) and their accounts (custodian, name and shares): when
-// none differ from the day before's, the day's holders, collapsed and
-// matched, are the day before's, each unchanged.
+// The stocks whose holders may have moved on ?1 against ?2. A stock-day's
+// marks are its blocks (by place, key and shares) and their accounts
+// (custodian, name and shares): when none differ from the day before's, the
+// day's holders, collapsed and matched, are the day before's, each
+// unchanged.
 const MOVED = `
   block AS (
     SELECT data_date, stock_code, no, holder_key, scripless,
@@ -51,7 +48,7 @@ const MOVED = `
         PARTITION BY data_date, stock_code ORDER BY no
       ) AS place
     FROM above_5_holder
-    WHERE data_date IN (?2, ?3)
+    WHERE data_date IN (?1, ?2)
   ),
   mark AS (
     SELECT data_date, stock_code, place, a, b, scripless, COUNT(*) AS n
@@ -68,11 +65,11 @@ const MOVED = `
   ),
   now_mark AS (
     SELECT stock_code, place, a, b, scripless, n FROM mark
-    WHERE data_date = ?2
+    WHERE data_date = ?1
   ),
   prev_mark AS (
     SELECT stock_code, place, a, b, scripless, n FROM mark
-    WHERE data_date = ?3
+    WHERE data_date = ?2
   ),
   moved AS (
     SELECT stock_code
@@ -80,15 +77,6 @@ const MOVED = `
     UNION
     SELECT stock_code
     FROM (SELECT * FROM prev_mark EXCEPT SELECT * FROM now_mark)
-  )`
-
-// A stock-day's rows: its own, its blocks' and their accounts'.
-const COST = `1 + (
-    SELECT COUNT(*) FROM above_5_holder h
-    WHERE h.stock_code = m.stock_code AND h.data_date = d.value
-  ) + (
-    SELECT COUNT(*) FROM above_5_account a
-    WHERE a.stock_code = m.stock_code AND a.data_date = d.value
   )`
 
 const HOLDERS = `${WANT}
@@ -178,15 +166,13 @@ const dailyLines = Effect.fnUntraced(function* (
 })
 
 const DAILY: MovesSource<StockRows> = {
-  // Bumped whenever deriving changes what it stores, the trend's run or
-  // DAILY_HOLDERS_ROWS included: the run then derives every day again.
+  // Bumped whenever deriving changes what it stores: the run then derives
+  // every day again.
   version: 1,
-  parsed: "above_5_day",
+  window: DAILY_WINDOW,
   lines: "above_5_move",
   derived: "above_5_move_day",
-  budget: DAILY_HOLDERS_ROWS,
   moved: MOVED,
-  cost: COST,
   read: readStocks,
   linesOf: dailyLines,
 }

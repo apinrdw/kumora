@@ -291,32 +291,30 @@ describe("Holder moves, Daily, as the above-5% parse run derives them", () => {
     })
   )
 
-  it.effect(
-    "derives a day parsed late, and again the days after it whose Trend reads it",
-    () =>
-      Effect.gen(function* () {
-        const w = world()
-        const late = above5Item("2026-06-24")
-        const listing = w.idx.listing
-        w.idx.listing = listing.filter((item) => item !== late)
-        yield* archiveAndParse(w, "cron-2026-11-25")
-        const before = yield* movesOf(w, "2026-06-25")
-        assert.strictEqual(before.against, "2026-06-12")
+  it.effect("derives a day parsed late, and again every day after it", () =>
+    Effect.gen(function* () {
+      const w = world()
+      const late = above5Item("2026-06-24")
+      const listing = w.idx.listing
+      w.idx.listing = listing.filter((item) => item !== late)
+      yield* archiveAndParse(w, "cron-2026-11-25")
+      const before = yield* movesOf(w, "2026-06-25")
+      assert.strictEqual(before.against, "2026-06-12")
 
-        w.idx.listing = listing
-        yield* archive(w, "cron-2026-11-26T13")
-        const result = yield* parse(w, "cron-2026-11-26")
-        assert.deepInclude(result, { outcome: "complete", monthsParsed: 1 })
-        const after = yield* movesOf(w, "2026-06-25")
-        assert.strictEqual(after.against, "2026-06-24")
-        assert.deepStrictEqual(
-          after.lines
-            .filter(({ name }) => name === "PT SAMUEL TUMBUH BERSAMA")
-            .map(({ trend }) => trend),
-          [[null, "out", null, "in"]]
-        )
-        for (const day of DAYS.slice(1)) yield* assertDailyHolders(w, day)
-      })
+      w.idx.listing = listing
+      yield* archive(w, "cron-2026-11-26T13")
+      const result = yield* parse(w, "cron-2026-11-26")
+      assert.deepInclude(result, { outcome: "complete", monthsParsed: 1 })
+      const after = yield* movesOf(w, "2026-06-25")
+      assert.strictEqual(after.against, "2026-06-24")
+      assert.deepStrictEqual(
+        after.lines
+          .filter(({ name }) => name === "PT SAMUEL TUMBUH BERSAMA")
+          .map(({ trend }) => trend),
+        [[null, "out", null, "in"]]
+      )
+      for (const day of DAYS.slice(1)) yield* assertDailyHolders(w, day)
+    })
   )
 
   it.effect("derives a day parsed again from its new version", () =>
