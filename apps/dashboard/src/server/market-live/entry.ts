@@ -14,6 +14,7 @@ import {
   brokerCodesDay,
   recordedDayRequest,
 } from "@workspace/relay"
+import { pathUnderBase } from "@workspace/client"
 import { WorkerEnv } from "@workspace/server"
 import { DateTime, Effect, Layer, Option, Schema } from "effect"
 
@@ -99,9 +100,14 @@ const live = Effect.fnUntraced(
   Effect.provide(Auth.layer)
 )
 
-// The route for a Market Live path, or none for TanStack Start's.
+// The route for a Market Live path, or none for TanStack Start's. The relay's
+// paths are root-relative, so they match the request's path read back under
+// the dashboard base path.
 export const marketLiveRoute = Effect.fnUntraced(function* (request: Request) {
   const url = new URL(request.url)
+  const under = yield* pathUnderBase(url.pathname)
+  if (Option.isNone(under)) return Option.none()
+  url.pathname = under.value
   const { pathname } = url
   if (pathname === MarketLivePath.ingest) return Option.some(ingest(request))
   if (pathname === MarketLivePath.live) return Option.some(live(request))
