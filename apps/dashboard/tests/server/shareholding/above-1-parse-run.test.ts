@@ -551,6 +551,34 @@ describe("an above-1% parse run", () => {
       })
     })
   )
+
+  it.effect(
+    "keeps what it parsed when it can't read which months' moves are stale",
+    () =>
+      Effect.gen(function* () {
+        const w = world()
+        yield* archive(w, "cron-2026-11-14T06")
+        republish(w, "2026-10-30", "empty")
+        yield* archive(w, "cron-2026-11-14T13")
+        w.holdings.failBatch = (sql) =>
+          sql.some((statement) =>
+            statement.includes(
+              "SELECT data_date, basis FROM above_1_move_month"
+            )
+          )
+        const failure = yield* Effect.flip(parse(w, "cron-2026-11-14"))
+        assert.strictEqual(failure._tag, "StepFailed")
+        const record = runRecord(w, "above-1", "cron-2026-11-14")
+        assert.deepInclude(record, {
+          outcome: "failed",
+          error: failure.message,
+          monthsParsed: 4,
+        })
+        assert.deepStrictEqual(record.parseFailures, [
+          { date: "2026-10-30", message: "The report has no holders" },
+        ])
+      })
+  )
 })
 
 describe("an above-1% report that doesn't match what's expected", () => {
