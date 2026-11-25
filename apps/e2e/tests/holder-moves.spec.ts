@@ -45,12 +45,15 @@ async function parseNow(page: Page, kind: string) {
   // The run ends on its own; the page shows it once reloaded.
   await expect(async () => {
     await page.reload()
-    const card = parseCard(page, kind)
-    await expect(card).toContainText("Complete", { timeout: 1000 })
-    await expect(card.getByRole("button", { name: "Parse now" })).toBeEnabled({
+    await expect(parseCard(page, kind)).toContainText("Complete", {
       timeout: 1000,
     })
-  }).toPass({ timeout: 60_000 })
+  }).toPass({ timeout: 25_000 })
+  // Outside the reload loop: the button stays disabled until the page
+  // hydrates, which under load takes longer than one retry's second.
+  await expect(
+    parseCard(page, kind).getByRole("button", { name: "Parse now" })
+  ).toBeEnabled()
 }
 
 const headline = (page: Page) =>
@@ -87,7 +90,9 @@ test.describe.serial("Holder moves", () => {
   test.describe("an admin", () => {
     test.use({ storageState: ADMIN.storageState })
 
-    test("parses the archived above-5% days and above-1% months", async ({
+    // One parse run per test: three in one overran the 30 s test timeout
+    // under an evidence run's load.
+    test("parses the investor-type reports the above-5% days resolve against", async ({
       page,
     }) => {
       for (const month of INVESTOR_TYPE_MONTHS)
@@ -112,7 +117,13 @@ test.describe.serial("Holder moves", () => {
           FETCHED_AT
         )
       await parseNow(page, "investor-type")
+    })
+
+    test("parses the archived above-5% days", async ({ page }) => {
       await parseNow(page, "above-5%")
+    })
+
+    test("parses the archived above-1% months", async ({ page }) => {
       await parseNow(page, "above-1%")
     })
   })
