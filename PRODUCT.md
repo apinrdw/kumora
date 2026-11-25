@@ -38,12 +38,13 @@ The broker apps IDX traders already use (Stockbit, Ajaib) show prices, a tape an
 ## Capabilities and Constraints
 
 - Monorepo: `apps/dashboard` (the terminal), `apps/web` (public site), `apps/extension` (the owner's relay, an unpacked Chrome MV3 extension), `packages/ui` (shared shadcn/ui components and Tailwind styles). TanStack Start on Cloudflare Workers, deployed by Alchemy.
-- Every page passes the sign-in gate: a session of a verified, unsuspended account. Anyone can sign up (email or Google); only verified accounts see market data. Roles: member (every page but admin) and admin.
+- Access is by waitlist. Visitors take a queue number on the public site (`apps/web`) and are let in by email in queue order. Once invited, they sign up in the dashboard (email or Google).
+- Every dashboard page passes the sign-in gate: a session of a verified, unsuspended account. Only verified accounts see market data. Roles: member (every page but admin) and admin.
 - Market data comes from the owner's signed-in broker tabs through the relay; a feed is unavailable when its broker tab is closed. Freshness, feed lag and relay gaps are real states the UI must show honestly.
 - Terminology is owned by `apps/dashboard/GLOSSARY.md` (stock code, not ticker; running trade, not tick; broker code; sweep; footprint). UI copy follows it.
 - The dashboard renders dark only today (`className="dark"` on the root).
-- `apps/web` is still the starter page; the public site is undecided beyond the name, tagline and logo.
-- Language: the product is meant to speak both Bahasa Indonesia and English, switchable by the user. Today every string is English with no i18n layer; how the switch is stored and which language is the default are open.
+- `apps/web` is the public site: the Market Passbook landing with the waitlist, in English at `/` and Indonesian at `/id`. Its sign-in link is hidden for now.
+- Language: the product is meant to speak both Bahasa Indonesia and English, switchable by the user. The web landing ships both (`apps/web/src/lib/copy.ts`); its Indonesian copy is a draft awaiting the owner's review. The dashboard is English only with no i18n layer; how its switch is stored and which language is the default are open.
 - Pricing, plans and paid tiers: undecided. Do not show any.
 
 ## Brand Commitments
