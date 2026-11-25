@@ -129,8 +129,7 @@ describe("gatePage", () => {
     }
   )
 
-  // Each statement is a round trip to AuthDb's primary, about 90 ms from
-  // Singapore to apac's Tokyo (apinrdw/kumora#658).
+  // The joined read that options.ts turns on for AuthDb's round trips.
   it.effect("reads an admin page's session in one statement", () => {
     const database = new DatabaseSync(":memory:")
     replayMigrations(database)
