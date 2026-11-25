@@ -8,6 +8,7 @@ import {
 } from "@/components/admin/ksei/archive-history"
 import { KseiCoverageCard } from "@/components/admin/ksei/coverage-card"
 import { KseiLastRunCard } from "@/components/admin/ksei/last-run-card"
+import { ArchiveLedger } from "@/components/admin/archive/archive-card"
 import { ParseCoverageCard } from "@/components/admin/archive/parse-coverage-card"
 import { ParseRunCard } from "@/components/admin/archive/parse-run-card"
 import { kseiArchiveFn, parseKseiNowFn } from "@/server/admin/ksei.functions"
@@ -36,59 +37,55 @@ function KseiPage() {
     parseCoverage,
     ...lastRun
   } = Route.useLoaderData()
+  // The two jobs read as one ledger, as on the Shareholding archive page,
+  // so their outcomes and counts compare at a glance; the coverage, totals
+  // and history follow as panels of their own.
   return (
     <div className="flex flex-col gap-6 py-6">
-      <header className="flex max-w-[65ch] flex-col gap-2">
-        <h1 className="text-[28px] leading-9 font-semibold tracking-[-0.02em]">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-[28px] leading-9 font-semibold tracking-[-0.01em]">
           KSEI archive
         </h1>
-        <p className="text-secondary-text text-[15px] leading-6 text-pretty">
+        <p className="text-secondary-text max-w-[70ch] text-pretty">
           Every {KIND_LABEL["securities-statistics"]} and{" "}
           {KIND_LABEL["securities-holdings"]} report KSEI publishes, kept with
           each version, and the holdings parsed for the stock pages.
         </p>
       </header>
-      {/* At xl, the archive's column on the left and its parse
-          run's on the right, each run over its coverage, so neither card
-          leaves a hole beside a taller one. Narrower, the columns dissolve
-          (contents) and both run cards come first, so Parse now stays near
-          the top; no coverage card holds a focus stop before it. */}
-      <div className="flex flex-col gap-6 xl:grid xl:grid-cols-[3fr_2fr] xl:items-start">
-        <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-6">
-          <div className="order-1 min-w-0">
-            <KseiLastRunCard {...lastRun} />
-          </div>
-          <div className="order-3 min-w-0">
-            <KseiCoverageCard coverage={coverage} lastDeepRun={lastDeepRun} />
-          </div>
-        </div>
-        <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-6">
-          <div className="order-2 min-w-0">
-            <ParseRunCard
-              title="Last parse run"
-              emptyMessage="No KSEI parse run has happened yet."
-              lastParseRun={lastParseRun}
-              parseNow={parseKseiNowFn}
-              times={KSEI_PARSE_TIMES_WIB}
-              nextParseRun={nextParseRun}
-              now={lastRun.now}
-            />
-          </div>
-          <div className="order-4 min-w-0">
-            <ParseCoverageCard
-              grids={[
-                {
-                  title: KIND_LABEL["securities-holdings"],
-                  layout: "month",
-                  parseCoverage,
-                },
-              ]}
-            />
-          </div>
-        </div>
+      <ArchiveLedger
+        title="Jobs"
+        description="Times in WIB. Run now, Deep backfill and Parse now start a job on this stage."
+        // The archive run's counts and its MD5 mismatches.
+        stats={5}
+      >
+        <KseiLastRunCard {...lastRun} />
+        <ParseRunCard
+          title="Last parse run"
+          emptyMessage="No KSEI parse run has happened yet."
+          lastParseRun={lastParseRun}
+          parseNow={parseKseiNowFn}
+          times={KSEI_PARSE_TIMES_WIB}
+          nextParseRun={nextParseRun}
+          now={lastRun.now}
+          frame="row"
+        />
+      </ArchiveLedger>
+      <KseiCoverageCard coverage={coverage} lastDeepRun={lastDeepRun} />
+      {/* Side by side only from 2xl: narrower, half the width clips the
+          totals' key prefixes. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 2xl:grid-cols-2">
+        <ParseCoverageCard
+          grids={[
+            {
+              title: KIND_LABEL["securities-holdings"],
+              layout: "month",
+              parseCoverage,
+            },
+          ]}
+        />
+        <KseiTotalsCard totals={totals} />
       </div>
       <KseiRecentRunsCard runs={recentRuns} />
-      <KseiTotalsCard totals={totals} />
     </div>
   )
 }

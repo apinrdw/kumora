@@ -1,7 +1,7 @@
 // What an archive admin page's cards share: the card frame, the ledger row
 // frame, and how a run's outcome reads.
 import { cn } from "@workspace/ui/lib/utils"
-import { useId, type ReactNode } from "react"
+import { useId, type CSSProperties, type ReactNode } from "react"
 
 import type { RunOutcome } from "@/server/archive/run"
 
@@ -72,7 +72,8 @@ export function ArchiveCard({
 /**
  * One job in a ledger of jobs (ArchiveLedger): its name and when it ran on
  * the left, its counts in the middle on columns every row shares, its action
- * on the right, and what went wrong across the full width under them.
+ * on the right, and what went wrong across the full width under them. On a
+ * phone the action drops under the name, so two buttons never squeeze it.
  * `stats` is a `dl` and stays a direct child of the row, so a count is found
  * by its term within the row alone.
  */
@@ -93,7 +94,7 @@ export function ArchiveRow({
   return (
     <section
       aria-labelledby={id}
-      className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-6 gap-y-4 px-5 py-5 xl:grid-cols-[minmax(0,25rem)_minmax(0,1fr)_auto] xl:gap-x-10"
+      className="grid grid-cols-[minmax(0,1fr)] items-start gap-x-6 gap-y-4 px-5 py-5 sm:grid-cols-[minmax(0,1fr)_auto] @min-[88rem]:grid-cols-[minmax(0,25rem)_minmax(0,1fr)_auto] @min-[88rem]:gap-x-10"
     >
       <div className="flex min-w-0 flex-col gap-1.5">
         <h3
@@ -104,36 +105,46 @@ export function ArchiveRow({
         </h3>
         {meta}
       </div>
-      <div className="col-start-2 row-start-1 xl:col-start-3">{aside}</div>
+      <div className="justify-self-start sm:col-start-2 sm:row-start-1 sm:justify-self-auto @min-[88rem]:col-start-3">
+        {aside}
+      </div>
       {stats}
       {children}
     </section>
   )
 }
 
-// Where a row's counts sit: under the name on a narrow screen, between the
-// name and the action on a wide one.
+// Where a row's counts sit: under the name until the ledger is wide enough
+// that five counts' labels keep to one line between the name and the
+// action. Every row of a ledger shares its count columns (ArchiveLedger's
+// `stats`), so a row with fewer counts still lines up.
 export const archiveRowStats =
-  "col-span-2 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4 xl:col-span-1 xl:col-start-2 xl:row-start-1"
+  "col-span-full grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-[repeat(var(--archive-stats),minmax(0,1fr))] @min-[88rem]:col-span-1 @min-[88rem]:col-start-2 @min-[88rem]:row-start-1"
 
 // Where a row's notes sit: under everything, the full width.
 export const archiveRowNotes = "col-span-full flex flex-col gap-2"
 
-/** The jobs of an archive page, one ArchiveRow each, in one panel. */
+/**
+ * The jobs of an archive page, one ArchiveRow each, in one panel. `stats` is
+ * how many count columns its rows share: the most counts any row has.
+ */
 export function ArchiveLedger({
   title,
   description,
+  stats = 4,
   children,
 }: {
   title: string
   description: ReactNode
+  stats?: number
   children: ReactNode
 }) {
   const id = useId()
   return (
     <section
       aria-labelledby={id}
-      className="bg-surface overflow-hidden rounded-md border border-border"
+      style={{ "--archive-stats": stats } as CSSProperties}
+      className="bg-surface @container overflow-hidden rounded-md border border-border"
     >
       <header className="bg-elevated/40 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b border-border px-5 py-3">
         <h2 id={id} className="text-[15px] font-semibold">

@@ -202,7 +202,7 @@ function DeepDetail({ deep }: { deep: DeepFinds }) {
 
 /**
  * The last KSEI archive run, or the empty state before any, with Run now and
- * Deep backfill.
+ * Deep backfill: a row of the page's ledger.
  */
 export function KseiLastRunCard({
   lastRun,
@@ -253,7 +253,11 @@ export function KseiLastRunCard({
       }
       actions={
         <div className="flex flex-wrap items-start gap-2">
-          <RunArchiveButton inProgress={inProgress} start={runKseiNowFn}>
+          <RunArchiveButton
+            inProgress={inProgress}
+            start={runKseiNowFn}
+            variant="secondary"
+          >
             Run now
           </RunArchiveButton>
           <RunArchiveButton
@@ -273,6 +277,7 @@ export function KseiLastRunCard({
         </div>
       }
       schedule={{ times: KSEI_TIMES_WIB, nextRun }}
+      frame="row"
     />
   )
 }
