@@ -11,11 +11,11 @@ import { TestClock } from "effect/testing"
 
 import type { BrokerCodesTarget } from "../../src/worker/broker-codes/poster.ts"
 import { makeBrokerCodesStatus } from "../../src/worker/broker-codes/status.ts"
-import { DashboardOrigin } from "../../src/worker/settings.ts"
+import { DashboardUrl } from "../../src/worker/settings.ts"
 
 const DAY = WibDate.make("2026-11-12")
 const PRODUCTION: BrokerCodesTarget = {
-  origin: DashboardOrigin.make("https://dashboard.example"),
+  url: DashboardUrl.make("https://dashboard.example"),
   token: "ingest-token",
 }
 const STATUS: BrokerCodesStatus = {

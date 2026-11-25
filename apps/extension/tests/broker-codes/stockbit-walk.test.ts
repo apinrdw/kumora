@@ -36,7 +36,7 @@ import {
 } from "../../src/worker/broker-codes/stockbit-walk.ts"
 import type { Answer, TabRequest } from "../../src/worker/broker.ts"
 import { makePacer } from "../../src/worker/pacer.ts"
-import { DashboardOrigin } from "../../src/worker/settings.ts"
+import { DashboardUrl } from "../../src/worker/settings.ts"
 import hope from "./fixtures/stockbit-hope-2026-11-20.json"
 
 const DAY = WibDate.make("2026-11-12")
@@ -402,7 +402,7 @@ const throughProductionTarget = (
     makeProductionTarget({
       target: Effect.succeed(
         Option.some({
-          origin: DashboardOrigin.make("https://production.example"),
+          url: DashboardUrl.make("https://production.example"),
           token: "ingest-token",
         })
       ),
@@ -1481,7 +1481,7 @@ describe("the History walk over Stockbit's walk", () => {
 const stagingHold = Effect.tap(makeTargetHold(Effect.void), (hold) =>
   hold.restart(
     Option.some({
-      origin: DashboardOrigin.make("https://staging.example"),
+      url: DashboardUrl.make("https://staging.example"),
       token: "staging-token",
     })
   )
@@ -1547,7 +1547,7 @@ describe("Stockbit's walk and the extra target", () => {
         const extra = yield* makeExtraTarget({
           production: Effect.succeed(
             Option.some({
-              origin: DashboardOrigin.make("https://production.example"),
+              url: DashboardUrl.make("https://production.example"),
               token: "production-token",
             })
           ),

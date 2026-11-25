@@ -22,10 +22,10 @@ import { CodeListCache, RelayOutcome, type CodeListStore } from "./code-list.ts"
 import { ErrorLogEntry, redact, type ErrorLogStore } from "./error-log.ts"
 
 // Where a dashboard serves: an origin, `https://host` or `http://host:port`.
-export const DashboardOrigin = Schema.String.check(
+export const DashboardUrl = Schema.String.check(
   Schema.isPattern(/^https?:\/\/[^/\s]+$/)
-).pipe(Schema.brand("DashboardOrigin"))
-export type DashboardOrigin = typeof DashboardOrigin.Type
+).pipe(Schema.brand("DashboardUrl"))
+export type DashboardUrl = typeof DashboardUrl.Type
 
 // Production is always relayed; one extra target (Staging, a Preview or a Dev
 // stage) is optional.
@@ -37,7 +37,11 @@ export type TargetName = typeof TargetName.Type
 const Settings = Schema.Struct({
   productionToken: Schema.String,
   extra: Schema.NullOr(
-    Schema.Struct({ origin: DashboardOrigin, token: Schema.String })
+    // Stored as `origin`, its name from when it held an origin only, so an
+    // earlier relay's settings still load.
+    Schema.Struct({ url: DashboardUrl, token: Schema.String }).pipe(
+      Schema.encodeKeys({ url: "origin" })
+    )
   ),
 })
 export type Settings = typeof Settings.Type
@@ -344,22 +348,25 @@ export const saveAjaibLock = Effect.fnUntraced(function* (lock: AjaibLock) {
 })
 
 // A value the extra target's catch-up keeps in local storage beside the
-// origin it was kept for. A load captures the origin as it stands, and reads
-// as none for another origin, while none is set, or when it doesn't decode.
-// A save is kept for the origin its load captured, and dropped once `origin`
-// stands elsewhere (target-hold.ts).
-const keptForOrigin = <A, I>(
+// dashboard URL it was kept for. A load captures the URL as it stands, and
+// reads as none for another URL, while none is set, or when it doesn't
+// decode. A save is kept for the URL its load captured, and dropped once
+// `url` stands elsewhere (target-hold.ts).
+const keptForUrl = <A, I>(
   key: string,
   value: Schema.Codec<A, I>,
-  // The extra target's origin while its operation's settings hold.
-  origin: Effect.Effect<Option.Option<DashboardOrigin>>
+  // The extra target's URL while its operation's settings hold.
+  url: Effect.Effect<Option.Option<DashboardUrl>>
 ) =>
   Effect.sync(() => {
-    const Kept = Schema.Struct({ origin: DashboardOrigin, value })
-    let loaded = Option.none<DashboardOrigin>()
+    // Stored as `origin`, as the settings' extra target is.
+    const Kept = Schema.Struct({ url: DashboardUrl, value }).pipe(
+      Schema.encodeKeys({ url: "origin" })
+    )
+    let loaded = Option.none<DashboardUrl>()
     return {
       load: Effect.gen(function* () {
-        loaded = yield* origin
+        loaded = yield* url
         const current = loaded
         if (Option.isNone(current)) return Option.none<A>()
         const stored = yield* Effect.promise(() =>
@@ -368,17 +375,17 @@ const keptForOrigin = <A, I>(
         return Option.map(
           Option.filter(
             Schema.decodeUnknownOption(Kept)(stored[key]),
-            (kept) => kept.origin === current.value
+            (kept) => kept.url === current.value
           ),
           (kept) => kept.value
         )
       }),
       save: Effect.fnUntraced(function* (kept: A) {
-        const current = yield* origin
+        const current = yield* url
         if (Option.isNone(loaded) || !Option.contains(current, loaded.value))
           return
         const encoded = yield* Effect.orDie(
-          Schema.encodeEffect(Kept)({ origin: loaded.value, value: kept })
+          Schema.encodeEffect(Kept)({ url: loaded.value, value: kept })
         )
         yield* Effect.promise(() =>
           chrome.storage.local.set({ [key]: encoded })
@@ -390,7 +397,7 @@ const keptForOrigin = <A, I>(
 // Ajaib's walk position for the day it walks (ajaib-walk.ts), in local
 // storage so a restarted worker or browser carries on: Ajaib can't be asked
 // where a walk stopped. Production's walk and the extra target's catch-up
-// (extra-target.ts) each keep their own, the catch-up's with the origin it
+// (extra-target.ts) each keep their own, the catch-up's with the URL it
 // caught up, so another extra target starts its own.
 const ajaibWalkStoreAt = (key: string) =>
   Effect.sync((): AjaibWalkStore => ({
@@ -408,12 +415,12 @@ const ajaibWalkStoreAt = (key: string) =>
 
 export const ajaibWalkStore = ajaibWalkStoreAt("brokerCodesAjaibWalk")
 export const ajaibCatchUpStore = (
-  origin: Effect.Effect<Option.Option<DashboardOrigin>>
+  url: Effect.Effect<Option.Option<DashboardUrl>>
 ) =>
-  keptForOrigin(
+  keptForUrl(
     "brokerCodesAjaibCatchUp",
     AjaibWalkPosition,
-    origin
+    url
   ) satisfies Effect.Effect<AjaibWalkStore>
 
 // The days whose broker codes may still be incomplete (run-queue.ts), and
@@ -453,7 +460,7 @@ export const incompleteDaysStore: IncompleteDaysStore = {
 
 // The History walk's positions (history.ts), in local storage so a
 // restarted worker or browser carries on: Production's, and the extra
-// target's, kept with the origin it caught up, so another extra target
+// target's, kept with the URL it caught up, so another extra target
 // starts its own. A value that doesn't decode reads as none, which the walk
 // rebuilds.
 // Decision: History positions moved to new keys, so every install rewalks
@@ -478,12 +485,12 @@ export const historyStore: HistoryStore = {
 }
 
 export const historyCatchUpStore = (
-  origin: Effect.Effect<Option.Option<DashboardOrigin>>
+  url: Effect.Effect<Option.Option<DashboardUrl>>
 ) =>
-  keptForOrigin(
+  keptForUrl(
     "brokerCodesHistoryTradesCatchUp",
     WibDate,
-    origin
+    url
   ) satisfies Effect.Effect<HistoryCatchUpStore>
 
 // What the broker codes run queue is doing (run-queue.ts), for the options

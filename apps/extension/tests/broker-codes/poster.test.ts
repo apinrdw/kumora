@@ -14,10 +14,10 @@ import {
   makeBrokerCodesPoster,
   type BrokerCodesTarget,
 } from "../../src/worker/broker-codes/poster.ts"
-import { DashboardOrigin } from "../../src/worker/settings.ts"
+import { DashboardUrl } from "../../src/worker/settings.ts"
 
 const PRODUCTION: BrokerCodesTarget = {
-  origin: DashboardOrigin.make("https://dashboard.example"),
+  url: DashboardUrl.make("https://dashboard.example"),
   token: "ingest-token",
 }
 

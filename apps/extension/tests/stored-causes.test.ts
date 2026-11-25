@@ -4,7 +4,7 @@ import { Cause, Effect, Logger, Option } from "effect"
 import { REDACTED, makeErrorLog } from "../src/worker/error-log.ts"
 import {
   AjaibPin,
-  DashboardOrigin,
+  DashboardUrl,
   errorLogStore,
   loadRelayStopped,
   saveRelayStopped,
@@ -43,7 +43,7 @@ const storeCredentials = Effect.gen(function* () {
   yield* saveSettings({
     productionToken: PRODUCTION_TOKEN,
     extra: {
-      origin: DashboardOrigin.make("https://staging.example"),
+      url: DashboardUrl.make("https://staging.example"),
       token: EXTRA_TOKEN,
     },
   })

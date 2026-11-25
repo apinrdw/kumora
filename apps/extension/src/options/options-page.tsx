@@ -260,7 +260,7 @@ export function OptionsPage() {
   useEffect(() => {
     void optionsRuntime.runPromise(loadSettings).then((settings) => {
       setProductionToken(settings.productionToken)
-      setExtraUrl(settings.extra?.origin ?? "")
+      setExtraUrl(settings.extra?.url ?? "")
       setExtraToken(settings.extra?.token ?? "")
     })
     const refresh = () =>

@@ -20,7 +20,7 @@ import {
   type Send,
 } from "./poster.ts"
 import type { CatchUpResult, CatchUpWalk, WalkResult } from "./run-queue.ts"
-import { DashboardOrigin } from "../settings.ts"
+import { DashboardUrl } from "../settings.ts"
 import { askStatus, statusOnce, type Get } from "./status.ts"
 import type { TargetHold } from "./target-hold.ts"
 
@@ -99,7 +99,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
   const answered = (request: { url: string; token: string }, status: number) =>
     hold.answered(
       {
-        origin: DashboardOrigin.make(new URL(request.url).origin),
+        url: DashboardUrl.make(new URL(request.url).origin),
         token: request.token,
       },
       status
@@ -148,13 +148,13 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     return Option.filter(asked, (held) => typeof held !== "string")
   })
 
-  // The origin of `target` while the hold lets it go on.
-  const originWhile = (target: Option.Option<BrokerCodesTarget>) =>
+  // The URL of `target` while the hold lets it go on.
+  const urlWhile = (target: Option.Option<BrokerCodesTarget>) =>
     Option.match(target, {
-      onNone: () => Effect.succeed(Option.none<DashboardOrigin>()),
+      onNone: () => Effect.succeed(Option.none<DashboardUrl>()),
       onSome: (own) =>
         Effect.map(hold.haltOf(own), (halt) =>
-          Option.isSome(halt) ? Option.none() : Option.some(own.origin)
+          Option.isSome(halt) ? Option.none() : Option.some(own.url)
         ),
     })
 
@@ -239,14 +239,14 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
       }),
     }),
 
-    // The extra target's origin while its settings go on, for the History
+    // The extra target's URL while its settings go on, for the History
     // catch-up's store (settings.ts).
-    origin: Effect.flatMap(hold.settings, originWhile),
+    url: Effect.flatMap(hold.settings, urlWhile),
 
     // A site's catch-up walk for the run queue: `make` builds the site's
     // walk over a post and a status read on the settings the walk captured,
     // the post sending only the trades its status, read as the walk starts,
-    // says it lacks, and over their origin for the walk's store. The walk is
+    // says it lacks, and over their URL for the walk's store. The walk is
     // skipped unless the target is behind, and stops, having caught up
     // nothing, when the target is unset, halted or gave no status. A stop,
     // the site walk's too, is passed on without its cause.
@@ -258,7 +258,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
           day: WibDate,
           after?: TradeNumber
         ) => Effect.Effect<Option.Option<BrokerCodesStatus>>
-        readonly origin: Effect.Effect<Option.Option<DashboardOrigin>>
+        readonly url: Effect.Effect<Option.Option<DashboardUrl>>
       }) => Effect.Effect<
         { readonly walk: (day: WibDate) => Effect.Effect<WalkResult> },
         E,
@@ -278,7 +278,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
           }),
         status: (day, after) =>
           Effect.suspend(() => statusOn(walking, day, after)),
-        origin: Effect.suspend(() => originWhile(walking)),
+        url: Effect.suspend(() => urlWhile(walking)),
       })
       return {
         feed,

@@ -1,6 +1,6 @@
 import { Effect, Option, Schema } from "effect"
 
-import { DashboardOrigin, type Settings } from "../worker/settings.ts"
+import { DashboardUrl, type Settings } from "../worker/settings.ts"
 
 class InvalidDashboardUrl extends Schema.TaggedError<InvalidDashboardUrl>()(
   "InvalidDashboardUrl",
@@ -19,11 +19,11 @@ export const settingsFromForm = Effect.fnUntraced(function* (form: {
   if (extraUrl === "") return { productionToken, extra: null }
   const origin = Option.flatMap(
     Option.liftThrowable(() => new URL(extraUrl).origin)(),
-    Schema.decodeUnknownOption(DashboardOrigin)
+    Schema.decodeUnknownOption(DashboardUrl)
   )
   if (Option.isNone(origin)) return yield* new InvalidDashboardUrl()
   return {
     productionToken,
-    extra: { origin: origin.value, token: form.extraToken.trim() },
+    extra: { url: origin.value, token: form.extraToken.trim() },
   }
 })

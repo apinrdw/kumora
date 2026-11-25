@@ -13,7 +13,7 @@ import { Effect, Layer, PubSub, SubscriptionRef } from "effect"
 import * as Socket from "effect/socket/Socket"
 import { TestClock } from "effect/testing"
 
-import { DashboardOrigin, type TargetState } from "../src/worker/settings.ts"
+import { DashboardUrl, type TargetState } from "../src/worker/settings.ts"
 import { runTarget } from "../src/worker/target.ts"
 
 type Listener = (event: Socket.WebSocketEvent) => void
@@ -61,7 +61,7 @@ class FakeIngest implements Socket.WebSocketLike {
   }
 }
 
-const origin = DashboardOrigin.make("http://localhost:3001")
+const DASHBOARD = DashboardUrl.make("http://localhost:3001")
 
 // `catchUp`: what every fresh socket is sent after the token. With
 // `handshake`, the first socket opens only when the test says.
@@ -76,7 +76,7 @@ const harness = Effect.fnUntraced(function* (options?: {
   const envelopes = yield* PubSub.sliding<EncodedIngestUp>(16)
   const day = yield* SubscriptionRef.make(WibDate.make("2026-11-09"))
   const fiber = yield* runTarget({
-    origin,
+    url: DASHBOARD,
     token: "the token",
     envelopes,
     day,
