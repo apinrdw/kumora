@@ -9,13 +9,19 @@ const FILES = [
   "market-live-select.spec.ts",
   "relay-load.spec.ts",
   "cold-day.spec.ts",
+  "holder-moves.spec.ts",
   "repaint-bench.spec.ts",
   "accounts.setup.ts",
 ]
 
 describe("recording", () => {
   it("records nothing while the switch is unset or empty", () => {
-    const none = { chromium: [], tradingDay: false, coldDay: false }
+    const none = {
+      chromium: [],
+      tradingDay: false,
+      coldDay: false,
+      holderMoves: false,
+    }
     expect(recording(undefined, FILES)).toEqual(none)
     expect(recording("", FILES)).toEqual(none)
   })
@@ -25,6 +31,7 @@ describe("recording", () => {
       chromium: ["account.spec.ts"],
       tradingDay: false,
       coldDay: false,
+      holderMoves: false,
     })
   })
 
@@ -42,6 +49,7 @@ describe("recording", () => {
       chromium: [],
       tradingDay: true,
       coldDay: false,
+      holderMoves: false,
     })
   })
 
@@ -50,6 +58,16 @@ describe("recording", () => {
       chromium: ["account.spec.ts"],
       tradingDay: false,
       coldDay: true,
+      holderMoves: false,
+    })
+  })
+
+  it("records the holder-moves project, not chromium, when its spec is picked", () => {
+    expect(recording("holder-moves.spec.ts", FILES)).toEqual({
+      chromium: [],
+      tradingDay: false,
+      coldDay: false,
+      holderMoves: true,
     })
   })
 
@@ -58,6 +76,7 @@ describe("recording", () => {
       chromium: ["account.spec.ts"],
       tradingDay: false,
       coldDay: false,
+      holderMoves: false,
     })
   })
 
@@ -66,6 +85,7 @@ describe("recording", () => {
       chromium: ["account.spec.ts"],
       tradingDay: false,
       coldDay: false,
+      holderMoves: false,
     })
   })
 
@@ -76,6 +96,7 @@ describe("recording", () => {
       chromium: ["account.spec.ts", "sign-in.spec.ts"],
       tradingDay: true,
       coldDay: false,
+      holderMoves: false,
     })
   })
 
