@@ -125,7 +125,8 @@ const BY_SHARES: MoveRule<DailyHolder> = {
 }
 
 // A block repeats an earlier one of its stock-day when its securities
-// accounts' names and shares, and its combined shares, are the same.
+// accounts' custodians, names and shares, and its combined shares, are the
+// same.
 //
 // Decision: repeat blocks are stored as published and collapsed on read
 // (apps/dashboard/docs/adr/0131-above-5-repeat-blocks-are-stored-as-published.md)
@@ -133,7 +134,9 @@ const repeatSignature = ({ scripless, accounts }: Above5Holder) =>
   Effect.sync(() =>
     JSON.stringify([
       scripless,
-      accounts.map((account) => [account.name, account.scripless]).sort(),
+      accounts
+        .map((account) => [account.custodian, account.name, account.scripless])
+        .sort(),
     ])
   )
 
