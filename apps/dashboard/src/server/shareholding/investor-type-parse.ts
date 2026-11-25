@@ -10,6 +10,7 @@ import {
   parseInvestorTypeMonth,
   INVESTOR_TYPE_TABLES,
 } from "../holdings/investor-type.ts"
+import { parseCoverageByMonth } from "../holdings/parse-coverage.ts"
 import { parseRunsOf } from "../holdings/parse-runs.ts"
 import { kindPrefix, reportKey } from "./keys.ts"
 import { shareholdingIndex } from "./report-index.ts"
@@ -37,5 +38,6 @@ export const investorTypeParseRuns = parseRunsOf({
     parse: parseInvestorTypeMonth,
   },
   newestVersions: shareholdingIndex.newestVersions(KIND),
+  coverageLayout: parseCoverageByMonth,
   workflow: InvestorTypeParseWorkflow,
 })

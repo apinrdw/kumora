@@ -39,7 +39,10 @@ import { writeRunRow } from "../archive/run-rows.ts"
 import type { NewestVersion } from "../archive/report-index.ts"
 import { ArchiveWorkflow } from "../archive/workflow.ts"
 import type { HoldingsDb } from "./db.ts"
-import { parseCoverage } from "./parse-coverage.ts"
+import {
+  type ParseCoverageMonth,
+  parseCoverageCells,
+} from "./parse-coverage.ts"
 import {
   ParseRunResult,
   ParseRunSummary,
@@ -69,7 +72,7 @@ type ParseWorkflow<Self> = Context.Key<
 // Effects, doing no work and never failing. As an Effect, each caller would
 // only Effect.runSync it at module load, the reason CODING_STANDARDS spares
 // a Layer's `make`.
-export const parseRunsOf = <Self>(kind: {
+export const parseRunsOf = <Self, Coverage>(kind: {
   // How a log line names one of its runs, as "KSEI parse run".
   readonly runName: string
   readonly archive: RunArchive
@@ -82,6 +85,12 @@ export const parseRunsOf = <Self>(kind: {
   // from the report index: what the parse coverage reads in place of a
   // listing of the months' prefix.
   readonly newestVersions: PageRead<ReadonlyArray<NewestVersion>>
+  // How the parse coverage lays out its cells: year by month
+  // (parseCoverageByMonth) or, for a daily kind, month by day
+  // (parseCoverageByDay).
+  readonly coverageLayout: (
+    cells: ReadonlyArray<ParseCoverageMonth>
+  ) => Effect.Effect<Coverage>
   readonly workflow: ParseWorkflow<Self>
 }) => {
   const source = {
@@ -148,14 +157,15 @@ export const parseRunsOf = <Self>(kind: {
   const lastRun = lastRunRead(source)
 
   return {
-    // The kind's parse coverage, for the admin page: the months' newest
+    // The kind's parse coverage, for the admin page, laid out by
+    // `coverageLayout`: the months' newest
     // versions, and its last finished run, of either trigger, whose parse
     // failures mark months failed. A run in progress is passed over for the
     // one before it.
     parseCoverage: mapRead(
       bothReads(kind.newestVersions, allReads(lastFinished)),
       ([newestVersions, runs]) =>
-        parseCoverage(
+        parseCoverageCells(
           kind.months,
           newestVersions,
           runs.reduce<ParseRunResult | undefined>(
@@ -166,7 +176,7 @@ export const parseRunsOf = <Self>(kind: {
                 : latest,
             undefined
           )
-        )
+        ).pipe(Effect.flatMap(kind.coverageLayout))
     ),
     // The run its Workflow runs.
     run: Effect.fn(kind.runName)(function* (
@@ -194,4 +204,4 @@ export const parseRunsOf = <Self>(kind: {
   }
 }
 
-export type ParseRuns<Self> = ReturnType<typeof parseRunsOf<Self>>
+export type ParseRuns<Self> = ReturnType<typeof parseRunsOf<Self, unknown>>

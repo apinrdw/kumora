@@ -1,8 +1,9 @@
 // The parse coverage (GLOSSARY.md, "Parse coverage") of a kind a parse run
 // reads, a Report kind or a KSEI report kind: each archived month's state,
 // laid out year by month as the KSEI Coverage card lays out its months
-// (../archive/month-grid.ts). Any parse run's kind has one (parse-runs.ts).
-// Spec apinrdw/kumora#458.
+// (../archive/month-grid.ts), or each archived trading day's, laid out
+// month by day. Any parse run's kind has one (parse-runs.ts). Spec
+// apinrdw/kumora#458, and #673, "Admin".
 import { wibDateAt } from "@workspace/relay"
 import { DateTime, Effect, Schema } from "effect"
 
@@ -82,12 +83,10 @@ const parseCoverageMonth = Effect.fnUntraced(function* (
   })
 })
 
-// `source`'s parse coverage, from its first archived month's year to the
-// current one in WIB (or its last archived month's, if later); empty before
-// any month is archived. `newest` is each archived date's newest version,
-// oldest first. `lastFinished` is the kind's last finished parse run, whose
-// parse failures mark months failed.
-export const parseCoverage = Effect.fnUntraced(function* (
+// Each archived date of `source` as a cell, oldest first. `newest` is each
+// archived date's newest version, oldest first. `lastFinished` is the kind's
+// last finished parse run, whose parse failures mark dates failed.
+export const parseCoverageCells = Effect.fnUntraced(function* (
   source: MonthSource,
   newest: ReadonlyArray<NewestVersion>,
   lastFinished: ParseRunResult | undefined
@@ -99,35 +98,89 @@ export const parseCoverage = Effect.fnUntraced(function* (
       { message, run: lastFinished.id },
     ])
   )
+  return yield* Effect.forEach(newest, ({ date, sha256 }) =>
+    parseCoverageMonth(
+      date,
+      sha256,
+      parsed.get(date),
+      failures.get(date) ?? null,
+      source.parserVersion
+    )
+  )
+})
+
+// The last year or month (by `length` of an ISO date) to lay out: the current
+// one in WIB, or the last cell's, if later.
+const lastPeriod = Effect.fnUntraced(function* (
+  cells: ReadonlyArray<ParseCoverageMonth>,
+  length: 4 | 7
+) {
+  const today = (yield* wibDateAt(yield* DateTime.now)).slice(0, length)
+  const last = cells.at(-1)?.date.slice(0, length) ?? today
+  return last > today ? last : today
+})
+
+// A monthly kind's cells, laid out year by month, from its first archived
+// month's year through the last year; empty before any month is archived.
+export const parseCoverageByMonth = Effect.fnUntraced(function* (
+  cells: ReadonlyArray<ParseCoverageMonth>
+) {
+  const first = cells.at(0)
+  if (first === undefined) return ParseCoverage.make([])
   // A cell is a month, and each kind publishes at most one report
   // a month. Should two archived dates share one, the cell shows the later:
-  // `newest` is oldest first, so the later date overwrites the earlier.
-  const cells = new Map<string, ParseCoverageMonth>()
-  for (const { date, sha256 } of newest)
-    cells.set(
-      date.slice(0, 7),
-      yield* parseCoverageMonth(
-        date,
-        sha256,
-        parsed.get(date),
-        failures.get(date) ?? null,
-        source.parserVersion
-      )
-    )
-  const first = newest.at(0)
-  const last = newest.at(-1)
-  if (first === undefined || last === undefined) return ParseCoverage.make([])
-  const lastYear = Math.max(
-    Number((yield* wibDateAt(yield* DateTime.now)).slice(0, 4)),
-    Number(last.date.slice(0, 4))
-  )
+  // `cells` is oldest first, so the later date overwrites the earlier.
+  const byMonth = new Map(cells.map((cell) => [cell.date.slice(0, 7), cell]))
   return ParseCoverage.make(
     yield* monthGrid(
       Number(first.date.slice(0, 4)),
-      `${lastYear}-12`,
+      `${yield* lastPeriod(cells, 4)}-12`,
       Effect.fnUntraced(function* (month) {
-        return cells.get(month) ?? null
+        return byMonth.get(month) ?? null
       })
     )
+  )
+})
+
+// A daily kind's parse coverage (the Above-5% parse run's): a row per month,
+// from its first archived day's month to the current one in WIB (or its last
+// archived day's, if later), oldest first.
+const DailyParseCoverage = Schema.Array(
+  Schema.Struct({
+    // YYYY-MM.
+    month: Schema.String,
+    // Its days from the 1st, each its archived trading day; null for a day
+    // with no archived report, and none past the last archived day.
+    days: Schema.Array(Schema.NullOr(ParseCoverageMonth)),
+  })
+)
+type DailyParseCoverage = typeof DailyParseCoverage.Type
+
+// A daily kind's cells, laid out month by day; empty before any day is
+// archived.
+export const parseCoverageByDay = Effect.fnUntraced(function* (
+  cells: ReadonlyArray<ParseCoverageMonth>
+) {
+  const first = cells.at(0)
+  if (first === undefined) return DailyParseCoverage.make([])
+  const byMonth = new Map<string, Array<ParseCoverageMonth | null>>()
+  for (const cell of cells) {
+    const days = byMonth.get(cell.date.slice(0, 7)) ?? []
+    days[Number(cell.date.slice(8, 10)) - 1] = cell
+    byMonth.set(cell.date.slice(0, 7), days)
+  }
+  const months = (yield* monthGrid(
+    Number(first.date.slice(0, 4)),
+    yield* lastPeriod(cells, 7),
+    Effect.succeed
+  ))
+    .flatMap(({ months: ofYear }) => ofYear)
+    .filter((month) => month >= first.date.slice(0, 7))
+  return DailyParseCoverage.make(
+    months.map((month) => ({
+      month,
+      // Array.from fills a sparse array's holes with undefined.
+      days: Array.from(byMonth.get(month) ?? [], (day) => day ?? null),
+    }))
   )
 })

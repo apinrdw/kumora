@@ -1,16 +1,21 @@
-// The Classification and Investor-type parse runs' parse coverage: each
-// archived month of the kind's reports and its state, from the shareholding
-// archive, the kind's parsed holdings and the kind's last finished parse run.
+// The shareholding parse runs' parse coverage: each archived month (or, for
+// the Above-5% parse run, trading day) of the kind's reports and its state,
+// from the shareholding archive, the kind's parsed holdings and the kind's
+// last finished parse run.
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
 import { RunId } from "@/server/archive/run"
+import { above5ParseRuns } from "@/server/shareholding/above-5-parse"
 import { archiveRun } from "@/server/shareholding/archive-run"
 import { classificationParseRuns } from "@/server/shareholding/classification-parse"
 import { investorTypeParseRuns } from "@/server/shareholding/investor-type-parse"
 
 import {
+  above5Fixture,
+  above5Item,
+  above5Items,
   classificationFixture,
   classificationItem,
   type ClassificationFixture,
@@ -20,6 +25,7 @@ import {
   investorTypeFixture,
   investorTypeItem,
   investorTypeItems,
+  listedSharesItems,
   type ListingItem,
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
@@ -142,7 +148,11 @@ const INVESTOR_TYPE: Kind = {
     ),
 }
 
-const parse = ({ bucket, holdings }: World, { runs }: Kind, id: string) =>
+const parse = (
+  { bucket, holdings }: World,
+  { runs }: Pick<Kind, "runs"> | { runs: typeof above5ParseRuns },
+  id: string
+) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
       runs.run(
@@ -349,6 +359,109 @@ describe("the two kinds' parse coverage", () => {
         yield* parseCoverage(w, INVESTOR_TYPE),
         states(INVESTOR_TYPE, "parsed", "failed")
       )
+    })
+  )
+})
+
+describe("the above-5% parse coverage", () => {
+  // IDX listing every above-5% fixture's day, and the investor-type reports
+  // its listed shares come from.
+  const above5World = (): World => {
+    const bucket = memoryBucket()
+    return {
+      idx: fakeIdx([...above5Items(), ...listedSharesItems()]),
+      bucket,
+      holdings: memoryHoldingsDb(),
+      index: archiveDbOf(bucket),
+    }
+  }
+
+  const parseAbove5 = (w: World, id: string) =>
+    parse(w, INVESTOR_TYPE, id).pipe(
+      Effect.andThen(parse(w, { runs: above5ParseRuns }, id))
+    )
+
+  const coverage = ({ bucket, holdings, index }: World) =>
+    readAlone(above5ParseRuns.parseCoverage).pipe(
+      Effect.provide(Layer.mergeAll(bucket.layer, holdings.layer, index.layer))
+    )
+
+  // Each month's row as its archived days' day of month and state, by the
+  // square's place in the row.
+  const squares = (w: World) =>
+    coverage(w).pipe(
+      Effect.map((months) =>
+        Object.fromEntries(
+          months.map(({ month, days }) => [
+            month,
+            days.flatMap((day, i) =>
+              day === null ? [] : [`${i + 1} ${day.date} ${day.state}`]
+            ),
+          ])
+        )
+      )
+    )
+
+  it.effect("lays out each archived trading day in its month's row", () =>
+    Effect.gen(function* () {
+      const w = above5World()
+      yield* archive(w, "cron-2026-11-25T06")
+      assert.deepStrictEqual(yield* squares(w), {
+        "2026-06": [
+          "11 2026-06-11 not-parsed",
+          "12 2026-06-12 not-parsed",
+          "24 2026-06-24 not-parsed",
+          "25 2026-06-25 not-parsed",
+        ],
+        "2026-07": [],
+        "2026-08": [],
+        "2026-09": [],
+        "2026-10": [],
+        "2026-11": ["19 2026-11-19 not-parsed", "20 2026-11-20 not-parsed"],
+      })
+    })
+  )
+
+  it.effect(
+    "marks each day parsed, with the stocks it holds, not its holders",
+    () =>
+      Effect.gen(function* () {
+        const w = above5World()
+        yield* archive(w, "cron-2026-11-25T06")
+        yield* parseAbove5(w, "cron-2026-11-25")
+        assert.deepStrictEqual((yield* squares(w))["2026-11"], [
+          "19 2026-11-19 parsed",
+          "20 2026-11-20 parsed",
+        ])
+        // 19 Nov lists 28 above-5% holders of 7 stocks.
+        const november = (yield* coverage(w)).find(
+          ({ month }) => month === "2026-11"
+        )
+        assert.strictEqual(november?.days[18]?.parsed?.stockCount, 7)
+      })
+  )
+
+  it.effect("marks a day failed with its run's message, keeping the rest", () =>
+    Effect.gen(function* () {
+      const w = above5World()
+      yield* archive(w, "cron-2026-11-25T06")
+      yield* parseAbove5(w, "cron-2026-11-25")
+      republish(w, above5Item("2026-11-20"), above5Fixture("unknown-header"))
+      yield* archive(w, "cron-2026-11-25T13")
+      yield* parseAbove5(w, "cron-2026-11-26")
+      const months = yield* coverage(w)
+      assert.deepStrictEqual((yield* squares(w))["2026-06"], [
+        "11 2026-06-11 parsed",
+        "12 2026-06-12 parsed",
+        "24 2026-06-24 parsed",
+        "25 2026-06-25 parsed",
+      ])
+      const day = months.find(({ month }) => month === "2026-11")?.days[19]
+      assert.strictEqual(day?.state, "failed")
+      assert.strictEqual(day?.failure?.run, "cron-2026-11-26")
+      assert.include(day?.failure?.message, "Perubahan")
+      // Its older parsed holdings stay.
+      assert.strictEqual(day?.parsed?.stockCount, 7)
     })
   )
 })

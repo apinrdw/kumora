@@ -10,6 +10,7 @@ import {
   ABOVE_1_PARSER_VERSION,
   parseAbove1Month,
 } from "../holdings/above-1.ts"
+import { parseCoverageByMonth } from "../holdings/parse-coverage.ts"
 import { parseRunsOf } from "../holdings/parse-runs.ts"
 import { kindPrefix, reportKey } from "./keys.ts"
 import { shareholdingIndex } from "./report-index.ts"
@@ -36,5 +37,6 @@ export const above1ParseRuns = parseRunsOf({
     parse: parseAbove1Month,
   },
   newestVersions: shareholdingIndex.newestVersions(KIND),
+  coverageLayout: parseCoverageByMonth,
   workflow: Above1ParseWorkflow,
 })

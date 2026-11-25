@@ -10,6 +10,7 @@ import {
   ABOVE_5_PARSER_VERSION,
   parseAbove5Day,
 } from "../holdings/above-5.ts"
+import { parseCoverageByDay } from "../holdings/parse-coverage.ts"
 import { parseRunsOf } from "../holdings/parse-runs.ts"
 import { kindPrefix, reportKey } from "./keys.ts"
 import { shareholdingIndex } from "./report-index.ts"
@@ -36,5 +37,6 @@ export const above5ParseRuns = parseRunsOf({
     parse: parseAbove5Day,
   },
   newestVersions: shareholdingIndex.newestVersions(KIND),
+  coverageLayout: parseCoverageByDay,
   workflow: Above5ParseWorkflow,
 })
