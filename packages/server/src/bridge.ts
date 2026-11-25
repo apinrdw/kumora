@@ -1,4 +1,4 @@
-import { redirect } from "@tanstack/react-router"
+import { defaultParseSearch, redirect } from "@tanstack/react-router"
 import {
   Cause,
   Context,
@@ -60,15 +60,13 @@ const respond: {
   Unauthorized: (e) => Effect.map(routerRedirect(e.redirectTo), redirect),
 }
 
-// `redirectTo` is a router path, so the redirect names its route and search
-// and the router adds its basepath. An `href` would reach the Location header
-// as is.
+// An `href` would reach the Location header as is. The search is read with
+// the router's own parser, so a typed value is written back as it was.
+// Decision: `redirectTo` is a router path, so the router adds its basepath
+// (docs/adr/0020-the-dashboard-is-served-under-dashboard-on-every-stage.md)
 const routerRedirect = Effect.fnUntraced(function* (path: string) {
   const url = new URL(path, "http://router.invalid")
-  return {
-    to: url.pathname,
-    search: Object.fromEntries(url.searchParams),
-  }
+  return { to: url.pathname, search: defaultParseSearch(url.search) }
 })
 
 const json = Effect.fnUntraced(function* (
