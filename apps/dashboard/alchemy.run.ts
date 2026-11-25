@@ -85,9 +85,13 @@ const HoldingsDb = apacDatabase("HoldingsDb", "./holdings-migrations")
 // the migration's column order.
 // Decision: a data set gets a D1 of its own, read replication off
 // (apps/dashboard/docs/adr/0001-each-data-set-gets-its-own-d1-with-read-replication-off.md)
-const BrokerTotalsDb = Cloudflare.D1.Database("BrokerTotalsDb", {
-  migrations: "./broker-totals-migrations",
-})
+//
+// Decision: every D1 is recreated in apac by cloning the one it replaces
+// (apps/dashboard/docs/adr/0124-every-d1-is-recreated-in-apac-by-cloning-the-one-it-replaces.md)
+const BrokerTotalsDb = apacDatabase(
+  "BrokerTotalsDb",
+  "./broker-totals-migrations"
+)
 
 // Both archives' metadata: the report index, read by the admin pages. On
 // every stage like the archive buckets; it fills from its stage's buckets
