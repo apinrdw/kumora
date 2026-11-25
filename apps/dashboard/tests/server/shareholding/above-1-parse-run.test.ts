@@ -5,6 +5,7 @@ import { StockCode } from "@workspace/relay"
 import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
+import { everyMonth } from "@/lib/every-month"
 import { majorHolders as monthHolders } from "@/lib/major-holders"
 import { RunId } from "@/server/archive/run"
 import { ParseRunResult } from "@/server/holdings/parse-run-result"
@@ -453,7 +454,7 @@ describe("an above-1% parse run", () => {
         const changes = Object.fromEntries(
           (october?.listed ?? []).map((line) => [
             line.name,
-            [line.change, line.ppChange, line.shareChange],
+            [line.change, line.percentageChange, line.shareChange],
           ])
         )
         assert.deepInclude(changes, {
@@ -461,6 +462,81 @@ describe("an above-1% parse run", () => {
           "GARIBALDI THOHIR": ["down", -12, 1_816_046_428],
           "EDWIN SOERYADJAYA": ["up", 8, 1_095_822_544],
         })
+      })
+  )
+
+  it.effect(
+    "keeps a holder that left as Off list since the month after it left, on every later month",
+    () =>
+      Effect.gen(function* () {
+        const w = world()
+        yield* archive(w, "cron-2026-11-14T13")
+        yield* parse(w, "cron-2026-11-14")
+        const { majorHolders: months } = yield* stockPage(
+          StockCode.make("BSDE"),
+          undefined
+        ).pipe(Effect.provide(w.holdings.layer))
+        const history = Effect.fnUntraced(function* (month: string) {
+          return (yield* monthHolders(months, month))?.history.map(
+            ({ name, offListSince }) => [name, offListSince]
+          )
+        })
+        const april = [
+          ["MORNING BRIGHT INVESTMENTS LIMITED", "2026-04-30"],
+          ["EUROTRADE DEVELOPMENTS LIMITED", "2026-04-30"],
+          ["PT.  PARAGA ARTA MIDA", "2026-04-30"],
+        ]
+        // April lists them as its Off list; every later month as history.
+        assert.deepStrictEqual(yield* history("2026-04"), [])
+        assert.deepStrictEqual(yield* history("2026-08"), april)
+        assert.deepStrictEqual(yield* history("2026-10"), [
+          ["GOVERNMENT OF NORWAY", "2026-09-30"],
+          ...april,
+        ])
+      })
+  )
+
+  it.effect(
+    "keeps a holder that leaves and returns as one holder, New on its return",
+    () =>
+      Effect.gen(function* () {
+        const w = world()
+        yield* archive(w, "cron-2026-11-14T13")
+        yield* parse(w, "cron-2026-11-14")
+        const { majorHolders: months } = yield* stockPage(
+          StockCode.make("TLKM"),
+          undefined
+        ).pipe(Effect.provide(w.holdings.layer))
+        const name =
+          "PERUSAHAAN PERSEROAN (PERSERO) PT DANANTARA ASSET MANAGEMENT"
+        const named = Effect.fnUntraced(function* (month: string) {
+          const shown = yield* monthHolders(months, month)
+          return [
+            ...(shown?.listed ?? []),
+            ...(shown?.offList ?? []),
+            ...(shown?.history ?? []),
+          ].filter((line) => line.name === name)
+        })
+        const [february] = yield* named("2026-02")
+        const [april] = yield* named("2026-04")
+        const [august] = yield* named("2026-08")
+        assert.strictEqual(april?.change, "off list")
+        assert.strictEqual(august?.change, "new")
+        assert.strictEqual(august?.holder, february?.holder)
+        assert.strictEqual(april?.holder, february?.holder)
+        // Listed in September: out of its history, and one row in the grid.
+        assert.lengthOf(yield* named("2026-09"), 1)
+        const grid = yield* everyMonth(months, "2026-09-30")
+        assert.deepStrictEqual(
+          grid.rows
+            .filter((row) => row.name === name)
+            .map(({ cells }) =>
+              cells.map((cell) =>
+                cell === undefined ? "not listed" : (cell.move ?? "listed")
+              )
+            ),
+          [["listed", "not listed", "return", "listed", "not listed"]]
+        )
       })
   )
 

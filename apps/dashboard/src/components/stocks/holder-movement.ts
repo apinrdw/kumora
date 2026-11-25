@@ -1,9 +1,9 @@
-// How the Major holders panel shows a holder's movement against the month
+// How the Major holders panel shows a holder's move against the month
 // before: the table's chips and the Every month grid's marks both read it.
-import type { Change } from "@/lib/major-holders"
+import type { Move } from "@/lib/holder-identity"
 
 export const MOVEMENT: Record<
-  Change,
+  Move,
   { readonly label: string; readonly text: string; readonly chip: string }
 > = {
   new: { label: "New", text: "text-info", chip: "bg-info/15" },
