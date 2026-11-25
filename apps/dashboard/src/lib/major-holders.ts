@@ -253,7 +253,7 @@ export const majorHoldersOn = Effect.fnUntraced(function* (
 // server/holdings/holder-moves.ts), and a stock with a line there is in it,
 // so a line's link opens the report it came from.
 //
-// Decision: a calendar month with two reports shows its newest
+// Decision: a calendar month with two reports shows its newest that holds the stock
 // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
 export const monthReports = (months: ReadonlyArray<MajorHoldersMonth>) =>
   Effect.sync(() => {

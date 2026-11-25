@@ -492,7 +492,7 @@ A ≥5% holder is one investor holding at least 5% of a stock's shares outstandi
 _Avoid_: Minor holders, insiders, block holders
 
 **Major holders**:
-The stock page's panel that lists a stock's ≥1% holders for one above-1% report month, each against the month before, with the stock's listed shares split among them, and every holder's share across every month the stock has. Every earlier ≥1% holder of the stock stays listed below them as Off list since the month it left.
+The stock page's panel that lists a stock's ≥1% holders for one above-1% report month, each against the month before, with the stock's listed shares split among them, and every holder's share across every month the stock has. Every earlier ≥1% holder of the stock stays listed below them as Off list since the month it left. A calendar month with two above-1% reports shows the newer one that lists the stock.
 _Avoid_: Shareholder list, top holders, ≥5% holders (Holder size's band)
 
 **Daily holders**:

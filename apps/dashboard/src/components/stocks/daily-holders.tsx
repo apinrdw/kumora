@@ -204,6 +204,8 @@ function HoldersTable({ holders }: { holders: HoldersDay }) {
           </tr>
         </thead>
         <tbody>
+          {/* Decision: a page renders a list of stored rows through BoundedRows
+              (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md) */}
           <BoundedRows rows={Effect.runSync(tableRows(holders))}>
             {(row) =>
               row.kind === "holder" ? (

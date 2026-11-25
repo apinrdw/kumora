@@ -27,6 +27,10 @@ Undoing this means another bound on the read, such as reading by the selected pe
 
 Sites:
 - `apps/dashboard/src/components/k/bounded-rows.tsx`
+- `apps/dashboard/src/components/holder-moves/holder-moves.tsx`
+- `apps/dashboard/src/components/stocks/daily-holders.tsx`
+- `apps/dashboard/src/components/stocks/every-month.tsx`
+- `apps/dashboard/src/components/stocks/major-holders.tsx`
 - `apps/dashboard/src/server/holdings/holders-window.ts`
 - `apps/dashboard/src/server/holdings/stock-page.ts`
 - `apps/dashboard/tests/server/holdings/stock-page-heap.test.ts`

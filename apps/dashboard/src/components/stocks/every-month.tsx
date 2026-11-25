@@ -88,6 +88,8 @@ export function EveryMonth({
             </tr>
           </thead>
           <tbody>
+            {/* Decision: a page renders a list of stored rows through BoundedRows
+                (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md) */}
             <BoundedRows
               rows={rows}
               bound={Math.max(

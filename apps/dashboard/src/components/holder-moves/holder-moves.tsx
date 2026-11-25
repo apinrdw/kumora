@@ -282,6 +282,8 @@ function MovesTable({
               </td>
             </tr>
           ) : (
+            // Decision: a page renders a list of stored rows through BoundedRows
+            // (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
             <BoundedRows rows={lines}>
               {(line) => (
                 <MoveRow
@@ -521,6 +523,8 @@ function Rail({
           </p>
         ) : (
           <ul className="flex max-h-140 flex-col gap-3 overflow-auto">
+            {/* Decision: a page renders a list of stored rows through BoundedRows
+                (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md) */}
             <BoundedRows rows={crossed}>
               {(line) => (
                 <li
