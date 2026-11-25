@@ -115,6 +115,24 @@ describe("Major holders' figures", () => {
     })
   )
 
+  // Two reports in October, the stock in the older one only (apinrdw/kumora#673's
+  // review): the month opened another month's report.
+  it.effect(
+    "show a month's newest report that holds the stock, not a later one without it",
+    () =>
+      Effect.gen(function* () {
+        const months = [
+          SEPTEMBER,
+          month("2026-10-29", OCTOBER.holders),
+          month("2026-10-30", []),
+          month("2026-11-30", [holder("A", [row("ALPHA", 2000, 2000)])]),
+        ]
+        expect((yield* majorHolders(months, "2026-10"))?.dataDate).toBe(
+          "2026-10-29"
+        )
+      })
+  )
+
   it.effect("compare nothing after a month without the stock", () =>
     Effect.gen(function* () {
       const shown = yield* majorHolders(

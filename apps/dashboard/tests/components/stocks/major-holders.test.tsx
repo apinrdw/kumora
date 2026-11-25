@@ -334,6 +334,45 @@ describe("Major holders", () => {
     expect(picked).toEqual(["2026-09-30"])
   })
 
+  // Two reports in October, the stock in the older one only: one tab a
+  // month, and October's opens the report that holds the stock.
+  test("offers one tab a month, opening its newest report that holds the stock", async () => {
+    const [, september, october] = MONTHS
+    const picked: Array<string> = []
+    await render({
+      months: [
+        month("2026-09-30", september?.holders ?? []),
+        month("2026-10-29", october?.holders ?? []),
+        month("2026-10-30", []),
+        month("2026-11-28", []),
+        month("2026-11-30", []),
+        month("2026-12-30", september?.holders ?? []),
+      ],
+      month: "2026-10",
+      onMonth: (dataDate) => picked.push(dataDate),
+    })
+    const tabs = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="Month"] button'
+      ),
+    ]
+    expect(
+      tabs.map((tab) => [
+        tab.textContent,
+        tab.getAttribute("aria-disabled"),
+        tab.getAttribute("aria-pressed"),
+      ])
+    ).toEqual([
+      ["Sep 2026", "false", "false"],
+      ["Oct 2026", "false", "true"],
+      ["Nov 2026", "true", "false"],
+      ["Dec 2026", "false", "false"],
+    ])
+    expect(text()).toContain("vs Sep 2026: 1 new, 1 up, 0 down, 1 off list")
+    for (const tab of tabs) await act(() => tab.click())
+    expect(picked).toEqual(["2026-09-30", "2026-10-29", "2026-12-30"])
+  })
+
   test("says a stock in no above-1% report has no ≥1% holders", async () => {
     await render({ months: [month("2026-10-30", [])] })
     expect(text()).toContain(
