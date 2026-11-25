@@ -25,7 +25,9 @@ import {
 } from "@/lib/broker-inventory"
 
 // `YYYY-MM`; absent for the stock's newest month.
-const Month = Schema.String.check(Schema.isPattern(/^\d{4}-(0[1-9]|1[0-2])$/))
+export const Month = Schema.String.check(
+  Schema.isPattern(/^\d{4}-(0[1-9]|1[0-2])$/)
+)
 
 // The origin the panel or the chart shows: one, or all holdings.
 export type OriginShown = SplitOrigin | "all"

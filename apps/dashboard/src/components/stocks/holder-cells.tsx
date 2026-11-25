@@ -217,15 +217,18 @@ const TREND_SLOTS = 20
 const TREND_WIDTH = 160
 const TREND_HEIGHT = 26
 
-// One bar per trading day, the selected day last and shaded: a change in
-// shares up or down from the midline on a square-root scale, a full bar
-// where the holder entered (blue) or left (grey) the list.
+// One bar per period (a trading day or a month), the selected one last and
+// shaded: a change in shares up or down from the midline on a square-root
+// scale, a full bar where the holder entered (blue) or left (grey) the list.
 export function Trend({
   cells,
   name,
+  periods,
 }: {
   cells: ReadonlyArray<TrendCell>
   name: string
+  // What a bar is, plural: "trading days", "months".
+  periods: string
 }) {
   const slot = TREND_WIDTH / TREND_SLOTS
   const offset = TREND_SLOTS - cells.length
@@ -242,7 +245,7 @@ export function Trend({
       height={TREND_HEIGHT}
       viewBox={`0 0 ${TREND_WIDTH} ${TREND_HEIGHT}`}
       role="img"
-      aria-label={`${name}: change in lots on each of the last ${cells.length} trading days`}
+      aria-label={`${name}: change in lots on each of the last ${cells.length} ${periods}`}
       className="ml-auto block"
     >
       <line

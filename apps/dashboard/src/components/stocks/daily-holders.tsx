@@ -323,7 +323,7 @@ function HolderRow({
         )}
       </td>
       <td data-trend-cell className="text-right">
-        <Trend cells={line.trend} name={line.name} />
+        <Trend cells={line.trend} name={line.name} periods="trading days" />
       </td>
     </tr>
   )

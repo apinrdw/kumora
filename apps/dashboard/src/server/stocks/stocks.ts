@@ -65,12 +65,12 @@ export const stockListView = Effect.fn("stockListView")(function* (
 })
 
 // /holder-moves' read, open to every signed-in member as the stock page is.
-// `day` is the URL's `YYYY-MM-DD`.
+// `period` is the URL's day (`YYYY-MM-DD`) or month (`YYYY-MM`).
 export const holderMovesPageView = Effect.fn("holderMovesPageView")(function* (
   headers: Headers,
   kind: MoveKind,
-  day: string | undefined
+  period: string | undefined
 ) {
   yield* authorize(headers, "/holder-moves")
-  return yield* holderMovesRead(kind, day)
+  return yield* holderMovesRead(kind, period)
 })

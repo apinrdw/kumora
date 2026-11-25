@@ -13,6 +13,7 @@ import { afterEach, describe, expect, test } from "vitest"
 
 import { HolderMovesPage } from "@/components/holder-moves/holder-moves"
 import type { HolderId } from "@/lib/holder-identity"
+import type { MoveKind } from "@/domain/holdings"
 import type { HolderMoves, MoveFilter, MoveLine } from "@/lib/holder-moves"
 
 // React's `act` warns outside a test environment that declares itself.
@@ -100,8 +101,12 @@ const root = createRoot(container)
 afterEach(() => act(() => root.render(null)))
 
 // The page in a memory router, so its links resolve, holding the filter and
-// the search as the route's URL would; each day picked is recorded.
-const render = async (moves: HolderMoves | undefined) => {
+// the search as the route's URL would; each period and kind picked is
+// recorded.
+const render = async (
+  moves: HolderMoves | undefined,
+  kind: MoveKind = moves?.kind ?? "daily"
+) => {
   const picked: Array<string> = []
   function Stateful() {
     const [filter, setFilter] = useState<MoveFilter>("all")
@@ -109,12 +114,14 @@ const render = async (moves: HolderMoves | undefined) => {
     return (
       <TooltipProvider>
         <HolderMovesPage
+          kind={kind}
           moves={moves}
           filter={filter}
           search={search}
           onFilter={setFilter}
           onSearch={setSearch}
           onPeriod={(period) => picked.push(period)}
+          onKind={(next) => picked.push(next)}
         />
       </TooltipProvider>
     )
@@ -312,5 +319,123 @@ describe("Holder moves", () => {
     await render(undefined)
     expect(text()).toContain("No day of IDX's above-5% report is parsed yet.")
     expect(container.querySelector("table")).toBeNull()
+  })
+
+  test("toggles between Daily and Monthly", async () => {
+    const picked = await render(MOVES)
+    const toggle = container.querySelector('[role="group"][aria-label="Kind"]')
+    expect(
+      [...(toggle?.querySelectorAll("button") ?? [])].map((each) => [
+        each.textContent,
+        each.getAttribute("aria-pressed"),
+      ])
+    ).toEqual([
+      ["Daily", "true"],
+      ["Monthly", "false"],
+    ])
+    await act(() => button("Monthly").click())
+    expect(picked).toEqual(["monthly"])
+  })
+
+  test("offers the toggle before a month is parsed", async () => {
+    const picked = await render(undefined, "monthly")
+    expect(text()).toContain("No month of IDX's above-1% report is parsed yet.")
+    await act(() => button("Daily").click())
+    expect(picked).toEqual(["daily"])
+  })
+})
+
+const MONTHLY: HolderMoves = {
+  kind: "monthly",
+  period: "2026-08-31",
+  against: "2026-04-30",
+  lines: [
+    {
+      ...line("TLKM", "DANANTARA", "new", [], { now: 5157 }),
+      trend: [null, "out", "in"],
+    },
+    line(
+      "TLKM",
+      "THE BANK OF NEW YORK MELLON",
+      "up",
+      [],
+      { before: 594, now: 631 },
+      362_889_000
+    ),
+    line("TRUE", "DJONI", "off list", [], { before: 509 }),
+  ],
+  counts: { new: 1, up: 1, down: 0, offList: 1 },
+  stockCount: 2,
+  rail: [
+    { period: "2026-04-30", counts: { new: 3, up: 3, down: 5, offList: 6 } },
+    { period: "2026-08-31", counts: { new: 1, up: 1, down: 0, offList: 1 } },
+  ],
+}
+
+describe("Holder moves, Monthly", () => {
+  test("heads the month's ≥1% moves, with no Through column", async () => {
+    await render(MONTHLY)
+    expect(text()).toContain(
+      "3 holders above 1% moved across 2 stocks in Aug 2026, against Apr 2026."
+    )
+    expect(
+      [...container.querySelectorAll("thead th")].map((th) => th.textContent)
+    ).toEqual(["Stock", "Holder", "Move", "Lots", "Stake", "Change", "Trend"])
+    expect(rows().map((row) => row.slice(1, 6))).toEqual([
+      ["DANANTARA", "New", "—", "under 1% → 51.57%", "—"],
+      [
+        "THE BANK OF NEW YORK MELLON",
+        "Up",
+        "+3,628,890",
+        "5.94% → 6.31%",
+        "+0.37%",
+      ],
+      ["DJONI", "Off list", "—", "5.09% → under 1%", "—"],
+    ])
+    expect(
+      container
+        .querySelector("tbody tr[data-move] svg")
+        ?.getAttribute("aria-label")
+    ).toBe("DANANTARA: change in lots on each of the last 3 months")
+  })
+
+  test("links each row to its stock's Major holders in the month", async () => {
+    await render(MONTHLY)
+    expect(
+      [...container.querySelectorAll("tbody tr[data-move] a")].map((link) =>
+        link.getAttribute("href")
+      )
+    ).toEqual([
+      "/stocks/TLKM?holdersMonth=2026-08#major-holders",
+      "/stocks/TLKM?holdersMonth=2026-08#major-holders",
+      "/stocks/TRUE?holdersMonth=2026-08#major-holders",
+    ])
+  })
+
+  test("rails the last months' counts, picking one on click", async () => {
+    const picked = await render(MONTHLY)
+    expect(text()).toContain("Last 2 months")
+    await act(() =>
+      button("Apr 2026: 6 new or up, 11 down or off list").click()
+    )
+    expect(picked).toEqual(["2026-04-30"])
+    expect(
+      [...container.querySelectorAll("aside li")].map(
+        (item) => item.textContent
+      )
+    ).toEqual(["TLKMDANANTARAIn at 51.57%", "TRUEDJONIOut 5.09% → under 1%"])
+  })
+
+  test("says when the month is the first parsed", async () => {
+    await render({
+      ...MONTHLY,
+      period: "2026-02-27",
+      against: undefined,
+      lines: [],
+      rail: [],
+    })
+    expect(text()).toContain(
+      "Feb 2026 is the first month parsed, so nothing to compare it with."
+    )
   })
 })

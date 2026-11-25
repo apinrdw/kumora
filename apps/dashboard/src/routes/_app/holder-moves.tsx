@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { WibDate } from "@workspace/relay"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { Effect } from "effect"
 import { useCallback, useMemo } from "react"
@@ -12,6 +11,8 @@ import {
   kindOf,
   moveSearch,
   parseHolderMovesSearch,
+  periodOf,
+  periodSearch,
 } from "@/lib/holder-moves-search"
 import type { HolderMovesRead } from "@/server/holdings/holder-moves"
 import { holderMovesFn } from "@/server/stocks/stocks.functions"
@@ -23,17 +24,18 @@ export const Route = createFileRoute("/_app/holder-moves")({
   },
   validateSearch: (raw: Record<string, unknown>) =>
     Effect.runSync(parseHolderMovesSearch(raw)),
-  // The filter and the search narrow the rows already read.
+  // The filter and the search narrow the rows already read, and the other
+  // kind's period waits in the URL for the toggle.
   loaderDeps: ({ search }) => ({
     kind: Effect.runSync(kindOf(search)),
-    day: search.day,
+    period: Effect.runSync(periodOf(search)),
   }),
   // Declared, so the route's type doesn't depend on itself through
   // loadServerFn.
   loader: ({ deps }): Promise<HolderMovesRead> =>
     runLoader(
       loadServerFn(() =>
-        holderMovesFn({ data: { kind: deps.kind, day: deps.day } })
+        holderMovesFn({ data: { kind: deps.kind, period: deps.period } })
       )
     ),
   head: () => ({ meta: [{ title: "Holder moves · KUMORA Terminal" }] }),
@@ -57,16 +59,17 @@ function HolderMovesRoute() {
   )
   return (
     <HolderMovesPage
+      kind={read.kind}
       moves={moves}
       filter={Effect.runSync(filterOf(search))}
       search={search.q ?? ""}
       onFilter={(next) => setSearch({ move: Effect.runSync(moveSearch(next)) })}
       onSearch={(next) => setSearch({ q: next === "" ? undefined : next })}
       onPeriod={(period) =>
-        setSearch({
-          day:
-            period === read.periods.at(-1) ? undefined : WibDate.make(period),
-        })
+        setSearch(Effect.runSync(periodSearch(read.kind, period, read.periods)))
+      }
+      onKind={(kind) =>
+        setSearch({ kind: kind === "daily" ? undefined : kind })
       }
     />
   )
