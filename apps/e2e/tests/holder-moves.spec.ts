@@ -24,6 +24,16 @@ const ABOVE_5_DAYS = [
 ]
 const INVESTOR_TYPE_MONTHS = ["2026-05-29", "2026-10-30"]
 
+// The trimmed above-1% fixtures. Their Sep and Oct replace whatever the
+// stocks spec seeded there, so Oct against Sep is theirs alone.
+const ABOVE_1_MONTHS = [
+  "2026-02-27",
+  "2026-04-30",
+  "2026-08-31",
+  "2026-09-30",
+  "2026-10-30",
+]
+
 const parseCard = (page: Page, kind: string) =>
   page.getByRole("region", { name: new RegExp(`Last ${kind} parse run`) })
 
@@ -44,7 +54,9 @@ async function parseNow(page: Page, kind: string) {
 }
 
 const headline = (page: Page) =>
-  page.getByRole("heading", { name: "Holder moves" }).locator("+ p")
+  page
+    .getByRole("heading", { name: "Holder moves" })
+    .locator("xpath=../following-sibling::p")
 
 const moves = (page: Page) =>
   page.getByRole("table", { name: "Holder moves" }).locator("tbody tr")
@@ -54,6 +66,9 @@ const railDay = (page: Page, day: RegExp) =>
 
 const searchBox = (page: Page) =>
   page.getByRole("searchbox", { name: "Search stock, holder or broker" })
+
+const kindToggle = (page: Page, name: "Daily" | "Monthly") =>
+  page.getByRole("group", { name: "Kind" }).getByRole("button", { name })
 
 const moveFilter = (page: Page, name: RegExp) =>
   page.getByRole("group", { name: "Move" }).getByRole("button", { name })
@@ -72,7 +87,9 @@ test.describe.serial("Holder moves", () => {
   test.describe("an admin", () => {
     test.use({ storageState: ADMIN.storageState })
 
-    test("parses the archived above-5% days", async ({ page }) => {
+    test("parses the archived above-5% days and above-1% months", async ({
+      page,
+    }) => {
       for (const month of INVESTOR_TYPE_MONTHS)
         await seedReportFixture(
           "investor-type",
@@ -87,8 +104,16 @@ test.describe.serial("Holder moves", () => {
           day,
           FETCHED_AT
         )
+      for (const month of ABOVE_1_MONTHS)
+        await seedReportFixture(
+          "above-1",
+          `above-1-${month}.xlsx`,
+          month,
+          FETCHED_AT
+        )
       await parseNow(page, "investor-type")
       await parseNow(page, "above-5%")
+      await parseNow(page, "above-1%")
     })
   })
 
@@ -163,6 +188,72 @@ test.describe.serial("Holder moves", () => {
           .getByRole("region", { name: "Daily holders" })
           .getByRole("combobox", { name: "Trading day" })
       ).toHaveValue("2026-11-19")
+    })
+
+    test("switches to a month's moves, keeping each kind's period, and opens a stock", async ({
+      page,
+    }) => {
+      await page.goto(`${HOLDER_MOVES}?day=2026-11-19`)
+      await expect(kindToggle(page, "Daily")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      )
+      await clickUntil(kindToggle(page, "Monthly"), () =>
+        expect(page).toHaveURL(/[?&]kind=monthly/, { timeout: 1000 })
+      )
+      // The newest parsed month, against the one before.
+      await expect(headline(page)).toHaveText(
+        "15 holders above 1% moved across 5 stocks in Oct 2026, against Sep 2026."
+      )
+      await expect(
+        page.getByRole("table", { name: "Holder moves" }).locator("thead th")
+      ).toHaveText([
+        "Stock",
+        "Holder",
+        "Move",
+        "Lots",
+        "Stake",
+        "Change",
+        "Trend",
+      ])
+      // TLKM's Danantara, back on the list under a new name.
+      await expect(
+        moves(page).filter({ hasText: /^TLKM.*DANANTARA ASSET MANAGEMENTNew/ })
+      ).toContainText("under 1% → 52.16%")
+
+      await railDay(page, /^Sep 2026: 3 new or up, 5 down or off list$/).click()
+      await expect(page).toHaveURL(/[?&]month=2026-09/)
+      await expect(headline(page)).toHaveText(
+        "8 holders above 1% moved across 5 stocks in Sep 2026, against Aug 2026."
+      )
+
+      // Each kind comes back on the period picked in it.
+      await kindToggle(page, "Daily").click()
+      await expect(headline(page)).toContainText("on 19 Nov 2026")
+      await kindToggle(page, "Monthly").click()
+      await expect(headline(page)).toContainText("in Sep 2026")
+
+      // The row opens TLKM's Major holders in that month.
+      await moves(page)
+        .filter({ hasText: "THE BANK OF NEW YORK MELLON" })
+        .getByRole("link", { name: /^TLKM / })
+        .click()
+      await expect(page).toHaveURL(
+        /\/stocks\/TLKM\?holdersMonth=2026-09#major-holders$/
+      )
+      const majorHolders = page.getByRole("region", { name: "Major holders" })
+      await expect(
+        majorHolders
+          .getByRole("group", { name: "Month" })
+          .getByRole("button", { name: "Sep 2026", exact: true })
+      ).toHaveAttribute("aria-pressed", "true")
+      await expect(
+        majorHolders
+          .getByRole("table", { name: "Major holders" })
+          .getByRole("row")
+          // Not its depositary receipts' holder, off list since April.
+          .filter({ hasText: /THE BANK OF NEW YORK MELLON(?! DR)/ })
+      ).toContainText("Down")
     })
   })
 })
