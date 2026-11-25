@@ -1,0 +1,42 @@
+import json,collections,sys
+rt=json.load(open(sys.argv[1]))
+win=[('10:23:00','10:24:00'),('14:00:00','14:00:06')]
+num=lambda s:float(s.replace(',',''))
+def brk(s): c,t=s.split(' '); return c,t.strip('[]')
+out=[]
+for a,b in win:
+    tr=sorted([r for r in rt if r['market_board']=='RG' and a<=r['time']<b],key=lambda r:int(r['trade_number']))
+    # whole sweeps: code side second (ignore interleave by other side within second -> approximate: group by time+action)
+    sw=collections.defaultdict(list)
+    for r in tr: sw[(r['time'],r['action'])].append(r)
+    for (t,side),rs in sw.items():
+        aggb=lambda r: brk(r['buyer'] if side=='buy' else r['seller'])
+        othb=lambda r: brk(r['seller'] if side=='buy' else r['buyer'])
+        ao=lambda r:int(r['buy_order_number'] if side=='buy' else r['sell_order_number'])
+        po=lambda r:int(r['sell_order_number'] if side=='buy' else r['buy_order_number'])
+        perb=collections.defaultdict(list)
+        for r in rs: perb[aggb(r)].append(r)
+        for (bc,bt),prs in perb.items():
+            orders=sorted(set(ao(r) for r in prs)); runs=[[orders[0]]]
+            for o in orders[1:]:
+                (runs[-1].append(o) if o-runs[-1][-1]<=3 else runs.append([o]))
+            def piece(trs,runlist):
+                lots=sum(num(r['lot']) for r in trs); val=sum(r['value']['raw'] for r in trs)
+                oth=collections.Counter()
+                for r in trs: oth[othb(r)]+=num(r['lot'])
+                po_l=collections.Counter()
+                for r in trs: po_l[po(r)]+=num(r['lot'])
+                lead=oth.most_common(1)[0]
+                return dict(time=t,side=side,first=num(trs[0]['price']),last=num(trs[-1]['price']),lots=lots,value=val,trades=len(trs),
+                    id=int(trs[0]['trade_number']),agg=[bc,bt],orders=len(set(ao(r) for r in trs)),runs=len(runlist),
+                    lo=min(ao(r) for r in trs),hi=max(ao(r) for r in trs),
+                    other=[lead[0][0],lead[0][1]],otherMore=len(oth)-1,otherOrders=len(po_l),bigPassive=max(po_l.values()))
+            whole=piece(prs,runs); whole['kind']='broker'
+            kids=[]
+            for run in runs:
+                s=set(run); k=piece([r for r in prs if ao(r) in s],[run]); k['kind']='run'; kids.append(k)
+            whole['kids']=kids
+            out.append(whole)
+out.sort(key=lambda p:(p['time'],p['id']),reverse=True)
+json.dump(out,open(sys.argv[2],'w'))
+print(len(out),'broker pieces',sum(len(p['kids']) for p in out),'run pieces')

@@ -1,0 +1,134 @@
+// Order flow event rates per code tier, per kind and side, open (09:00–09:29) vs the rest, for parameter sets.
+// usage: [SETS='[{"exh":{"lots":0.33}}]'] [KIND=exhaustion] node sweep.mjs <cacheDir> <day>[,<day>...]
+// KIND prints one compact row per set: that kind's events per code per hour, both sides.
+import {
+  loadDay,
+  replayDay,
+  tiersOf,
+  sessionsOf,
+  withParams,
+  wib,
+} from "./replay.mjs"
+
+const [cacheDir, dayList] = process.argv.slice(2)
+const days = dayList.split(",").map((d) => loadDay(cacheDir, d))
+const sets = JSON.parse(process.env.SETS ?? "[{}]")
+const KINDS = ["exhaustion", "divergence", "failedBreak"]
+const TIERS = ["busy", "mid", "quiet"]
+const isOpen = (day, minute) => {
+  const mod = (minute - Date.parse(`${day}T00:00:00+07:00`)) / 60000
+  return mod >= 540 && mod < 570
+}
+const tierInfo = days.map(tiersOf)
+const f = (x) => x.toFixed(2)
+
+console.log(
+  "tier codes per day:",
+  days
+    .map(
+      (d, k) =>
+        `${d.day} ${TIERS.map((t) => [...tierInfo[k].tiers.values()].filter((v) => v === t).length).join("/")}`
+    )
+    .join(", ")
+)
+
+if (process.env.KIND)
+  console.log(
+    `| Set | busy open / rest | mid open / rest | quiet open / rest | market /min after open (all kinds) | busiest minute |\n| --- | --- | --- | --- | --- | --- |`
+  )
+for (const over of sets) {
+  const P = withParams(over)
+  // exposure[tier][bucket] in code-minutes; count[tier][bucket][kind][side]
+  const exposure = {},
+    count = {}
+  const perMinute = new Map() // market-wide: `${day} ${minute}` -> events
+  const perCodeRest = new Map() // busy codes: events outside the open per code-day
+  let marketOpen = 0,
+    marketRest = 0,
+    openMinutes = 0,
+    restMinutes = 0
+  for (const t of TIERS) {
+    exposure[t] = { open: 0, rest: 0 }
+    count[t] = { open: {}, rest: {} }
+    for (const b of ["open", "rest"])
+      for (const k of KINDS) count[t][b][k] = { 1: 0, [-1]: 0 }
+  }
+  days.forEach((day, k) => {
+    const { tiers } = tierInfo[k]
+    const total = sessionsOf(day.day).reduce((a, [x, y]) => a + y - x, 0)
+    openMinutes += 30
+    restMinutes += total - 30
+    for (const t of tiers.values()) {
+      exposure[t].open += 30
+      exposure[t].rest += total - 30
+    }
+    for (const e of replayDay(day, P)) {
+      const b = isOpen(day.day, e.minute) ? "open" : "rest"
+      const key = `${day.day} ${e.minute}`
+      perMinute.set(key, (perMinute.get(key) ?? 0) + 1)
+      if (b === "open") marketOpen++
+      else marketRest++
+      const t = tiers.get(e.code)
+      if (!t) continue
+      count[t][b][e.kind][e.side]++
+      if (t === "busy" && b === "rest")
+        perCodeRest.set(
+          `${day.day} ${e.code}`,
+          (perCodeRest.get(`${day.day} ${e.code}`) ?? 0) + 1
+        )
+    }
+  })
+  const sorted = [...perMinute.entries()].sort((a, b) => b[1] - a[1])
+  if (process.env.KIND) {
+    const K = process.env.KIND
+    const r = (t, b) =>
+      f((count[t][b][K][1] + count[t][b][K][-1]) / (exposure[t][b] / 60))
+    console.log(
+      `| ${JSON.stringify(over)} | ${TIERS.map((t) => `${r(t, "open")} / ${r(t, "rest")}`).join(" | ")} | ${f(marketRest / restMinutes)} | ${sorted[0][1]} |`
+    )
+    continue
+  }
+  console.log(`\n### ${JSON.stringify(over)}\n`)
+  console.log(
+    "Events per code per hour (high side + low side). Total also as events per code per 10 min.\n"
+  )
+  console.log(
+    "| Window | Tier | Exhaustion | Delta divergence | Failed break | Total /h | Total /10 min |"
+  )
+  console.log("| --- | --- | --- | --- | --- | --- | --- |")
+  for (const b of ["open", "rest"])
+    for (const t of TIERS) {
+      const hours = exposure[t][b] / 60
+      const cells = KINDS.map(
+        (k) =>
+          `${f((count[t][b][k][1] + count[t][b][k][-1]) / hours)} (${f(count[t][b][k][1] / hours)}+${f(count[t][b][k][-1] / hours)})`
+      )
+      const tot = KINDS.reduce(
+        (a, k) => a + count[t][b][k][1] + count[t][b][k][-1],
+        0
+      )
+      console.log(
+        `| ${b === "open" ? "Open 09:00–09:29" : "Rest"} | ${t} | ${cells.join(" | ")} | **${f(tot / hours)}** | ${f(tot / hours / 6)} |`
+      )
+    }
+  const rest = [...perCodeRest.values()].sort((a, b) => b - a)
+  const busyRestMin = exposure.busy.rest / days.length / 50
+  console.log(
+    `\nBusy code-days outside the open: max ${rest[0] ?? 0} events (${f(((rest[0] ?? 0) / busyRestMin) * 10)} per 10 min), p90 ${rest[Math.floor(rest.length * 0.1)] ?? 0}`
+  )
+  const restCounts = [...perMinute.entries()]
+    .filter(([k]) => !isOpen(k.split(" ")[0], Number(k.split(" ")[1])))
+    .map(([, v]) => v)
+  restCounts.push(
+    ...Array(Math.max(0, restMinutes - restCounts.length)).fill(0)
+  )
+  restCounts.sort((a, b) => a - b)
+  console.log(
+    `Market-wide (every share): ${f(marketOpen / openMinutes)} events a minute at the open, ${f(marketRest / restMinutes)} after; p95 minute after the open ${restCounts[Math.floor(restCounts.length * 0.95)]}; busiest minutes: ${sorted
+      .slice(0, 3)
+      .map(
+        ([k, v]) => `${k.split(" ")[0]} ${wib(Number(k.split(" ")[1]))} (${v})`
+      )
+      .join(", ")}`
+  )
+}

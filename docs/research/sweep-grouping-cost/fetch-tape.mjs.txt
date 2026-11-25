@@ -1,0 +1,74 @@
+// Walks the recorded tape of 2026-11-16 backwards over [from, to) in parallel
+// segments, caching each page at pages/<at>.json. Usage:
+//   node fetch-tape.mjs <fromMs> <toMs> <segments> [maxPagesPerSegment]
+// Reads the cookie from the secret file; never prints it.
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+
+const here = dirname(fileURLToPath(import.meta.url))
+const pages = join(here, "pages")
+mkdirSync(pages, { recursive: true })
+const BASE = "https://kumora-dashboard.kumora.workers.dev/market-live/days/2026-11-16/trades?at="
+const token = readFileSync(
+  process.env.SESSION_TOKEN_FILE,
+  "utf8"
+).trim()
+
+const [from, to, segments, maxPages = Infinity] = process.argv.slice(2).map(Number)
+
+const page = async (at) => {
+  const file = join(pages, `${at}.json`)
+  if (existsSync(file)) return JSON.parse(readFileSync(file, "utf8"))
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(BASE + at, {
+      headers: { Cookie: `__Secure-better-auth.session_token=${token}` },
+    })
+    if (response.ok) {
+      const body = await response.json()
+      writeFileSync(file, JSON.stringify(body))
+      return body
+    }
+    if (attempt >= 4) throw new Error(`HTTP ${response.status} at ${at}`)
+    await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+  }
+}
+
+let requests = 0
+let stalls = 0
+const walk = async (start, end) => {
+  // Collect trades with time in [start, end), walking down from end - 1.
+  const seen = new Set()
+  let at = end - 1
+  let count = 0
+  while (count < maxPages) {
+    const { trades } = await page(at)
+    requests++
+    count++
+    if (trades.length === 0) break
+    let fresh = 0
+    let min = Infinity
+    for (const t of trades) {
+      if (t.time < min) min = t.time
+      if (!seen.has(t.tradeNumber)) {
+        seen.add(t.tradeNumber)
+        fresh++
+      }
+    }
+    if (min < start) break
+    if (fresh === 0) {
+      // Over 200 trades share this ms: step past it (counted, checked later
+      // through trade number gaps).
+      stalls++
+      at = min - 1
+    } else at = min
+  }
+}
+
+const width = (to - from) / segments
+const bounds = Array.from({ length: segments }, (_, i) => [
+  Math.round(from + i * width),
+  Math.round(from + (i + 1) * width),
+])
+await Promise.all(bounds.map(([s, e]) => walk(s, e)))
+console.log(JSON.stringify({ requests, stalls }))

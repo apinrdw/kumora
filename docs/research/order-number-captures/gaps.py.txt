@@ -1,0 +1,47 @@
+# Aggressor order-number gaps within (code, second, side, aggressor broker).
+# usage: python3 gaps.py <stockbit rows json>...
+import json,sys,collections,gzip
+def load(p):
+    o=gzip.open if p.endswith('.gz') else open
+    j=json.load(o(p,'rt')); return j if isinstance(j,list) else j['data']['running_trade']
+GAPS=[1,2,3,5,10,20,50,100,1000]
+for p in sys.argv[1:]:
+    rt=[r for r in load(p) if r['market_board']=='RG' and '09:00:00'<=r['time']<'15:50:00']
+    code=rt[0]['code']
+    agg=lambda r:int(r['buy_order_number'] if r['action']=='buy' else r['sell_order_number'])
+    brk=lambda r:(r['buyer'] if r['action']=='buy' else r['seller']).split(' ')[0]
+    # second+side groups: ordered list of (aggr order, broker), distinct orders
+    sec=collections.defaultdict(dict)
+    for r in rt: sec[(r['time'],r['action'])][agg(r)]=brk(r)
+    pieces=0; steps=collections.Counter(); interleaved=0; pairs=0
+    orders_per_piece=[]
+    byb={}
+    for k,od in sec.items():
+        nums=sorted(od)
+        perb=collections.defaultdict(list)
+        for n in nums: perb[od[n]].append(n)
+        pieces+=len(perb)
+        for b,ns in perb.items():
+            orders_per_piece.append(len(ns))
+            for a,c in zip(ns,ns[1:]):
+                pairs+=1; steps[c-a]+=1
+                if any(od[x]!=b for x in nums if a<x<c): interleaved+=1
+    orders=sum(len(od) for od in sec.values())
+    print(f'## {code}: {len(rt)} RG session trades, {orders} aggressor orders, {pieces} per-broker pieces (side+second+broker)')
+    print(f'pieces with 2+ orders: {sum(1 for x in orders_per_piece if x>1)}; same-broker consecutive order pairs: {pairs}; with another broker\'s aggressor order between: {interleaved}')
+    buckets=collections.Counter()
+    for s,c in steps.items():
+        b=next((f'<={g}' for g in GAPS if s<=g),'>1000'); buckets[b]+=c
+    print('step buckets:',{b:buckets[b] for b in [f'<={g}' for g in GAPS]+['>1000'] if buckets[b]})
+    for g in GAPS:
+        sweeps=0
+        for k,od in sec.items():
+            perb=collections.defaultdict(list)
+            for n in sorted(od): perb[od[n]].append(n)
+            for ns in perb.values():
+                sweeps+=1+sum(1 for a,c in zip(ns,ns[1:]) if c-a>g)
+        print(f'gap {g}: {sweeps} sweeps (orders {orders}, pieces {pieces})')
+    # market order-number rate: numbers per second over the session
+    first=min(rt,key=lambda r:r['time']); last=max(rt,key=lambda r:r['time'])
+    t=lambda s:int(s[:2])*3600+int(s[3:5])*60+int(s[6:])
+    print('order numbers per second (whole sequence):', round((agg(last)-agg(first))/max(1,t(last['time'])-t(first['time']))))

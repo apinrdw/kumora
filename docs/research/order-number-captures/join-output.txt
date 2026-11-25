@@ -1,0 +1,20 @@
+ajaib rows 1311, stockbit trades 1312, ajaib keys 1240, stockbit keys 1241
+trades in keys whose counts agree: 1311 | keys only in stockbit: 1 | only in ajaib: 0 | count differs: 0
+agreeing keys with 2+ trades (ties): 54 trades 125
+order numbers equal (last 10 digits of order_id == stockbit number): 1311 differ: 0 []
+side check (stockbit action, ajaib is_highlighted, larger ajaib order):
+  ('sell', 'buyer_hl', '', 'aj_sell>buy') 614
+  ('buy', '', 'seller_hl', 'aj_buy>sell') 566
+  ('buy', 'buyer_hl', '', 'aj_buy>sell') 6
+stockbit-only keys sample [('09:47:59', 'RG', 178, 1.0, 'XL', 'AK')]
+ajaib-only sample []
+ajaib rows 23005, stockbit trades 23028, ajaib keys 18024, stockbit keys 18039
+trades in keys whose counts agree: 22919 | keys only in stockbit: 24 | only in ajaib: 9 | count differs: 8
+agreeing keys with 2+ trades (ties): 1643 trades 6555
+order numbers equal (last 10 digits of order_id == stockbit number): 22919 differ: 0 []
+side check (stockbit action, ajaib is_highlighted, larger ajaib order):
+  ('buy', '', 'seller_hl', 'aj_buy>sell') 8418
+  ('sell', 'buyer_hl', '', 'aj_sell>buy') 7686
+  ('buy', 'buyer_hl', '', 'aj_buy>sell') 260
+stockbit-only keys sample [('09:00:52', 'RG', 5600, 18.0, 'AK', 'KZ'), ('09:01:03', 'NG', 5600, 0.52, 'YU', 'YU'), ('09:04:49', 'RG', 5675, 2.0, 'LG', 'XL'), ('09:18:07', 'RG', 5625, 500.0, 'CC', 'TP'), ('09:34:37', 'RG', 5600, 1.0, 'YB', 'XL')]
+ajaib-only sample [('16:10:24', 'NG', 5600, 0.0, 'AK', 'AK'), ('16:10:24', 'NG', 5550, 0.0, 'AK', 'AK'), ('16:09:20', 'NG', 5550, 0.0, 'YU', 'YU'), ('16:03:36', 'NG', 5550, 0.0, 'BK', 'BK'), ('15:04:42', 'NG', 5350, 0.0, 'SQ', 'SQ')]

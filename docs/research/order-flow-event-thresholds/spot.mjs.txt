@@ -1,0 +1,43 @@
+// Prints events in the page's wording, to check on Market Live's recorded day. Times are WIB candle minutes
+// (a candle labelled 10:42 closes at 10:43, when its event fires).
+// usage: [SET='{...}'] [TIERS=busy,mid] [OPEN=0|1] node spot.mjs <cacheDir> <day>[,<day>...] <kind> <count> [CODE]
+import { loadDay, replayDay, tiersOf, withParams, wib } from "./replay.mjs"
+
+const [cacheDir, dayList, kind, n, only] = process.argv.slice(2)
+const P = withParams(JSON.parse(process.env.SET ?? "{}"))
+const want = new Set((process.env.TIERS ?? "busy,mid").split(","))
+const fmt = (x) => Math.round(x).toLocaleString("en-US")
+const rp = (x) => `Rp${fmt(x / 1e6)} M`
+const signed = (x) => (x >= 0 ? "+" : "−") + fmt(Math.abs(x))
+const word = (e) => {
+  const hi = e.side > 0
+  if (e.kind === "exhaustion")
+    return `${hi ? "Buying" : "Selling"} exhaustion at the day's ${hi ? "high" : "low"} ${e.ext} (set ${wib(e.extMinute)}) · ${hi ? "buy" : "sell"}-aggressor lots ${fmt(e.peakLots)} (${wib(e.peakMinute)}, ${rp(e.peakValue)}) → ${fmt(e.lots)} a minute · range ${e.widest} → ${e.range} ticks · ${e.near} ticks from the ${hi ? "high" : "low"}`
+  if (e.kind === "divergence")
+    return `Delta divergence at the day's ${hi ? "high" : "low"} · new ${hi ? "high" : "low"} ${e.ext} · cumulative delta ${signed(e.cum)} lots vs ${signed(e.cum0)} at ${wib(e.ext0Minute)}'s ${hi ? "high" : "low"} ${e.ext0} · gap ${rp(e.marginValue)} · pulled back ${e.pull} ticks`
+  return `Failed break of the day's ${hi ? "high" : "low"} · traded to ${e.far} past ${e.level} (set ${wib(e.levelMinute)}) on ${rp(e.value)} ${hi ? "buy" : "sell"}-aggressor from ${wib(e.breakMinute)} · closed back at ${e.close} ${e.after === 0 ? "in the same minute" : `${e.after} min later`}`
+}
+const picked = []
+for (const d of dayList.split(",")) {
+  const day = loadDay(cacheDir, d)
+  const { tiers } = tiersOf(day)
+  const open = (m) => (m - Date.parse(`${d}T00:00:00+07:00`)) / 60000 < 570
+  for (const e of replayDay(day, P))
+    if (
+      e.kind === kind &&
+      want.has(tiers.get(e.code)) &&
+      (!only || e.code === only)
+    )
+      if (
+        process.env.OPEN === undefined ||
+        open(e.minute) === (process.env.OPEN === "1")
+      )
+        picked.push({ d, t: tiers.get(e.code), e })
+}
+// Spread the picks over the list rather than taking the first few.
+const step = Math.max(1, Math.floor(picked.length / Number(n)))
+console.log(`${picked.length} ${kind} events`)
+for (let k = 0; k < picked.length && k / step < Number(n); k += step) {
+  const { d, t, e } = picked[k]
+  console.log(`${d} ${e.code} (${t}) ${wib(e.minute)}: ${word(e)}`)
+}

@@ -1,0 +1,84 @@
+# Where every code's top-1% sweep cutoff can come from for the whole tape
+
+Research for [#500](https://github.com/apinrdw/kumora/issues/500), map [#499](https://github.com/apinrdw/kumora/issues/499). Read 2026-11-18 against `staging` at `0c30a5eb21`. Line numbers are from that commit.
+
+## Answer
+
+The trading-day Durable Object should decide it. It already groups every code's sweeps, because each minute's footprint row stores them. It also sees every trade of the day, across restarts. The page sees only the 200 trades before its snapshot and what arrives after it.
+
+Recommended: the object keeps a count of sweeps by lots for each code and each side, for the day so far. When a sweep's second closes, the object checks the sweep against its code's top-1% cutoff for that side. If the sweep reaches it, the object names the sweep in the next delta. The next delta goes out within 250 ms. That costs a few MB of memory, one scan of the `footprints` table on a restart, and about 40 bytes a delta for each alert. The page then plays sounds and does no counting.
+
+## Where sweeps are formed today
+
+- **Only the trading-day object groups sweeps.** `packages/relay/src/sweeps.ts:1-8` says so: the object keeps each minute's sweeps in its footprint row, answers a day's by GET, sends a changed minute's in a delta, "and the Market Live page shows them as sent". `candles.ts:605-609` gives the reason: "the book is the only grouper and the join can't gap or double".
+- **The object groups every code's sweeps.** The candle book's `slotSweeps` (`apps/dashboard/src/server/market-live/candles.ts:389-414`) groups any slot's sweeps. Every flush writes every changed stock-minute's sweeps into its footprint row (`candles.ts:673-694`, `sweeps: yield* slotSweeps(slot, false)` at `:691`). The table is `footprints (code, minute, cells, sweeps, last_trade)`, keyed by `(code, minute)` (`day-store.ts:160-167`).
+- **It sends sweeps only for selected codes.** `takeChanged(selected)` sends a regrouped minute's sweeps only when `selected.has(slot.code)` (`candles.ts:610-640`, the test is at `:623`). `sendDelta` passes the codes that some viewer selected (`trading-day.ts:667-674`). The wire contract says the same: "of a code some viewer selected" (`packages/relay/src/envelope.ts:453-456`).
+- **The client sweep store holds one code.** `makeSweepStore(code)` (`apps/dashboard/src/components/market-live/sweep-store.ts:104-114`) takes that code's day from the sweeps GET. It lays on the minutes that deltas carry for its code and drops any other code's minutes (`:276-294`). Live, its broker `entries` are empty (`:66-69`), so live sweeps are whole, not split by broker. With no broker picked, own lots are the sweep's lots (`apps/dashboard/src/lib/sweeps.ts:207-208`). So the whole tape's cutoff counts the lots of whole sweeps.
+- **The cutoff is the top-N rule.** `sweepThreshold` (`lib/sweeps.ts:42-72`) splits each side's own lots, sorts them in descending order, and takes the ⌈n·N/100⌉-th. The threshold sorts the full list each time it runs, for one code. The store caches it by sweeps, N and `at` (`sweep-store.ts:235-249`).
+- **Market Bubbles has no sweeps.** Its book keeps each code's day sums and newest minutes' sums and close (`bubble-book.ts:15-48`). It is fed one call for each settled trade (`bubble-book.ts:106-125`). Sums can't give a rank of single sweeps. The answer is built on the flush 5 s past each minute (`trading-day.ts:798-818`; `FLUSH_PAST_MINUTE = 5_000` at `packages/relay/src/recorded-day.ts:415`).
+
+### What the viewer socket sends for codes that aren't selected
+
+- **Snapshot** (on open and on every Select): the 200 newest trades of the whole market (`envelope.ts:414-435`; `SNAPSHOT_TRADES = 200` at `recorded-answers.ts:31`; `tape.slice(-SNAPSHOT_TRADES)` at `trading-day.ts:1355`), plus the selected code's candles and footprints.
+- **Delta** (at most every 250 ms, `DELTA_INTERVAL` at `trading-day.ts:147`): every trade that arrived or changed since the last delta, for any code (`pending` at `trading-day.ts:483-485`, filled at `:579` and `:613`). It also carries every changed candle of any code, and a footprint with no cells for a minute its last trade left (`envelope.ts:437-452`). It carries no sweeps for codes that aren't selected.
+
+## Can the client build every code's sweeps and cutoffs from the tape?
+
+It can build the sweeps that form after it connects. It can't build the day so far, so its cutoffs are wrong all day unless a backfill fills them.
+
+What the tape gives it:
+
+- Every trade of the market as it arrives, in deltas, plus each merged copy that changed a trade's feeds or side (`mergeInto`, `trading-day.ts:565-581`). The merge rule changes a sweep: Stockbit's fields win, sub-second time included, and Ajaib fills a side Stockbit left unspecified (`trading-day.ts:220-235`). The sides of auction matches and negotiated trades are set to `none` (`:237-247`). So a client grouper would have to regroup a second when a later copy retimes or re-sides a trade. The book's `samePart` test does this on the server (`candles.ts:240-255`).
+
+What it misses:
+
+1. **Trades before the snapshot.** A snapshot has the 200 newest trades (`recorded-answers.ts:31`). The day has 1.3–2.2 M trades (`docs/research/durable-object-cost.md:59`). A page opened at 14:00 holds a sample of minutes. It doesn't hold the day. With fewer sweeps, the top 1% falls on the first or second largest, so the page alerts on almost every new local maximum.
+2. **Reconnects.** Any close other than 4401 or 4426 reconnects and starts from a fresh snapshot (`live-tape.tsx:47-51`). The trades that arrived while the socket was down are lost, unless more than 200 arrived. A Select is not a gap: its snapshot is merged like a delta (`tape-snapshots.ts:4-11`).
+3. **Trades the object keeps off the tape.** A new trade older than a full tape's oldest counts in its candle but doesn't go to viewers (`trading-day.ts:586-589`, `beforeTape` at `:607`, `TAPE_LIMIT = 10_000` at `:156`). This is rare, but its sweep never reaches the page.
+4. **Settling.** The page can't tell when a trade is settled. A trade's candle part stays open 5 s after it first arrived (`MERGE_WINDOW`, `candles.ts:41-46`). Market Bubbles handles the same gap with a backfill that is "settled before" an instant and a join that reconciles it (`lib/bubbles.ts:420-484`). The join needed several reconnect fixes (#436), and `lib/bubbles.ts` is 939 lines.
+
+A client-built cutoff therefore needs a whole-market backfill and a join like the one Market Bubbles has. It would also break the rule that only the object groups sweeps (`packages/relay/src/sweeps.ts:5-8`).
+
+## What a ranked top-1% per code per side would cost
+
+Scale: the market has 1.3–2.2 M trades a day (`durable-object-cost.md:59`) and about 0.3 sweeps per trade (`docs/runbooks/order-flow-cost.md:67`). That is **about 400–660 K sweeps a day**. A busy code has 10–18 K (`sweep-rows.ts:21-25`), and about 900 codes trade (`order-flow-cost.md:63`).
+
+**Data structure.** `n` grows, and the rank ⌈n/100⌉ grows with it. A late trade also regroups a minute, which removes some sweeps and adds others (`candles.ts:380-414`). A top-k heap can't do this, because it can't give back the next value below it or remove a value. A **count of sweeps by lots** (a `Map<lots, count>` for each code and side, plus `n`) supports adding and removing in O(1). A cutoff query walks the lots values in descending order until it reaches rank ⌈n/100⌉. The lots values above the cutoff are few, because only about 1% of sweeps are above it. A sorted array of distinct lots values, or a small Fenwick tree for each code, bounds the walk if it is ever slow.
+
+| | Server (trading-day object) | Client (each Market Live tab) |
+| --- | --- | --- |
+| Memory | Distinct lots values for each code and side. This is at most 660 K entries and far fewer in practice. At ~50 B a Map entry, that is **under ~30 MB at worst** and likely a few MB. The isolate has 128 MB (`durable-object-ingest-limits.md:21`). The previous copy of each minute still in the book is kept until it settles, so a regroup can be subtracted. | The same structure, a few MB. |
+| CPU live | Each delta groups every regrouped slot, not only the selected codes' (`candles.ts:623`). This runs over the current minute's trades of the active codes: about 16 K in a minute at 263 trades/s (`rest-tape-backfill.md:127`), and up to about 30 K in the peak minute (`order-flow-cost.md:69`). At ~1 µs a trade with Effect (`lib/tape.ts:6-8`), the cost is **about 16–30 ms a delta at the peak**, and far less in a normal minute. To cut this, group only the slots with a trade in the last second or two, or send each minute's sweeps at most once a second, which is the fallback `candles.ts:608-609` already names. | It groups 65–263 trades/s (`durable-object-cost.md:59`), and up to ~2,000 in the open's first second (`broker-frame-rates.md:77`). That is small. |
+| Restart or backfill | A restarted object rebuilds from `SELECT code, sweeps FROM footprints`: about 150–270 K rows (`order-flow-cost.md:63-67`) and 45–65 MB of text with the cells. That is at most about $0.0003 of rows read, plus some seconds of parsing once. The book's own minutes since the last flush are lost on a restart like everything else in memory (`durable-object-ingest-limits.md:42`). | Each page open needs the whole day. As raw sweeps, that is 400–660 K × ~48 B ≈ **20–32 MB** (the tuple size from `order-flow-cost.md:67`). That is too heavy. As counts by lots, it is a fraction of that, but it is a new GET and the join must avoid counting a sweep twice or missing one across the snapshot and reconnects. |
+| Wire | An alert names the code, side, first trade and lots, about 40 B. About 1% of sweeps on each side reach the cutoff, so there are roughly 4–7 K alerts a day, or ~0.2–0.3 a second on average. Outgoing socket messages are free (`durable-object-cost.md`, Pricing). | None live. The backfill is the cost above. |
+| Copies | One computation serves every viewer, the same way one delta text does (`trading-day.ts:664-666`). | One for each open tab. |
+
+## How soon each option knows that a sweep passed
+
+A sweep is done when its second has closed and all of that second's trades for its code have arrived. Feed lag sits between the exchange and the object (`feed-lag.ts:1-26`).
+
+- **Trading-day object:** it knows at the first delta after the object holds a trade timed in a later second. That is **feed lag + at most 250 ms** after the second ends (`DELTA_INTERVAL`). Waiting for the 5 s merge window as well would make the alert final, but **5 s later**. A later copy can still re-side or retime a trade inside that window (`trading-day.ts:220-235`). Alerting provisionally and never retracting an alert costs the occasional wrong sound. Waiting costs 5 s on every alert.
+- **Client from the tape:** it knows at the same delta, so about the same time plus network transit. It has the same window problem, and it is wrong while its history is partial.
+- **Market Bubbles' answer:** it is built once a minute, 5 s past the minute (`trading-day.ts:798-818`). That is **5–65 s** after the sweep, and the answer holds no sweeps to rank. It can't serve as the source.
+- **A server-published cutoff, with the client forming sweeps:** the cutoff could go out each minute with the bubbles build or in a delta. It would be at most a minute stale, and the client would compare its own sweeps against it. Detection time is the same as on the client. It still needs a client grouper for every code, which breaks the rule in `sweeps.ts:5-8` that only the object groups.
+
+## Recommendation
+
+**The trading-day Durable Object decides each alert and sends it down the viewer socket.**
+
+- **Data:** the candle book keeps a count of sweeps by lots for each code and side. It adds the sweeps of every regrouped slot, after subtracting that slot's previous copy. A restart rebuilds the counts from the `footprints` table.
+- **Check:** when a sweep's second has closed, at the first delta whose trades reach a later second, the object compares the sweep's lots with ⌈n/100⌉ on its side, with this sweep counted in `n`, as `sweepThreshold` counts it. Auction matches (`side: "none"`) are never checked.
+- **Wire:** a new optional `sweepAlerts` on `Delta`, as `[side, code, firstTrade, lots]`. The same text goes to every viewer.
+
+Trade-offs:
+
+- **For it:** the full day from the first trade, through restarts and page reconnects, with no backfill and no join. It keeps the object as the only sweep grouper (`sweeps.ts:5-8`). One computation serves all tabs. The alert is about 250 ms after the second closes.
+- **Against it:** every regrouped slot is grouped on each delta, not only the selected codes' slots. That is about 16–30 ms a delta at the peak minute, which needs a measurement before shipping and has a fallback of at most once a second. The rebuild on a restart scans the whole `footprints` table once. The alert is provisional for the 5 s merge window. An alert sent while a page's socket is down is not replayed, which is right for a sound.
+- **Left to other tickets:** early in the day `n` is small. Under 100 sweeps, ⌈n/100⌉ = 1, so every new largest sweep alerts. That decides the warm-up rule. Up to ~2,000 trades in the open's first second can give many alerts in one delta. That decides the silence rule.
+
+### Not measured
+
+- How many distinct lots values each code and side holds, which sets the memory figure.
+- The actual time `takeChanged` takes for every code at the peak minute.
+- The parse time of a full `footprints` scan on a restart.
+- The alert rate during the first minutes of the open.

@@ -1,0 +1,17 @@
+// Merges cached pages into trades.json: [from,to) by time, deduped by trade
+// number, sorted by number; prints per-minute counts and number gaps.
+import { readFileSync, readdirSync, writeFileSync } from "node:fs"
+const from = 1794794400000, to = 1794794580000
+const all = new Map()
+for (const f of readdirSync("pages")) for (const t of JSON.parse(readFileSync("pages/" + f)).trades) all.set(t.tradeNumber, t)
+const inWindow = [...all.values()].filter((t) => t.time >= from && t.time < to).sort((a, b) => Number(a.tradeNumber) - Number(b.tradeNumber))
+const nums = inWindow.map((t) => Number(t.tradeNumber))
+let gaps = 0, missing = 0
+const allNums = new Set([...all.keys()].map(Number))
+for (let n = nums[0]; n <= nums.at(-1); n++) if (!allNums.has(n)) { missing++ }
+const perMin = {}, perMinRG = {}
+for (const t of inWindow) { const m = new Date(t.time).toISOString().slice(11, 16); perMin[m] = (perMin[m] ?? 0) + 1; if (t.board === "RG") perMinRG[m] = (perMinRG[m] ?? 0) + 1 }
+const sameMs = {}; for (const t of inWindow) sameMs[t.time] = (sameMs[t.time] ?? 0) + 1
+const maxSame = Math.max(...Object.values(sameMs))
+console.log({ total: inWindow.length, first: nums[0], last: nums.at(-1), missingNumbersInRange: missing, perMin, perMinRG, maxSameMs: maxSame, codes: new Set(inWindow.map((t) => t.code)).size })
+writeFileSync("trades.json", JSON.stringify(inWindow))
