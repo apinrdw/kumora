@@ -163,19 +163,19 @@ describe("Major holders", () => {
       "Holder",
       "vs Sep 26",
       "% of listed",
-      "Shares",
+      "Lots",
       "In scrip",
     ])
     expect(tableCells()).toEqual([
       [
         "ADARO STRATEGIC INVESTMENTS",
         "Up",
-        "41.10%+0.10 pp",
-        "3.21 B+10 M",
+        "41.10%+0.10%",
+        "32,100,000+100,000",
         "0%",
       ],
-      ["PT PARAGA ARTAMIDA", "New", "5.20%", "400 M", "25%"],
-      ["T PERMADI RACHMAT", "Unchanged", "3.48%±0.00 pp", "270 M+400", "0%"],
+      ["PT PARAGA ARTAMIDA", "New", "5.20%", "4,000,000", "25%"],
+      ["T PERMADI RACHMAT", "Unchanged", "3.48%±0.00%", "2,700,004+4", "0%"],
       ["GAMMA CAPITAL", "Off list", "—was 2.00%", "—", "—"],
     ])
     expect(
@@ -188,12 +188,46 @@ describe("Major holders", () => {
     )
   })
 
+  test("keeps every earlier holder below the month's Off list, greyed, as Off list since the month after it left", async () => {
+    const november = month("2026-11-30", [
+      holder("ADARO", [
+        row("ADARO STRATEGIC INVESTMENTS", 3_210_000_000, 4110),
+      ]),
+      holder("PERMADI", [row("T PERMADI RACHMAT", 270_000_450, 348)]),
+    ])
+    await render({ months: [...MONTHS, november] })
+    expect(tableCells()).toEqual([
+      [
+        "ADARO STRATEGIC INVESTMENTS",
+        "Unchanged",
+        "41.10%±0.00%",
+        "32,100,000±0",
+        "0%",
+      ],
+      [
+        "T PERMADI RACHMAT",
+        "Unchanged",
+        "3.48%±0.00%",
+        "2,700,004.5+0.5",
+        "0%",
+      ],
+      ["PT PARAGA ARTAMIDA", "Off list", "—was 5.20%", "—", "—"],
+      ["GAMMA CAPITAL", "Off list since Oct 2026", "—was 2.00%", "—", "—"],
+    ])
+    expect(
+      [...(table()?.querySelectorAll("tbody tr") ?? [])].map((tr) =>
+        tr.getAttribute("data-off-list")
+      )
+    ).toEqual([null, null, "true", "true"])
+    expect(text()).toContain("0 new, 0 up, 0 down, 1 off list")
+  })
+
   test("splits the month's listed shares among its holders and Under 1% in the ownership bar", async () => {
     await render({})
     expect(segments()).toEqual([
-      ["ADARO STRATEGIC INVESTMENTS 41.10%", "41.1%", "gold"],
-      ["PT PARAGA ARTAMIDA 5.20%", "5.2%", "blue"],
-      ["T PERMADI RACHMAT 3.48%", "3.48%", "gold"],
+      ["ADARO STRATEGIC INVESTMENTS 41.10% · 32,100,000 lots", "41.1%", "gold"],
+      ["PT PARAGA ARTAMIDA 5.20% · 4,000,000 lots", "5.2%", "blue"],
+      ["T PERMADI RACHMAT 3.48% · 2,700,004 lots", "3.48%", "gold"],
       ["Holders under 1% 50.22%", "50.22%", "under"],
     ])
     expect(legend()).toEqual([
@@ -269,8 +303,8 @@ describe("Major holders", () => {
     expect(toggle?.getAttribute("aria-expanded")).toBe("false")
     await act(() => toggle?.click())
     expect(toggle?.getAttribute("aria-expanded")).toBe("true")
-    expect(text()).toContain("PARAGA ARTAMIDA, PT · 100 M · 1.30%")
-    expect(text()).toContain("PT PARAGA ARTAMIDA · 300 M · 3.90%")
+    expect(text()).toContain("PARAGA ARTAMIDA, PT · 1,000,000 lots · 1.30%")
+    expect(text()).toContain("PT PARAGA ARTAMIDA · 3,000,000 lots · 3.90%")
     expect(meta("PARAGA ARTAMIDA, PT")).toBeUndefined()
   })
 

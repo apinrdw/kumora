@@ -7,7 +7,7 @@ import type { CSSProperties } from "react"
 
 import { MOVEMENT } from "@/components/stocks/holder-movement"
 import { everyMonth } from "@/lib/every-month"
-import { plain } from "@/lib/format"
+import { lotsOfShares, plain } from "@/lib/format"
 import { shortMonth } from "@/lib/stock-page-display"
 import type { MajorHoldersMonth } from "@/server/holdings/stock-page"
 
@@ -83,7 +83,7 @@ export function EveryMonth({
           <tbody>
             {rows.map((row) => (
               <tr
-                key={row.key}
+                key={row.holder}
                 data-unlisted={!row.listed || undefined}
                 className={cn(!row.listed && "text-muted-foreground")}
               >
@@ -113,6 +113,7 @@ export function EveryMonth({
                   return (
                     <td
                       key={index}
+                      title={`${Effect.runSync(lotsOfShares(cell.shares))} lots`}
                       data-selected={outlined || undefined}
                       className={cn(
                         "num text-right whitespace-nowrap",

@@ -1171,24 +1171,27 @@ test.describe.serial("the stock page", () => {
       await expect(
         holderRow(page, "PT DWIMURIA INVESTAMA ANDALAN")
       ).toContainText(
-        /Controller·Corporate·Local\s*Unchanged\s*54\.94%±0\.00 pp\s*67\.73 B\+100/
+        /Controller·Corporate·Local\s*Unchanged\s*54\.94%±0\.00%\s*677,299,501\+1/
       )
       await expect(holderRow(page, "ANTHONI SALIM")).toContainText(
-        /Affiliate of controller·Individual·Local\s*Up\s*1\.60%\+0\.10 pp/
+        /Affiliate of controller·Individual·Local\s*Up\s*1\.60%\+0\.10%/
       )
       await expect(holderRow(page, "BLACKROCK INC")).toContainText(
-        /Investment manager·Foreign·UNITED STATES\s*Down\s*1\.10%−0\.20 pp/
+        /Investment manager·Foreign·UNITED STATES\s*Down\s*1\.10%−0\.20%/
       )
       // A holder on two rows shows once, summed, its scrip row included.
       const salim = holderRow(page, "PT. SALIM GROUP")
-      await expect(salim).toContainText(/New\s*1\.50%\s*1\.85 B\s*27%/)
+      await expect(salim).toContainText(/New\s*1\.50%\s*18,491,257\.5\s*27%/)
       await expect(async () => {
         await salim
           .getByRole("button", { name: "2 rows in the report" })
           .click()
-        await expect(salim).toContainText("SALIM GROUP, PT · 493.1 M · 0.40%", {
-          timeout: 1000,
-        })
+        await expect(salim).toContainText(
+          "SALIM GROUP, PT · 4,931,002 lots · 0.40%",
+          {
+            timeout: 1000,
+          }
+        )
       }).toPass()
       // Off list, greyed at the bottom with its last %.
       const gamma = majorHolders(page)
@@ -1236,10 +1239,14 @@ test.describe.serial("the stock page", () => {
         }
       }
       await expectBar([
-        ["PT DWIMURIA INVESTAMA ANDALAN 54.94%", "54.94%", "gold"],
-        ["ANTHONI SALIM 1.60%", "1.6%", "gold"],
-        ["PT. SALIM GROUP 1.50%", "1.5%", "blue"],
-        ["BLACKROCK INC 1.10%", "1.1%", "blue"],
+        [
+          "PT DWIMURIA INVESTAMA ANDALAN 54.94% · 677,299,501 lots",
+          "54.94%",
+          "gold",
+        ],
+        ["ANTHONI SALIM 1.60% · 19,724,008 lots", "1.6%", "gold"],
+        ["PT. SALIM GROUP 1.50% · 18,491,257.5 lots", "1.5%", "blue"],
+        ["BLACKROCK INC 1.10% · 13,560,255.5 lots", "1.1%", "blue"],
         ["Holders under 1% 40.86%", "40.86%", "under"],
       ])
       await expect(legend).toHaveText([
@@ -1259,10 +1266,14 @@ test.describe.serial("the stock page", () => {
         })
       }).toPass()
       await expectBar([
-        ["PT DWIMURIA INVESTAMA ANDALAN 54.94%", "54.94%", "blue"],
-        ["ANTHONI SALIM 1.50%", "1.5%", "blue"],
-        ["BLACKROCK INC 1.30%", "1.3%", "blue"],
-        ["GAMMA FUND LTD 1.20%", "1.2%", "blue"],
+        [
+          "PT DWIMURIA INVESTAMA ANDALAN 54.94% · 677,299,500 lots",
+          "54.94%",
+          "blue",
+        ],
+        ["ANTHONI SALIM 1.50% · 18,491,257.5 lots", "1.5%", "blue"],
+        ["BLACKROCK INC 1.30% · 16,025,756.5 lots", "1.3%", "blue"],
+        ["GAMMA FUND LTD 1.20% · 14,793,006 lots", "1.2%", "blue"],
         ["Holders under 1% 41.06%", "41.06%", "under"],
       ])
       await expect(legend.nth(4)).toHaveText("Under 1% 41.06%")
