@@ -3,6 +3,7 @@ import { IconChevronRight } from "@tabler/icons-react"
 import { Link, useMatches } from "@tanstack/react-router"
 import { Effect } from "effect"
 import type { AnyRouteMatch } from "@tanstack/react-router"
+import { DashboardBasePath } from "@workspace/client"
 
 import type { Crumb } from "@/lib/crumbs"
 import type { Viewer } from "@/server/auth/gate"
@@ -14,7 +15,11 @@ export function AppHeader({ viewer }: { viewer: Viewer }) {
   return (
     <header className="bg-canvas/82 sticky top-(--banner-h,0px) z-20 flex h-14 items-center gap-3 border-b border-border px-4 backdrop-blur-[16px]">
       <a href="/" className="shrink-0 md:hidden">
-        <img src="/kumora-mark.png" alt="KUMORA AI" className="size-7" />
+        <img
+          src={`${DashboardBasePath}/kumora-mark.png`}
+          alt="KUMORA AI"
+          className="size-7"
+        />
       </a>
       <Breadcrumbs />
       <span className="flex-1" />

@@ -1,4 +1,8 @@
-import { clientRuntime, viewerMessages } from "@workspace/client"
+import {
+  DashboardBasePath,
+  clientRuntime,
+  viewerMessages,
+} from "@workspace/client"
 import {
   MarketLivePath,
   StockCode,
@@ -88,7 +92,7 @@ export function useRadarFeed(
   useEffect(() => {
     const scheme = window.location.protocol === "https:" ? "wss" : "ws"
     const messages = viewerMessages({
-      url: `${scheme}://${window.location.host}${MarketLivePath.live}`,
+      url: `${scheme}://${window.location.host}${DashboardBasePath}${MarketLivePath.live}`,
       select,
       onReconnecting: conditionsReconnecting,
     })

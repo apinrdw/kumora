@@ -1,4 +1,5 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
+import { DashboardBasePath } from "@workspace/client"
 import { Toaster } from "@workspace/ui/components/sonner"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 
@@ -17,9 +18,16 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: "/favicon.ico", sizes: "16x16 32x32 48x48" },
-      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
-      { rel: "manifest", href: "/manifest.json" },
+      {
+        rel: "icon",
+        href: `${DashboardBasePath}/favicon.ico`,
+        sizes: "16x16 32x32 48x48",
+      },
+      {
+        rel: "apple-touch-icon",
+        href: `${DashboardBasePath}/apple-touch-icon.png`,
+      },
+      { rel: "manifest", href: `${DashboardBasePath}/manifest.json` },
     ],
   }),
   notFoundComponent: NotFound,
