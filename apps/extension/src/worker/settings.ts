@@ -21,9 +21,12 @@ import {
 import { CodeListCache, RelayOutcome, type CodeListStore } from "./code-list.ts"
 import { ErrorLogEntry, redact, type ErrorLogStore } from "./error-log.ts"
 
-// Where a dashboard serves: an origin, `https://host` or `http://host:port`.
+// Where a dashboard serves: its http(s) URL, a path allowed, as in
+// `https://host/dashboard` or `http://host:port`. It never ends in `/` and
+// carries no query or fragment, so a root-relative path from
+// `@workspace/relay` joins onto it as `${url}${path}`.
 export const DashboardUrl = Schema.String.check(
-  Schema.isPattern(/^https?:\/\/[^/\s]+$/)
+  Schema.isPattern(/^https?:\/\/[^/\s?#]+(?:\/[^\s?#]*[^/\s?#])?$/)
 ).pipe(Schema.brand("DashboardUrl"))
 export type DashboardUrl = typeof DashboardUrl.Type
 

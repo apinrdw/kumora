@@ -20,7 +20,7 @@ import {
   type Send,
 } from "./poster.ts"
 import type { CatchUpResult, CatchUpWalk, WalkResult } from "./run-queue.ts"
-import { DashboardUrl } from "../settings.ts"
+import type { DashboardUrl } from "../settings.ts"
 import { askStatus, statusOnce, type Get } from "./status.ts"
 import type { TargetHold } from "./target-hold.ts"
 
@@ -96,13 +96,21 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
   // or 426 or by none (0: a network or CORS failure), shows it as retrying
   // until one goes through, so a target the browser can't reach is never
   // retried unseen. See apinrdw/kumora#244, "Retries".
+  // A request counts for the held settings when it went under their URL
+  // with their token; one on other settings changes nothing.
   const answered = (request: { url: string; token: string }, status: number) =>
-    hold.answered(
-      {
-        url: DashboardUrl.make(new URL(request.url).origin),
-        token: request.token,
-      },
-      status
+    Effect.flatMap(hold.settings, (held) =>
+      Option.match(
+        Option.filter(
+          held,
+          ({ url, token }) =>
+            token === request.token && request.url.startsWith(`${url}/`)
+        ),
+        {
+          onNone: () => Effect.void,
+          onSome: (own) => hold.answered(own, status),
+        }
+      )
     )
   const send: Send = (request) =>
     Effect.tap(options.send(request), (status) => answered(request, status))

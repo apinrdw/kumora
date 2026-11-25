@@ -75,6 +75,26 @@ describe("posting broker codes to a target", () => {
     })
   )
 
+  it.effect("posts under a dashboard served at a path", () =>
+    Effect.gen(function* () {
+      const target = fakeTarget([])
+      const poster = yield* makeBrokerCodesPoster({
+        target: Effect.succeed(
+          Option.some({
+            ...PRODUCTION,
+            url: DashboardUrl.make("https://dashboard.example/dashboard"),
+          })
+        ),
+        send: target.send,
+      })
+      assert.strictEqual(yield* poster.post(BATCH), "sent")
+      assert.deepStrictEqual(
+        target.requests.map(({ url }) => url),
+        ["https://dashboard.example/dashboard/api/broker-codes/2026-11-12"]
+      )
+    })
+  )
+
   it.effect("resends a failed POST, 1 s then 2 s later", () =>
     Effect.gen(function* () {
       const target = fakeTarget([500, 0])

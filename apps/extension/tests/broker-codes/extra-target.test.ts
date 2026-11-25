@@ -360,6 +360,32 @@ describe("the extra target", () => {
     })
   )
 
+  it.effect(
+    "served at a path and unreachable, shows retrying until a batch is written",
+    () =>
+      Effect.gen(function* () {
+        const extra = fakeDashboard({ statuses: [0, 0] })
+        const target = yield* harness({
+          extra,
+          settings: Option.some({
+            ...STAGING,
+            url: DashboardUrl.make("https://staging.example/dashboard"),
+          }),
+        })
+        yield* fakeWalk(target.post).walk(DAY)
+        yield* settle
+        assert.deepStrictEqual(target.reported, ["retrying"])
+        yield* TestClock.adjust("1 minute")
+        yield* settle
+        assert.deepStrictEqual(target.reported, ["retrying", "cleared"])
+        assert.isTrue(
+          extra.posts.every((url) =>
+            url.startsWith("https://staging.example/dashboard/api/")
+          )
+        )
+      })
+  )
+
   // The new settings' first failure shows again; makeTargets in
   // service-worker.ts says why.
   it.effect("shows retrying again when new settings fail too", () =>

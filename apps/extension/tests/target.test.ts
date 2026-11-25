@@ -64,8 +64,10 @@ class FakeIngest implements Socket.WebSocketLike {
 const DASHBOARD = DashboardUrl.make("http://localhost:3001")
 
 // `catchUp`: what every fresh socket is sent after the token. With
-// `handshake`, the first socket opens only when the test says.
+// `handshake`, the first socket opens only when the test says. The dashboard
+// is DASHBOARD unless `url` names another.
 const harness = Effect.fnUntraced(function* (options?: {
+  readonly url?: DashboardUrl
   readonly catchUp?: ReadonlyArray<EncodedIngestUp>
   readonly handshake?: boolean
 }) {
@@ -76,7 +78,7 @@ const harness = Effect.fnUntraced(function* (options?: {
   const envelopes = yield* PubSub.sliding<EncodedIngestUp>(16)
   const day = yield* SubscriptionRef.make(WibDate.make("2026-11-09"))
   const fiber = yield* runTarget({
-    url: DASHBOARD,
+    url: options?.url ?? DASHBOARD,
     token: "the token",
     envelopes,
     day,
@@ -124,6 +126,19 @@ describe("a target's ingest socket", () => {
         assert.deepStrictEqual(sockets[0]?.sent.slice(1), ["envelope 1"])
         assert.deepStrictEqual(states, ["connecting", "connected"])
       }).pipe(Effect.scoped)
+  )
+
+  it.effect("opens under a dashboard served at a path", () =>
+    Effect.gen(function* () {
+      const { sockets, settle } = yield* harness({
+        url: DashboardUrl.make("https://staging.example/dashboard"),
+      })
+      yield* settle
+      assert.strictEqual(
+        sockets[0]?.url,
+        "wss://staging.example/dashboard/market-live/ingest"
+      )
+    }).pipe(Effect.scoped)
   )
 
   for (const [code, state] of [

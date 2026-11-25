@@ -73,6 +73,28 @@ describe("reading a day's broker codes status", () => {
     })
   )
 
+  it.effect("asks under a dashboard served at a path", () =>
+    Effect.gen(function* () {
+      const target = yield* fakeTarget([])
+      const reader = yield* makeBrokerCodesStatus({
+        target: Effect.succeed(
+          Option.some({
+            ...PRODUCTION,
+            url: DashboardUrl.make("https://dashboard.example/dashboard"),
+          })
+        ),
+        get: target.get,
+      })
+      assert.deepStrictEqual(yield* reader.status(DAY), STATUS)
+      assert.deepStrictEqual(
+        target.requests.map(({ url }) => url),
+        [
+          "https://dashboard.example/dashboard/api/broker-codes/2026-11-12?after=0",
+        ]
+      )
+    })
+  )
+
   it.effect("asks again with backoff after a failure", () =>
     Effect.gen(function* () {
       const target = yield* fakeTarget([
