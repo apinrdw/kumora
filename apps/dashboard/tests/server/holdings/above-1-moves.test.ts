@@ -52,8 +52,8 @@ describe("Holder moves' Monthly, in a month with two above-1% reports", () => {
           })
         }).pipe(Effect.provide(seeded().layer))
         assert.deepInclude(read, {
-          period: "2026-10-30",
-          against: "2026-10-29",
+          period: REPORTS[2],
+          against: REPORTS[1],
         })
         assert.lengthOf(read.lines, 4)
       })
