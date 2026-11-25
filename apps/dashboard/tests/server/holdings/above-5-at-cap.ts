@@ -86,7 +86,7 @@ export const seedAbove5Churn = (
     day.run(date)
     for (let no = 1; no <= holders; no++) {
       const name = `HOLDER ${at} ${no}`
-      const shares = 1_000_000 + at * 1_000 + no
+      const shares = 1_000_000 + at * 100_000 + no
       holder.run(
         date,
         code,

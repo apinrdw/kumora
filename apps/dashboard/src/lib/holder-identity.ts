@@ -39,17 +39,21 @@ type PeriodComparison =
   | { readonly kind: "compared" | "gap"; readonly period: string }
   | { readonly kind: "first" }
 
-export interface Listed<H> {
+// A period's holder given its identity.
+interface Identified<H> {
   readonly holder: HolderId
   readonly now: H
+  // Listed the period before under another key.
+  readonly renamed: boolean
+  // Listed in an earlier period, not the one before.
+  readonly returning: boolean
+}
+
+export interface Listed<H> extends Identified<H> {
   // Its listing in the period before, when compared and listed there.
   readonly before: H | undefined
   // Undefined without a comparable period before.
   readonly move: Exclude<Move, "off list"> | undefined
-  // Listed in an earlier period, not the one before.
-  readonly returning: boolean
-  // Listed the period before under another key.
-  readonly renamed: boolean
 }
 
 // A holder off the list in a period: its last listing, and the period after
@@ -67,34 +71,13 @@ export interface PeriodMoves<H> {
   readonly listed: ReadonlyArray<Listed<H>>
   // Listed in the compared period before and not now, in its order.
   readonly offList: ReadonlyArray<Unlisted<H>>
-  // Listed in any earlier period, not now, and not this period's Off list:
-  // the latest off the list first, then in the order of that last listing.
-  readonly history: ReadonlyArray<Unlisted<H>>
 }
 
-const comparisonOf = <H>(
-  periods: ReadonlyArray<HolderPeriod<H>>,
-  index: number
-) =>
-  Effect.sync((): PeriodComparison => {
-    const before = periods[index - 1]
-    if (
-      before === undefined ||
-      periods.slice(0, index).every(({ holders }) => holders === undefined)
-    )
-      return { kind: "first" }
-    return {
-      kind: before.holders === undefined ? "gap" : "compared",
-      period: before.period,
-    }
-  })
-
-// Each period's holders given identities, and whether each is renamed. A
-// holder takes the identity of the first same-key holder of the period
-// before not yet taken (so same-key holders are told apart by order); else,
-// by the rule's rename test, of a holder of the period before left
-// unmatched; else of an earlier same-key holder not listed the period
-// before (a return); else a new one.
+// Each period's holders given identities, in its order. A holder takes the
+// identity of the first same-key holder of the period before not yet taken
+// (so same-key holders are told apart by order); else, by the rule's rename
+// test, of a holder of the period before left unmatched; else of an earlier
+// same-key holder not listed the period before (a return); else a new one.
 //
 // Decision: a holder matches by key, then as renamed, then as returning
 // (apps/dashboard/docs/adr/0129-a-renamed-or-returning-holder-keeps-its-identity.md)
@@ -102,19 +85,14 @@ const identities = Effect.fnUntraced(function* <
   H extends { readonly key: string },
 >(periods: ReadonlyArray<HolderPeriod<H>>, rule: MoveRule<H>) {
   const issued = new Map<string, Array<HolderId>>()
-  let previous: ReadonlyArray<readonly [HolderId, H]> = []
-  const out: Array<{
-    readonly ids: ReadonlyArray<HolderId>
-    readonly renamed: ReadonlyArray<boolean>
-  }> = []
+  let previous: ReadonlyArray<Identified<H>> = []
+  const out: Array<ReadonlyArray<Identified<H>>> = []
   for (const { holders = [] } of periods) {
-    const before = new Set(previous.map(([id]) => id))
     const taken = new Set<HolderId>()
     const byKey = yield* keyMatches(holders, previous, taken)
     const renamed = yield* renames(holders, byKey, previous, taken, rule)
-    const ids = yield* settle(holders, byKey, issued, before, taken)
-    previous = ids.map((id, at) => [id, holders[at] as H] as const)
-    out.push({ ids, renamed })
+    previous = yield* settle(holders, byKey, renamed, issued, previous, taken)
+    out.push(previous)
   }
   return out
 })
@@ -125,16 +103,16 @@ const identities = Effect.fnUntraced(function* <
 // new A must not take B's identity.
 const keyMatches = <H extends { readonly key: string }>(
   holders: ReadonlyArray<H>,
-  previous: ReadonlyArray<readonly [HolderId, H]>,
+  previous: ReadonlyArray<Identified<H>>,
   taken: Set<HolderId>
 ) =>
   Effect.sync(() =>
     holders.map(({ key }): HolderId | undefined => {
       const match = previous.find(
-        ([id, each]) => each.key === key && !taken.has(id)
+        ({ holder, now }) => now.key === key && !taken.has(holder)
       )
-      if (match !== undefined) taken.add(match[0])
-      return match?.[0]
+      if (match !== undefined) taken.add(match.holder)
+      return match?.holder
     })
   )
 
@@ -143,7 +121,7 @@ const keyMatches = <H extends { readonly key: string }>(
 const renames = Effect.fnUntraced(function* <H>(
   holders: ReadonlyArray<H>,
   ids: Array<HolderId | undefined>,
-  previous: ReadonlyArray<readonly [HolderId, H]>,
+  previous: ReadonlyArray<Identified<H>>,
   taken: Set<HolderId>,
   rule: MoveRule<H>
 ) {
@@ -152,126 +130,160 @@ const renames = Effect.fnUntraced(function* <H>(
   if (isRename === undefined) return renamed
   for (const [at, holder] of holders.entries()) {
     if (ids[at] !== undefined) continue
-    const gone = previous.filter(([id]) => !taken.has(id))
-    const match = yield* Effect.findFirst(gone, ([, each]) =>
-      isRename(each, holder)
+    const gone = previous.filter((each) => !taken.has(each.holder))
+    const match = yield* Effect.findFirst(gone, (each) =>
+      isRename(each.now, holder)
     )
     if (match._tag === "None") continue
-    const [id] = match.value
-    ids[at] = id
+    ids[at] = match.value.holder
     renamed[at] = true
-    taken.add(id)
+    taken.add(match.value.holder)
   }
   return renamed
 })
 
-// The rest's identities: an earlier same-key holder's not listed the period
-// before (a return), else a new one. Records every identity under its key.
+// The holders with their identities, the rest's settled: an earlier
+// same-key holder's not listed the period before (a return), else a new
+// one. Records every identity under its key.
 const settle = <H extends { readonly key: string }>(
   holders: ReadonlyArray<H>,
   ids: ReadonlyArray<HolderId | undefined>,
+  renamed: ReadonlyArray<boolean>,
   issued: Map<string, Array<HolderId>>,
-  before: ReadonlySet<HolderId>,
+  previous: ReadonlyArray<Identified<H>>,
   taken: Set<HolderId>
 ) =>
-  Effect.sync(() =>
-    holders.map(({ key }, at) => {
-      const ofKey = issued.get(key) ?? []
-      const id =
-        ids[at] ??
-        ofKey.find((each) => !before.has(each) && !taken.has(each)) ??
-        (`${key}#${ofKey.length + 1}` as HolderId)
-      if (!ofKey.includes(id)) issued.set(key, [...ofKey, id])
-      taken.add(id)
-      return id
+  Effect.sync(() => {
+    const before = new Set(previous.map(({ holder }) => holder))
+    return holders.map((now, at): Identified<H> => {
+      const ofKey = issued.get(now.key) ?? []
+      const back =
+        ids[at] === undefined
+          ? ofKey.find((each) => !before.has(each) && !taken.has(each))
+          : undefined
+      const holder =
+        ids[at] ?? back ?? (`${now.key}#${ofKey.length + 1}` as HolderId)
+      if (!ofKey.includes(holder)) issued.set(now.key, [...ofKey, holder])
+      taken.add(holder)
+      return {
+        holder,
+        now,
+        renamed: renamed[at] ?? false,
+        returning: back !== undefined,
+      }
     })
-  )
+  })
 
 const moveOf = (change: number) =>
   Effect.succeed<"up" | "down" | "unchanged">(
     change > 0 ? "up" : change < 0 ? "down" : "unchanged"
   )
 
-// Every period's moves, in `periods`' order.
+// What a period's moves are against, from the period before it and whether
+// any period before it has a report.
+const comparisonOf = <H>(
+  earlier: HolderPeriod<H> | undefined,
+  reported: boolean
+) =>
+  Effect.succeed<PeriodComparison>(
+    earlier === undefined || !reported
+      ? { kind: "first" }
+      : {
+          kind: earlier.holders === undefined ? "gap" : "compared",
+          period: earlier.period,
+        }
+  )
+
+// A period's holders, each against its listing in the compared period
+// before, `before` by identity; undefined without one.
+const listedOf = <H>(
+  holders: ReadonlyArray<Identified<H>>,
+  before: ReadonlyMap<HolderId, H> | undefined,
+  rule: MoveRule<H>
+) =>
+  Effect.forEach(
+    holders,
+    Effect.fnUntraced(function* (identified) {
+      const last = before?.get(identified.holder)
+      return {
+        ...identified,
+        before: last,
+        move:
+          before === undefined
+            ? undefined
+            : last === undefined
+              ? "new"
+              : yield* moveOf(yield* rule.change(last, identified.now)),
+      } satisfies Listed<H>
+    })
+  )
+
+// Every period's moves, in `periods`' order. What it keeps grows with the
+// periods' holders, not with periods × holders: a period's moves hold its
+// own holders and the period before's, and its earlier holders are worked
+// out for one period at a time (earlierHolders).
 export const holderMoves = Effect.fnUntraced(function* <
   H extends { readonly key: string },
 >(periods: ReadonlyArray<HolderPeriod<H>>, rule: MoveRule<H>) {
   const identified = yield* identities(periods, rule)
-  const ids = identified.map((period) => period.ids)
-  // Each identity's latest listing so far: its holder, period index and
-  // place in that period.
-  const last = new Map<
-    HolderId,
-    { readonly holder: H; readonly at: number; readonly place: number }
-  >()
-  const unlisted = (id: HolderId) =>
-    Effect.sync((): Unlisted<H> | undefined => {
-      const seen = last.get(id)
-      const since = seen && periods[seen.at + 1]
-      return (
-        seen &&
-        since && {
-          holder: id,
-          last: seen.holder,
-          since: since.period,
-        }
-      )
+  let reported = false
+  const moves: Array<PeriodMoves<H>> = []
+  for (const [index, { period, holders }] of periods.entries()) {
+    const comparison = yield* comparisonOf(periods[index - 1], reported)
+    const mine = identified[index] ?? []
+    const before =
+      comparison.kind === "compared"
+        ? new Map(
+            (identified[index - 1] ?? []).map(({ holder, now }) => [
+              holder,
+              now,
+            ])
+          )
+        : undefined
+    const now = new Set(mine.map(({ holder }) => holder))
+    moves.push({
+      period,
+      comparison,
+      listed: yield* listedOf(mine, before, rule),
+      offList: [...(before ?? [])]
+        .filter(([holder]) => !now.has(holder))
+        .map(([holder, last]) => ({ holder, last, since: period })),
     })
-  return yield* Effect.forEach(
-    periods,
-    Effect.fnUntraced(function* ({ period, holders = [] }, index) {
-      const comparison = yield* comparisonOf(periods, index)
-      const mine = ids[index] ?? []
-      const before =
-        comparison.kind === "compared"
-          ? new Map(
-              (ids[index - 1] ?? []).map((id, at) => [
-                id,
-                periods[index - 1]?.holders?.[at],
-              ])
-            )
-          : undefined
-      const listed = yield* Effect.forEach(
-        holders,
-        Effect.fnUntraced(function* (now, at) {
-          const holder = mine[at] as HolderId
-          const previous = before?.get(holder)
-          return {
-            holder,
-            now,
-            before: previous,
-            move:
-              before === undefined
-                ? undefined
-                : previous === undefined
-                  ? "new"
-                  : yield* moveOf(yield* rule.change(previous, now)),
-            returning:
-              last.has(holder) && !(ids[index - 1] ?? []).includes(holder),
-            renamed: identified[index]?.renamed[at] ?? false,
-          } satisfies Listed<H>
-        })
-      )
-      const now = new Set(mine)
-      const offIds = [...(before?.keys() ?? [])].filter((id) => !now.has(id))
-      const offList = yield* Effect.forEach(offIds, unlisted)
-      const away = [...last]
-        .filter(([id]) => !now.has(id) && !offIds.includes(id))
-        .sort(([, a], [, b]) => b.at - a.at || a.place - b.place)
-      const history = yield* Effect.forEach(away, ([id]) => unlisted(id))
-      mine.forEach((id, place) =>
-        last.set(id, { holder: holders[place] as H, at: index, place })
-      )
-      return {
-        period,
-        comparison,
-        listed,
-        offList: offList.filter((each) => each !== undefined),
-        history: history.filter((each) => each !== undefined),
-      } satisfies PeriodMoves<H>
-    })
-  )
+    reported ||= holders !== undefined
+  }
+  return moves
 })
+
+// The earlier holders of the period at `index` of `moves`: listed in any
+// period before it, not in it, and not on its Off list. The latest off the
+// list first, then in the order of that last listing.
+export const earlierHolders = <H>(
+  moves: ReadonlyArray<PeriodMoves<H>>,
+  index: number
+) =>
+  Effect.sync((): ReadonlyArray<Unlisted<H>> => {
+    const shown = new Set(
+      [...(moves[index]?.listed ?? []), ...(moves[index]?.offList ?? [])].map(
+        ({ holder }) => holder
+      )
+    )
+    // Each identity's latest listing before the period: its holder, period
+    // index and place in that period.
+    const last = new Map<
+      HolderId,
+      { readonly holder: H; readonly at: number; readonly place: number }
+    >()
+    for (const [at, { listed }] of moves.slice(0, index).entries())
+      for (const [place, { holder, now }] of listed.entries())
+        last.set(holder, { holder: now, at, place })
+    return [...last]
+      .filter(([holder]) => !shown.has(holder))
+      .sort(([, a], [, b]) => b.at - a.at || a.place - b.place)
+      .flatMap(([holder, seen]) => {
+        const since = moves[seen.at + 1]
+        return since ? [{ holder, last: seen.holder, since: since.period }] : []
+      })
+  })
 
 // A trend's period: the change in shares on the period before, "in" where
 // the holder entered the list and "out" where it left, null where neither

@@ -3,6 +3,7 @@ import { Effect } from "effect"
 
 import {
   collapseRepeats,
+  earlierHolders,
   holderMoves,
   type HolderPeriod,
   type MoveRule,
@@ -88,7 +89,7 @@ describe("Holder identity and moves", () => {
           moves[1]?.offList.map(({ holder, since }) => [holder, since])
         ).toEqual([[b, "2026-11-18"]])
         expect(
-          moves[2]?.history.map(({ holder, since, last }) => [
+          (yield* earlierHolders(moves, 2)).map(({ holder, since, last }) => [
             holder,
             since,
             last.shares,
@@ -100,7 +101,7 @@ describe("Holder identity and moves", () => {
           returning: true,
           before: undefined,
         })
-        expect(moves[3]?.history).toEqual([])
+        expect(yield* earlierHolders(moves, 3)).toEqual([])
       })
   )
 

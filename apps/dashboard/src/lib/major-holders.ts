@@ -5,6 +5,7 @@ import { Effect } from "effect"
 
 import { CLASSIFICATIONS, KSEI_TYPE_LABELS } from "@/domain/holdings"
 import {
+  earlierHolders,
   type HolderId,
   holderMoves,
   type Listed,
@@ -212,8 +213,9 @@ export const majorHolders = Effect.fnUntraced(function* (
     ),
     ({ percentageHundredths }) => percentageHundredths
   )
-  const unsorted = yield* Effect.forEach(moves.history, (each) =>
-    unlistedLine(each, each.since)
+  const unsorted = yield* Effect.forEach(
+    yield* earlierHolders(every, index),
+    (each) => unlistedLine(each, each.since)
   )
   const history = unsorted.sort(
     (a, b) =>

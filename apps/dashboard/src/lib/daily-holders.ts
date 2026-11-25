@@ -8,6 +8,7 @@ import { Effect } from "effect"
 import { brokerOf } from "@/lib/broker-code"
 import {
   collapseRepeats,
+  earlierHolders,
   type HolderId,
   holderMoves,
   type Listed,
@@ -355,8 +356,9 @@ export const dailyHolders = Effect.fnUntraced(function* (
     ),
     ({ stake }) => stake.before
   )
-  const history = (yield* Effect.forEach(selectedMoves.history, (each) =>
-    unlistedLine(each, each.since)
+  const history = (yield* Effect.forEach(
+    yield* earlierHolders(moves, index),
+    (each) => unlistedLine(each, each.since)
   )).sort(
     (a, b) =>
       (b.offListSince ?? "").localeCompare(a.offListSince ?? "") ||
