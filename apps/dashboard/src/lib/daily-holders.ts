@@ -37,8 +37,8 @@ export interface SecuritiesAccountLine {
   readonly origin: Above5SecuritiesAccount["origin"]
   readonly domicile: string | undefined
   readonly shares: number
-  // Against its paired account the day before, or from none; undefined
-  // when its holder has no listing the day before to pair with.
+  // Against its paired securities account the day before, or from none;
+  // undefined when its holder has no listing the day before to pair with.
   readonly shareChange: number | undefined
 }
 
@@ -49,7 +49,7 @@ export interface DailyHolderLine {
   readonly aliases: ReadonlyArray<string>
   // Its name the day before, when renamed since.
   readonly renamedFrom: string | undefined
-  // Mixed when its accounts' origins differ.
+  // Mixed when its securities accounts' origins differ.
   readonly origin: Above5SecuritiesAccount["origin"] | "mixed"
   // % of listed shares × 100: before is the day before's, now this day's;
   // absent where it isn't listed. An earlier holder's before is its last.
@@ -64,10 +64,10 @@ export interface DailyHolderLine {
   readonly move: Move | undefined
   // An earlier holder's: the day after its last listing.
   readonly offListSince: string | undefined
-  // The broker codes of the accounts its move went through, largest change
-  // first, "custodian" for those without one: on a move, those whose shares
-  // changed (a New holder's all, an Off-list holder's all the day before's);
-  // none without a move this day.
+  // The broker codes of the securities accounts its move went through,
+  // largest change first, "custodian" for those without one: on a move,
+  // those whose shares changed (a New holder's all, an Off-list holder's all
+  // the day before's); none without a move this day.
   readonly through: ReadonlyArray<BrokerCode | "custodian">
   // The last TREND_PERIODS trading days up to the selected one, oldest
   // first.
@@ -123,8 +123,8 @@ const BY_SHARES: MoveRule<DailyHolder> = {
     }),
 }
 
-// A block repeats an earlier one of its stock-day when its accounts' names
-// and shares, and its combined shares, are the same.
+// A block repeats an earlier one of its stock-day when its securities
+// accounts' names and shares, and its combined shares, are the same.
 //
 // Decision: repeat blocks are stored as published and collapsed on read
 // (apps/dashboard/docs/adr/0131-above-5-repeat-blocks-are-stored-as-published.md)
@@ -144,9 +144,9 @@ const dayHolders = (holders: ReadonlyArray<Above5Holder>) =>
     }))
   )
 
-// Each of `now`'s accounts paired with one of `before`'s by custodian and
-// account name, equal shares first, then in order; the rest of `before`
-// unpaired.
+// Each of `now`'s securities accounts paired with one of `before`'s by
+// custodian and account name, equal shares first, then in order; the rest
+// of `before` unpaired.
 const pairAccounts = (
   now: ReadonlyArray<Above5SecuritiesAccount>,
   before: ReadonlyArray<Above5SecuritiesAccount>
@@ -211,11 +211,11 @@ const accountLines = Effect.fnUntraced(function* (
   ]
 })
 
-// The custodians of the accounts a move went through, largest change first,
-// each once at its largest: what Holder moves stores of a line's Through
-// (server/holdings/above-5-moves.ts). An account with nothing to pair
-// against (a New holder's, an Off-list holder's last) moved its whole
-// holding.
+// The custodians of the securities accounts a move went through, largest
+// change first, each once at its largest: what Holder moves stores of a
+// line's Through (server/holdings/above-5-moves.ts). A securities account
+// with nothing to pair against (a New holder's, an Off-list holder's last)
+// moved its whole holding.
 export const movedCustodians = (
   accounts: ReadonlyArray<SecuritiesAccountLine>
 ) =>

@@ -2,8 +2,8 @@
 // apinrdw/kumora#673's prototype, layout D): one parsed above-5% day, picked
 // by its own day picker, as the ownership bar and a table of the stock's
 // above-5% holders, each against the trading day before by shares with its
-// accounts listed under it, the day's Off list greyed below them, then every
-// earlier holder as Off list since the day it left.
+// securities accounts listed under it, the day's Off list greyed below them,
+// then every earlier holder as Off list since the day it left.
 import type { StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"

@@ -139,7 +139,7 @@ const MajorHoldersMonth = Schema.Struct({
 })
 export type MajorHoldersMonth = typeof MajorHoldersMonth.Type
 
-// One account of an above-5% holder's block as published.
+// One securities account of an above-5% holder's block as published.
 const Above5SecuritiesAccount = Schema.Struct({
   // The broker or bank holding the account.
   custodian: Schema.String,
