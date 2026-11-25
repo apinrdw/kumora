@@ -15,12 +15,12 @@ import { verifyJWT } from "better-auth/crypto"
 import { admin } from "better-auth/plugins/admin"
 import { captcha } from "better-auth/plugins/captcha"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
-import { pathUnderBase } from "@workspace/client/base-path"
-import { Effect, Option, Predicate } from "effect"
+import { Effect, Predicate } from "effect"
 
 import { AUTH_PATH } from "../../lib/auth-path.ts"
 import { LINK_HOURS } from "../../lib/link-lifetime.ts"
 import { MIN_PASSWORD_LENGTH, resetPasswordPage } from "../../lib/password.ts"
+import { routerPath } from "../../lib/redirect.ts"
 import type { FileRoutesByFullPath } from "../../routeTree.gen.ts"
 import {
   AccountId,
@@ -151,11 +151,9 @@ const setPasswordLink = Effect.fnUntraced(function* (
   )
   // The sign-up's callbackURL is a path on the host; the page's redirect is a
   // router path, under the dashboard base path.
-  const under =
-    typeof redirect === "string"
-      ? yield* pathUnderBase(redirect)
-      : Option.none<string>()
-  const page = yield* resetPasswordPage(Option.getOrElse(under, () => "/"))
+  const page = yield* resetPasswordPage(
+    typeof redirect === "string" ? yield* routerPath(redirect) : "/"
+  )
   return `${ctx.context.baseURL}/reset-password/${token}?callbackURL=${encodeURIComponent(page)}`
 })
 
