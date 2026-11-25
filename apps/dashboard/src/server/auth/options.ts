@@ -15,6 +15,7 @@ import { verifyJWT } from "better-auth/crypto"
 import { admin } from "better-auth/plugins/admin"
 import { captcha } from "better-auth/plugins/captcha"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
+import type { StageUrl } from "@workspace/deploy/stage-url"
 import { Effect, Predicate } from "effect"
 
 import { AUTH_PATH } from "../../lib/auth-path.ts"
@@ -57,7 +58,7 @@ export const CLIENT_IP_HEADER = "cf-connecting-ip"
 export interface AuthOptionsInput {
   readonly database: BetterAuthOptions["database"]
   // The dashboard's Stage URL, which carries the dashboard base path.
-  readonly dashboardUrl: string
+  readonly dashboardUrl: StageUrl
   readonly secret: string
   // Introspects the database on every request, so the Worker passes false.
   readonly validateSchema: boolean

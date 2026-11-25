@@ -98,7 +98,7 @@ describe("stageUrl", () => {
   ] as const)("serves the dashboard on %s at %s", ([stage, url]) =>
     Effect.gen(function* () {
       const parsed = yield* stackStage(stage)
-      assert.strictEqual(yield* stageUrl("dashboard", parsed), url)
+      assert.strictEqual<string>(yield* stageUrl("dashboard", parsed), url)
     }).pipe(
       Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({})))
     )
@@ -114,7 +114,7 @@ describe("stageUrl", () => {
   ] as const)("serves web on %s at its host's root, %s", ([stage, url]) =>
     Effect.gen(function* () {
       const parsed = yield* stackStage(stage)
-      assert.strictEqual(yield* stageUrl("web", parsed), url)
+      assert.strictEqual<string>(yield* stageUrl("web", parsed), url)
     }).pipe(
       Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({})))
     )

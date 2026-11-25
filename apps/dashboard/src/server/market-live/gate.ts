@@ -4,10 +4,11 @@
 // refusal names; the entry answers any of them with a socket it closes with
 // 4401, since a browser can't read a refused handshake's status.
 import { MarketLivePath } from "@workspace/relay"
-import { Forbidden, WorkerEnv } from "@workspace/server"
+import { Forbidden } from "@workspace/server"
 import { Effect, type DateTime } from "effect"
 
 import { Auth } from "../auth/auth.ts"
+import { dashboardStageUrl } from "../dashboard-url.ts"
 import { decide } from "../auth/policy.ts"
 import { refusal } from "../auth/refusal.ts"
 import { accountOf } from "../auth/session-account.ts"
@@ -24,9 +25,9 @@ interface LiveViewer {
 export const gateLiveViewer = Effect.fn("gateLiveViewer")(function* (
   request: Request
 ) {
-  const env = yield* WorkerEnv
   // Another site's page could open the socket with this site's cookies.
-  if (request.headers.get("Origin") !== new URL(env.DASHBOARD_URL).origin)
+  const dashboardUrl = yield* dashboardStageUrl
+  if (request.headers.get("Origin") !== new URL(dashboardUrl).origin)
     return yield* new Forbidden({ message: "Origin" })
   const auth = yield* Auth
   // Past the cookie cache, so a ban or revoke bites at once.
