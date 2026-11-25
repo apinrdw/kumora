@@ -406,7 +406,7 @@ A KSEI archive run an admin starts that also looks for KSEI reports older than K
 _Avoid_: History run, full sync
 
 **Run**:
-One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run, an investor-type parse run, an above-1% parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run. Every run is recorded in ArchiveDb, and starting one claims it there: of two starts of one kind at once, one starts the run and the other is refused.
+One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run, an investor-type parse run, an above-1% parse run, an above-5% parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run. Every run is recorded in ArchiveDb, and starting one claims it there: of two starts of one kind at once, one starts the run and the other is refused.
 _Avoid_: Archive run for both, which is IDX's; job
 
 ### Holdings
@@ -455,12 +455,16 @@ _Avoid_: Archive run; IDX parse run
 The same pass for holders-above-1% reports, parsed into ≥1% holders, on its own schedule and in its own progress. It ends **complete**, **partial** or **failed** as a classification parse run does.
 _Avoid_: Archive run; holder parse run
 
+**Above-5% parse run**:
+The same pass for holders-above-5% reports, parsed into above-5% holders, one trading day per report rather than one month, on its own schedule and in its own progress. It ends **complete**, **partial** or **failed** as a classification parse run does.
+_Avoid_: Daily parse run; archive run
+
 **KSEI parse run**:
 One pass that parses each Securities holdings report in the KSEI archive whose newest version, or the parser's version, hasn't been parsed into KSEI holdings, from November 2018 on. The schedule starts one each day, an hour after the KSEI archive run, and an admin can start one when no KSEI parse run is in progress. A report that doesn't read exactly as expected is rejected whole and keeps the month's earlier holdings. It ends **complete**, **partial** (some months could not be parsed and wait for the next run) or **failed**.
 _Avoid_: KSEI archive run, which stores reports; import, sync
 
 **Parse coverage**:
-Each archived month a parse run reads, of a Report kind or a KSEI report kind, and how far it is parsed: **parsed** (from its newest version, by the current parser), **stale** (from an older version or by an older parser, so the next parse run parses it again), **failed** (the last finished parse run had a parse failure on it), or **not parsed yet** (never parsed). A failed month may still have its earlier parsed holdings.
+Each archived month a parse run reads (each archived trading day, for an above-5% parse run), of a Report kind or a KSEI report kind, and how far it is parsed: **parsed** (from its newest version, by the current parser), **stale** (from an older version or by an older parser, so the next parse run parses it again), **failed** (the last finished parse run had a parse failure on it), or **not parsed yet** (never parsed). A failed month may still have its earlier parsed holdings.
 _Avoid_: Coverage, which is the KSEI archive's held months; parse status
 
 **Retail / institution**:
@@ -488,16 +492,32 @@ A ≥5% holder is one investor holding at least 5% of a stock's shares outstandi
 _Avoid_: Minor holders, insiders, block holders
 
 **Major holders**:
-The stock page's panel that lists a stock's ≥1% holders for one above-1% report month, each against the month before, with the stock's listed shares split among them, and every holder's share across every month the stock has.
+The stock page's panel that lists a stock's ≥1% holders for one above-1% report month, each against the month before, with the stock's listed shares split among them, and every holder's share across every month the stock has. Every earlier ≥1% holder of the stock stays listed below them as Off list since the month it left.
 _Avoid_: Shareholder list, top holders, ≥5% holders (Holder size's band)
 
+**Daily holders**:
+The stock page's panel that lists a stock's above-5% holders for one trading day, each against the trading day before, with every account each holds through, the stock's listed shares split among them, and each holder's moves over the last 20 trading days. Every earlier above-5% holder of the stock stays listed below them as Off list since the day it left.
+_Avoid_: Block holders, ≥5% holders (Holder size's band), Major holders
+
+**Holder moves**:
+The page that lists, across every stock, the holders that moved in one period: above-5% holders against the trading day before (Daily), or ≥1% holders against the month before (Monthly). A move is New, Up, Down or Off list; an unchanged holder is not a move. Each daily move names the brokers it went through.
+_Avoid_: 5% holders page, block-holder feed
+
+**Through**:
+The broker codes of the securities accounts an above-5% holder's move went through: the accounts whose shares changed. An account held at a bank or other custodian that is not an exchange member has no broker code and shows as Custodian.
+_Avoid_: Broker of record
+
 **≥1% holder**:
-One investor IDX lists as holding at least 1% of a stock's listed shares, scrip included, as of an above-1% report's data date. The report names each holder, sometimes on several rows; rows whose names match once case, punctuation, legal forms, titles and word order are ignored count as one holder, summed. A holder can still appear under an unrelated name from one month to the next, so a few look like one leaving and another arriving.
+One investor IDX lists as holding at least 1% of a stock's listed shares, scrip included, as of an above-1% report's data date. The report names each holder, sometimes on several rows; rows whose names match once case, punctuation, legal forms, titles and word order are ignored count as one holder, summed. A holder that leaves the list and later returns under a matching name is the same holder. A holder can still appear under an unrelated name from one month to the next, so a few look like one leaving and another arriving.
 _Avoid_: Major holder, shareholder, ≥5% holder (scripless, of shares outstanding)
 
 **Off list**:
-A ≥1% holder listed in the month before and not in this one: it sold out or fell below 1%, which the report can't tell apart.
+A ≥1% holder listed in the month before and not in this one: it sold out or fell below 1%, which the report can't tell apart. Likewise an above-5% holder listed on the trading day before and not on this one, below 5%. A holder stays off list, since the period it left, until it returns.
 _Avoid_: Exited, sold
+
+**Above-5% holder**:
+One investor IDX lists on a trading day's above-5% report as holding at least 5% of a stock's listed shares in scripless form, with the securities accounts its holding sits in. Until 19 Nov 2026 the report could list one investor once per name variant, each with the same accounts; the stock page shows those as one holder. From one trading day to the next a holder is the same when its name matches as a ≥1% holder's does, or when one name leaves and another arrives in the same stock with the same shares or a securities account in common. A holder that returns to the list under a matching name is the same holder. It is never matched to a ≥1% holder.
+_Avoid_: ≥5% holder (Holder size's band, grouped by investor type), daily ≥5% holder, major holder
 
 **Controller**:
 A ≥1% holder IDX marks as a listed company's controller, or as an affiliate of the controller, from the company's own monthly report for the month before. Marked from Oct 2026 on.
