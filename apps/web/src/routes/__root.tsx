@@ -12,7 +12,7 @@ const DESCRIPTION =
   "Follow the smart money. A whale radar for the Indonesian stock exchange."
 // Link previews need an absolute image URL. Production's, so Staging and
 // Preview links show the same card.
-const OG_IMAGE = "https://kumora-web.kumora.workers.dev/og-image.jpg"
+const OG_IMAGE = `${__PRODUCTION_WEB__}/og-image.jpg`
 
 export const Route = createRootRoute({
   head: () => ({

@@ -1,7 +1,7 @@
 import { COPY, type Lang } from "./copy"
 
 // Production's site, so every stage's pages name the same canonical URLs.
-const ORIGIN = "https://kumora-web.kumora.workers.dev"
+const ORIGIN = __PRODUCTION_WEB__
 const PATH = { en: "/", id: "/id" } as const satisfies Record<Lang, string>
 
 // The landing page's title, description and language alternates. A head
