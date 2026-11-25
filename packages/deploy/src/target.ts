@@ -216,7 +216,7 @@ export const stageUrl = Effect.fnUntraced(function* (
 ): Effect.fn.Return<StageUrl> {
   const kind = yield* stageKind(stage)
   if (kind === "production")
-    return `https://${PRODUCTION_HOST}${APP_PATHS[app]}`
+    return StageUrl.make(`https://${PRODUCTION_HOST}${APP_PATHS[app]}`)
   if (kind === "dev" || kind === "test")
     return StageUrl.make(
       `http://localhost:${yield* devPort(app)}${APP_PATHS[app]}`
