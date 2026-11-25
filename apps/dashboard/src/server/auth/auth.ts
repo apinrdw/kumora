@@ -181,7 +181,7 @@ export class Auth extends Context.Service<
       const env = yield* WorkerEnv
       return Auth.make({
         database: env.AUTH_DB,
-        baseURL: env.AUTH_BASE_URL,
+        dashboardUrl: env.DASHBOARD_URL,
         secret: env.BETTER_AUTH_SECRET,
         // No schema check on the Worker. It would introspect D1 on
         // every request, since Auth is built per request; the migration drift

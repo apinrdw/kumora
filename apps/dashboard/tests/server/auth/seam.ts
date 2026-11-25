@@ -11,7 +11,8 @@ import { CLIENT_IP_HEADER } from "@/server/auth/options"
 
 import { replayMigrations } from "../../../scripts/auth-schema.ts"
 
-export const BASE_URL = "http://localhost:3001"
+// The dashboard Stage URL on a local stage: under the dashboard base path.
+export const BASE_URL = "http://localhost:3001/dashboard"
 
 export const ADMIN_EMAIL = "admin@example.com"
 
@@ -72,7 +73,7 @@ export function seam(
   })
   const layer = Auth.make({
     database,
-    baseURL: BASE_URL,
+    dashboardUrl: BASE_URL,
     secret: "handler-test-secret-0123456789abcdef0123456789",
     validateSchema: true,
     turnstileSecretKey: TURNSTILE_SECRET,

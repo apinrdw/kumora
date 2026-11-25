@@ -61,7 +61,7 @@ const mountedRoutes = () => {
   replayMigrations(database)
   const options = authOptions({
     database,
-    baseURL: BASE_URL,
+    dashboardUrl: BASE_URL,
     secret: "routes-test-secret-0123456789abcdef0123456789",
     validateSchema: false,
     sendVerificationEmail: noop,

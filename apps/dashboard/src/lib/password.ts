@@ -1,3 +1,4 @@
+import { DashboardBasePath } from "@workspace/client/base-path"
 import { Effect } from "effect"
 
 import type { FileRoutesByFullPath } from "../routeTree.gen.ts"
@@ -9,8 +10,12 @@ export const MIN_PASSWORD_LENGTH = 8
 const RESET_PASSWORD_PATH =
   "/reset-password" satisfies keyof FileRoutesByFullPath
 
-/** Where a reset or set-password link lands, returning to `redirect` once the password is set. */
+/**
+ * Where a reset or set-password link lands, as a path on the host, returning
+ * to `redirect`, a router path, once the password is set.
+ */
 export const resetPasswordPage = (redirect: string) =>
   Effect.sync(
-    () => `${RESET_PASSWORD_PATH}?redirect=${encodeURIComponent(redirect)}`
+    () =>
+      `${DashboardBasePath}${RESET_PASSWORD_PATH}?redirect=${encodeURIComponent(redirect)}`
   )

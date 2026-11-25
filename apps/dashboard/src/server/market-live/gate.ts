@@ -26,7 +26,7 @@ export const gateLiveViewer = Effect.fn("gateLiveViewer")(function* (
 ) {
   const env = yield* WorkerEnv
   // Another site's page could open the socket with this site's cookies.
-  if (request.headers.get("Origin") !== new URL(env.AUTH_BASE_URL).origin)
+  if (request.headers.get("Origin") !== new URL(env.DASHBOARD_URL).origin)
     return yield* new Forbidden({ message: "Origin" })
   const auth = yield* Auth
   // Past the cookie cache, so a ban or revoke bites at once.

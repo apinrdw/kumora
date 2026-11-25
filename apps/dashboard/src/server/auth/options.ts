@@ -15,8 +15,10 @@ import { verifyJWT } from "better-auth/crypto"
 import { admin } from "better-auth/plugins/admin"
 import { captcha } from "better-auth/plugins/captcha"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
-import { Effect, Predicate } from "effect"
+import { pathUnderBase } from "@workspace/client/base-path"
+import { Effect, Option, Predicate } from "effect"
 
+import { AUTH_PATH } from "../../lib/auth-path.ts"
 import { LINK_HOURS } from "../../lib/link-lifetime.ts"
 import { MIN_PASSWORD_LENGTH, resetPasswordPage } from "../../lib/password.ts"
 import type { FileRoutesByFullPath } from "../../routeTree.gen.ts"
@@ -54,7 +56,8 @@ export const CLIENT_IP_HEADER = "cf-connecting-ip"
 
 export interface AuthOptionsInput {
   readonly database: BetterAuthOptions["database"]
-  readonly baseURL: string
+  // The dashboard's Stage URL, which carries the dashboard base path.
+  readonly dashboardUrl: string
   readonly secret: string
   // Introspects the database on every request, so the Worker passes false.
   readonly validateSchema: boolean
@@ -146,9 +149,13 @@ const setPasswordLink = Effect.fnUntraced(function* (
       expiresAt: new Date(Date.now() + RESET_TOKEN_SECONDS * 1000),
     })
   )
-  const page = yield* resetPasswordPage(
-    typeof redirect === "string" ? redirect : "/"
-  )
+  // The sign-up's callbackURL is a path on the host; the page's redirect is a
+  // router path, under the dashboard base path.
+  const under =
+    typeof redirect === "string"
+      ? yield* pathUnderBase(redirect)
+      : Option.none<string>()
+  const page = yield* resetPasswordPage(Option.getOrElse(under, () => "/"))
   return `${ctx.context.baseURL}/reset-password/${token}?callbackURL=${encodeURIComponent(page)}`
 })
 
@@ -493,10 +500,15 @@ const mailCapTable = {
 export function authOptions(input: AuthOptionsInput) {
   const grantAdmin = (user: WrittenUser | null) =>
     runHook(grantAdminOf(input, user))
+  const dashboardUrl = new URL(input.dashboardUrl)
   return {
     appName: "KUMORA",
-    baseURL: input.baseURL,
-    trustedOrigins: [input.baseURL],
+    // In full: Better Auth appends its basePath only to a URL with no path,
+    // and the Stage URL has one. Its plugins (the captcha, the rate limiter's
+    // rules) still match request paths against basePath, so it is set too.
+    baseURL: `${input.dashboardUrl}${AUTH_PATH}`,
+    basePath: `${dashboardUrl.pathname.replace(/\/$/, "")}${AUTH_PATH}`,
+    trustedOrigins: [dashboardUrl.origin],
     disabledPaths: DISABLED_ROUTES,
     secret: input.secret,
     database: input.database,
@@ -549,7 +561,7 @@ export function authOptions(input: AuthOptionsInput) {
         sendDeleteAccountVerification: ({ user, token }) =>
           input.sendDeleteAccountLink({
             email: user.email,
-            url: `${input.baseURL}${DELETE_ACCOUNT_PATH}?token=${token}`,
+            url: `${input.dashboardUrl}${DELETE_ACCOUNT_PATH}?token=${token}`,
           }),
       },
     },

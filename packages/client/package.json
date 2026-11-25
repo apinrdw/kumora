@@ -12,6 +12,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./base-path": "./src/base-path.ts",
     "./testing": "./src/testing.ts"
   },
   "dependencies": {

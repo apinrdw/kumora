@@ -147,7 +147,7 @@ describe("password reset", () => {
   const requestReset = (email: string) =>
     post("/request-password-reset", {
       email,
-      redirectTo: "/reset-password?redirect=%2Fmarket-live",
+      redirectTo: "/dashboard/reset-password?redirect=%2Fmarket-live",
     })
 
   it.effect("mails a reset link that opens the set-password page", () => {
@@ -162,7 +162,7 @@ describe("password reset", () => {
       const link = yield* send(linkIn(mail))
       assert.match(
         link.headers.get("location") ?? "",
-        /^http:\/\/localhost:3001\/reset-password\?redirect=%2Fmarket-live&token=\w+$/
+        /^http:\/\/localhost:3001\/dashboard\/reset-password\?redirect=%2Fmarket-live&token=\w+$/
       )
     }).pipe(Effect.provide(layer))
   })
@@ -316,6 +316,28 @@ describe("a sign-up on an unverified email", () => {
       )
     }).pipe(Effect.provide(layer))
   })
+
+  it.effect(
+    "the set-password link opens the page under the dashboard, back to where sign-up began",
+    () => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        yield* signUp(EMAIL, SQUATTED)
+        yield* post("/sign-up/email", {
+          email: EMAIL,
+          password: OWN,
+          name: "Ayu",
+          callbackURL: "/dashboard/market-live",
+        })
+        assert.strictEqual(mails[1]?.subject, "Set your KUMORA password")
+        const link = yield* send(linkIn(mails[1]))
+        assert.match(
+          link.headers.get("location") ?? "",
+          /^http:\/\/localhost:3001\/dashboard\/reset-password\?redirect=%2Fmarket-live&token=\w+$/
+        )
+      }).pipe(Effect.provide(layer))
+    }
+  )
 
   it.effect(
     "Resend from the inbox screen, with no session, mails a set-password link",
