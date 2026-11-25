@@ -1,0 +1,440 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-25T13:16:26.892116+00:00",
+  "title": "Design System: KUMORA Terminal",
+  "extensions": {
+    "colorMeta": {
+      "bg-canvas": {
+        "role": "neutral",
+        "displayName": "Canvas",
+        "canonical": "oklch(19.0% 0.030 258)",
+        "tonalRamp": [
+          "oklch(15% 0.030 258)",
+          "oklch(26% 0.030 258)",
+          "oklch(37% 0.030 258)",
+          "oklch(48% 0.030 258)",
+          "oklch(60% 0.030 258)",
+          "oklch(71% 0.030 258)",
+          "oklch(83% 0.030 258)",
+          "oklch(95% 0.030 258)"
+        ]
+      },
+      "bg-surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "canonical": "oklch(24.9% 0.040 255)",
+        "tonalRamp": [
+          "oklch(15% 0.020 255)",
+          "oklch(26% 0.025 255)",
+          "oklch(37% 0.031 255)",
+          "oklch(48% 0.036 255)",
+          "oklch(60% 0.037 255)",
+          "oklch(71% 0.032 255)",
+          "oklch(83% 0.026 255)",
+          "oklch(95% 0.020 255)"
+        ]
+      },
+      "accent-primary": {
+        "role": "primary",
+        "displayName": "Teal",
+        "canonical": "oklch(80.8% 0.118 183)",
+        "tonalRamp": [
+          "oklch(15% 0.058 183)",
+          "oklch(26% 0.074 183)",
+          "oklch(37% 0.091 183)",
+          "oklch(48% 0.107 183)",
+          "oklch(60% 0.110 183)",
+          "oklch(71% 0.094 183)",
+          "oklch(83% 0.076 183)",
+          "oklch(95% 0.058 183)"
+        ]
+      },
+      "semantic-up": {
+        "role": "semantic",
+        "displayName": "Up green",
+        "canonical": "oklch(80.7% 0.148 162)",
+        "tonalRamp": [
+          "oklch(15% 0.073 162)",
+          "oklch(26% 0.093 162)",
+          "oklch(37% 0.114 162)",
+          "oklch(48% 0.135 162)",
+          "oklch(60% 0.139 162)",
+          "oklch(71% 0.118 162)",
+          "oklch(83% 0.095 162)",
+          "oklch(95% 0.073 162)"
+        ]
+      },
+      "semantic-down": {
+        "role": "semantic",
+        "displayName": "Down red",
+        "canonical": "oklch(73.6% 0.163 16)",
+        "tonalRamp": [
+          "oklch(15% 0.080 16)",
+          "oklch(26% 0.103 16)",
+          "oklch(37% 0.126 16)",
+          "oklch(48% 0.148 16)",
+          "oklch(60% 0.153 16)",
+          "oklch(71% 0.130 16)",
+          "oklch(83% 0.105 16)",
+          "oklch(95% 0.080 16)"
+        ]
+      },
+      "semantic-warning": {
+        "role": "semantic",
+        "displayName": "Amber",
+        "canonical": "oklch(84.3% 0.117 80)",
+        "tonalRamp": [
+          "oklch(15% 0.057 80)",
+          "oklch(26% 0.074 80)",
+          "oklch(37% 0.090 80)",
+          "oklch(48% 0.107 80)",
+          "oklch(60% 0.110 80)",
+          "oklch(71% 0.093 80)",
+          "oklch(83% 0.075 80)",
+          "oklch(95% 0.057 80)"
+        ]
+      },
+      "semantic-info": {
+        "role": "semantic",
+        "displayName": "Blue",
+        "canonical": "oklch(77.5% 0.105 247)",
+        "tonalRamp": [
+          "oklch(15% 0.052 247)",
+          "oklch(26% 0.066 247)",
+          "oklch(37% 0.081 247)",
+          "oklch(48% 0.096 247)",
+          "oklch(60% 0.098 247)",
+          "oklch(71% 0.084 247)",
+          "oklch(83% 0.068 247)",
+          "oklch(95% 0.052 247)"
+        ]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Primary text",
+        "canonical": "oklch(96.4% 0.012 248)",
+        "tonalRamp": [
+          "oklch(15% 0.012 248)",
+          "oklch(26% 0.012 248)",
+          "oklch(37% 0.012 248)",
+          "oklch(48% 0.012 248)",
+          "oklch(60% 0.012 248)",
+          "oklch(71% 0.012 248)",
+          "oklch(83% 0.012 248)",
+          "oklch(95% 0.012 248)"
+        ]
+      },
+      "chart-vwap": {
+        "role": "chart",
+        "displayName": "VWAP violet",
+        "canonical": "oklch(75.9% 0.135 292)",
+        "tonalRamp": [
+          "oklch(15% 0.066 292)",
+          "oklch(26% 0.085 292)",
+          "oklch(37% 0.104 292)",
+          "oklch(48% 0.123 292)",
+          "oklch(60% 0.126 292)",
+          "oklch(71% 0.108 292)",
+          "oklch(83% 0.087 292)",
+          "oklch(95% 0.066 292)"
+        ]
+      },
+      "border-subtle": {
+        "role": "neutral",
+        "displayName": "Border",
+        "canonical": "oklch(33.8% 0.045 252)",
+        "tonalRamp": [
+          "oklch(15% 0.022 252)",
+          "oklch(26% 0.028 252)",
+          "oklch(37% 0.035 252)",
+          "oklch(48% 0.041 252)",
+          "oklch(60% 0.042 252)",
+          "oklch(71% 0.036 252)",
+          "oklch(83% 0.029 252)",
+          "oklch(95% 0.022 252)"
+        ]
+      },
+      "bg-sidebar": {
+        "role": "neutral",
+        "displayName": "Sidebar"
+      },
+      "bg-elevated": {
+        "role": "neutral",
+        "displayName": "Raised"
+      },
+      "bg-selected": {
+        "role": "neutral",
+        "displayName": "Selected"
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "Strong border"
+      },
+      "text-secondary": {
+        "role": "neutral",
+        "displayName": "Secondary text"
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Muted text"
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "Teal hover"
+      },
+      "accent-on-primary": {
+        "role": "primary",
+        "displayName": "On-teal"
+      },
+      "semantic-neutral": {
+        "role": "semantic",
+        "displayName": "Neutral gray"
+      },
+      "chart-volume": {
+        "role": "chart",
+        "displayName": "Volume gray"
+      },
+      "chart-grid": {
+        "role": "chart",
+        "displayName": "Grid"
+      },
+      "chart-imbalance-buy": {
+        "role": "chart",
+        "displayName": "Imbalance cyan"
+      },
+      "chart-imbalance-sell": {
+        "role": "chart",
+        "displayName": "Imbalance magenta"
+      },
+      "chart-vwap-band-2": {
+        "role": "chart",
+        "displayName": "Lime"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Metric card headline figure, tabular."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page h1, one per page."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Section and panel titles."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Base text."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Buttons, inputs, chips, nav, table cells."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field and metric labels, hints, provenance."
+      },
+      "micro": {
+        "displayName": "Micro",
+        "purpose": "Uppercase status and column labels."
+      },
+      "data": {
+        "displayName": "Data",
+        "purpose": "Archive admin ids and month grids only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "popover",
+        "value": "0 4px 16px rgba(4, 10, 18, 0.45)",
+        "purpose": "Tooltips, menus, popovers."
+      },
+      {
+        "name": "modal",
+        "value": "0 16px 48px rgba(4, 10, 18, 0.6)",
+        "purpose": "Dialogs."
+      }
+    ],
+    "motion": [
+      {
+        "name": "color-transition",
+        "value": "transition-colors (150ms, Tailwind default)",
+        "purpose": "Hover and selection on controls."
+      },
+      {
+        "name": "marquee",
+        "value": "marquee 42s linear infinite",
+        "purpose": "Defined in styles.css; no component uses it yet."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one Teal action on a view.",
+      "html": "<button class=\"ds-btn-primary\">Save changes</button>",
+      "css": ".ds-btn-primary{font-family:'Manrope Variable',Arial,sans-serif;display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:6px;font-size:13px;line-height:18px;font-weight:500;cursor:pointer;transition:background-color .15s,color .15s,border-color .15s;background:var(--accent-primary,#55d9c7);color:var(--accent-on-primary,#09242a);border:1px solid transparent;}.ds-btn-primary:hover{background:var(--accent-hover,#7be6d8);}.ds-btn-primary:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Outlined, Surface; the default for every non-primary action.",
+      "html": "<button class=\"ds-btn-secondary\">Export</button>",
+      "css": ".ds-btn-secondary{font-family:'Manrope Variable',Arial,sans-serif;display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:6px;font-size:13px;line-height:18px;font-weight:500;cursor:pointer;transition:background-color .15s,color .15s,border-color .15s;background:var(--bg-surface,#142234);color:var(--text-primary,#edf4fb);border:1px solid var(--border-strong,#3e566b);}.ds-btn-secondary:hover{background:var(--bg-elevated,#1b2c40);}.ds-btn-secondary:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Toolbar and low-emphasis actions.",
+      "html": "<button class=\"ds-btn-ghost\">Cancel</button>",
+      "css": ".ds-btn-ghost{font-family:'Manrope Variable',Arial,sans-serif;display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:6px;font-size:13px;line-height:18px;font-weight:500;cursor:pointer;transition:background-color .15s,color .15s,border-color .15s;background:transparent;color:var(--text-secondary,#b0c2d2);border:1px solid transparent;}.ds-btn-ghost:hover{background:var(--bg-elevated,#1b2c40);color:var(--text-primary,#edf4fb);}.ds-btn-ghost:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Destructive actions: outlined in Down red, never filled.",
+      "html": "<button class=\"ds-btn-danger\">Delete account</button>",
+      "css": ".ds-btn-danger{font-family:'Manrope Variable',Arial,sans-serif;display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:6px;font-size:13px;line-height:18px;font-weight:500;cursor:pointer;transition:background-color .15s,color .15s,border-color .15s;background:transparent;color:var(--semantic-down,#ff7987);border:1px solid var(--semantic-down,#ff7987);}.ds-btn-danger:hover{background:var(--bg-elevated,#1b2c40);}.ds-btn-danger:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;}"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Toggleable filter pill; selected gets the teal border and Selected fill.",
+      "html": "<span style=\"display:inline-flex;gap:8px\"><button class=\"ds-chip\" aria-pressed=\"false\">Banks <span class=\"ds-chip-count\">12</span></button><button class=\"ds-chip\" aria-pressed=\"true\">Big trades <span class=\"ds-chip-count\">4</span></button></span>",
+      "css": ".ds-chip{font-family:'Manrope Variable',Arial,sans-serif;display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 12px;border-radius:9999px;border:1px solid var(--border-strong,#3e566b);background:var(--bg-surface,#142234);color:var(--text-secondary,#b0c2d2);font-size:13px;line-height:18px;font-weight:450;cursor:pointer;transition:background-color .15s,color .15s;}.ds-chip:hover{background:var(--bg-elevated,#1b2c40);color:var(--text-primary,#edf4fb);}.ds-chip[aria-pressed=true]{border-color:var(--accent-primary,#55d9c7);background:var(--bg-selected,#173a43);color:var(--text-primary,#edf4fb);}.ds-chip-count{font-size:11px;font-variant-numeric:tabular-nums;color:var(--text-muted,#839aae);}.ds-chip:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Labelled field on Canvas; teal border on focus, coral on error.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Stock code</span><span class=\"ds-field-wrap\"><svg class=\"ds-field-icon\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\"/><path d=\"M21 21l-6 -6\"/></svg><input class=\"ds-input\" placeholder=\"BBCA\"><kbd class=\"ds-kbd\">/</kbd></span></label>",
+      "css": ".ds-field{font-family:'Manrope Variable',Arial,sans-serif;display:flex;flex-direction:column;gap:4px;width:260px;}.ds-field-label{font-size:12px;line-height:18px;font-weight:450;color:var(--text-secondary,#b0c2d2);}.ds-field-wrap{position:relative;display:flex;align-items:center;}.ds-field-icon{position:absolute;left:12px;color:var(--text-muted,#839aae);pointer-events:none;}.ds-input{width:100%;height:36px;padding:0 36px;border-radius:6px;border:1px solid var(--border-strong,#3e566b);background:var(--bg-canvas,#0b1421);color:var(--text-primary,#edf4fb);font:inherit;font-size:13px;outline:none;transition:border-color .15s;}.ds-input::placeholder{color:var(--text-muted,#839aae);}.ds-input:focus-visible{border-color:var(--accent-primary,#55d9c7);}.ds-input[aria-invalid=true]{border-color:var(--semantic-down,#ff7987);}.ds-kbd{position:absolute;right:8px;font-size:11px;line-height:16px;padding:0 4px;border-radius:4px;border:1px solid var(--border-subtle,#26394e);color:var(--text-muted,#839aae);font-variant-numeric:tabular-nums;}"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "Grouped sidebar links; active is Selected with a teal icon.",
+      "html": "<nav class=\"ds-nav\"><span class=\"ds-nav-group\">Market</span><a class=\"ds-nav-item\" aria-current=\"page\" href=\"#\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3 8l4 -16l3 8h4\"/></svg>Market Live<span class=\"ds-nav-pill\">Live</span></a><a class=\"ds-nav-item\" href=\"#\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"/><path d=\"M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\"/><path d=\"M12 12m-5 0a5 5 0 1 0 10 0a5 5 0 1 0 -10 0\"/></svg>Order book radar</a></nav>",
+      "css": ".ds-nav{font-family:'Manrope Variable',Arial,sans-serif;display:flex;flex-direction:column;gap:2px;width:224px;padding:12px 10px;background:var(--bg-sidebar,#0e1a29);border-right:1px solid var(--border-subtle,#26394e);}.ds-nav-group{padding:0 10px 6px;font-size:10px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted,#839aae);}.ds-nav-item{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:6px;font-size:13.5px;line-height:18px;font-weight:500;color:var(--text-secondary,#b0c2d2);text-decoration:none;}.ds-nav-item svg{color:var(--text-muted,#839aae);}.ds-nav-item:hover{background:var(--bg-elevated,#1b2c40);color:var(--text-primary,#edf4fb);}.ds-nav-item:hover svg{color:var(--text-primary,#edf4fb);}.ds-nav-item[aria-current=page]{background:var(--bg-selected,#173a43);color:var(--text-primary,#edf4fb);font-weight:600;}.ds-nav-item[aria-current=page] svg{color:var(--accent-primary,#55d9c7);}.ds-nav-item:focus-visible{outline:2px solid var(--accent-primary,#55d9c7);outline-offset:2px;}.ds-nav-pill{margin-left:auto;padding:1px 6px;border-radius:4px;background:rgba(85,217,199,.12);color:var(--accent-primary,#55d9c7);font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;}"
+    },
+    {
+      "name": "Metric Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Flat Surface card: label + freshness pill, tabular figure, delta, provenance.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-head\"><span>Net foreign flow</span><span class=\"ds-pill ds-pill-live\"><i></i>LIVE</span></div><div class=\"ds-card-value\">Rp1,24 T <span class=\"ds-card-unit\">today</span></div><div class=\"ds-delta-up\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M17 7l-10 10\"/><path d=\"M8 7l9 0l0 9\"/></svg>+3,4%</div><div class=\"ds-source\">Relay · per 14.45 WIB</div></div>",
+      "css": ".ds-card{font-family:'Manrope Variable',Arial,sans-serif;display:flex;flex-direction:column;gap:4px;min-width:220px;padding:16px;border-radius:10px;border:1px solid var(--border-subtle,#26394e);background:var(--bg-surface,#142234);color:var(--text-primary,#edf4fb);}.ds-card-head{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;line-height:18px;font-weight:450;color:var(--text-secondary,#b0c2d2);}.ds-card-value{font-size:28px;line-height:34px;font-weight:650;font-variant-numeric:tabular-nums;}.ds-card-unit{font-size:12px;font-weight:450;color:var(--text-muted,#839aae);}.ds-delta-up{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-variant-numeric:tabular-nums;color:var(--semantic-up,#51dda2);}.ds-source{font-size:12px;line-height:18px;color:var(--text-muted,#839aae);}.ds-pill{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:9999px;border:1px solid var(--border-subtle,#26394e);background:var(--bg-elevated,#1b2c40);font-size:11px;line-height:16px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;}.ds-pill i{width:6px;height:6px;border-radius:9999px;background:currentColor;}.ds-pill-live{color:var(--semantic-up,#51dda2);}"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "custom",
+      "refersTo": "status-pill",
+      "description": "The freshness pill beside every live-looking value.",
+      "html": "<span style=\"display:inline-flex;gap:8px;flex-wrap:wrap\"><span class=\"ds-status\" style=\"color:#51dda2\"><i></i>LIVE</span><span class=\"ds-status\" style=\"color:#f4c36e\"><i></i>DELAYED · 17m</span><span class=\"ds-status\" style=\"color:#f4c36e;border-color:#f4c36e\"><i></i>STALE</span><span class=\"ds-status\" style=\"color:#7dbcf5\"><i></i>RECORDED</span><span class=\"ds-status\" style=\"color:#ff7987\"><i></i>UNAVAILABLE</span><span class=\"ds-status\" style=\"color:#a8b8c8;border:1px dashed #a8b8c8\"><i></i>DATA DEMO</span></span>",
+      "css": ".ds-status{font-family:'Manrope Variable',Arial,sans-serif;display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:9999px;border:1px solid var(--border-subtle,#26394e);background:var(--bg-elevated,#1b2c40);font-size:11px;line-height:16px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;cursor:help;}.ds-status i{width:6px;height:6px;border-radius:9999px;background:currentColor;}"
+    },
+    {
+      "name": "Data Table",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "KDataTable: Surface cells, muted headers, tabular right-aligned numbers, teal active sort.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>Stock code</th><th class=\"r\"><button class=\"ds-sort on\">Change <svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"transform:rotate(180deg)\"><path d=\"M6 15l6 -6l6 6\"/></svg></button></th><th class=\"r\">Value</th></tr></thead><tbody><tr><td><b>BBCA</b><small>Bank Central Asia</small></td><td class=\"r up\">+1,25%</td><td class=\"r\">Rp412,8 M</td></tr><tr aria-selected=\"true\"><td><b>TLKM</b><small>Telkom Indonesia</small></td><td class=\"r down\">−0,80%</td><td class=\"r\">Rp188,1 M</td></tr><tr><td><b>GOTO</b><small>GoTo Gojek Tokopedia</small></td><td class=\"r\">—</td><td class=\"r\">—</td></tr></tbody></table>",
+      "css": ".ds-table{font-family:'Manrope Variable',Arial,sans-serif;border-collapse:collapse;min-width:380px;font-size:13px;color:var(--text-primary,#edf4fb);border:1px solid var(--border-subtle,#26394e);border-radius:10px;overflow:hidden;}.ds-table th{height:36px;padding:0 12px;text-align:left;background:var(--bg-surface,#142234);border-bottom:1px solid var(--border-subtle,#26394e);font-size:12px;font-weight:450;color:var(--text-muted,#839aae);}.ds-table td{height:44px;padding:0 12px;background:var(--bg-surface,#142234);border-bottom:1px solid var(--border-subtle,#26394e);}.ds-table tr:last-child td{border-bottom:0;}.ds-table tbody tr:hover td{background:var(--bg-elevated,#1b2c40);}.ds-table tr[aria-selected=true] td{background:var(--bg-selected,#173a43);}.ds-table .r{text-align:right;font-variant-numeric:tabular-nums;}.ds-table b{font-weight:650;font-variant-numeric:tabular-nums;}.ds-table small{display:block;font-size:11px;line-height:14px;color:var(--text-secondary,#b0c2d2);}.ds-table .up{color:var(--semantic-up,#51dda2);}.ds-table .down{color:var(--semantic-down,#ff7987);}.ds-sort{display:inline-flex;align-items:center;gap:4px;background:none;border:0;padding:0;font:inherit;color:var(--text-primary,#edf4fb);cursor:pointer;}.ds-sort svg{color:var(--accent-primary,#55d9c7);}.ds-sort:focus-visible{outline:2px solid var(--accent-primary,#55d9c7);outline-offset:2px;border-radius:4px;}"
+    },
+    {
+      "name": "Running Trade Tape",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "22px tape rows: aggressor color on figures, broker codes colored foreign/domestic with [F]/[D], big trades tinted with an inset bar.",
+      "html": "<table class=\"ds-tape\"><tr><td class=\"t\">14:45:02</td><td class=\"c\">BBCA</td><td class=\"r up\">9.875</td><td class=\"r up\">120</td><td class=\"f\">AK [F]</td><td class=\"d\">YP [D]</td></tr><tr class=\"big-sell\"><td class=\"t\">14:45:03</td><td class=\"c\">BBCA</td><td class=\"r down\">9.850</td><td class=\"r down\">25.400</td><td class=\"d\">CC [D]</td><td class=\"f\">ZP [F]</td></tr><tr><td class=\"t\">14:45:03</td><td class=\"c\">BBRI</td><td class=\"r up\">4.310</td><td class=\"r up\">8</td><td class=\"d\">PD [D]</td><td class=\"d\">XC [D]</td></tr><tr class=\"match\"><td colspan=\"6\">Closing match 16:00:00</td></tr></table>",
+      "css": ".ds-tape{font-family:'Manrope Variable',Arial,sans-serif;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums;color:var(--text-primary,#edf4fb);background:var(--bg-surface,#142234);min-width:360px;}.ds-tape td{height:22px;line-height:22px;padding:0 8px;white-space:nowrap;}.ds-tape .c{font-weight:600;}.ds-tape .r{text-align:right;}.ds-tape .t{color:var(--text-muted,#839aae);}.ds-tape .up{color:var(--semantic-up,#51dda2);}.ds-tape .down{color:var(--semantic-down,#ff7987);}.ds-tape .f{color:var(--semantic-warning,#f4c36e);}.ds-tape .d{color:var(--semantic-info,#7dbcf5);}.ds-tape .big-sell td{background:rgba(255,121,135,.15);}.ds-tape .big-sell td:first-child{box-shadow:inset 3px 0 0 var(--semantic-down,#ff7987);}.ds-tape tr:hover td{background:var(--bg-elevated,#1b2c40);}.ds-tape .match td{background:rgba(125,188,245,.10);color:var(--semantic-info,#7dbcf5);text-align:center;}"
+    },
+    {
+      "name": "Toast",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "Neutral Raised surface; only the icon carries the tone.",
+      "html": "<div class=\"ds-toast\" role=\"alert\"><svg class=\"ds-toast-icon\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 9v4\"/><path d=\"M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z\"/><path d=\"M12 16h.01\"/></svg><div class=\"ds-toast-body\"><div class=\"ds-toast-title\">Relay offline</div><div class=\"ds-toast-desc\">Live values stay on screen, marked STALE.</div></div><button class=\"ds-toast-action\">Retry</button></div>",
+      "css": ".ds-toast{font-family:'Manrope Variable',Arial,sans-serif;display:flex;align-items:flex-start;gap:12px;width:360px;max-width:100%;padding:12px 16px;border-radius:10px;border:1px solid var(--border-subtle,#26394e);background:var(--bg-elevated,#1b2c40);box-shadow:0 4px 16px rgba(4,10,18,.45);}.ds-toast-icon{flex-shrink:0;margin-top:2px;color:var(--semantic-warning,#f4c36e);}.ds-toast-body{flex:1;min-width:0;}.ds-toast-title{font-size:13px;line-height:18px;font-weight:500;color:var(--text-primary,#edf4fb);}.ds-toast-desc{margin-top:2px;font-size:12px;line-height:18px;color:var(--text-secondary,#b0c2d2);}.ds-toast-action{font-family:'Manrope Variable',Arial,sans-serif;height:32px;padding:0 8px;border-radius:6px;border:0;background:transparent;color:var(--text-secondary,#b0c2d2);font-size:12px;font-weight:500;cursor:pointer;}.ds-toast-action:hover{background:var(--bg-selected,#173a43);color:var(--text-primary,#edf4fb);}.ds-toast-action:focus-visible{outline:2px solid var(--accent-primary,#55d9c7);outline-offset:2px;}"
+    },
+    {
+      "name": "Explain Tooltip",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "Methodology tooltip: Blue rule and title on the tooltip surface.",
+      "html": "<div class=\"ds-tip\"><span class=\"ds-tip-title\">Big trade</span>A running trade worth at least Rp1 B.</div>",
+      "css": ".ds-tip{font-family:'Manrope Variable',Arial,sans-serif;max-width:280px;min-width:160px;padding:8px 12px;border-radius:4px;border:1px solid var(--border-subtle,#26394e);border-left:2px solid var(--semantic-info,#7dbcf5);background:var(--bg-elevated,#1b2c40);box-shadow:0 4px 16px rgba(4,10,18,.45);font-size:12px;line-height:18px;color:var(--text-primary,#edf4fb);}.ds-tip-title{display:block;margin-bottom:2px;font-weight:500;color:var(--semantic-info,#7dbcf5);}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night Desk",
+    "overview": "KUMORA is a trading desk after dark. The trader sits with it through a whole IDX session, so the room is low-glare navy, the lamps are dim, and the one teal signal on the desk is reserved for what the trader can act on: the primary action, the active page, the focused control. Everything else is quiet so that the flow reads: green and red mean buy and sell or up and down, amber and blue mean foreign and domestic, and nothing decorative borrows those meanings.\n\nEvery figure sits on a fixed grid. Prices, lots, rupiah and times use tabular figures, so a column of numbers stays still while it updates. Every live-looking value says where it came from and how fresh it is (LIVE, DELAYED, STALE, RECORDED, with the WIB time). A missing value shows \"—\", never zero. The desk is honest before it is pretty.\n\nDensity is that of a working tool, not a showcase: 13px controls, 14px body, uppercase 11px micro-labels for section and status names, and compact 32–40px controls. The shadcn primitives in `packages/ui` are the base; the dashboard's `K` kit (`src/components/k/`) restyles them into this system. Dark is the only theme.",
+    "keyCharacteristics": [
+      "Navy canvas stepped up by tone, with hairline borders; flat.",
+      "One teal accent, used only for the primary action, the active state and focus.",
+      "Semantic color is reserved: up/down, foreign/domestic, freshness, chart series.",
+      "Tabular figures everywhere a number can change.",
+      "Provenance and freshness beside every live value.",
+      "Compact, quiet controls with small radii."
+    ],
+    "rules": [
+      {
+        "name": "The Teal Rule",
+        "body": "Teal marks what the trader can act on now (primary action, active page, focus, selection) and nothing else. It never colors data.",
+        "section": "colors"
+      },
+      {
+        "name": "The Reserved Colors Rule",
+        "body": "Green/red mean up/down or buy/sell; amber/blue mean foreign/domestic (with the `[F]`/`[D]` cue beside the broker code so no meaning rests on color alone). A new feature may not reuse these hues for decoration or for a different meaning.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Figures Rule",
+        "body": "Any number that can change while the user watches (price, lots, rupiah, percent, time, count) carries `num` (tabular figures) and right-aligns in tables.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Cards Rule",
+        "body": "Cards, panels and tables sit flat on the desk: tone plus a hairline border, no shadow. A shadow means \"this is floating above the data and will go away.\"",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do compose new screens from the `K` kit, and add a variant to it before styling a one-off.",
+      "Do put `num` on every changing figure and right-align numeric table columns.",
+      "Do show freshness (`KStatusPill`) and provenance (`KSourceLine`) beside every live-looking value, and render a missing value as \"—\".",
+      "Do keep depth tonal: Surface cards with a 1px border on the Canvas.",
+      "Do pair every semantic color with a non-color cue: an arrow on a delta, `[F]`/`[D]` on a broker code, an icon on a badge.",
+      "Do use the 2px Teal focus outline (`kFocus`) on every interactive element."
+    ],
+    "donts": [
+      "Don't use Teal for data, charts or decoration.",
+      "Don't reuse green, red, amber or blue for anything except their reserved meanings.",
+      "Don't put shadows on resting cards or panels.",
+      "Don't fill destructive buttons with red; outline them in Down red.",
+      "Don't render missing data as 0.",
+      "Don't add a light theme or light surfaces; dark is the only theme.",
+      "Don't set market figures in JetBrains Mono; it is for archive ids and grids only."
+    ]
+  }
+}
