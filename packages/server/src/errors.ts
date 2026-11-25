@@ -18,6 +18,7 @@ export class Conflict extends Schema.TaggedError<Conflict>()("Conflict", {
   message: Schema.String,
 }) {}
 
+// `redirectTo` is a router path with its search, without the app's basepath.
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
   "Unauthorized",
   { redirectTo: Schema.String }

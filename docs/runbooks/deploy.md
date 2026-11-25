@@ -101,6 +101,8 @@ Production and Staging offer Continue with Google; Previews, Dev and Test stages
    - `<Staging stage URL>/api/auth/callback/google`
 
    Each stage URL is the one `stageUrl` in `packages/deploy/src/target.ts` builds for the dashboard; `scripts/deploy-setup.sh` prints both URIs from it.
+
+   **Before the dashboard moves under `/dashboard` reaches Staging** (apinrdw/kumora#686, merged into `staging`): add `https://kumora-dashboard-staging.kumora.workers.dev/dashboard/api/auth/callback/google` to the client's Authorized redirect URIs. Until then, Google sign-in on Staging fails with a redirect URI mismatch. Keep the old root URI until the change is on Staging, then remove it.
 2. In Infisical project `kumora`, add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from that client at `/dashboard` of **both** `prod` and `staging`. Do this before the first deploy of either stage with Google.
 3. Check by hand on Staging: sign in with Google on a new Google address (it lands signed in and verified), then on the email of a verified password account (it links, and both sign-ins work), then on the email of an unverified password account (it returns to sign-in with "Sign in with your password and verify your email first."). Check that a Preview's sign-in page shows no Google button.
 

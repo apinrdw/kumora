@@ -57,8 +57,19 @@ const respond: {
   BadRequest: (e) => json(e._tag, e.message, 400),
   Forbidden: (e) => json(e._tag, e.message, 403),
   Conflict: (e) => json(e._tag, e.message, 409),
-  Unauthorized: (e) => Effect.sync(() => redirect({ href: e.redirectTo })),
+  Unauthorized: (e) => Effect.map(routerRedirect(e.redirectTo), redirect),
 }
+
+// `redirectTo` is a router path, so the redirect names its route and search
+// and the router adds its basepath. An `href` would reach the Location header
+// as is.
+const routerRedirect = Effect.fnUntraced(function* (path: string) {
+  const url = new URL(path, "http://router.invalid")
+  return {
+    to: url.pathname,
+    search: Object.fromEntries(url.searchParams),
+  }
+})
 
 const json = Effect.fnUntraced(function* (
   error: string,

@@ -6,7 +6,7 @@ import { useState } from "react"
 
 import { KButton } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
-import { withRedirect } from "@/lib/redirect"
+import { hostPath, withRedirect } from "@/lib/redirect"
 
 // Leaves for Google; only a refusal stays on the page.
 const start = Effect.fnUntraced(function* (
@@ -14,11 +14,14 @@ const start = Effect.fnUntraced(function* (
   setPending: (pending: boolean) => void
 ) {
   yield* Effect.sync(() => setPending(true))
-  const errorCallbackURL = yield* withRedirect("/sign-in", redirect)
+  const callbackURL = yield* hostPath(redirect)
+  const errorCallbackURL = yield* hostPath(
+    yield* withRedirect("/sign-in", redirect)
+  )
   const { error } = yield* Effect.promise(() =>
     authClient.signIn.social({
       provider: "google",
-      callbackURL: redirect,
+      callbackURL,
       errorCallbackURL,
     })
   )

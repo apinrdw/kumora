@@ -42,7 +42,7 @@ export const AJAIB_TAB = "https://trade.ajaib.co.id/"
 export const STOCKBIT_TAB = "https://stockbit.com/"
 
 /** Production's dashboard, as the built extension names it. */
-const PRODUCTION_HOST = new URL(
+const PRODUCTION = new URL(
   Effect.runSync(
     Effect.orDie(
       Effect.flatMap(parseStage("production"), (stage) =>
@@ -50,7 +50,8 @@ const PRODUCTION_HOST = new URL(
       )
     )
   )
-).host
+)
+const PRODUCTION_HOST = PRODUCTION.host
 
 /**
  * Every host the fakes answer for, all on one local port: the brokers', and
@@ -66,19 +67,24 @@ const HOSTS = [
   PRODUCTION_HOST,
 ]
 
-// A status GET answers the same status whatever its `?after=` names.
+// A status GET under a fake dashboard's path answers the same status
+// whatever its `?after=` names.
 const BROKER_CODES_PATH = /^\/api\/broker-codes\/(\d{4}-\d{2}-\d{2})(?:\?.*)?$/
 
 // A day's broker codes status, by day; none answers 404.
 type DayStatuses = (day: WibDate) => BrokerCodesStatus | undefined
 
-// Answers a broker codes status GET from `statuses`.
+// Answers a broker codes status GET from `statuses`, for a fake dashboard
+// served under `base`.
 const answerStatus = (
   statuses: DayStatuses,
+  base: string,
   path: string,
   response: ServerResponse
 ) => {
-  const day = BROKER_CODES_PATH.exec(path)?.[1]
+  const day = path.startsWith(`${base}/`)
+    ? BROKER_CODES_PATH.exec(path.slice(base.length))?.[1]
+    : undefined
   const status = day === undefined ? undefined : statuses(WibDate.make(day))
   if (status === undefined) {
     response.writeHead(404)
@@ -252,7 +258,12 @@ export async function startFakeBrokers() {
         })
       }
       if (host === PRODUCTION_HOST)
-        return answerStatus(production.statuses, path, response)
+        return answerStatus(
+          production.statuses,
+          PRODUCTION.pathname,
+          path,
+          response
+        )
       if (host === "exodus.stockbit.com") {
         response.setHeader(
           "access-control-allow-origin",
@@ -388,7 +399,7 @@ export async function startFakeIngest() {
     response.setHeader("access-control-allow-origin", "*")
     response.setHeader("access-control-allow-headers", "authorization")
     if (request.method === "OPTIONS") return response.end()
-    answerStatus(brokerCodes.statuses, request.url ?? "/", response)
+    answerStatus(brokerCodes.statuses, "", request.url ?? "/", response)
   })
   const sockets: Array<WebSocket> = []
   // Stamped on arrival and decoded only when read, each once, so a busy

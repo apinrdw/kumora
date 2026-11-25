@@ -19,7 +19,7 @@ import {
 import type { Page } from "@playwright/test"
 import { Effect } from "effect"
 
-import { DASHBOARD, MEMBER } from "../support/accounts"
+import { DASHBOARD, DASHBOARD_PATH, MEMBER } from "../support/accounts"
 import { cursorPlace, volumeInk } from "../support/chart"
 import {
   MERGE_WINDOW,
@@ -87,7 +87,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   // answered with today as a recorded day, whose GETs the object answers
   // from what it flushed.
   await page.route(
-    (url) => url.pathname === "/market-live/days",
+    (url) => url.pathname === `${DASHBOARD_PATH}/market-live/days`,
     (route) =>
       route.fulfill({
         json: {
@@ -106,7 +106,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   const gapFrom = Math.floor(sentAt / 1_000) * 1_000 - 15 * 60_000
   const gapTo = gapFrom + 10 * 60_000
   await page.route(
-    (url) => url.pathname === `/market-live/days/${day}/gaps`,
+    (url) => url.pathname === `${DASHBOARD_PATH}/market-live/days/${day}/gaps`,
     (route) => route.fulfill({ json: { gaps: [{ from: gapFrom, to: gapTo }] } })
   )
   await page.addInitScript(
@@ -340,7 +340,7 @@ test("a 401 recorded day answer sends the viewer to sign in", async ({
   page,
 }) => {
   await page.route(
-    (url) => url.pathname.startsWith("/market-live/days/"),
+    (url) => url.pathname.startsWith(`${DASHBOARD_PATH}/market-live/days/`),
     (route) =>
       route.fulfill({
         status: 401,

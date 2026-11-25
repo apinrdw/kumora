@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
 
-import { DASHBOARD, MEMBER } from "../support/accounts"
+import { DASHBOARD, DASHBOARD_PATH, MEMBER } from "../support/accounts"
 import { marketNow, wibTime } from "../support/clock"
 import { seedStockSectors } from "../support/holdings"
 import {
@@ -240,7 +240,7 @@ test("a large bubble draws its logo from the dashboard's own origin, and the map
   // Big enough for a logo, beside the other test's, which leads the map.
   await served
   const canvas = page.getByRole("img", { name: /^Market Bubbles:/ })
-  expect(requested).toContain(`/logos/${code}`)
+  expect(requested).toContain(`${DASHBOARD_PATH}/logos/${code}`)
   // A tainted canvas throws here. Two frames, so the logo has been drawn.
   const exported = await canvas.evaluate(
     (surface: HTMLCanvasElement) =>

@@ -29,7 +29,7 @@ const { compileMigrations, unsafeChanges, schemaProblems } =
   await getMigrations(
     authOptions({
       database,
-      baseURL: "http://localhost:3001",
+      dashboardUrl: "http://localhost:3001/dashboard",
       secret: "auth-migrations-placeholder-secret-0123456789",
       validateSchema: false,
       sendVerificationEmail: async () => {},

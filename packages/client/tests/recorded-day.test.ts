@@ -98,7 +98,7 @@ describe("a recorded day's broker codes GET", () => {
         })
         assert.deepStrictEqual(fake.asked, [
           {
-            url: "http://dashboard.test/market-live/days/2026-11-09/broker-codes?at=1794189600000",
+            url: "http://dashboard.test/dashboard/market-live/days/2026-11-09/broker-codes?at=1794189600000",
           },
         ])
       })
@@ -139,7 +139,7 @@ const stripAnswer = (
   url: URL,
   cold: boolean
 ) =>
-  url.pathname === "/market-live/days"
+  url.pathname === "/dashboard/market-live/days"
     ? Option.some(
         HttpClientResponse.fromWeb(
           request,
