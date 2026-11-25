@@ -7,6 +7,7 @@ import { Effect, Layer } from "effect"
 import { archiveDbD1 } from "../archive/archive-db.ts"
 import {
   above1ParseWorkflowBinding,
+  above5ParseWorkflowBinding,
   archiveBucketR2,
   archiveWorkflowBinding,
   classificationParseWorkflowBinding,
@@ -37,7 +38,8 @@ export const runParseCron = (scheduledTime: number) =>
           archiveDbD1,
           classificationParseWorkflowBinding,
           investorTypeParseWorkflowBinding,
-          above1ParseWorkflowBinding
+          above1ParseWorkflowBinding,
+          above5ParseWorkflowBinding
         )
       )
     )

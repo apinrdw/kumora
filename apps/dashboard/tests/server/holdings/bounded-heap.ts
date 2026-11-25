@@ -6,7 +6,12 @@ import { Effect } from "effect"
 // (apps/dashboard/docs/adr/0045-a-holdings-parse-fits-a-bounded-heap.md)
 export const PARSE_HEAP_MIB = 48
 
-export type Report = "ksei" | "classification" | "investor-type" | "above-1"
+export type Report =
+  | "ksei"
+  | "classification"
+  | "investor-type"
+  | "above-1"
+  | "above-5"
 
 // What parsing `bytes` as `report` posts (parse-worker.ts), parsed in a
 // worker thread whose heap stops at PARSE_HEAP_MIB. A parse past it fails

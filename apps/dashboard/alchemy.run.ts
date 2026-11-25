@@ -287,6 +287,12 @@ export const Website = Cloudflare.Website.Vite(
         ABOVE_1_PARSE: Cloudflare.Workflow<RunParams>("Above1Parse", {
           className: "Above1Parse",
         }),
+        // The above-5% parse run, which parses the shareholding archive's
+        // daily holders-above-5% reports into HoldingsDb, on every stage
+        // like the other parse runs.
+        ABOVE_5_PARSE: Cloudflare.Workflow<RunParams>("Above5Parse", {
+          className: "Above5Parse",
+        }),
         // Company logos, which /logos/{CODE} serves (src/server/logos/).
         // On every stage like the archive buckets; only Production's fills.
         LOGO_BUCKET: Cloudflare.R2.Bucket("LogoBucket", {

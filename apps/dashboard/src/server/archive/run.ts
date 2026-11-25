@@ -158,6 +158,7 @@ export type RunKind =
   | "parse-investor-classification"
   | "parse-investor-type"
   | "parse-above-1"
+  | "parse-above-5"
   | "parse-securities-holdings"
 
 // A kind's readers past retention, by trigger: each takes or passes over a
