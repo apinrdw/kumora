@@ -282,15 +282,7 @@ function MovesTable({
               </td>
             </tr>
           ) : (
-            <BoundedRows
-              key={moves.period}
-              rows={lines}
-              more={(control) => (
-                <tr className="border-t border-border">
-                  <td colSpan={columns.length}>{control}</td>
-                </tr>
-              )}
-            >
+            <BoundedRows rows={lines}>
               {(line) => (
                 <MoveRow
                   key={`${line.code} ${line.holder}`}
@@ -529,11 +521,7 @@ function Rail({
           </p>
         ) : (
           <ul className="flex max-h-140 flex-col gap-3 overflow-auto">
-            <BoundedRows
-              key={moves.period}
-              rows={crossed}
-              more={(control) => <li>{control}</li>}
-            >
+            <BoundedRows rows={crossed}>
               {(line) => (
                 <li
                   key={`${line.code} ${line.holder}`}

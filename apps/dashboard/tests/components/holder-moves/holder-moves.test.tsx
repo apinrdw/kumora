@@ -272,7 +272,7 @@ describe("Holder moves", () => {
     expect(text()).toContain("No holder matches. Clear the search or pick All.")
   })
 
-  test("renders the first 200 moves of a longer period, and filters and searches them all", async () => {
+  test("renders every move of a period longer than the server renders, and filters and searches them all", async () => {
     const lines = Array.from({ length: 250 }, (_, at) =>
       line("ENRG", `HOLDER ${String(at).padStart(3, "0")}`, "new", ["ZP"], {
         now: 9000 - at,
@@ -283,22 +283,15 @@ describe("Holder moves", () => {
       lines,
       counts: { new: 250, up: 0, down: 0, offList: 0 },
     })
-    const more = () =>
-      container.querySelector(
-        'table[aria-label="Holder moves"] [data-more-rows]'
-      )
-    expect(rows()).toHaveLength(200)
-    expect(more()?.textContent).toBe("200 of 250 shown · Show 50 more")
+    expect(rows()).toHaveLength(250)
     expect(button("New").textContent).toBe("New250")
     expect(
       container.querySelectorAll('[aria-labelledby="crossed"] li')
-    ).toHaveLength(201)
+    ).toHaveLength(250)
     await typeSearch("holder 249")
     expect(rows().map((row) => row[1])).toEqual(["HOLDER 249"])
     await typeSearch("")
-    await act(() => more()?.querySelector("button")?.click())
     expect(rows()).toHaveLength(250)
-    expect(more()).toBeNull()
   })
 
   test("links each row to its stock's Daily holders on the day", async () => {

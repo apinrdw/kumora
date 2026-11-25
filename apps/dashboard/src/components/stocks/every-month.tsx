@@ -35,8 +35,8 @@ const MARK = {
 const SHADE =
   "bg-[color-mix(in_oklab,var(--semantic-info)_var(--shade),transparent)]"
 
-// The cells the grid renders at first: its rows shown are as many as fit,
-// so a grid of many months starts with fewer rows.
+// The cells the grid's server render holds: its rows are as many as fit, so
+// a grid of many months renders fewer rows there.
 const CELLS_SHOWN = 6_000
 
 const OUTLINE = "data-selected:shadow-[inset_0_0_0_1.5px_var(--text-primary)]"
@@ -90,14 +90,9 @@ export function EveryMonth({
           <tbody>
             <BoundedRows
               rows={rows}
-              step={Math.max(
+              bound={Math.max(
                 1,
                 Math.min(ROWS_SHOWN, Math.floor(CELLS_SHOWN / months.length))
-              )}
-              more={(control) => (
-                <tr>
-                  <td colSpan={months.length + 1}>{control}</td>
-                </tr>
               )}
             >
               {(row) => (

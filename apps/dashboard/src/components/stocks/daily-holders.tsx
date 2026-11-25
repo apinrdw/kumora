@@ -204,15 +204,7 @@ function HoldersTable({ holders }: { holders: HoldersDay }) {
           </tr>
         </thead>
         <tbody>
-          <BoundedRows
-            key={holders.dataDate}
-            rows={Effect.runSync(tableRows(holders))}
-            more={(control) => (
-              <tr className="border-t border-border">
-                <td colSpan={7}>{control}</td>
-              </tr>
-            )}
-          >
+          <BoundedRows rows={Effect.runSync(tableRows(holders))}>
             {(row) =>
               row.kind === "holder" ? (
                 <HolderRow key={row.key} line={row.line} compared={compared} />

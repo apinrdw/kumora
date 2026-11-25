@@ -174,13 +174,7 @@ function HoldersTable({ holders }: { holders: MonthHolders }) {
         </thead>
         <tbody>
           <BoundedRows
-            key={holders.dataDate}
             rows={[...holders.listed, ...holders.offList, ...holders.history]}
-            more={(control) => (
-              <tr>
-                <td colSpan={5}>{control}</td>
-              </tr>
-            )}
           >
             {(line) => (
               <HolderRow

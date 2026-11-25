@@ -269,21 +269,15 @@ describe("Daily holders", () => {
     expect(holderRow("GAMMA")?.getAttribute("data-off-list")).toBe("true")
   })
 
-  test("renders the table's first 200 rows of a longer day, and 200 more on a click", async () => {
+  test("renders every row of a day longer than the server renders", async () => {
     const holders = Array.from({ length: 150 }, (_, at) =>
       block(`HOLDER ${at}`, `H${at}`, [
         account("PT TRUST SEKURITAS", `HOLDER ${at}`, 500 - at),
       ])
     )
     await render({ days: [day("2026-11-19", holders)] })
-    const tableRows = () => table()?.querySelectorAll("tbody tr").length
-    const more = () => table()?.querySelector("[data-more-rows]")
     expect(text()).toContain("150 holders hold")
-    expect(tableRows()).toBe(201)
-    expect(more()?.textContent).toBe("200 of 300 shown · Show 100 more")
-    await act(() => more()?.querySelector("button")?.click())
-    expect(tableRows()).toBe(300)
-    expect(more()).toBeNull()
+    expect(table()?.querySelectorAll("tbody tr")).toHaveLength(300)
   })
 
   test("splits listed shares among the day's holders on the bar", async () => {

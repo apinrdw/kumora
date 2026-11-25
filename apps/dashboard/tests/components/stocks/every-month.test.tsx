@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from "react"
 import { createRoot } from "react-dom/client"
+import { renderToString } from "react-dom/server"
 import { afterEach, describe, expect, test } from "vitest"
 
 import { EveryMonth } from "@/components/stocks/every-month"
@@ -113,7 +114,7 @@ describe("Every month", () => {
       "A dot is a month the holder was not listed: sold out or fell below 1%."
     )
   })
-  test("renders as many rows at first as fit 6,000 cells, fewer of more months", async () => {
+  test("server-renders as many rows as fit 6,000 cells, fewer of more months, and every row once hydrated", async () => {
     // 100 months of 2 holders no other month has: 200 rows of 100 cells.
     const months = Array.from({ length: 100 }, (_, at) =>
       month(new Date(Date.UTC(2020, at, 28)).toISOString().slice(0, 10), [
@@ -122,17 +123,18 @@ describe("Every month", () => {
       ])
     )
     const last = months.at(-1)?.dataDate ?? ""
+    const server = document.createElement("div")
+    server.innerHTML = renderToString(
+      <EveryMonth months={months} selected={last} />
+    )
+    expect(server.querySelectorAll("tbody tr")).toHaveLength(60)
     await act(() => root.render(<EveryMonth months={months} selected={last} />))
     expect(
       rows()
         .slice(0, 2)
         .map(([name]) => name)
     ).toEqual(["ALPHA 99", "BETA 99"])
-    const more = () => grid()?.querySelector("[data-more-rows]")
-    expect(grid()?.querySelectorAll("tbody tr[data-unlisted]")).toHaveLength(58)
-    expect(more()?.textContent).toBe("60 of 200 shown · Show 60 more")
-    await act(() => more()?.querySelector("button")?.click())
-    expect(more()?.textContent).toBe("120 of 200 shown · Show 60 more")
+    expect(rows()).toHaveLength(200)
   })
 
   test("shades every cell the lightest when every holder holds 0%", async () => {

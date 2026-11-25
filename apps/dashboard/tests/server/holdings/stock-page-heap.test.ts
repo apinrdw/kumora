@@ -38,9 +38,9 @@ const MONTHS_HEAP_LIMIT_MIB = 48
 // isn't exact, so the bound leaves room.
 const PAGE_HEAP_MIB = 96
 
-// The table rows a panel renders of a list longer than BoundedRows shows:
-// its header, the rows shown and the row that shows more.
-const TABLE_ROWS = 1 + ROWS_SHOWN + 1
+// The table rows the server renders of a list longer than BoundedRows'
+// bound: its header and the rows within the bound.
+const TABLE_ROWS = 1 + ROWS_SHOWN
 
 interface Seeded {
   // Each day's holders, of `accounts` securities accounts each; `churn`
@@ -214,7 +214,7 @@ describe("the stock page's Major holders read and render", () => {
           yield* pageInBoundedHeap({
             months: { dates: monthsOf(periods), holders, churn: true },
           }),
-          `0 days of 0, ${periods} months of ${holders}; daily none, 0 earlier; major ${holders} holders hold: ${holders} new, 0 up, 0 down, ${holders} off list; ${TABLE_ROWS + 1 + 25 + 1} rows`
+          `0 days of 0, ${periods} months of ${holders}; daily none, 0 earlier; major ${holders} holders hold: ${holders} new, 0 up, 0 down, ${holders} off list; ${TABLE_ROWS + 1 + 25} rows`
         )
       }),
     { timeout: 120_000 }
@@ -230,7 +230,7 @@ describe("the stock page's Major holders read and render", () => {
           yield* pageInBoundedHeap({
             months: { dates: monthsOf(periods + 60), holders: 1, churn: true },
           }),
-          `0 days of 0, ${periods} months of 1; daily none, 0 earlier; major 1 holder holds: 1 new, 0 up, 0 down, 1 off list; ${TABLE_ROWS + 1 + 25 + 1} rows`
+          `0 days of 0, ${periods} months of 1; daily none, 0 earlier; major 1 holder holds: 1 new, 0 up, 0 down, 1 off list; ${TABLE_ROWS + 1 + 25} rows`
         )
       }),
     { timeout: 120_000 }

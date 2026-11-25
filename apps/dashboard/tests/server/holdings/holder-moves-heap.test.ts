@@ -159,9 +159,9 @@ const pageInBoundedHeap = (kind: "daily" | "monthly", lines: number) =>
     (worker) => inBoundedHeap(worker, { kind, lines }, PAGE_HEAP_MIB)
   )
 
-// The table renders its first rows of the period's lines (BoundedRows): its
-// header, the rows shown and the row that shows more. Rendered whole, a
-// period at the caps did not fit the bound.
+// The server renders the table's first rows of the period's lines
+// (BoundedRows) and its header. Rendered whole, a period at the caps did not
+// fit the bound.
 describe("the Holder moves page's render", () => {
   it.effect(
     "shows a day at the parse's caps in 96 MiB of heap",
@@ -169,7 +169,7 @@ describe("the Holder moves page's render", () => {
       Effect.gen(function* () {
         assert.strictEqual(
           yield* pageInBoundedHeap("daily", LINES),
-          `${LINES} holders above 5% moved, ${LINES} entered or left; ${1 + ROWS_SHOWN + 1} rows`
+          `${LINES} holders above 5% moved, ${LINES} entered or left; ${1 + ROWS_SHOWN} rows`
         )
       }),
     { timeout: 120_000 }
@@ -181,7 +181,7 @@ describe("the Holder moves page's render", () => {
       Effect.gen(function* () {
         assert.strictEqual(
           yield* pageInBoundedHeap("monthly", MONTH_LINES),
-          `${MONTH_LINES} holders above 1% moved, ${MONTH_LINES} entered or left; ${1 + ROWS_SHOWN + 1} rows`
+          `${MONTH_LINES} holders above 1% moved, ${MONTH_LINES} entered or left; ${1 + ROWS_SHOWN} rows`
         )
       }),
     { timeout: 120_000 }
