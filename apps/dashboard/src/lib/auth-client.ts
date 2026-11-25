@@ -1,4 +1,4 @@
-import { DashboardBasePath } from "@workspace/client"
+import { DashboardBasePath } from "@workspace/client/base-path"
 import { adminClient } from "better-auth/client/plugins"
 import { createAuthClient } from "better-auth/react"
 

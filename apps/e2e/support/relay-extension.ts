@@ -1,3 +1,4 @@
+import { DashboardBasePath, pathUnderBase } from "@workspace/client/base-path"
 import { parseStage, stageUrl } from "@workspace/deploy"
 import {
   WibDate,
@@ -15,7 +16,7 @@ import {
   type BrowserContext,
   type Worker,
 } from "@playwright/test"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { execFileSync } from "node:child_process"
 import { appendFileSync, mkdtempSync, readFileSync } from "node:fs"
 import {
@@ -78,12 +79,13 @@ type DayStatuses = (day: WibDate) => BrokerCodesStatus | undefined
 // served under `base`.
 const answerStatus = (
   statuses: DayStatuses,
-  base: string,
+  base: typeof DashboardBasePath,
   path: string,
   response: ServerResponse
 ) => {
-  const day = path.startsWith(`${base}/`)
-    ? BROKER_CODES_PATH.exec(path.slice(base.length))?.[1]
+  const under = Effect.runSync(pathUnderBase(path, base))
+  const day = Option.isSome(under)
+    ? BROKER_CODES_PATH.exec(under.value)?.[1]
     : undefined
   const status = day === undefined ? undefined : statuses(WibDate.make(day))
   if (status === undefined) {
@@ -260,7 +262,7 @@ export async function startFakeBrokers() {
       if (host === PRODUCTION_HOST)
         return answerStatus(
           production.statuses,
-          PRODUCTION.pathname,
+          DashboardBasePath,
           path,
           response
         )

@@ -1,4 +1,5 @@
 import {
+  MarketLivePath,
   ViewerCloseCode,
   decodeViewerDown,
   encodeViewerUp,
@@ -14,6 +15,8 @@ import {
   SubscriptionRef,
 } from "effect"
 import * as Socket from "effect/socket/Socket"
+
+import { DashboardBasePath } from "./base-path.ts"
 
 // The viewer socket closed with 4401: the page sends the visitor to sign in.
 export class SignInRequired extends Schema.TaggedError<SignInRequired>()(
@@ -38,13 +41,18 @@ const reconnect = Schedule.min([
   Schedule.spaced("10 seconds"),
 ])
 
+// The viewer socket on the page's own host, under the dashboard base path.
+const liveSocketUrl = Effect.sync(() => {
+  const scheme = window.location.protocol === "https:" ? "wss" : "ws"
+  return `${scheme}://${window.location.host}${DashboardBasePath}${MarketLivePath.live}`
+})
+
 // Market Live's viewer socket as a Stream of what the trading-day Durable
 // Object sends: a snapshot on every (re)connect, then deltas. It sends the
 // current `select` on each connect and again on every change, each answered
 // with a fresh snapshot, and fails only on a terminal close. `onReconnecting`
 // runs each time a connection drops and another will be tried.
 export const viewerMessages = (options: {
-  readonly url: string
   readonly select: SubscriptionRef.SubscriptionRef<ViewerUp>
   readonly onReconnecting?: Effect.Effect<void>
 }): Stream.Stream<
@@ -58,7 +66,7 @@ export const viewerMessages = (options: {
     Socket.WebSocketConstructor
   >((queue) =>
     Effect.gen(function* () {
-      const socket = yield* Socket.makeWebSocket(options.url)
+      const socket = yield* Socket.makeWebSocket(yield* liveSocketUrl)
       const connection = Effect.gen(function* () {
         const pull = yield* Socket.readerString(socket)
         const writer = yield* socket.writer

@@ -1,3 +1,4 @@
+import { StageUrl } from "@workspace/deploy/stage-url"
 import { Effect, Layer } from "effect"
 import { DatabaseSync } from "node:sqlite"
 import { vi } from "vitest"
@@ -12,7 +13,7 @@ import { CLIENT_IP_HEADER } from "@/server/auth/options"
 import { replayMigrations } from "../../../scripts/auth-schema.ts"
 
 // The dashboard Stage URL on a local stage: under the dashboard base path.
-export const BASE_URL = "http://localhost:3001/dashboard"
+export const BASE_URL = StageUrl.make("http://localhost:3001/dashboard")
 
 export const ADMIN_EMAIL = "admin@example.com"
 

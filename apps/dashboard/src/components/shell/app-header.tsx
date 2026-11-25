@@ -3,8 +3,8 @@ import { IconChevronRight } from "@tabler/icons-react"
 import { Link, useMatches } from "@tanstack/react-router"
 import { Effect } from "effect"
 import type { AnyRouteMatch } from "@tanstack/react-router"
-import { DashboardBasePath } from "@workspace/client"
 
+import { KUMORA_MARK_SRC } from "@/lib/kumora-mark"
 import type { Crumb } from "@/lib/crumbs"
 import type { Viewer } from "@/server/auth/gate"
 
@@ -15,11 +15,7 @@ export function AppHeader({ viewer }: { viewer: Viewer }) {
   return (
     <header className="bg-canvas/82 sticky top-(--banner-h,0px) z-20 flex h-14 items-center gap-3 border-b border-border px-4 backdrop-blur-[16px]">
       <Link to="/" className="shrink-0 md:hidden">
-        <img
-          src={`${DashboardBasePath}/kumora-mark.png`}
-          alt="KUMORA AI"
-          className="size-7"
-        />
+        <img src={KUMORA_MARK_SRC} alt="KUMORA AI" className="size-7" />
       </Link>
       <Breadcrumbs />
       <span className="flex-1" />

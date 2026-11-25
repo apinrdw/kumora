@@ -1,5 +1,5 @@
-import { DashboardBasePath } from "@workspace/client/base-path"
-import { Effect } from "effect"
+import { DashboardBasePath, pathUnderBase } from "@workspace/client/base-path"
+import { Effect, Option } from "effect"
 
 import type { FileRoutesByFullPath } from "../routeTree.gen.ts"
 
@@ -34,6 +34,10 @@ const VERIFY_PATH = "/verify" satisfies keyof FileRoutesByFullPath
  */
 export const hostPath = (path: string) =>
   Effect.sync(() => `${DashboardBasePath}${path}`)
+
+/** A path on the host as a router path, or `/` when it is outside the base. */
+export const routerPath = (pathname: string) =>
+  pathUnderBase(pathname).pipe(Effect.map(Option.getOrElse(() => "/")))
 
 /** A gate screen that sends the visitor back to `href` when it's done. */
 export const withRedirect = (

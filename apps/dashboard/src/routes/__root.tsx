@@ -1,5 +1,5 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
-import { DashboardBasePath } from "@workspace/client"
+import { DashboardBasePath } from "@workspace/client/base-path"
 import { Toaster } from "@workspace/ui/components/sonner"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 
