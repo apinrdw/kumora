@@ -110,7 +110,7 @@ const identities = Effect.fnUntraced(function* <
   for (const { holders = [] } of periods) {
     const before = new Set(previous.map(([id]) => id))
     const taken = new Set<HolderId>()
-    const byKey = yield* keyMatches(holders, issued, before, taken)
+    const byKey = yield* keyMatches(holders, previous, taken)
     const renamed = yield* renames(holders, byKey, previous, taken, rule)
     const ids = yield* settle(holders, byKey, issued, before, taken)
     previous = ids.map((id, at) => [id, holders[at] as H] as const)
@@ -120,20 +120,21 @@ const identities = Effect.fnUntraced(function* <
 })
 
 // Each holder's identity by key in the period before, the first not yet
-// taken; undefined when none.
+// taken; undefined when none. It reads the keys the period before listed,
+// not every key an identity was ever listed under: after A is renamed B, a
+// new A must not take B's identity.
 const keyMatches = <H extends { readonly key: string }>(
   holders: ReadonlyArray<H>,
-  issued: ReadonlyMap<string, ReadonlyArray<HolderId>>,
-  before: ReadonlySet<HolderId>,
+  previous: ReadonlyArray<readonly [HolderId, H]>,
   taken: Set<HolderId>
 ) =>
   Effect.sync(() =>
     holders.map(({ key }): HolderId | undefined => {
-      const id = issued
-        .get(key)
-        ?.find((each) => before.has(each) && !taken.has(each))
-      if (id !== undefined) taken.add(id)
-      return id
+      const match = previous.find(
+        ([id, each]) => each.key === key && !taken.has(id)
+      )
+      if (match !== undefined) taken.add(match[0])
+      return match?.[0]
     })
   )
 
