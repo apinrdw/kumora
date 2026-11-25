@@ -411,11 +411,19 @@ const hundredthsOf = (shares: number, listed: number) =>
     Number((BigInt(shares) * 20_000n + BigInt(listed)) / (2n * BigInt(listed)))
   )
 
-// The stock's listed shares in force on the day, from the latest parsed
+// The stock's listed shares in force on a day, from the latest parsed
 // investor-type report on or before it; undefined when none lists it.
-type ListedShares = (
+type ListedOn = (
   stock: string
 ) => Effect.Effect<number | undefined, HoldingsDbError>
+
+// Each side's listed shares: the report date's for its own counts, the
+// trading day before's for the previous day's. A stock's listed shares can
+// change on the report date, and each side's % is of its own day's.
+interface ListedShares {
+  readonly current: ListedOn
+  readonly previous: ListedOn
+}
 
 // One side's readings that sum, narrowed to those whose % of the stock's
 // listed shares is the printed one.
@@ -428,7 +436,9 @@ const byListedShares = Effect.fnUntraced(function* (
   percentage: number,
   listedShares: ListedShares
 ) {
-  const listed = yield* listedShares(block.stock)
+  const listed = yield* (
+    side === CURRENT ? listedShares.current : listedShares.previous
+  )(block.stock)
   if (listed === undefined)
     return yield* failAt(
       block.at,
@@ -656,6 +666,29 @@ const blockStart = Effect.fnUntraced(function* (
   } satisfies Block
 })
 
+// The listed shares each stock had on `date`, read when a block needs them
+// and kept for the rest of the day.
+const listedSharesOn = Effect.fnUntraced(function* (date: string) {
+  const db = yield* HoldingsDb
+  const known = new Map<string, number | undefined>()
+  return Effect.fnUntraced(function* (stock: string) {
+    if (known.has(stock)) return known.get(stock)
+    const [rows = []] = yield* db.batch([
+      {
+        sql:
+          "SELECT shares_outstanding FROM investor_type_stock_month " +
+          "WHERE stock_code = ? AND data_date <= ? ORDER BY data_date DESC LIMIT 1",
+        params: [stock, date],
+      },
+    ])
+    const [row] = Schema.decodeUnknownSync(
+      Schema.Array(Schema.Struct({ shares_outstanding: Schema.Number }))
+    )(rows)
+    known.set(stock, row?.shares_outstanding)
+    return row?.shares_outstanding
+  })
+})
+
 // Where the sheet's reader is: the title, the two header rows, the data, then
 // the legend's rows.
 type Place =
@@ -665,10 +698,13 @@ type Place =
 // One day's rows, read a row at a time and checked against `date`.
 const parseSheet = Effect.fnUntraced(function* (
   date: string,
-  bytes: Uint8Array,
-  listedShares: ListedShares
+  bytes: Uint8Array
 ) {
   const previousDay = yield* tradingDayBefore(date)
+  const listedShares: ListedShares = {
+    current: yield* listedSharesOn(date),
+    previous: yield* listedSharesOn(previousDay),
+  }
   const title = `${TITLE} ${yield* titleDate(date)}`
   const header = [
     "No",
@@ -839,29 +875,6 @@ const parseSheet = Effect.fnUntraced(function* (
   }
 })
 
-// The listed shares each stock had on `date`, read when a block needs them
-// and kept for the rest of the day.
-const listedSharesOn = Effect.fnUntraced(function* (date: string) {
-  const db = yield* HoldingsDb
-  const known = new Map<string, number | undefined>()
-  return Effect.fnUntraced(function* (stock: string) {
-    if (known.has(stock)) return known.get(stock)
-    const [rows = []] = yield* db.batch([
-      {
-        sql:
-          "SELECT shares_outstanding FROM investor_type_stock_month " +
-          "WHERE stock_code = ? AND data_date <= ? ORDER BY data_date DESC LIMIT 1",
-        params: [stock, date],
-      },
-    ])
-    const [row] = Schema.decodeUnknownSync(
-      Schema.Array(Schema.Struct({ shares_outstanding: Schema.Number }))
-    )(rows)
-    known.set(stock, row?.shares_outstanding)
-    return row?.shares_outstanding
-  })
-})
-
 // Parses one archived report and replaces its data date's above-5% holders
 // with it, recording the version it came from. The number of stocks parsed.
 export const parseAbove5Day = Effect.fnUntraced(function* (
@@ -870,12 +883,7 @@ export const parseAbove5Day = Effect.fnUntraced(function* (
   bytes: Uint8Array,
   parsedAt: string
 ) {
-  const listedShares = yield* listedSharesOn(dataDate)
-  const { stockCount, tables } = yield* parseSheet(
-    dataDate,
-    bytes,
-    listedShares
-  )
+  const { stockCount, tables } = yield* parseSheet(dataDate, bytes)
   yield* replaceMonth({
     dateColumn: "data_date",
     date: dataDate,
