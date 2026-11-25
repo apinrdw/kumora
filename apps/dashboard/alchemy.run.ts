@@ -8,7 +8,12 @@ import {
   stageUrl,
   type Stage,
 } from "@workspace/deploy"
-import { stackOptions, stackStage, websiteProps } from "@workspace/deploy/stack"
+import {
+  productionZone,
+  stackOptions,
+  stackStage,
+  websiteProps,
+} from "@workspace/deploy/stack"
 import * as Alchemy from "alchemy"
 import * as RemovalPolicy from "alchemy/RemovalPolicy"
 import { Stack } from "alchemy/Stack"
@@ -86,15 +91,8 @@ const ArchiveDb = apacDatabase("ArchiveDb", "./archive-migrations")
 // Decision: Production alone owns the mailer.pusat.ai sending subdomain
 // (apps/dashboard/docs/adr/0002-production-alone-owns-the-mail-sending-subdomain.md)
 const SendingSubdomain = Effect.gen(function* () {
-  const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment
-  const zone = yield* Cloudflare.Zone.findZoneByName({
-    accountId,
-    name: "pusat.ai",
-  }).pipe(Effect.orDie)
-  if (zone === undefined)
-    return yield* Effect.die(new Error("Zone pusat.ai is not in the account"))
   return yield* Cloudflare.Email.SendingSubdomain("MailSender", {
-    zoneId: zone.id,
+    zoneId: (yield* productionZone).id,
     name: SENDING_SUBDOMAIN,
     previewEnabled: false,
   })

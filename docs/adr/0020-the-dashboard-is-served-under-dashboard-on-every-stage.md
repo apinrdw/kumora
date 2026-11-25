@@ -7,6 +7,7 @@ A subdomain (`dashboard.kumora.pusat.ai`) would have left the dashboard at its h
 Sites:
 - `packages/client/src/base-path.ts`
 - `packages/deploy/src/target.ts`
+- `packages/deploy/src/stack.ts`
 - `apps/dashboard/vite.config.ts`
 
 Source: apinrdw/kumora#683
