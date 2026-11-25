@@ -140,7 +140,7 @@ const MajorHoldersMonth = Schema.Struct({
 export type MajorHoldersMonth = typeof MajorHoldersMonth.Type
 
 // One account of an above-5% holder's block as published.
-const Above5Account = Schema.Struct({
+const Above5SecuritiesAccount = Schema.Struct({
   // The broker or bank holding the account.
   custodian: Schema.String,
   name: Schema.String,
@@ -149,7 +149,7 @@ const Above5Account = Schema.Struct({
   // 0 for an account the report lists emptied that day.
   scripless: Schema.Number,
 })
-export type Above5Account = typeof Above5Account.Type
+export type Above5SecuritiesAccount = typeof Above5SecuritiesAccount.Type
 
 // One block of the daily above-5% report as published: repeat blocks of one
 // investor are each their own, collapsed by the Daily holders view model.
@@ -159,7 +159,7 @@ const Above5Holder = Schema.Struct({
   scripless: Schema.Number,
   percentageHundredths: Schema.Number,
   // In the block's order.
-  accounts: Schema.Array(Above5Account),
+  accounts: Schema.Array(Above5SecuritiesAccount),
 })
 export type Above5Holder = typeof Above5Holder.Type
 
@@ -442,7 +442,7 @@ export const Above5HolderRow = Schema.Struct({
   scripless: Schema.Number,
   percentage_hundredths: Schema.Number,
 })
-export const Above5AccountRow = Schema.Struct({
+export const Above5SecuritiesAccountRow = Schema.Struct({
   data_date: Schema.String,
   no: Schema.Number,
   custodian: Schema.String,
@@ -457,10 +457,10 @@ export const Above5AccountRow = Schema.Struct({
 export const above5Days = (
   dayRows: ReadonlyArray<typeof Above5DayRow.Type>,
   holderRows: ReadonlyArray<typeof Above5HolderRow.Type>,
-  accountRows: ReadonlyArray<typeof Above5AccountRow.Type>
+  accountRows: ReadonlyArray<typeof Above5SecuritiesAccountRow.Type>
 ) =>
   Effect.sync(() => {
-    const accounts = new Map<string, Array<Above5Account>>()
+    const accounts = new Map<string, Array<Above5SecuritiesAccount>>()
     for (const row of accountRows) {
       const block = `${row.data_date} ${row.no}`
       accounts.set(block, [
@@ -737,7 +737,7 @@ export const stockPage = Effect.fnUntraced(function* (
     dailyHolders: yield* above5Days(
       Schema.decodeUnknownSync(Schema.Array(Above5DayRow))(above5DayRows),
       above5Holders,
-      Schema.decodeUnknownSync(Schema.Array(Above5AccountRow))(
+      Schema.decodeUnknownSync(Schema.Array(Above5SecuritiesAccountRow))(
         above5AccountRows
       )
     ),

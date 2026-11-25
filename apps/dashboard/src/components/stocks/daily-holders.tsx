@@ -27,7 +27,7 @@ import {
 } from "@/components/stocks/holder-cells"
 import { TREND_PERIODS } from "@/domain/holdings"
 import {
-  type AccountLine,
+  type SecuritiesAccountLine,
   type DailyHolderLine,
   dailyHolders,
   type HoldersDay,
@@ -209,7 +209,7 @@ function HoldersTable({ holders }: { holders: HoldersDay }) {
               <HolderRow line={line} compared={compared} />
               {line.move !== "off list" &&
                 line.accounts.map((account, index) => (
-                  <AccountRow key={index} account={account} />
+                  <SecuritiesAccountRow key={index} account={account} />
                 ))}
             </Fragment>
           ))}
@@ -314,7 +314,7 @@ function HolderRow({
   )
 }
 
-function AccountRow({ account }: { account: AccountLine }) {
+function SecuritiesAccountRow({ account }: { account: SecuritiesAccountLine }) {
   return (
     <tr data-account className="text-[12px] text-muted-foreground">
       <td className="pl-6">

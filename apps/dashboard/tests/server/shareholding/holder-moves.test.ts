@@ -191,7 +191,7 @@ describe("Holder moves, Daily", () => {
       )
       assert.isDefined(samuel)
       // Back after leaving on 12 Jun: New, under 5% before, its trend
-      // showing the exit and the entry.
+      // marking it out and back in.
       assert.strictEqual(samuel.move, "new")
       assert.deepStrictEqual(samuel.stake, { now: 3430 })
       // Its Lots: its whole holding in, as on its Daily holders.

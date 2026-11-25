@@ -68,7 +68,7 @@ export interface PeriodMoves<H> {
   // Listed in the compared period before and not now, in its order.
   readonly offList: ReadonlyArray<Unlisted<H>>
   // Listed in any earlier period, not now, and not this period's Off list:
-  // newest exit first, then in the order of that last listing.
+  // the latest off the list first, then in the order of that last listing.
   readonly history: ReadonlyArray<Unlisted<H>>
 }
 

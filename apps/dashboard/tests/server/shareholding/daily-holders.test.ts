@@ -223,7 +223,7 @@ describe("the stock page's Daily holders", () => {
           named(back.listed, "PT SAMUEL TUMBUH BERSAMA").holder,
           named(left.offList, "PT SAMUEL TUMBUH BERSAMA").holder
         )
-        // Earlier holders: newest exit first.
+        // Earlier holders: the latest off the list first.
         const newest = yield* shown("NSSS")
         assert.deepStrictEqual(
           newest.history.map(({ name, offListSince }) => [name, offListSince]),

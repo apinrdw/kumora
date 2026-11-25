@@ -496,15 +496,19 @@ The stock page's panel that lists a stock's ≥1% holders for one above-1% repor
 _Avoid_: Shareholder list, top holders, ≥5% holders (Holder size's band)
 
 **Daily holders**:
-The stock page's panel that lists a stock's above-5% holders for one trading day, each against the trading day before, with every account each holds through, the stock's listed shares split among them, and each holder's moves over the last 20 trading days. Every earlier above-5% holder of the stock stays listed below them as Off list since the day it left.
+The stock page's panel that lists a stock's above-5% holders for one trading day, each against the trading day before, with every securities account each holds through, the stock's listed shares split among them, and the holder moves of each over the last 20 trading days. Every earlier above-5% holder of the stock stays listed below them as Off list since the day it left.
 _Avoid_: Block holders, ≥5% holders (Holder size's band), Major holders
 
 **Holder moves**:
-The page that lists, across every stock, the holders that moved in one period: above-5% holders against the trading day before (Daily), or ≥1% holders against the month before (Monthly). A move is New, Up, Down or Off list; an unchanged holder is not a move. Each daily move names the brokers it went through.
+The page that lists, across every stock, the holders that moved in one period: above-5% holders against the trading day before (Daily), or ≥1% holders against the month before (Monthly). Each daily holder move names the brokers it went through.
 _Avoid_: 5% holders page, block-holder feed
 
+**Holder move**:
+A holder's change against the period before: New, Up, Down or Off list. An unchanged holder has none.
+_Avoid_: Move (that is how a hot day turns cold), exit, entry
+
 **Through**:
-The broker codes of the securities accounts an above-5% holder's move went through: the accounts whose shares changed. An account held at a bank or other custodian that is not an exchange member has no broker code and shows as Custodian.
+The broker codes of the securities accounts an above-5% holder moved through: those whose shares changed. One held at a bank or other custodian that is not an exchange member has no broker code and shows as Custodian.
 _Avoid_: Broker of record
 
 **≥1% holder**:
@@ -518,6 +522,10 @@ _Avoid_: Exited, sold
 **Above-5% holder**:
 One investor IDX lists on a trading day's above-5% report as holding at least 5% of a stock's listed shares in scripless form, with the securities accounts its holding sits in. Until 19 Nov 2026 the report could list one investor once per name variant, each with the same accounts; the stock page shows those as one holder. From one trading day to the next a holder is the same when its name matches as a ≥1% holder's does, or when one name leaves and another arrives in the same stock with the same shares or a securities account in common. A holder that returns to the list under a matching name is the same holder. It is never matched to a ≥1% holder.
 _Avoid_: ≥5% holder (Holder size's band, grouped by investor type), daily ≥5% holder, major holder
+
+**Securities account**:
+An account an above-5% holder's shares sit in: a custodian and an account name, with the account's origin, domicile and scripless shares. One holder can hold through several.
+_Avoid_: Account (that is a person's identity on the dashboard), sub-account
 
 **Controller**:
 A ≥1% holder IDX marks as a listed company's controller, or as an affiliate of the controller, from the company's own monthly report for the month before. Marked from Oct 2026 on.

@@ -145,7 +145,7 @@ describe("Major holders' figures", () => {
   )
 
   it.effect(
-    "keep every earlier holder below as Off list since the month after its last listing, newest exit first",
+    "keep every earlier holder below as Off list since the month after its last listing, the latest off the list first",
     () =>
       Effect.gen(function* () {
         const months = [

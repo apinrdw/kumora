@@ -9,7 +9,7 @@ import {
   type DailyHoldersProps,
 } from "@/components/stocks/daily-holders"
 import type {
-  Above5Account,
+  Above5SecuritiesAccount,
   Above5Holder,
   DailyHoldersDay,
 } from "@/server/holdings/stock-page"
@@ -21,15 +21,15 @@ const account = (
   custodian: string,
   name: string,
   scripless: number,
-  origin: Above5Account["origin"] = "local",
+  origin: Above5SecuritiesAccount["origin"] = "local",
   domicile = origin === "local" ? "INDONESIA" : "SINGAPORE"
-): Above5Account => ({ custodian, name, origin, domicile, scripless })
+): Above5SecuritiesAccount => ({ custodian, name, origin, domicile, scripless })
 
 // A block of `accounts`, its % of 10,000 listed shares.
 const block = (
   name: string,
   key: string,
-  accounts: ReadonlyArray<Above5Account>
+  accounts: ReadonlyArray<Above5SecuritiesAccount>
 ): Above5Holder => {
   const scripless = accounts.reduce((sum, each) => sum + each.scripless, 0)
   return { name, key, scripless, percentageHundredths: scripless, accounts }
@@ -257,7 +257,7 @@ describe("Daily holders", () => {
     ])
   })
 
-  test("keeps every earlier holder below the day's Off list, newest exit first", async () => {
+  test("keeps every earlier holder below the day's Off list, the latest off it first", async () => {
     await render({})
     expect(holderRows().map(([name, move]) => [name, move])).toEqual([
       ["PT ALPHA", "Unchanged"],
@@ -295,7 +295,7 @@ describe("Daily holders", () => {
     ])
   })
 
-  test("trends each holder's change in lots, entries and exits marked", async () => {
+  test("trends each holder's change in lots, in and out marked", async () => {
     await render({ day: "2026-11-18" })
     expect(trendOf("PT ALPHA")).toEqual(["in", "up"])
     expect(trendOf("BETA")).toEqual(["in", "up"])

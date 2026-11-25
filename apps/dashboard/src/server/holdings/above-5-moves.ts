@@ -29,7 +29,7 @@ import {
   WANT,
 } from "./derived-moves.ts"
 import {
-  Above5AccountRow,
+  Above5SecuritiesAccountRow,
   above5Days,
   Above5HolderRow,
   DAILY_HOLDERS_ROWS,
@@ -109,7 +109,7 @@ const HolderOfStock = Schema.Struct({
   stock_code: StockCode,
 })
 const AccountOfStock = Schema.Struct({
-  ...Above5AccountRow.fields,
+  ...Above5SecuritiesAccountRow.fields,
   stock_code: StockCode,
 })
 

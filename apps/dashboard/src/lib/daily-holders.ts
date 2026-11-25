@@ -19,7 +19,7 @@ import {
   type Unlisted,
 } from "@/lib/holder-identity"
 import type {
-  Above5Account,
+  Above5SecuritiesAccount,
   Above5Holder,
   DailyHoldersDay,
 } from "@/server/holdings/stock-page"
@@ -29,12 +29,12 @@ interface DailyHolder extends Above5Holder {
   readonly aliases: ReadonlyArray<string>
 }
 
-export interface AccountLine {
+export interface SecuritiesAccountLine {
   // Its custodian's broker code; undefined at a bank or other custodian.
   readonly broker: BrokerCode | undefined
   readonly custodian: string
   readonly name: string
-  readonly origin: Above5Account["origin"]
+  readonly origin: Above5SecuritiesAccount["origin"]
   readonly domicile: string | undefined
   readonly shares: number
   // Against its paired account the day before, or from none; undefined
@@ -50,7 +50,7 @@ export interface DailyHolderLine {
   // Its name the day before, when renamed since.
   readonly renamedFrom: string | undefined
   // Mixed when its accounts' origins differ.
-  readonly origin: Above5Account["origin"] | "mixed"
+  readonly origin: Above5SecuritiesAccount["origin"] | "mixed"
   // % of listed shares × 100: before is the day before's, now this day's;
   // absent where it isn't listed. An earlier holder's before is its last.
   readonly stake: { readonly before?: number; readonly now?: number }
@@ -73,7 +73,7 @@ export interface DailyHolderLine {
   // first.
   readonly trend: ReadonlyArray<TrendCell>
   // Largest first, then those emptied since the day before.
-  readonly accounts: ReadonlyArray<AccountLine>
+  readonly accounts: ReadonlyArray<SecuritiesAccountLine>
 }
 
 export interface HoldersDay {
@@ -88,8 +88,8 @@ export interface HoldersDay {
   readonly listed: ReadonlyArray<DailyHolderLine>
   // Listed the day before and not now, most % first.
   readonly offList: ReadonlyArray<DailyHolderLine>
-  // Every earlier holder not listed now nor the day before: newest exit
-  // first, then most % first.
+  // Every earlier holder not listed now nor the day before: the latest
+  // off the list first, then most % first.
   readonly history: ReadonlyArray<DailyHolderLine>
   // The listed holders' summed % × 100.
   readonly totalHundredths: number
@@ -148,12 +148,12 @@ const dayHolders = (holders: ReadonlyArray<Above5Holder>) =>
 // account name, equal shares first, then in order; the rest of `before`
 // unpaired.
 const pairAccounts = (
-  now: ReadonlyArray<Above5Account>,
-  before: ReadonlyArray<Above5Account>
+  now: ReadonlyArray<Above5SecuritiesAccount>,
+  before: ReadonlyArray<Above5SecuritiesAccount>
 ) =>
   Effect.sync(() => {
     const left = new Set(before)
-    const paired = now.map((): Above5Account | undefined => undefined)
+    const paired = now.map((): Above5SecuritiesAccount | undefined => undefined)
     const pass = (sameShares: boolean) =>
       now.forEach((account, at) => {
         if (paired[at] !== undefined) return
@@ -173,13 +173,13 @@ const pairAccounts = (
   })
 
 const accountLines = Effect.fnUntraced(function* (
-  now: ReadonlyArray<Above5Account>,
-  before: ReadonlyArray<Above5Account> | undefined
+  now: ReadonlyArray<Above5SecuritiesAccount>,
+  before: ReadonlyArray<Above5SecuritiesAccount> | undefined
 ) {
   const line = (
-    account: Above5Account,
+    account: Above5SecuritiesAccount,
     change: number | undefined
-  ): Effect.Effect<AccountLine> =>
+  ): Effect.Effect<SecuritiesAccountLine> =>
     Effect.map(brokerOf(account.custodian), (broker) => ({
       broker,
       custodian: account.custodian,
@@ -189,7 +189,7 @@ const accountLines = Effect.fnUntraced(function* (
       shares: account.scripless,
       shareChange: change,
     }))
-  const largestFirst = (lines: ReadonlyArray<AccountLine>) =>
+  const largestFirst = (lines: ReadonlyArray<SecuritiesAccountLine>) =>
     [...lines].sort((a, b) => b.shares - a.shares)
   if (before === undefined)
     return largestFirst(
@@ -216,7 +216,9 @@ const accountLines = Effect.fnUntraced(function* (
 // (server/holdings/above-5-moves.ts). An account with nothing to pair
 // against (a New holder's, an Off-list holder's last) moved its whole
 // holding.
-export const movedCustodians = (accounts: ReadonlyArray<AccountLine>) =>
+export const movedCustodians = (
+  accounts: ReadonlyArray<SecuritiesAccountLine>
+) =>
   Effect.sync(() => {
     const moved = accounts
       .map((account) => ({
@@ -242,7 +244,7 @@ export const throughOf = Effect.fnUntraced(function* (
   ] satisfies DailyHolderLine["through"]
 })
 
-const originOf = (accounts: ReadonlyArray<Above5Account>) =>
+const originOf = (accounts: ReadonlyArray<Above5SecuritiesAccount>) =>
   Effect.sync((): DailyHolderLine["origin"] => {
     const origins = new Set(accounts.map(({ origin }) => origin))
     return origins.size > 1

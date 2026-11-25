@@ -313,7 +313,7 @@ const requiredTextAt = Effect.fnUntraced(function* (
 })
 
 // One account row as read, its shares unresolved.
-interface AccountRow {
+interface SecuritiesAccountRow {
   readonly at: At
   readonly custodian: string
   readonly accountName: string
@@ -342,7 +342,7 @@ interface Block {
     readonly combined: ReadonlyArray<number>
     readonly percentage: number
   }
-  readonly accounts: Array<AccountRow>
+  readonly accounts: Array<SecuritiesAccountRow>
 }
 
 const accountRow = Effect.fnUntraced(function* (at: At) {
@@ -364,7 +364,7 @@ const accountRow = Effect.fnUntraced(function* (at: At) {
     previous: yield* readingsAt(at, PREVIOUS.shares, false),
     current: yield* readingsAt(at, CURRENT.shares, false),
     change: yield* readingsAt(at, CHANGE, true),
-  } satisfies AccountRow
+  } satisfies SecuritiesAccountRow
 })
 
 // A reading of one side whose accounts sum to its combined shares.
@@ -652,7 +652,7 @@ const blockStart = Effect.fnUntraced(function* (
       percentage: yield* percentageAt(at, PREVIOUS.percentage),
     },
     current: { combined: current, percentage },
-    accounts: new Array<AccountRow>(),
+    accounts: new Array<SecuritiesAccountRow>(),
   } satisfies Block
 })
 

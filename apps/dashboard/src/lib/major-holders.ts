@@ -65,8 +65,8 @@ export interface MonthHolders {
   readonly listed: ReadonlyArray<HolderLine>
   // Listed the month before and not now, most % first.
   readonly offList: ReadonlyArray<HolderLine>
-  // Every earlier holder not listed now nor the month before: newest exit
-  // first, then most % first.
+  // Every earlier holder not listed now nor the month before: the latest
+  // off the list first, then most % first.
   readonly history: ReadonlyArray<HolderLine>
   // The listed holders' summed % × 100.
   readonly totalHundredths: number
