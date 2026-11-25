@@ -14,10 +14,10 @@ import {
   makeBrokerCodesPoster,
   type BrokerCodesTarget,
 } from "../../src/worker/broker-codes/poster.ts"
-import { DashboardOrigin } from "../../src/worker/settings.ts"
+import { DashboardUrl } from "../../src/worker/settings.ts"
 
 const PRODUCTION: BrokerCodesTarget = {
-  origin: DashboardOrigin.make("https://dashboard.example"),
+  url: DashboardUrl.make("https://dashboard.example"),
   token: "ingest-token",
 }
 
@@ -71,6 +71,26 @@ describe("posting broker codes to a target", () => {
       assert.deepStrictEqual(
         yield* decodeBrokerCodesBatch(request?.body ?? ""),
         BATCH
+      )
+    })
+  )
+
+  it.effect("posts under a dashboard served at a path", () =>
+    Effect.gen(function* () {
+      const target = fakeTarget([])
+      const poster = yield* makeBrokerCodesPoster({
+        target: Effect.succeed(
+          Option.some({
+            ...PRODUCTION,
+            url: DashboardUrl.make("https://dashboard.example/dashboard"),
+          })
+        ),
+        send: target.send,
+      })
+      assert.strictEqual(yield* poster.post(BATCH), "sent")
+      assert.deepStrictEqual(
+        target.requests.map(({ url }) => url),
+        ["https://dashboard.example/dashboard/api/broker-codes/2026-11-12"]
       )
     })
   )

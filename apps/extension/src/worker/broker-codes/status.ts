@@ -60,7 +60,7 @@ export const askStatus = Effect.fnUntraced(function* (
 ) {
   const path = yield* brokerCodesStatusPath(day, after)
   const answer = yield* get({
-    url: `${target.origin}${path}`,
+    url: `${target.url}${path}`,
     token: target.token,
   })
   if (answer.status === 401) return Option.some<Asked>("rejected-token")

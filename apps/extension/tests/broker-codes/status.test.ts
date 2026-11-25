@@ -11,11 +11,11 @@ import { TestClock } from "effect/testing"
 
 import type { BrokerCodesTarget } from "../../src/worker/broker-codes/poster.ts"
 import { makeBrokerCodesStatus } from "../../src/worker/broker-codes/status.ts"
-import { DashboardOrigin } from "../../src/worker/settings.ts"
+import { DashboardUrl } from "../../src/worker/settings.ts"
 
 const DAY = WibDate.make("2026-11-12")
 const PRODUCTION: BrokerCodesTarget = {
-  origin: DashboardOrigin.make("https://dashboard.example"),
+  url: DashboardUrl.make("https://dashboard.example"),
   token: "ingest-token",
 }
 const STATUS: BrokerCodesStatus = {
@@ -70,6 +70,28 @@ describe("reading a day's broker codes status", () => {
           token: "ingest-token",
         },
       ])
+    })
+  )
+
+  it.effect("asks under a dashboard served at a path", () =>
+    Effect.gen(function* () {
+      const target = yield* fakeTarget([])
+      const reader = yield* makeBrokerCodesStatus({
+        target: Effect.succeed(
+          Option.some({
+            ...PRODUCTION,
+            url: DashboardUrl.make("https://dashboard.example/dashboard"),
+          })
+        ),
+        get: target.get,
+      })
+      assert.deepStrictEqual(yield* reader.status(DAY), STATUS)
+      assert.deepStrictEqual(
+        target.requests.map(({ url }) => url),
+        [
+          "https://dashboard.example/dashboard/api/broker-codes/2026-11-12?after=0",
+        ]
+      )
     })
   )
 

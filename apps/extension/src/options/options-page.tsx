@@ -260,7 +260,7 @@ export function OptionsPage() {
   useEffect(() => {
     void optionsRuntime.runPromise(loadSettings).then((settings) => {
       setProductionToken(settings.productionToken)
-      setExtraUrl(settings.extra?.origin ?? "")
+      setExtraUrl(settings.extra?.url ?? "")
       setExtraToken(settings.extra?.token ?? "")
     })
     const refresh = () =>
@@ -287,7 +287,7 @@ export function OptionsPage() {
           Effect.as("Saved."),
           Effect.catchTag("InvalidDashboardUrl", () =>
             Effect.succeed(
-              "Enter the extra target's dashboard URL, such as https://kumora-dashboard-staging.kumora.workers.dev."
+              "Enter the extra target's dashboard URL, such as https://kumora-dashboard-staging.kumora.workers.dev/dashboard."
             )
           )
         )
@@ -329,7 +329,7 @@ export function OptionsPage() {
             <Field
               label="Extra target URL"
               type="url"
-              placeholder="https://kumora-dashboard-staging.kumora.workers.dev"
+              placeholder="https://kumora-dashboard-staging.kumora.workers.dev/dashboard"
               value={extraUrl}
               onChange={setExtraUrl}
             />

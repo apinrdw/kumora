@@ -9,16 +9,12 @@ import {
 } from "@workspace/relay"
 import { Duration, Effect, Option } from "effect"
 
-import {
-  DashboardOrigin,
-  type Settings,
-  type TargetState,
-} from "../settings.ts"
+import { DashboardUrl, type Settings, type TargetState } from "../settings.ts"
 import { FIRST_RETRY, LAST_RETRY } from "../target.ts"
 
 // Where a target takes batches: its dashboard and its ingest token.
 export interface BrokerCodesTarget {
-  readonly origin: DashboardOrigin
+  readonly url: DashboardUrl
   readonly token: string
 }
 
@@ -27,7 +23,7 @@ export interface BrokerCodesTarget {
 export const brokerCodesTargets = (settings: Settings) =>
   Effect.sync(() => ({
     production: Option.some<BrokerCodesTarget>({
-      origin: DashboardOrigin.make(__PRODUCTION_DASHBOARD__),
+      url: DashboardUrl.make(__PRODUCTION_DASHBOARD__),
       token: settings.productionToken,
     }).pipe(Option.filter(({ token }) => token !== "")),
     extra: Option.filter(
@@ -96,9 +92,9 @@ export const makeBrokerCodesPoster = Effect.fnUntraced(function* (options: {
         if (Option.isNone(target)) return "off" satisfies PostOutcome
         const halt = yield* halted(target.value)
         if (Option.isSome(halt)) return halt.value
-        const { origin, token } = target.value
+        const { url, token } = target.value
         const status = yield* options.send({
-          url: `${origin}${path}`,
+          url: `${url}${path}`,
           token,
           body,
         })

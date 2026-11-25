@@ -1,6 +1,6 @@
 import { Effect, Option, Schema } from "effect"
 
-import { DashboardOrigin, type Settings } from "../worker/settings.ts"
+import { DashboardUrl, type Settings } from "../worker/settings.ts"
 
 class InvalidDashboardUrl extends Schema.TaggedError<InvalidDashboardUrl>()(
   "InvalidDashboardUrl",
@@ -8,7 +8,9 @@ class InvalidDashboardUrl extends Schema.TaggedError<InvalidDashboardUrl>()(
 ) {}
 
 // The options form as Settings. An empty extra URL means no extra target; any
-// other is cut to its origin, so a pasted page URL works.
+// other keeps its origin and path, without a trailing slash, query or
+// fragment, so a dashboard served under a path such as `/dashboard` is
+// reached there.
 export const settingsFromForm = Effect.fnUntraced(function* (form: {
   readonly productionToken: string
   readonly extraUrl: string
@@ -17,13 +19,16 @@ export const settingsFromForm = Effect.fnUntraced(function* (form: {
   const productionToken = form.productionToken.trim()
   const extraUrl = form.extraUrl.trim()
   if (extraUrl === "") return { productionToken, extra: null }
-  const origin = Option.flatMap(
-    Option.liftThrowable(() => new URL(extraUrl).origin)(),
-    Schema.decodeUnknownOption(DashboardOrigin)
+  const url = Option.flatMap(
+    Option.liftThrowable(() => new URL(extraUrl))(),
+    ({ origin, pathname }) =>
+      Schema.decodeUnknownOption(DashboardUrl)(
+        `${origin}${pathname.replace(/\/+$/, "")}`
+      )
   )
-  if (Option.isNone(origin)) return yield* new InvalidDashboardUrl()
+  if (Option.isNone(url)) return yield* new InvalidDashboardUrl()
   return {
     productionToken,
-    extra: { origin: origin.value, token: form.extraToken.trim() },
+    extra: { url: url.value, token: form.extraToken.trim() },
   }
 })

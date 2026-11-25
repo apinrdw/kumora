@@ -25,20 +25,20 @@ import type {
   WalkResult,
 } from "../../src/worker/broker-codes/run-queue.ts"
 import { makeTargetHold } from "../../src/worker/broker-codes/target-hold.ts"
-import { DashboardOrigin } from "../../src/worker/settings.ts"
+import { DashboardUrl } from "../../src/worker/settings.ts"
 
 const DAY = WibDate.make("2026-11-12")
 
 const PRODUCTION: BrokerCodesTarget = {
-  origin: DashboardOrigin.make("https://dashboard.example"),
+  url: DashboardUrl.make("https://dashboard.example"),
   token: "production-token",
 }
 const STAGING: BrokerCodesTarget = {
-  origin: DashboardOrigin.make("https://staging.example"),
+  url: DashboardUrl.make("https://staging.example"),
   token: "staging-token",
 }
 const PREVIEW: BrokerCodesTarget = {
-  origin: DashboardOrigin.make("https://preview.example"),
+  url: DashboardUrl.make("https://preview.example"),
   token: "preview-token",
 }
 
@@ -164,7 +164,7 @@ const harness = Effect.fnUntraced(function* (options: {
     production: Effect.succeed(Option.some(PRODUCTION)),
     send: options.extra.send,
     get: (request) =>
-      request.url.startsWith(PRODUCTION.origin)
+      request.url.startsWith(PRODUCTION.url)
         ? production.get(request)
         : options.extra.get(request),
     hold,
@@ -360,6 +360,32 @@ describe("the extra target", () => {
     })
   )
 
+  it.effect(
+    "served at a path and unreachable, shows retrying until a batch is written",
+    () =>
+      Effect.gen(function* () {
+        const extra = fakeDashboard({ statuses: [0, 0] })
+        const target = yield* harness({
+          extra,
+          settings: Option.some({
+            ...STAGING,
+            url: DashboardUrl.make("https://staging.example/dashboard"),
+          }),
+        })
+        yield* fakeWalk(target.post).walk(DAY)
+        yield* settle
+        assert.deepStrictEqual(target.reported, ["retrying"])
+        yield* TestClock.adjust("1 minute")
+        yield* settle
+        assert.deepStrictEqual(target.reported, ["retrying", "cleared"])
+        assert.isTrue(
+          extra.posts.every((url) =>
+            url.startsWith("https://staging.example/dashboard/api/")
+          )
+        )
+      })
+  )
+
   // The new settings' first failure shows again; makeTargets in
   // service-worker.ts says why.
   it.effect("shows retrying again when new settings fail too", () =>
@@ -456,7 +482,7 @@ describe("the extra target", () => {
         // B's requests all go through: nothing new to show.
         assert.deepStrictEqual(target.reported, [state])
         assert.isTrue(
-          extra.posts.slice(1).every((url) => url.startsWith(PREVIEW.origin))
+          extra.posts.slice(1).every((url) => url.startsWith(PREVIEW.url))
         )
         assert.include(extra.written, "end 5")
       }
@@ -489,11 +515,9 @@ describe("the extra target", () => {
         yield* settle
         assert.deepStrictEqual(target.reported, [])
         assert.isTrue(Option.isNone(yield* target.hold.state))
-        assert.isTrue(dashboard.posts[0]?.startsWith(STAGING.origin))
+        assert.isTrue(dashboard.posts[0]?.startsWith(STAGING.url))
         assert.isTrue(
-          dashboard.posts
-            .slice(1)
-            .every((url) => url.startsWith(PREVIEW.origin))
+          dashboard.posts.slice(1).every((url) => url.startsWith(PREVIEW.url))
         )
         assert.include(dashboard.written, "end 5")
       }
@@ -831,7 +855,7 @@ describe("the extra target", () => {
         const reads: Array<string> = []
         const catchUp = yield* target.extra.catchUp(
           "Ajaib",
-          ({ post, status, origin }) =>
+          ({ post, status, url }) =>
             Effect.sync(() => ({
               walk: (_day: WibDate) =>
                 Effect.gen(function* () {
@@ -839,7 +863,7 @@ describe("the extra target", () => {
                   yield* target.switchTo(PREVIEW)
                   assert.strictEqual(yield* post(batch([2])), "off")
                   assert.isTrue(Option.isNone(yield* status(DAY)))
-                  assert.isTrue(Option.isNone(yield* origin))
+                  assert.isTrue(Option.isNone(yield* url))
                   reads.push("done")
                   return {
                     _tag: "stopped",
@@ -851,9 +875,7 @@ describe("the extra target", () => {
         yield* catchUp.walk(DAY)
         assert.deepStrictEqual(reads, ["done"])
         assert.deepStrictEqual(extra.written, ["1"])
-        assert.isTrue(
-          extra.posts.every((url) => url.startsWith(STAGING.origin))
-        )
+        assert.isTrue(extra.posts.every((url) => url.startsWith(STAGING.url)))
       })
   )
 })
