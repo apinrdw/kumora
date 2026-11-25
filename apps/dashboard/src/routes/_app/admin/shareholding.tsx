@@ -14,6 +14,7 @@ import { SectorsCard } from "@/components/admin/shareholding/sectors-card"
 import { sectorTableFn } from "@/server/admin/sectors.functions"
 import {
   parseAbove1NowFn,
+  parseAbove5NowFn,
   parseClassificationNowFn,
   parseInvestorTypeNowFn,
   shareholdingArchiveFn,
@@ -49,6 +50,7 @@ function ShareholdingPage() {
       lastClassificationParseRun,
       lastInvestorTypeParseRun,
       lastAbove1ParseRun,
+      lastAbove5ParseRun,
       nextParseRun,
       classificationParseCoverage,
       investorTypeParseCoverage,
@@ -67,7 +69,7 @@ function ShareholdingPage() {
         </h1>
         <p className="text-secondary-text max-w-[70ch]">
           IDX's shareholding reports: the runs that store and parse them, which
-          months each kind holds, and the sector table.
+          months or days each kind holds, and the sector table.
         </p>
       </header>
       <ArchiveLedger
@@ -104,6 +106,17 @@ function ShareholdingPage() {
           nextParseRun={nextParseRun}
           now={lastRun.now}
           frame="row"
+        />
+        <ParseRunCard
+          title="Last above-5% parse run"
+          emptyMessage="No above-5% parse run has happened yet."
+          lastParseRun={lastAbove5ParseRun}
+          parseNow={parseAbove5NowFn}
+          times={PARSE_TIMES_WIB}
+          nextParseRun={nextParseRun}
+          now={lastRun.now}
+          frame="row"
+          unit="day"
         />
         <SectorsCard {...sectors} />
       </ArchiveLedger>

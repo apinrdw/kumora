@@ -15,8 +15,12 @@ import {
 } from "./last-run-card"
 import { Callout, Note, NoteItem, NoteList } from "./notes"
 
-// The months a partial run couldn't parse, each with why.
-function Failures({ result }: { result: ParseRunResult }) {
+// What a kind parses a report of: a month, or the above-5% kind's trading
+// day.
+type Unit = "month" | "day"
+
+// The months or days a partial run couldn't parse, each with why.
+function Failures({ result, unit }: { result: ParseRunResult; unit: Unit }) {
   const { parseFailures } = result
   if (parseFailures.length === 0) return null
   return (
@@ -25,8 +29,8 @@ function Failures({ result }: { result: ParseRunResult }) {
         lead={Effect.runSync(
           count(
             parseFailures.length,
-            "month could not be parsed.",
-            "months could not be parsed."
+            `${unit} could not be parsed.`,
+            `${unit}s could not be parsed.`
           )
         )}
       >
@@ -54,6 +58,7 @@ export function ParseRunCard({
   nextParseRun,
   now,
   frame = "card",
+  unit = "month",
 }: {
   // As "Last parse run".
   title: string
@@ -69,6 +74,7 @@ export function ParseRunCard({
   now: string
   // A ledger row's action is secondary: the ledger holds several.
   frame?: RunFrame
+  unit?: Unit
 }) {
   const result = lastParseRun?.result
   return (
@@ -81,7 +87,10 @@ export function ParseRunCard({
         result === undefined
           ? []
           : [
-              { value: result.monthsParsed, label: "Months parsed" },
+              {
+                value: result.monthsParsed,
+                label: unit === "day" ? "Days parsed" : "Months parsed",
+              },
               {
                 value: result.parseFailures.length,
                 label: "Parse failures",
@@ -89,7 +98,9 @@ export function ParseRunCard({
               },
             ]
       }
-      details={result === undefined ? null : <Failures result={result} />}
+      details={
+        result === undefined ? null : <Failures result={result} unit={unit} />
+      }
       actions={
         <RunArchiveButton
           inProgress={lastParseRun?.inProgress ?? false}

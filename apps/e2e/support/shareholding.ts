@@ -77,7 +77,7 @@ const FIXTURE_FETCHED_AT = "2026-11-14T13:00:00.000Z"
  * record whose key the kind's parse run reads.
  */
 export async function seedReportFixture(
-  kind: "investor-classification" | "investor-type" | "above-1",
+  kind: "investor-classification" | "investor-type" | "above-1" | "above-5",
   filename: string,
   dataDate: string
 ) {

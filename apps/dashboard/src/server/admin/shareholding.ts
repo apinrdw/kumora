@@ -2,7 +2,7 @@
 // run and Run now, the last parse run of each kind (parse-runs.ts) with its
 // Parse now, the classification and investor-type parse coverage, the recent
 // runs and the archive totals (spec apinrdw/kumora#303, "The admin page",
-// #402, "Admin", #458, and #479, "Admin").
+// #402, "Admin", #458, #479, "Admin", and #673, "Admin").
 import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 
@@ -16,6 +16,7 @@ import { timePart } from "@/server/admin/part-timing"
 import { readPage } from "@/server/archive/page-read"
 import type { Action } from "@/server/auth/policy"
 import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
+import { above5ParseRuns } from "@/server/shareholding/above-5-parse"
 import { classificationParseRuns } from "@/server/shareholding/classification-parse"
 import { investorTypeParseRuns } from "@/server/shareholding/investor-type-parse"
 import { lastRun, recentRuns, startRun } from "@/server/shareholding/runs"
@@ -50,6 +51,7 @@ export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
         lastClassificationParseRun: classificationParseRuns.last,
         lastInvestorTypeParseRun: investorTypeParseRuns.last,
         lastAbove1ParseRun: above1ParseRuns.last,
+        lastAbove5ParseRun: above5ParseRuns.last,
         classificationParseCoverage: classificationParseRuns.parseCoverage,
         investorTypeParseCoverage: investorTypeParseRuns.parseCoverage,
       },
@@ -61,6 +63,7 @@ export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
       lastClassificationParseRun: read.lastClassificationParseRun,
       lastInvestorTypeParseRun: read.lastInvestorTypeParseRun,
       lastAbove1ParseRun: read.lastAbove1ParseRun,
+      lastAbove5ParseRun: read.lastAbove5ParseRun,
       classificationParseCoverage: read.classificationParseCoverage,
       investorTypeParseCoverage: read.investorTypeParseCoverage,
       nextParseRun: (yield* nextParseRun(
@@ -112,4 +115,11 @@ export const parseAbove1Now = Effect.fn("parseAbove1Now")(function* (
 ) {
   yield* authorize(headers, "admin.run-shareholding-parse")
   return yield* parseNow(above1ParseRuns)
+})
+
+export const parseAbove5Now = Effect.fn("parseAbove5Now")(function* (
+  headers: Headers
+) {
+  yield* authorize(headers, "admin.run-shareholding-parse")
+  return yield* parseNow(above5ParseRuns)
 })
