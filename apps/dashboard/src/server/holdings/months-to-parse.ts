@@ -65,6 +65,8 @@ export const parsedVersions = Effect.fnUntraced(function* ({
 
 // Each parsed month, by date, with when it was parsed and how many stocks
 // its stock table holds for it, in one batch: what the parse coverage reads.
+// Distinct stocks, as a holder table (above-1%, above-5%) holds a row per
+// holder.
 export const parsedMonths = Effect.fnUntraced(function* ({
   month,
   stock,
@@ -76,7 +78,7 @@ export const parsedMonths = Effect.fnUntraced(function* ({
       params: [],
     },
     {
-      sql: `SELECT ${dateColumn} AS date, COUNT(*) AS stocks FROM ${stock} GROUP BY ${dateColumn}`,
+      sql: `SELECT ${dateColumn} AS date, COUNT(DISTINCT stock_code) AS stocks FROM ${stock} GROUP BY ${dateColumn}`,
       params: [],
     },
   ])

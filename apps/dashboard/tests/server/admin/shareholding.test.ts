@@ -349,7 +349,7 @@ describe("the shareholding archive page", () => {
     }
   )
 
-  it.effect("shows each parsed kind's months' parse coverage", () => {
+  it.effect("shows each parsed kind's months' or days' parse coverage", () => {
     const { layer, mails, bucket, indexed } = archive()
     const store = (kind: ReportKind, date: string) =>
       storeReport(bucket, kind, date, "a".repeat(64), "xlsx")
@@ -374,8 +374,9 @@ describe("the shareholding archive page", () => {
     return Effect.gen(function* () {
       yield* store("investor-classification", "2026-10-30")
       yield* store("investor-type", "2026-09-30")
-      // Holders above 1% have no parser: not in either parse coverage.
+      // Holders above 1% show no parse coverage on this page.
       yield* store("above-1", "2026-08-31")
+      yield* store("above-5", "2026-11-13")
       yield* indexed
       yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
       const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
@@ -388,6 +389,24 @@ describe("the shareholding archive page", () => {
         page.investorTypeParseCoverage,
         only(9, "2026-09-30")
       )
+      // A daily kind's: November's row, its 13th the archived day.
+      assert.deepStrictEqual(page.above5ParseCoverage, [
+        {
+          month: "2026-11",
+          days: Array.from({ length: 13 }, (_, i) =>
+            i === 12
+              ? {
+                  date: "2026-11-13",
+                  state: "not-parsed" as const,
+                  newestSha256: "a".repeat(64),
+                  parsed: null,
+                  staleCauses: [],
+                  failure: null,
+                }
+              : null
+          ),
+        },
+      ])
     }).pipe(Effect.provide(layer))
   })
 })
@@ -514,6 +533,7 @@ describe("the shareholding archive page's ArchiveDb reads", () => {
           "lastAbove5ParseRun",
           "classificationParseCoverage",
           "investorTypeParseCoverage",
+          "above5ParseCoverage",
           "reads",
         ]
       )
