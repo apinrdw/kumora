@@ -3,7 +3,7 @@
 // each against the report month before, and those off the list since.
 import { Effect } from "effect"
 
-import { CLASSIFICATIONS, KSEI_TYPE_LABELS, reportOf } from "@/domain/holdings"
+import { CLASSIFICATIONS, KSEI_TYPE_LABELS } from "@/domain/holdings"
 import {
   earlierHolders,
   type HolderId,
@@ -246,19 +246,39 @@ export const majorHoldersOn = Effect.fnUntraced(function* (
   } satisfies MonthHolders
 })
 
-// The report the month `month` (`YYYY-MM`) shows (reportOf), as
-// majorHoldersOn reads it.
+// The report each calendar month shows, oldest first: its newest that
+// holds the stock, since one month can hold two reports; or, of a month
+// with none that does, its newest, not `held`. Holder moves' read shows a
+// month's newest report (the monthly `periods` in
+// server/holdings/holder-moves.ts), and a stock with a line there is in it,
+// so a line's link opens the report it came from.
 //
 // Decision: a calendar month with two reports shows its newest
 // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
+export const monthReports = (months: ReadonlyArray<MajorHoldersMonth>) =>
+  Effect.sync(() => {
+    const reports = new Map<string, { dataDate: string; held: boolean }>()
+    for (const { dataDate, holders } of months) {
+      const held = holders.length > 0
+      const month = dataDate.slice(0, 7)
+      if (held || !reports.get(month)?.held)
+        reports.set(month, { dataDate, held })
+    }
+    return [...reports.values()]
+  })
+
+// The report the month `month` (`YYYY-MM`) shows (monthReports), as
+// majorHoldersOn reads it: the newest held one's for a month that shows
+// none with the stock.
 export const majorHolders = (
   months: ReadonlyArray<MajorHoldersMonth>,
   month: string | undefined
 ) =>
-  Effect.flatMap(
-    reportOf(
-      months.map(({ dataDate }) => dataDate),
-      month
-    ),
-    (dataDate) => majorHoldersOn(months, dataDate)
+  Effect.flatMap(monthReports(months), (reports) =>
+    majorHoldersOn(
+      months,
+      reports.find(
+        ({ dataDate, held }) => held && dataDate.slice(0, 7) === month
+      )?.dataDate
+    )
   )

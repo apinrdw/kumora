@@ -25,6 +25,7 @@ import {
   type HolderLine,
   majorHolders,
   type MonthHolders,
+  monthReports,
 } from "@/lib/major-holders"
 import { monthLabel, shortMonth } from "@/lib/stock-page-display"
 import type { MajorHoldersMonth } from "@/server/holdings/stock-page"
@@ -32,7 +33,8 @@ import type { MajorHoldersMonth } from "@/server/holdings/stock-page"
 export type MajorHoldersProps = {
   code: StockCode
   months: ReadonlyArray<MajorHoldersMonth>
-  // The URL's `YYYY-MM`; a month the stock has no row in shows its newest.
+  // The URL's `YYYY-MM`; a month with no report the stock is in shows its
+  // newest.
   month: string | undefined
   onMonth: (dataDate: string) => void
 }
@@ -68,10 +70,7 @@ export function MajorHolders({
         <>
           <MonthTabs
             code={code}
-            months={months.map((each) => ({
-              dataDate: each.dataDate,
-              held: each.holders.length > 0,
-            }))}
+            months={Effect.runSync(monthReports(months))}
             selected={holders.dataDate}
             onMonth={onMonth}
           />
