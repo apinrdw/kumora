@@ -22,6 +22,8 @@ The move took admin pages' fresh session read (`authorize`) from a p50 of about 
 
 AuthDb therefore carries an explicit name with a roll number, `AUTH_DB_ROLL`, and `clone` again. Raising the roll renames it, which makes Alchemy create a new apac database and copy the old one into it, the same cutover as the first move. If production's new AuthDb is not in SIN, the next change raises the roll again. Once one lands in SIN, a follow-up removes `clone` and keeps the name.
 
+Roll 2 (2026-11-25) copied production's AuthDb whole, keeping every user, session and account, but landed in Osaka (KIX). `authorize` stayed at a median of about 97 ms. Roll 3 follows.
+
 Sites:
 - `apps/dashboard/alchemy.run.ts`
 

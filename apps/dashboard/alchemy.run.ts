@@ -56,7 +56,7 @@ const previousDatabaseId = Effect.fn("previousDatabaseId")(function* (
 // Singapore requests. Raising the roll renames the database, which makes
 // Alchemy create a new one, copy the old one into it (clone runs only on a
 // creation), repoint the Worker and delete the old one.
-const AUTH_DB_ROLL = 2
+const AUTH_DB_ROLL = 3
 
 // scripts/auth-schema.ts replays the same directory for the drift check and
 // the handler test seam. apps/e2e/reset-test-stage.ts reads this resource's
