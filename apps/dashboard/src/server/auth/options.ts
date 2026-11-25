@@ -602,7 +602,10 @@ export function authOptions(input: AuthOptionsInput) {
       },
     },
     advanced: {
-      database: { validateSchema: input.validateSchema },
+      // A fresh session read is then one joined statement, not session then
+      // user: each is a round trip to AuthDb's primary in Tokyo, about 90 ms
+      // from Singapore (apinrdw/kumora#658).
+      database: { validateSchema: input.validateSchema, joins: true },
       ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },
     plugins: [
