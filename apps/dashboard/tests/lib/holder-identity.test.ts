@@ -226,6 +226,34 @@ describe("Holder identity and moves", () => {
   )
 
   it.effect(
+    "keep a renamed holder's identity when its old name is listed again before it",
+    () =>
+      Effect.gen(function* () {
+        const moves = yield* holderMoves(
+          [
+            day("2026-11-18", [["A", 100]]),
+            day("2026-11-19", [["B", 100]]),
+            day("2026-11-20", [
+              ["A", 30],
+              ["B", 100],
+            ]),
+          ],
+          BY_SHARES
+        )
+        const renamed = moves[1]?.listed[0]?.holder
+        expect(moves[2]?.listed[1]?.holder).toBe(renamed)
+        expect(moves[2]?.listed[0]?.holder).not.toBe(renamed)
+        expect(
+          moves[2]?.listed.map(({ move, returning }) => [move, returning])
+        ).toEqual([
+          ["new", false],
+          ["unchanged", false],
+        ])
+        expect(moves[2]?.offList).toEqual([])
+      })
+  )
+
+  it.effect(
     "rename nothing without a rename rule: Major holders match by key only",
     () =>
       Effect.gen(function* () {
