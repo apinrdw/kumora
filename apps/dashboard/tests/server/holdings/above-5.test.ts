@@ -1,16 +1,19 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
+import { parseAbove5Day } from "@/server/holdings/above-5"
 import { MAX_SHARED_STRINGS_BYTES } from "@/server/holdings/xlsx"
 import { MAX_ENTRY_BYTES } from "@/server/holdings/zip"
 
 import { bytesOf } from "./at-cap.ts"
 import { PARSE_HEAP_MIB, parseInBoundedHeap } from "./bounded-heap.ts"
+import { memoryHoldingsDb } from "./memory-holdings-db.ts"
 import {
   columnLetters,
   SHARED_STRINGS,
   SHEET,
   sharedItems,
+  workbook,
 } from "./workbook.ts"
 import { zipOf } from "./zip-of.ts"
 
@@ -191,4 +194,57 @@ describe(`the largest above-5% report, parsed in ${PARSE_HEAP_MIB} MiB of heap`,
         }),
       { timeout: 30_000 }
     )
+})
+
+// One holder of one securities account, its every share count a number
+// cell of 1: 1 share or 1,000. It held 10.00% on 29 Oct and 5.00% on 30 Oct.
+const DILUTED_ROW = `<row r="4">${[
+  number("A4", 1),
+  inline("B4", "DILU"),
+  inline("C4", "PT DILUTED Tbk"),
+  inline("D4", "PT CUSTODIAN"),
+  inline("E4", "HOLDER"),
+  inline("F4", "HOLDER"),
+  inline("K4", "L"),
+  number("L4", 1),
+  number("M4", 1),
+  inline("N4", "10.00"),
+  number("O4", 1),
+  number("P4", 1),
+  inline("Q4", "5.00"),
+  number("R4", 0),
+].join("")}</row>`
+
+describe("an above-5% holder's ambiguous previous-day count", () => {
+  // The investor-type report of 30 Oct lists the 20,000 shares the stock
+  // has from that day; the day before it still had September's 10,000.
+  it.effect(
+    "is resolved against the stock's listed shares of the previous day, not the report date's",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryHoldingsDb()
+        const listed = db.database.prepare(
+          "INSERT INTO investor_type_stock_month VALUES (?, 'DILU', ?, ?)"
+        )
+        listed.run("2026-09-30", 10_000, 10_000)
+        listed.run("2026-10-30", 20_000, 20_000)
+        const report = yield* workbook(TITLE + HEADER + DILUTED_ROW + legend(5))
+        const stocks = yield* parseAbove5Day(
+          "2026-10-30",
+          "sha",
+          report,
+          "2026-11-25T00:00:00Z"
+        ).pipe(Effect.provide(db.layer))
+        assert.strictEqual(stocks, 1)
+        assert.deepStrictEqual(
+          db.database
+            .prepare(
+              "SELECT scripless, percentage_hundredths FROM above_5_holder"
+            )
+            .all()
+            .map((row) => ({ ...row })),
+          [{ scripless: 1_000, percentage_hundredths: 500 }]
+        )
+      })
+  )
 })

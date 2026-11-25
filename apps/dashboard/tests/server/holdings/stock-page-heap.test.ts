@@ -29,6 +29,9 @@ const MONTHS_HEAP_LIMIT_MIB = 48
 // own, and the read and the view model take the rest. The two days at the
 // caps fit 80 MiB, not 72, on 25 Nov 2026, and the other two 64, not 56.
 const VIEW_HEAP_MIB = 88
+// The whole heap of a worker that reads the stock page of a stock with both
+// kinds of holders (stock-page-worker.ts), about 25 MiB of it its own.
+const PAGE_HEAP_MIB = 88
 
 // What the Daily holders of a stock of `days` days show, each day with
 // `holders` holders no other day has, of `accounts` accounts each.
@@ -143,6 +146,32 @@ describe("the stock page's Major holders read", () => {
           retained,
           MONTHS_HEAP_LIMIT_MIB,
           `${retained.toFixed(1)} MiB retained`
+        )
+      }),
+    { timeout: 120_000 }
+  )
+})
+
+describe("the stock page's read of both Daily holders and Major holders", () => {
+  // 62,004 rows read together took 144 MiB of heap, more than a Worker has
+  // (apinrdw/kumora#673's review).
+  it.effect(
+    "fits 88 MiB of heap for a stock at both parses' caps",
+    () =>
+      Effect.gen(function* () {
+        assert.strictEqual(
+          yield* inBoundedHeap(
+            new URL("./stock-page-worker.ts", import.meta.url),
+            {
+              migrations: MIGRATIONS,
+              days: datesOf(3),
+              blocks: ABOVE_5_DAY_ROWS,
+              months: monthsOf(3),
+              holders: ABOVE_1_MONTH_ROWS,
+            },
+            PAGE_HEAP_MIB
+          ),
+          `days [], months [${ABOVE_1_MONTH_ROWS},${ABOVE_1_MONTH_ROWS}]`
         )
       }),
     { timeout: 120_000 }
