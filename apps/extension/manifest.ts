@@ -35,10 +35,10 @@ export const manifest = (
   // `cookies` reads the Stockbit tab's credential cookies, HttpOnly or not,
   // under STOCKBIT_COOKIES' host permission (src/worker/stockbit.ts).
   permissions: ["storage", "alarms", "cookies"],
+  // Production's dashboard by its origin, though its URL may carry a path:
+  // a match pattern names a host, and the paths all sit under it.
   // Decision: exact host permissions only, never a *.workers.dev wildcard
   // (apps/extension/docs/adr/0001-host-permissions-name-exact-hosts-only.md)
-  // An origin, though the dashboard's URL may carry a path: match patterns
-  // name hosts, and its paths all sit under it.
   host_permissions: [
     `${new URL(productionDashboard).origin}/*`,
     STOCKBIT_TAB,
