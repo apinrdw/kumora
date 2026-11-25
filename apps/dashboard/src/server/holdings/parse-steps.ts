@@ -118,7 +118,8 @@ export const parseMonths = Effect.fnUntraced(function* (
 
 // What a kind derives from its parsed holdings, a date at a time, after its
 // months are parsed: Holder moves' Daily lines from the above-5% days
-// (above-5-moves.ts).
+// (above-5-moves.ts), and its Monthly lines from the above-1% months
+// (above-1-moves.ts).
 export interface Derived {
   // How a failure names what failed to derive, as "Holder moves".
   readonly name: string

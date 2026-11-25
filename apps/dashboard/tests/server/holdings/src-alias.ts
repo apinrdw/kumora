@@ -1,5 +1,6 @@
 // Resolves `@/` to src/ in a worker thread, which runs in plain Node outside
-// Vitest's aliases. A worker imports it first, before any module that uses
+// Vitest's aliases: the `@/*` path of apps/dashboard/tsconfig.json, which
+// names this file. A worker imports it first, before any module that uses
 // `@/`.
 import { registerHooks } from "node:module"
 
