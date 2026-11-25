@@ -9,7 +9,7 @@
 -- One row per published block (one investor, by IDX's SID), kept as
 -- published: before 20 Nov 2026 IDX repeats an investor's block once per
 -- name variant, and each repeat is a row of its own (collapsed on read,
--- apps/dashboard/docs/adr/0130-above-5-repeat-blocks-are-stored-as-published.md).
+-- apps/dashboard/docs/adr/0131-above-5-repeat-blocks-are-stored-as-published.md).
 -- Keyed by the block's `No`, which runs 1..N across the whole report: (stock,
 -- name) is not unique (CPGT lists two investors under one name).
 CREATE TABLE above_5_holder (

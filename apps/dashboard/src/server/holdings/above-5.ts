@@ -418,7 +418,7 @@ type ListedShares = (
 // One side's readings that sum, narrowed to those whose % of the stock's
 // listed shares is the printed one.
 // Decision: a single-account ambiguous count is resolved against listed shares
-// (apps/dashboard/docs/adr/0129-a-single-account-ambiguous-count-is-resolved-against-listed-shares.md)
+// (apps/dashboard/docs/adr/0130-a-single-account-ambiguous-count-is-resolved-against-listed-shares.md)
 const byListedShares = Effect.fnUntraced(function* (
   block: Block,
   side: Side,
@@ -564,7 +564,7 @@ const accountRecord = Effect.fnUntraced(function* (
 
 // One block, checked and resolved: its holder row and its account rows.
 // Decision: repeat blocks are stored as published, and collapsed on read
-// (apps/dashboard/docs/adr/0130-above-5-repeat-blocks-are-stored-as-published.md)
+// (apps/dashboard/docs/adr/0131-above-5-repeat-blocks-are-stored-as-published.md)
 const blockRows = Effect.fnUntraced(function* (
   block: Block,
   listedShares: ListedShares
