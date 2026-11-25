@@ -14,6 +14,7 @@ import { TestClock } from "effect/testing"
 import {
   makeBrokerCodesPoster,
   type BrokerCodesTarget,
+  type Send,
 } from "../../src/worker/broker-codes/poster.ts"
 
 const PRODUCTION: BrokerCodesTarget = {
@@ -41,10 +42,10 @@ const BATCH: BrokerCodesBatch = {
 // A target answering each POST with the next status in `statuses` (then 200),
 // keeping each request and the test-clock time it came.
 const fakeTarget = (statuses: ReadonlyArray<number>) => {
-  const requests: Array<{ url: string; token: string; body: string }> = []
+  const requests: Array<Parameters<Send>[0]> = []
   return {
     requests,
-    send: (request: { url: string; token: string; body: string }) =>
+    send: (request: Parameters<Send>[0]) =>
       Effect.sync(() => {
         requests.push(request)
         return statuses[requests.length - 1] ?? 200
@@ -67,7 +68,7 @@ describe("posting broker codes to a target", () => {
         request?.url,
         "https://dashboard.example/api/broker-codes/2026-11-12"
       )
-      assert.strictEqual(request?.token, "ingest-token")
+      assert.strictEqual(request?.target.token, "ingest-token")
       assert.deepStrictEqual(
         yield* decodeBrokerCodesBatch(request?.body ?? ""),
         BATCH

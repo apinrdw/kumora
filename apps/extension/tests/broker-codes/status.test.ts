@@ -11,7 +11,10 @@ import { Effect, Fiber, Option } from "effect"
 import { TestClock } from "effect/testing"
 
 import type { BrokerCodesTarget } from "../../src/worker/broker-codes/poster.ts"
-import { makeBrokerCodesStatus } from "../../src/worker/broker-codes/status.ts"
+import {
+  makeBrokerCodesStatus,
+  type Get,
+} from "../../src/worker/broker-codes/status.ts"
 
 const DAY = WibDate.make("2026-11-12")
 const PRODUCTION: BrokerCodesTarget = {
@@ -36,10 +39,10 @@ const fakeTarget = Effect.fnUntraced(function* (
   answers: ReadonlyArray<{ status: number; body: string }>
 ) {
   const body = yield* encodeBrokerCodesStatus(STATUS)
-  const requests: Array<{ url: string; token: string }> = []
+  const requests: Array<Parameters<Get>[0]> = []
   return {
     requests,
-    get: (request: { url: string; token: string }) =>
+    get: (request: Parameters<Get>[0]) =>
       Effect.sync(() => {
         requests.push(request)
         return answers[requests.length - 1] ?? { status: 200, body }
@@ -62,12 +65,12 @@ describe("reading a day's broker codes status", () => {
       )
       assert.deepStrictEqual(target.requests, [
         {
+          target: PRODUCTION,
           url: "https://dashboard.example/api/broker-codes/2026-11-12?after=0",
-          token: "ingest-token",
         },
         {
+          target: PRODUCTION,
           url: "https://dashboard.example/api/broker-codes/2026-11-12?after=2000",
-          token: "ingest-token",
         },
       ])
     })

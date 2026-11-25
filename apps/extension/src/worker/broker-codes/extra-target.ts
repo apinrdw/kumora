@@ -96,26 +96,16 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
   // or 426 or by none (0: a network or CORS failure), shows it as retrying
   // until one goes through, so a target the browser can't reach is never
   // retried unseen. See apinrdw/kumora#244, "Retries".
-  // A request counts for the held settings when it went under their URL
-  // with their token; one on other settings changes nothing.
-  const answered = (request: { url: string; token: string }, status: number) =>
-    Effect.flatMap(hold.settings, (held) =>
-      Option.match(
-        Option.filter(
-          held,
-          ({ url, token }) =>
-            token === request.token && request.url.startsWith(`${url}/`)
-        ),
-        {
-          onNone: () => Effect.void,
-          onSome: (own) => hold.answered(own, status),
-        }
-      )
-    )
+  // The answer is judged by the settings the request went out on, which
+  // the hold ignores once they no longer hold.
   const send: Send = (request) =>
-    Effect.tap(options.send(request), (status) => answered(request, status))
+    Effect.tap(options.send(request), (status) =>
+      hold.answered(request.target, status)
+    )
   const get: Get = (request) =>
-    Effect.tap(options.get(request), ({ status }) => answered(request, status))
+    Effect.tap(options.get(request), ({ status }) =>
+      hold.answered(request.target, status)
+    )
   const lane = yield* Queue.dropping<BrokerCodesBatch>(LANE)
 
   // Decision: 401 refuses the token, 426 means reload the extension

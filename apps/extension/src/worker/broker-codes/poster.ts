@@ -42,19 +42,20 @@ export type PostOutcome =
 // How a batch ended short of written.
 export type PostStop = Exclude<PostOutcome, "sent">
 
-// One POST's answer status; 0 when it got none.
+// One POST's answer status; 0 when it got none. `url` is a path joined
+// onto `target`'s URL, and the request carries its token.
 export type Send = (request: {
+  readonly target: BrokerCodesTarget
   readonly url: string
-  readonly token: string
   readonly body: string
 }) => Effect.Effect<number>
 
-export const fetchSend: Send = ({ url, token, body }) =>
+export const fetchSend: Send = ({ target, url, body }) =>
   Effect.tryPromise(() =>
     fetch(url, {
       method: "POST",
       headers: {
-        authorization: `${BROKER_CODES_AUTH_SCHEME}${token}`,
+        authorization: `${BROKER_CODES_AUTH_SCHEME}${target.token}`,
         "content-type": "application/json",
       },
       body,
@@ -93,10 +94,9 @@ export const makeBrokerCodesPoster = Effect.fnUntraced(function* (options: {
         if (Option.isNone(target)) return "off" satisfies PostOutcome
         const halt = yield* halted(target.value)
         if (Option.isSome(halt)) return halt.value
-        const { url, token } = target.value
         const status = yield* options.send({
-          url: `${url}${path}`,
-          token,
+          target: target.value,
+          url: `${target.value.url}${path}`,
           body,
         })
         if (status === 200) return "sent" satisfies PostOutcome

@@ -64,7 +64,7 @@ const fakeDashboard = (
   return {
     posts,
     written,
-    send: (request: { url: string; token: string; body: string }) =>
+    send: (request: { url: string; body: string }) =>
       Effect.gen(function* () {
         posts.push(request.url)
         const status = options.statuses?.[posts.length - 1] ?? 200
@@ -74,7 +74,7 @@ const fakeDashboard = (
         if (batch.end !== undefined) written.push(`end ${batch.end.n}`)
         return status
       }),
-    get: (_request: { url: string; token: string }) =>
+    get: (_request: { url: string }) =>
       options.refusal !== undefined
         ? Effect.succeed(options.refusal)
         : options.status === undefined
@@ -204,7 +204,7 @@ const ordersDashboard = () => {
     posts,
     written,
     held: () => [...orders].sort(([a], [b]) => Number(a) - Number(b)),
-    send: (request: { url: string; token: string; body: string }) =>
+    send: (request: { url: string; body: string }) =>
       Effect.gen(function* () {
         posts.push(request.url)
         const sent = yield* Effect.orDie(decodeBrokerCodesBatch(request.body))
@@ -219,7 +219,7 @@ const ordersDashboard = () => {
         }
         return 200
       }),
-    get: (_request: { url: string; token: string }) =>
+    get: (_request: { url: string }) =>
       Effect.map(
         Effect.orDie(
           encodeBrokerCodesStatus({
