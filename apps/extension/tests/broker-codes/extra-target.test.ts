@@ -524,6 +524,40 @@ describe("the extra target", () => {
     })
   )
 
+  it.effect(
+    "an answer to a request under A's path, once on B at its host with the same token, leaves B's state alone",
+    () =>
+      Effect.gen(function* () {
+        const dashboard = fakeDashboard({ statuses: [503] })
+        const underPath = {
+          ...STAGING,
+          url: StageUrl.make("https://staging.example/dashboard"),
+        }
+        let inFlight: Effect.Effect<void> = Effect.void
+        const target = yield* harness({
+          settings: Option.some(underPath),
+          extra: {
+            ...dashboard,
+            send: (request) =>
+              Effect.andThen(
+                Effect.suspend(() => {
+                  const now = inFlight
+                  inFlight = Effect.void
+                  return now
+                }),
+                dashboard.send(request)
+              ),
+          },
+        })
+        inFlight = target.switchTo(STAGING)
+        yield* fakeWalk(target.post).walk(DAY)
+        yield* TestClock.adjust("1 minute")
+        yield* settle
+        assert.deepStrictEqual(target.reported, [])
+        assert.isTrue(dashboard.posts[0]?.startsWith(`${underPath.url}/`))
+      })
+  )
+
   it.effect("a status read refused on A leaves B reading again", () =>
     Effect.gen(function* () {
       let reads = 0
