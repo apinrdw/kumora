@@ -1,7 +1,7 @@
 // The Holder moves page's Daily read, after a real archive run stored the
 // trimmed above-5% fixtures (11, 12, 24 and 25 Jun, 19 and 20 Nov 2026) and
-// real investor-type and above-5% parse runs parsed them, through the Holder
-// moves view model.
+// real investor-type and above-5% parse runs parsed them and derived their
+// moves, through the Holder moves view model.
 import { assert, describe, it } from "@effect/vitest"
 import { WibDate } from "@workspace/relay"
 import { Effect } from "effect"
@@ -13,9 +13,19 @@ import {
   type MoveLine,
   visibleLines,
 } from "@/lib/holder-moves"
+import { staleMoveDays } from "@/server/holdings/above-5-moves"
 import { holderMovesRead } from "@/server/holdings/holder-moves"
 
-import { archiveAndParse, pageOf, type World, world } from "./above-5-world.ts"
+import {
+  archive,
+  archiveAndParse,
+  pageOf,
+  parse,
+  republish,
+  type World,
+  world,
+} from "./above-5-world.ts"
+import { above5Item } from "./fake-idx.ts"
 
 const DAYS = [
   "2026-06-11",
@@ -43,6 +53,45 @@ const movesOf = Effect.fnUntraced(function* (w: World, day?: string) {
   const moves = yield* holderMovesView(yield* readOf(w, day))
   assert.isDefined(moves)
   return moves
+})
+
+// `day`'s lines are, stock by stock, the stock's Daily holders movers.
+const assertDailyHolders = Effect.fnUntraced(function* (w: World, day: string) {
+  const moves = yield* movesOf(w, day)
+  for (const code of STOCKS) {
+    const held = yield* dailyHolders((yield* pageOf(w, code)).dailyHolders, day)
+    const expected =
+      held?.dataDate === day
+        ? [...held.listed, ...held.offList].filter(
+            ({ move }) => move !== undefined && move !== "unchanged"
+          )
+        : []
+    const shown = moves.lines.filter((line) => line.code === code)
+    const of = (
+      lines: ReadonlyArray<
+        Omit<MoveLine, "code" | "issuerName" | "move"> & {
+          readonly move: DailyHolderLine["move"]
+        }
+      >
+    ) =>
+      lines
+        .map((line) =>
+          JSON.stringify([
+            line.holder,
+            line.name,
+            line.move,
+            line.through,
+            line.shareChange,
+            line.stake,
+            line.percentageChange,
+            line.renamedFrom,
+            line.aliases,
+            line.trend,
+          ])
+        )
+        .sort()
+    assert.deepStrictEqual(of(shown), of(expected), `${code} ${day}`)
+  }
 })
 
 const rows = (lines: ReadonlyArray<MoveLine>) =>
@@ -90,46 +139,7 @@ describe("Holder moves, Daily", () => {
   it.effect("lists, for every day, each stock's Daily holders movers", () =>
     Effect.gen(function* () {
       const w = yield* parsed
-      for (const day of DAYS.slice(1)) {
-        const moves = yield* movesOf(w, day)
-        for (const code of STOCKS) {
-          const held = yield* dailyHolders(
-            (yield* pageOf(w, code)).dailyHolders,
-            day
-          )
-          const expected =
-            held?.dataDate === day
-              ? [...held.listed, ...held.offList].filter(
-                  ({ move }) => move !== undefined && move !== "unchanged"
-                )
-              : []
-          const shown = moves.lines.filter((line) => line.code === code)
-          const of = (
-            lines: ReadonlyArray<
-              Omit<MoveLine, "code" | "issuerName" | "move"> & {
-                readonly move: DailyHolderLine["move"]
-              }
-            >
-          ) =>
-            lines
-              .map((line) =>
-                JSON.stringify([
-                  line.holder,
-                  line.name,
-                  line.move,
-                  line.through,
-                  line.shareChange,
-                  line.stake,
-                  line.percentageChange,
-                  line.renamedFrom,
-                  line.aliases,
-                  line.trend,
-                ])
-              )
-              .sort()
-          assert.deepStrictEqual(of(shown), of(expected), `${code} ${day}`)
-        }
-      }
+      for (const day of DAYS.slice(1)) yield* assertDailyHolders(w, day)
     })
   )
 
@@ -221,25 +231,6 @@ describe("Holder moves, Daily", () => {
     })
   )
 
-  it.effect("reads only the stocks whose holders changed on a shown day", () =>
-    Effect.gen(function* () {
-      const read = yield* readOf(yield* parsed)
-      if (read.kind !== "daily") return assert.fail(read.kind)
-      // CPGT and MAMIP hold the same blocks every day.
-      assert.deepStrictEqual(
-        read.stocks.map(({ code }) => code),
-        ["ASRI", "BIKE", "ENRG", "NSSS", "TRUE"]
-      )
-      // BIKE changed on 19 Nov alone, so only it and the day before are read.
-      assert.deepStrictEqual(
-        read.stocks
-          .find(({ code }) => code === "BIKE")
-          ?.days.map(({ dataDate }) => dataDate),
-        ["2026-06-25", "2026-11-19"]
-      )
-    })
-  )
-
   it.effect(
     "filters by move and searches stock, issuer, holder and broker",
     () =>
@@ -274,6 +265,123 @@ describe("Holder moves, Daily", () => {
           ["BIKE SENDI: up"]
         )
         assert.deepStrictEqual(yield* shown("off list", "zp"), [])
+      })
+  )
+})
+
+describe("Holder moves, Daily, as the above-5% parse run derives them", () => {
+  it.effect("derives each parsed day once", () =>
+    Effect.gen(function* () {
+      const w = yield* parsed
+      const stale = staleMoveDays().pipe(Effect.provide(w.holdings.layer))
+      assert.deepStrictEqual(yield* stale, [])
+      w.holdings.statements.length = 0
+      const again = yield* parse(w, "cron-2026-11-26")
+      assert.deepInclude(again, {
+        outcome: "complete",
+        monthsParsed: 0,
+        parseFailures: [],
+      })
+      // Nothing new was parsed, so no day's lines were replaced.
+      assert.isFalse(
+        w.holdings.statements.some(({ sql }) =>
+          sql.includes("INTO above_5_move_day")
+        )
+      )
+    })
+  )
+
+  it.effect(
+    "derives a day parsed late, and again the days after it whose Trend reads it",
+    () =>
+      Effect.gen(function* () {
+        const w = world()
+        const late = above5Item("2026-06-24")
+        const listing = w.idx.listing
+        w.idx.listing = listing.filter((item) => item !== late)
+        yield* archiveAndParse(w, "cron-2026-11-25")
+        const before = yield* movesOf(w, "2026-06-25")
+        assert.strictEqual(before.against, "2026-06-12")
+
+        w.idx.listing = listing
+        yield* archive(w, "cron-2026-11-26T13")
+        const result = yield* parse(w, "cron-2026-11-26")
+        assert.deepInclude(result, { outcome: "complete", monthsParsed: 1 })
+        const after = yield* movesOf(w, "2026-06-25")
+        assert.strictEqual(after.against, "2026-06-24")
+        assert.deepStrictEqual(
+          after.lines
+            .filter(({ name }) => name === "PT SAMUEL TUMBUH BERSAMA")
+            .map(({ trend }) => trend),
+          [[null, "out", null, "in"]]
+        )
+        for (const day of DAYS.slice(1)) yield* assertDailyHolders(w, day)
+      })
+  )
+
+  it.effect("derives a day parsed again from its new version", () =>
+    Effect.gen(function* () {
+      const w = yield* parsed
+      republish(w, "2026-11-20", "republished")
+      yield* archive(w, "cron-2026-11-26T13")
+      yield* parse(w, "cron-2026-11-26")
+      // 20 Nov is BIKE alone now: every other holder of 19 Nov left.
+      const moves = yield* movesOf(w, "2026-11-20")
+      assert.isTrue(
+        moves.lines.every(
+          ({ code, move }) => code === "BIKE" || move === "off list"
+        )
+      )
+      assert.isAbove(moves.counts.offList, 10)
+      yield* assertDailyHolders(w, "2026-11-20")
+    })
+  )
+
+  it.effect("keeps a day's lines when its new version fails to parse", () =>
+    Effect.gen(function* () {
+      const w = yield* parsed
+      const before = yield* movesOf(w, "2026-11-20")
+      republish(w, "2026-11-20", "unknown-header")
+      yield* archive(w, "cron-2026-11-26T13")
+      const result = yield* parse(w, "cron-2026-11-26")
+      assert.deepInclude(result, { outcome: "partial", monthsParsed: 0 })
+      assert.deepStrictEqual(yield* movesOf(w, "2026-11-20"), before)
+      yield* assertDailyHolders(w, "2026-11-20")
+    })
+  )
+
+  it.effect(
+    "keeps a day's lines when deriving it fails, and derives it on the next run",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        const before = yield* movesOf(w, "2026-11-20")
+        republish(w, "2026-11-20", "republished")
+        yield* archive(w, "cron-2026-11-26T13")
+        w.holdings.failBatch = (sql) =>
+          sql.some((statement) =>
+            statement.includes("INSERT INTO above_5_move")
+          )
+        const failed = yield* parse(w, "cron-2026-11-26")
+        assert.deepInclude(failed, { outcome: "partial", monthsParsed: 1 })
+        assert.deepStrictEqual(
+          failed.parseFailures.map(({ date, message }) => [
+            date,
+            message.startsWith("Holder moves: "),
+          ]),
+          [["2026-11-20", true]]
+        )
+        // Its lines are the version before's, whole.
+        assert.deepStrictEqual(yield* movesOf(w, "2026-11-20"), before)
+
+        w.holdings.failBatch = undefined
+        const retried = yield* parse(w, "cron-2026-11-27")
+        assert.deepInclude(retried, {
+          outcome: "complete",
+          monthsParsed: 0,
+          parseFailures: [],
+        })
+        yield* assertDailyHolders(w, "2026-11-20")
       })
   )
 })

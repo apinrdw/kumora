@@ -1,10 +1,13 @@
 // The Above-5% parse run: it parses the shareholding archive's daily
 // holders-above-5% reports into above-5% holders (../holdings/parse-runs.ts;
 // which days, ../holdings/months-to-parse.ts, where a month is a trading day
-// here). Spec apinrdw/kumora#673, "Above-5% parse run".
+// here), then derives Holder moves' Daily lines from them
+// (../holdings/above-5-moves.ts). Spec apinrdw/kumora#673, "Above-5% parse run".
+import { WibDate } from "@workspace/relay"
 import { Context } from "effect"
 
 import type { ArchiveWorkflow } from "../archive/workflow.ts"
+import { deriveMoveDay, staleMoveDays } from "../holdings/above-5-moves.ts"
 import {
   ABOVE_5_TABLES,
   ABOVE_5_PARSER_VERSION,
@@ -39,4 +42,11 @@ export const above5ParseRuns = parseRunsOf({
   newestVersions: shareholdingIndex.newestVersions(KIND),
   coverageLayout: parseCoverageByDay,
   workflow: Above5ParseWorkflow,
+  // Decision: Holder moves are derived at parse time
+  // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
+  derived: {
+    name: "Holder moves",
+    stale: staleMoveDays(),
+    derive: (date) => deriveMoveDay(WibDate.make(date)),
+  },
 })

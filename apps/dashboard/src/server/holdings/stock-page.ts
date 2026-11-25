@@ -165,7 +165,7 @@ export type Above5Holder = typeof Above5Holder.Type
 
 // A parsed above-5% day: the stock's blocks in report order, none when no
 // holder of it is above 5% that day, and its listed shares then.
-export const DailyHoldersDay = Schema.Struct({
+const DailyHoldersDay = Schema.Struct({
   dataDate: Schema.String,
   // The newest parsed investor-type report's on or before the day;
   // undefined when none lists the stock.
@@ -385,7 +385,7 @@ export const above1Months = Effect.fnUntraced(function* (
 // Each day costs its row and its blocks' and accounts' rows: at the parse's
 // cap a day holds MAX_ROWS accounts, each its own block, so the newest day
 // and the one before always fit.
-const DAILY_HOLDERS_ROWS = 2 * (2 * MAX_ROWS + 1)
+export const DAILY_HOLDERS_ROWS = 2 * (2 * MAX_ROWS + 1)
 
 // The newest parsed above-5% days whose rows of the stock fit
 // DAILY_HOLDERS_ROWS, as the CTE `read_day`. ?1 is the code.

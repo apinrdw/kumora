@@ -211,10 +211,12 @@ const accountLines = Effect.fnUntraced(function* (
   ]
 })
 
-// Each moved account's broker once, at its largest change. An account with
-// nothing to pair against (a New holder's, an Off-list holder's last) moved
-// its whole holding.
-const throughOf = (accounts: ReadonlyArray<AccountLine>) =>
+// The custodians of the accounts a move went through, largest change first,
+// each once at its largest: what Holder moves stores of a line's Through
+// (server/holdings/above-5-moves.ts). An account with nothing to pair
+// against (a New holder's, an Off-list holder's last) moved its whole
+// holding.
+export const movedCustodians = (accounts: ReadonlyArray<AccountLine>) =>
   Effect.sync(() => {
     const moved = accounts
       .map((account) => ({
@@ -223,10 +225,22 @@ const throughOf = (accounts: ReadonlyArray<AccountLine>) =>
       }))
       .filter(({ change }) => change !== 0)
       .sort((a, b) => b.change - a.change)
-    return [
-      ...new Set(moved.map(({ account }) => account.broker ?? "custodian")),
-    ] satisfies DailyHolderLine["through"]
+    return [...new Set(moved.map(({ account }) => account.custodian))]
   })
+
+// The broker of each of `custodians`, "custodian" for one without, each
+// once at its first.
+//
+// Decision: broker codes are looked up on read
+// (apps/dashboard/docs/adr/0132-broker-codes-are-looked-up-on-read.md)
+export const throughOf = Effect.fnUntraced(function* (
+  custodians: ReadonlyArray<string>
+) {
+  const brokers = yield* Effect.forEach(custodians, brokerOf)
+  return [
+    ...new Set(brokers.map((broker) => broker ?? "custodian")),
+  ] satisfies DailyHolderLine["through"]
+})
 
 const originOf = (accounts: ReadonlyArray<Above5Account>) =>
   Effect.sync((): DailyHolderLine["origin"] => {
@@ -291,7 +305,10 @@ export const dailyHolders = Effect.fnUntraced(function* (
         before && now.percentageHundredths - before.percentageHundredths,
       move,
       offListSince: undefined,
-      through: move === undefined ? [] : yield* throughOf(accounts),
+      through:
+        move === undefined
+          ? []
+          : yield* throughOf(yield* movedCustodians(accounts)),
       trend: yield* trend(holder),
       accounts,
     } satisfies DailyHolderLine
@@ -317,7 +334,10 @@ export const dailyHolders = Effect.fnUntraced(function* (
       move: "off list",
       offListSince,
       // Only the day's Off list moved this day; an earlier holder left before.
-      through: offListSince === undefined ? yield* throughOf(accounts) : [],
+      through:
+        offListSince === undefined
+          ? yield* throughOf(yield* movedCustodians(accounts))
+          : [],
       trend: yield* trend(holder),
       accounts,
     } satisfies DailyHolderLine

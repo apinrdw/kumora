@@ -59,7 +59,8 @@ export const monthRows = Effect.fnUntraced(function* (
   }
 })
 
-const inserts = (dateColumn: string, date: string, rows: MonthRows) =>
+// The statements inserting `rows`, each with `date` in `dateColumn`.
+export const inserts = (dateColumn: string, date: string, rows: MonthRows) =>
   Effect.sync(() => {
     const sql =
       `INSERT INTO ${rows.table} (${[dateColumn, ...rows.columns].join(", ")}) ` +

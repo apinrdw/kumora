@@ -2,24 +2,22 @@
 // moves"; apinrdw/kumora#679, #680): from the Holder moves read, every
 // holder that moved in the selected period across the market, and the
 // rail's periods' counts, each by the Daily holders view model's rules for a
-// day or Major holders' for a month, so the page and a stock's panel never
+// day (derived when the day was parsed, server/holdings/above-5-moves.ts)
+// or Major holders' for a month, so the page and a stock's panel never
 // disagree.
 import type { BrokerCode, StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { type MoveKind, RAIL_PERIODS, TREND_PERIODS } from "@/domain/holdings"
-import { dailyHolders, type HoldersDay } from "@/lib/daily-holders"
+import { throughOf } from "@/lib/daily-holders"
 import type { HolderId, Move, TrendCell } from "@/lib/holder-identity"
 import { majorHolders, type MonthHolders } from "@/lib/major-holders"
 import type {
+  DailyMoveLine,
   HolderMovesRead,
   MonthlyMovesStock,
-  MovesStock,
 } from "@/server/holdings/holder-moves"
-import type {
-  DailyHoldersDay,
-  MajorHoldersMonth,
-} from "@/server/holdings/stock-page"
+import type { MajorHoldersMonth } from "@/server/holdings/stock-page"
 
 // What a filter button shows: every move, or one kind of move.
 const MOVE_FILTERS = ["all", "new", "up", "down", "off list"] as const
@@ -109,49 +107,14 @@ const moved = <M extends Move | undefined>(
 ): move is Exclude<M, "unchanged" | undefined> =>
   move !== undefined && move !== "unchanged"
 
-// A Daily stock, by its Daily holders.
-const dailyStock = (
-  stock: MovesStock,
-  periods: ReadonlyArray<WibDate>,
-  period: WibDate
-): StockMoves => ({
-  lines: Effect.gen(function* () {
-    const run: ReadonlyArray<DailyHoldersDay> = yield* runTo(
-      stock.days,
-      periods,
-      period,
-      TREND_RUN
-    )
-    const held: HoldersDay | undefined = yield* dailyHolders(run, period)
-    if (held?.dataDate !== period) return []
-    return [...held.listed, ...held.offList].flatMap((line): Array<MoveLine> =>
-      moved(line.move)
-        ? [
-            {
-              code: stock.code,
-              issuerName: stock.issuerName,
-              holder: line.holder,
-              name: line.name,
-              aliases: line.aliases,
-              renamedFrom: line.renamedFrom,
-              move: line.move,
-              through: line.through,
-              shareChange: line.shareChange,
-              stake: line.stake,
-              percentageChange: line.percentageChange,
-              trend: line.trend,
-            },
-          ]
-        : []
-    )
-  }),
-  countsOn: Effect.fnUntraced(function* (each) {
-    const held = yield* dailyHolders(
-      yield* runTo(stock.days, periods, each, 2),
-      each
-    )
-    return held?.dataDate === each ? held.counts : undefined
-  }),
+// A derived Daily line, its Through's custodians as broker codes.
+const dailyLine = Effect.fnUntraced(function* (line: DailyMoveLine) {
+  const { custodians, ...rest } = line
+  return {
+    ...rest,
+    holder: line.holder as HolderId,
+    through: yield* throughOf(custodians),
+  } satisfies MoveLine
 })
 
 // An above-1% month's holders of the stock, by its Major holders; undefined
@@ -228,6 +191,37 @@ const monthlyStock = (
 
 const stakeOf = ({ stake }: MoveLine) => stake.now ?? stake.before ?? 0
 
+const sum = (a: MoveCounts, b: MoveCounts): MoveCounts => ({
+  new: a.new + b.new,
+  up: a.up + b.up,
+  down: a.down + b.down,
+  offList: a.offList + b.offList,
+})
+
+// A Monthly read's lines in `period` and its rail, by each stock's Major
+// holders.
+const monthlyMoves = Effect.fnUntraced(function* (
+  stocks: ReadonlyArray<MonthlyMovesStock>,
+  periods: ReadonlyArray<WibDate>,
+  period: WibDate
+) {
+  const moves = stocks.map((stock) => monthlyStock(stock, periods, period))
+  return {
+    lines: (yield* Effect.forEach(moves, (stock) => stock.lines)).flat(),
+    rail: yield* Effect.forEach(
+      periods.slice(1).slice(-RAIL_PERIODS),
+      Effect.fnUntraced(function* (each) {
+        let counts = NO_MOVES
+        for (const stock of moves) {
+          const of = yield* stock.countsOn(each)
+          if (of !== undefined) counts = sum(counts, of)
+        }
+        return { period: each, counts }
+      })
+    ),
+  }
+})
+
 // The selected period's moves and the rail; undefined when nothing is
 // parsed.
 export const holderMovesView = Effect.fnUntraced(function* (
@@ -235,18 +229,24 @@ export const holderMovesView = Effect.fnUntraced(function* (
 ): Effect.fn.Return<HolderMoves | undefined> {
   const { period, periods } = read
   if (period === undefined) return undefined
-  const stocks: ReadonlyArray<StockMoves> =
+  const { lines, rail, against } =
     read.kind === "daily"
-      ? read.stocks.map((stock) => dailyStock(stock, periods, period))
-      : read.stocks.map((stock) => monthlyStock(stock, periods, period))
-  const lines = (yield* Effect.forEach(stocks, (stock) => stock.lines)).flat()
+      ? {
+          lines: yield* Effect.forEach(read.lines, dailyLine),
+          rail: read.rail,
+          against: read.against,
+        }
+      : {
+          ...(yield* monthlyMoves(read.stocks, periods, period)),
+          against: periods[periods.indexOf(period) - 1],
+        }
   lines.sort((a, b) => a.code.localeCompare(b.code) || stakeOf(b) - stakeOf(a))
   const counted = (move: MoveLine["move"]) =>
     lines.filter((line) => line.move === move).length
   return {
     kind: read.kind,
     period,
-    against: periods[periods.indexOf(period) - 1],
+    against,
     lines,
     counts: {
       new: counted("new"),
@@ -255,23 +255,7 @@ export const holderMovesView = Effect.fnUntraced(function* (
       offList: counted("off list"),
     },
     stockCount: new Set(lines.map(({ code }) => code)).size,
-    rail: yield* Effect.forEach(
-      periods.slice(1).slice(-RAIL_PERIODS),
-      Effect.fnUntraced(function* (each) {
-        let counts = NO_MOVES
-        for (const stock of stocks) {
-          const of = yield* stock.countsOn(each)
-          if (of === undefined) continue
-          counts = {
-            new: counts.new + of.new,
-            up: counts.up + of.up,
-            down: counts.down + of.down,
-            offList: counts.offList + of.offList,
-          }
-        }
-        return { period: each, counts }
-      })
-    ),
+    rail,
   } satisfies HolderMoves
 })
 

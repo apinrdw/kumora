@@ -1,6 +1,6 @@
 // One kind of parse run on the shared run machinery (../archive/): its run
 // itself, `reconcile`, one `parse:<date>` step per month to parse
-// (parse-steps.ts), then `summary`; its runs in ArchiveDb; its starts and
+// (parse-steps.ts), what it derives from them if anything, then `summary`; its runs in ArchiveDb; its starts and
 // its last run. Each kind has its own Workflow, which it names by its own
 // service and the machinery uses as its ArchiveWorkflow, so one layer can
 // hold an archive's run Workflow and its parse runs' Workflows. Each kind's
@@ -49,7 +49,13 @@ import {
   ParseTrigger,
   runningParseResult,
 } from "./parse-run-result.ts"
-import { type MonthSource, type Parses, parseMonths } from "./parse-steps.ts"
+import {
+  type Derived,
+  deriveDates,
+  type MonthSource,
+  type Parses,
+  parseMonths,
+} from "./parse-steps.ts"
 
 type ParseRun = Run<ParseTrigger>
 
@@ -92,6 +98,9 @@ export const parseRunsOf = <Self, Coverage>(kind: {
     cells: ReadonlyArray<ParseCoverageMonth>
   ) => Effect.Effect<Coverage>
   readonly workflow: ParseWorkflow<Self>
+  // What it derives from its parsed holdings once they are parsed, if
+  // anything.
+  readonly derived?: Derived
 }) => {
   const source = {
     runName: kind.runName,
@@ -188,7 +197,20 @@ export const parseRunsOf = <Self, Coverage>(kind: {
         parseMonths(steps, kind.months),
         (message) => recordReconcileFailure(run, message)
       )
-      return yield* steps.do("summary", summary(run, parses))
+      const derived = kind.derived
+      const deriveFailures =
+        derived === undefined
+          ? []
+          : yield* failingRun(steps, deriveDates(steps, derived), (message) =>
+              recordReconcileFailure(run, message)
+            )
+      return yield* steps.do(
+        "summary",
+        summary(run, {
+          monthsParsed: parses.monthsParsed,
+          parseFailures: [...parses.parseFailures, ...deriveFailures],
+        })
+      )
     }),
     // The last run, for the admin page: undefined before any run.
     last: {
