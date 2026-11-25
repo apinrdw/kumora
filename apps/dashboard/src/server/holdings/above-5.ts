@@ -164,6 +164,8 @@ const tradingDayBefore = Effect.fnUntraced(function* (date: string) {
 })
 
 // A header row holding `labels`, from A.
+// Decision: a report header must match a known layout exactly, or the day fails
+// (apps/dashboard/docs/adr/0046-a-holdings-header-must-match-a-known-layout-exactly.md)
 const checkLabels = Effect.fnUntraced(function* (
   rowNumber: number,
   cells: ReadRow,
@@ -595,6 +597,8 @@ const blockRows = Effect.fnUntraced(function* (
 })
 
 // The stock a data row's B names: text, or TRUE's code as a boolean cell.
+// Decision: a row with any value must name its stock by a text code
+// (apps/dashboard/docs/adr/0047-a-holdings-row-with-values-must-name-its-stock.md)
 const rowStock = Effect.fnUntraced(function* (
   rowNumber: number,
   cells: ReadRow
