@@ -4,5 +4,6 @@ Until 19 Nov 2026 IDX's daily above-5% report repeats an investor's block once p
 
 Sites:
 - `apps/dashboard/src/server/holdings/above-5.ts`
+- `apps/dashboard/src/lib/daily-holders.ts`
 
 Source: apinrdw/kumora#673

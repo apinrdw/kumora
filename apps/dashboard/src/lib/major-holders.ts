@@ -109,7 +109,11 @@ const BY_PERCENTAGE: MoveRule<Above1Holder> = {
 // Every month's moves, in `months`' order.
 export const monthMoves = (months: ReadonlyArray<MajorHoldersMonth>) =>
   holderMoves(
-    months.map(({ dataDate, holders }) => ({ period: dataDate, holders })),
+    // A month without the stock has no report for it.
+    months.map(({ dataDate, holders }) => ({
+      period: dataDate,
+      holders: holders.length === 0 ? undefined : holders,
+    })),
     BY_PERCENTAGE
   )
 

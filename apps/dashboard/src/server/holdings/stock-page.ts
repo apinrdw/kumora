@@ -148,7 +148,7 @@ const Above5Account = Schema.Struct({
   // 0 for an account the report lists emptied that day.
   scripless: Schema.Number,
 })
-type Above5Account = typeof Above5Account.Type
+export type Above5Account = typeof Above5Account.Type
 
 // One block of the daily above-5% report as published: repeat blocks of one
 // investor are each their own, collapsed by the Daily holders view model.
@@ -160,7 +160,7 @@ const Above5Holder = Schema.Struct({
   // In the block's order.
   accounts: Schema.Array(Above5Account),
 })
-type Above5Holder = typeof Above5Holder.Type
+export type Above5Holder = typeof Above5Holder.Type
 
 // A parsed above-5% day: the stock's blocks in report order, none when no
 // holder of it is above 5% that day, and its listed shares then.
@@ -171,7 +171,7 @@ const DailyHoldersDay = Schema.Struct({
   listedShares: Schema.UndefinedOr(Schema.Number),
   holders: Schema.Array(Above5Holder),
 })
-type DailyHoldersDay = typeof DailyHoldersDay.Type
+export type DailyHoldersDay = typeof DailyHoldersDay.Type
 
 const StockPage = Schema.Struct({
   code: StockCode,

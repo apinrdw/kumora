@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
 
 import {
+  collapseRepeats,
   holderMoves,
   type HolderPeriod,
   type MoveRule,
@@ -11,12 +12,21 @@ import {
 interface Holder {
   readonly key: string
   readonly shares: number
+  readonly accounts?: ReadonlyArray<string>
 }
 
-// Daily holders' rule: shares decide.
+// Daily holders' rule: shares decide, and a gone holder and a new one are
+// one renamed when their shares are equal or they share an account.
 const BY_SHARES: MoveRule<Holder> = {
   change: (before, now) => Effect.succeed(now.shares - before.shares),
   shares: (holder) => Effect.succeed(holder.shares),
+  renamed: (gone, arrived) =>
+    Effect.succeed(
+      gone.shares === arrived.shares ||
+        (gone.accounts ?? []).some((account) =>
+          (arrived.accounts ?? []).includes(account)
+        )
+    ),
 }
 
 const day = (
@@ -123,6 +133,135 @@ describe("Holder identity and moves", () => {
         expect(trendB.slice(-4)).toEqual([null, "in", 20, "out"])
         // The first period compares with nothing.
         expect(yield* trendOf(moves, 0, a, BY_SHARES)).toEqual([null])
+      })
+  )
+
+  it.effect(
+    "compare across a reported period with no holders: all off list, then new",
+    () =>
+      Effect.gen(function* () {
+        const moves = yield* holderMoves(
+          [
+            day("2026-11-18", [["A", 100]]),
+            day("2026-11-19", []),
+            day("2026-11-20", [["A", 100]]),
+          ],
+          BY_SHARES
+        )
+        const a = moves[0]?.listed[0]?.holder
+        expect(moves[1]?.comparison).toEqual({
+          kind: "compared",
+          period: "2026-11-18",
+        })
+        expect(moves[1]?.offList.map(({ holder }) => holder)).toEqual([a])
+        expect(moves[2]?.listed[0]).toMatchObject({
+          holder: a,
+          move: "new",
+          returning: true,
+        })
+      })
+  )
+
+  it.effect("compare nothing across a period without a report", () =>
+    Effect.gen(function* () {
+      const moves = yield* holderMoves(
+        [
+          day("2026-09-30", [["A", 100]]),
+          { period: "2026-10-30", holders: undefined },
+          day("2026-11-30", [["A", 120]]),
+        ],
+        BY_SHARES
+      )
+      expect(moves[1]?.listed).toEqual([])
+      expect(moves[2]?.comparison).toEqual({
+        kind: "gap",
+        period: "2026-10-30",
+      })
+      expect(moves[2]?.listed[0]?.move).toBeUndefined()
+    })
+  )
+
+  it.effect(
+    "keep a renamed holder's identity, by equal shares or a shared account",
+    () =>
+      Effect.gen(function* () {
+        const moves = yield* holderMoves(
+          [
+            {
+              period: "2026-11-19",
+              holders: [
+                { key: "MAYBANK REGISTRAR", shares: 100, accounts: ["ZP 1"] },
+                { key: "OLD NAME", shares: 50, accounts: ["XA 1"] },
+                { key: "GONE", shares: 70, accounts: ["BQ 1"] },
+              ],
+            },
+            {
+              period: "2026-11-20",
+              holders: [
+                { key: "MAYBANK", shares: 120, accounts: ["ZP 1", "ZP 2"] },
+                { key: "NEW NAME", shares: 50, accounts: ["KI 1"] },
+                { key: "STRANGER", shares: 70.5, accounts: ["CC 1"] },
+              ],
+            },
+          ],
+          BY_SHARES
+        )
+        const [before, now] = moves
+        expect(now?.listed.map(({ holder }) => holder)).toEqual([
+          before?.listed[0]?.holder,
+          before?.listed[1]?.holder,
+          expect.not.stringMatching(/^GONE/),
+        ])
+        expect(now?.listed.map(({ move, renamed }) => [move, renamed])).toEqual(
+          [
+            ["up", true],
+            ["unchanged", true],
+            ["new", false],
+          ]
+        )
+        expect(now?.offList.map(({ holder }) => holder)).toEqual([
+          before?.listed[2]?.holder,
+        ])
+      })
+  )
+
+  it.effect(
+    "rename nothing without a rename rule: Major holders match by key only",
+    () =>
+      Effect.gen(function* () {
+        const { renamed: _, ...byKey } = BY_SHARES
+        const moves = yield* holderMoves(
+          [
+            day("2026-09-30", [["OLD", 100]]),
+            day("2026-10-30", [["NEW", 100]]),
+          ],
+          byKey
+        )
+        expect(moves[1]?.listed[0]?.move).toBe("new")
+        expect(moves[1]?.offList).toHaveLength(1)
+      })
+  )
+
+  it.effect(
+    "collapse a block repeating an earlier one into it, its name an alias",
+    () =>
+      Effect.gen(function* () {
+        const blocks = [
+          { name: "PT MANUNGGAL", shares: 100 },
+          { name: "OTHER", shares: 40 },
+          { name: "MANUNGGAL, PT", shares: 100 },
+          { name: "PT. MANUNGGAL", shares: 100 },
+          { name: "PT MANUNGGAL", shares: 100 },
+        ]
+        const collapsed = yield* collapseRepeats(blocks, ({ shares }) =>
+          Effect.succeed(String(shares))
+        )
+        expect(
+          collapsed.map(({ holder, aliases }) => [holder.name, aliases])
+        ).toEqual([
+          ["PT MANUNGGAL", ["MANUNGGAL, PT", "PT. MANUNGGAL"]],
+          ["OTHER", []],
+        ])
       })
   )
 })
