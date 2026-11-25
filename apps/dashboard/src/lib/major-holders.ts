@@ -248,6 +248,9 @@ export const majorHoldersOn = Effect.fnUntraced(function* (
 
 // The report the month `month` (`YYYY-MM`) shows (reportOf), as
 // majorHoldersOn reads it.
+//
+// Decision: a calendar month with two reports shows its newest
+// (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
 export const majorHolders = (
   months: ReadonlyArray<MajorHoldersMonth>,
   month: string | undefined

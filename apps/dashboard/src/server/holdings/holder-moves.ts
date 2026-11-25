@@ -26,8 +26,9 @@ const DerivedMoveLine = Schema.Struct({
   aliases: Schema.Array(Schema.String),
   renamedFrom: Schema.UndefinedOr(Schema.String),
   move: Schema.Literals(["new", "up", "down", "off list"]),
-  // The custodians of the accounts the move went through, largest change
-  // first; the view model looks up their broker codes. None on a month.
+  // The custodians of the securities accounts the move went through,
+  // largest change first; the view model looks up their broker codes. None
+  // on a month.
   custodians: Schema.Array(Schema.String),
   shareChange: Schema.UndefinedOr(Schema.Number),
   stake: Schema.Struct({
@@ -50,7 +51,8 @@ const MoveCounts = Schema.Struct({
 
 const HolderMovesRead = Schema.Struct({
   kind: Schema.Literals(MOVE_KINDS),
-  // Every derived period, oldest first.
+  // Every derived period the kind shows, oldest first: a month's newest
+  // report.
   periods: Schema.Array(WibDate),
   // The period asked for when derived, a month's being its newest report,
   // else the newest; undefined when there is none.
@@ -91,43 +93,48 @@ const RailRow = Schema.Struct({
   lines: Schema.Number,
 })
 
-// Each kind's derived lines and periods (derived-moves.ts), and how an
-// asked-for period, ?1, matches a derived one's date: a trading day by
-// itself, a month (`YYYY-MM`) by the date's month.
+// Each kind's derived lines (derived-moves.ts); the derived periods it
+// shows, the CTE `periods`; and how an asked-for period, ?1, matches a
+// shown one's date: a trading day by itself, a month (`YYYY-MM`) by the
+// date's month.
 const KINDS = {
   daily: {
     lines: "above_5_move",
-    derived: "above_5_move_day",
+    periods: "SELECT data_date, against FROM above_5_move_day",
     match: "data_date = ?1",
   },
   monthly: {
     lines: "above_1_move",
-    derived: "above_1_move_month",
+    // Decision: a calendar month with two reports shows its newest
+    // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
+    periods: `SELECT data_date, against FROM above_1_move_month
+      WHERE data_date IN (
+        SELECT MAX(data_date) FROM above_1_move_month
+        GROUP BY substr(data_date, 1, 7)
+      )`,
     match: "substr(data_date, 1, 7) = ?1",
   },
 } satisfies Record<
   MoveKind,
   {
     readonly lines: string
-    readonly derived: string
+    readonly periods: string
     readonly match: string
   }
 >
 
-// The CTE `selected`: the one derived period the read shows. It is the
-// newest that matches ?1, since one calendar month can hold two reports
-// (reportOf in domain/holdings.ts picks a month's report by the same rule),
-// else the newest of all. The period's lines and its date both come from
-// it.
-const SELECTED = (derived: string, match: string) => `
+// The CTE `selected`: the one shown period the read shows, the one that
+// matches ?1, else the newest. The period's lines and its date both come
+// from it.
+const SELECTED = (match: string) => `
   selected AS (
     SELECT COALESCE(
-      (SELECT MAX(data_date) FROM ${derived} WHERE ${match}),
-      (SELECT MAX(data_date) FROM ${derived})
+      (SELECT MAX(data_date) FROM periods WHERE ${match}),
+      (SELECT MAX(data_date) FROM periods)
     ) AS data_date
   )`
 
-// The derived periods, and for `asked` (undefined for the newest) its
+// The shown periods, and for `asked` (undefined for the newest) its
 // stored lines and the rail's counts of theirs, in one batch, so a parse
 // run deriving a period mid-read can't mix two versions of it. The read is
 // one period's lines and one count per rail period and move.
@@ -138,15 +145,16 @@ const derivedMovesRead = Effect.fnUntraced(function* (
   kind: MoveKind,
   asked: string | undefined
 ) {
-  const { lines, derived, match } = KINDS[kind]
-  const withSelected = `WITH ${SELECTED(derived, match)}`
+  const { lines, periods: shownPeriods, match } = KINDS[kind]
+  const withPeriods = `WITH periods AS (${shownPeriods})`
+  const withSelected = `${withPeriods}, ${SELECTED(match)}`
   const [periodRows = [], lineRows = [], railRows = []] =
     yield* (yield* HoldingsDb).batch([
       {
         sql: `${withSelected}
         SELECT data_date, against,
           data_date = (SELECT data_date FROM selected) AS selected
-        FROM ${derived} ORDER BY data_date`,
+        FROM periods ORDER BY data_date`,
         params: [asked ?? null],
       },
       {
@@ -159,9 +167,10 @@ const derivedMovesRead = Effect.fnUntraced(function* (
         params: [asked ?? null],
       },
       {
-        sql: `SELECT data_date, move, COUNT(*) AS lines FROM ${lines}
+        sql: `${withPeriods}
+        SELECT data_date, move, COUNT(*) AS lines FROM ${lines}
         WHERE data_date IN (
-          SELECT data_date FROM ${derived} WHERE against IS NOT NULL
+          SELECT data_date FROM periods WHERE against IS NOT NULL
           ORDER BY data_date DESC LIMIT ${RAIL_PERIODS}
         )
         GROUP BY data_date, move`,

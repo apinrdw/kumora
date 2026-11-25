@@ -17,8 +17,12 @@ export const monthOf = (dataDate: string) =>
 
 // The report a month (`YYYY-MM`) shows, of those dated `dataDates`: the
 // newest dated in it, since one calendar month can hold two reports;
-// undefined when it holds none. Holder moves' read picks a month's report
-// by the same rule in SQL (SELECTED in server/holdings/holder-moves.ts).
+// undefined when it holds none. Holder moves' read shows a month's report
+// by the same rule in SQL (the monthly `periods` in
+// server/holdings/holder-moves.ts).
+//
+// Decision: a calendar month with two reports shows its newest
+// (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
 export const reportOf = <D extends string>(
   dataDates: ReadonlyArray<D>,
   month: string | undefined
