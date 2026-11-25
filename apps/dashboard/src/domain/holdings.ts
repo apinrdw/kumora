@@ -261,3 +261,11 @@ export const Classification = Schema.Literals(
   Object.keys(CLASSIFICATIONS) as ReadonlyArray<keyof typeof CLASSIFICATIONS>
 )
 export type Classification = typeof Classification.Type
+
+// What Holder moves shows: Daily is above-5% holders by trading day.
+export const MOVE_KINDS = ["daily"] as const
+export type MoveKind = (typeof MOVE_KINDS)[number]
+
+// The periods Holder moves' rail shows, newest last, each with one before
+// it.
+export const RAIL_PERIODS = 10

@@ -164,7 +164,7 @@ export type Above5Holder = typeof Above5Holder.Type
 
 // A parsed above-5% day: the stock's blocks in report order, none when no
 // holder of it is above 5% that day, and its listed shares then.
-const DailyHoldersDay = Schema.Struct({
+export const DailyHoldersDay = Schema.Struct({
   dataDate: Schema.String,
   // The newest parsed investor-type report's on or before the day;
   // undefined when none lists the stock.
@@ -401,7 +401,7 @@ const Above5DayRow = Schema.Struct({
   data_date: Schema.String,
   listed_shares: Schema.NullOr(Schema.Number),
 })
-const Above5HolderRow = Schema.Struct({
+export const Above5HolderRow = Schema.Struct({
   data_date: Schema.String,
   no: Schema.Number,
   issuer_name: Schema.String,
@@ -410,7 +410,7 @@ const Above5HolderRow = Schema.Struct({
   scripless: Schema.Number,
   percentage_hundredths: Schema.Number,
 })
-const Above5AccountRow = Schema.Struct({
+export const Above5AccountRow = Schema.Struct({
   data_date: Schema.String,
   no: Schema.Number,
   custodian: Schema.String,
@@ -420,8 +420,9 @@ const Above5AccountRow = Schema.Struct({
   scripless: Schema.Number,
 })
 
-// Each parsed above-5% day with the stock's blocks, each with its accounts.
-const dailyHolders = (
+// Each of `dayRows`' days with the stock's blocks, each with its accounts;
+// none on a day without a block.
+export const above5Days = (
   dayRows: ReadonlyArray<typeof Above5DayRow.Type>,
   holderRows: ReadonlyArray<typeof Above5HolderRow.Type>,
   accountRows: ReadonlyArray<typeof Above5AccountRow.Type>
@@ -701,7 +702,7 @@ export const stockPage = Effect.fnUntraced(function* (
         above1HoldingRows
       )
     ),
-    dailyHolders: yield* dailyHolders(
+    dailyHolders: yield* above5Days(
       Schema.decodeUnknownSync(Schema.Array(Above5DayRow))(above5DayRows),
       above5Holders,
       Schema.decodeUnknownSync(Schema.Array(Above5AccountRow))(
