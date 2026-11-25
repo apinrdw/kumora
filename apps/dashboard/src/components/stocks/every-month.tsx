@@ -5,9 +5,10 @@ import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import type { CSSProperties } from "react"
 
+import { BoundedRows, ROWS_SHOWN } from "@/components/k/bounded-rows"
 import { MOVEMENT } from "@/components/stocks/holder-movement"
 import { everyMonth } from "@/lib/every-month"
-import { plain } from "@/lib/format"
+import { lotsOfShares, plain } from "@/lib/format"
 import { shortMonth } from "@/lib/stock-page-display"
 import type { MajorHoldersMonth } from "@/server/holdings/stock-page"
 
@@ -34,6 +35,10 @@ const MARK = {
 const SHADE =
   "bg-[color-mix(in_oklab,var(--semantic-info)_var(--shade),transparent)]"
 
+// The cells the grid's server render holds: its rows are as many as fit, so
+// a grid of many months renders fewer rows there.
+const CELLS_SHOWN = 6_000
+
 const OUTLINE = "data-selected:shadow-[inset_0_0_0_1.5px_var(--text-primary)]"
 
 export function EveryMonth({
@@ -44,7 +49,9 @@ export function EveryMonth({
   // The panel's month's data date.
   selected: string
 }) {
-  const { rows, largest } = Effect.runSync(everyMonth(months, selected))
+  const { rows, cellsOf, largest } = Effect.runSync(
+    everyMonth(months, selected)
+  )
   return (
     <div className="flex flex-col gap-2 border-t border-border pt-3">
       <div className="flex flex-col gap-0.5">
@@ -81,64 +88,75 @@ export function EveryMonth({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr
-                key={row.key}
-                data-unlisted={!row.listed || undefined}
-                className={cn(!row.listed && "text-muted-foreground")}
-              >
-                <th
-                  scope="row"
-                  className="max-w-56 text-left font-normal [overflow-wrap:anywhere]"
+            {/* Decision: a page renders a list of stored rows through BoundedRows
+                (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md) */}
+            <BoundedRows
+              rows={rows}
+              bound={Math.max(
+                1,
+                Math.min(ROWS_SHOWN, Math.floor(CELLS_SHOWN / months.length))
+              )}
+            >
+              {(row) => (
+                <tr
+                  key={row.holder}
+                  data-unlisted={!row.listed || undefined}
+                  className={cn(!row.listed && "text-muted-foreground")}
                 >
-                  {row.name}
-                </th>
-                {row.cells.map((cell, index) => {
-                  const outlined = months[index]?.dataDate === selected
-                  if (cell === undefined)
+                  <th
+                    scope="row"
+                    className="max-w-56 text-left font-normal [overflow-wrap:anywhere]"
+                  >
+                    {row.name}
+                  </th>
+                  {Effect.runSync(cellsOf(row.holder)).map((cell, index) => {
+                    const outlined = months[index]?.dataDate === selected
+                    if (cell === undefined)
+                      return (
+                        <td
+                          key={index}
+                          title="Not listed"
+                          data-selected={outlined || undefined}
+                          className={cn(
+                            "text-center text-muted-foreground",
+                            OUTLINE
+                          )}
+                        >
+                          ·
+                        </td>
+                      )
+                    const mark = cell.move && MARK[cell.move]
                     return (
                       <td
                         key={index}
-                        title="Not listed"
+                        title={`${Effect.runSync(lotsOfShares(cell.shares))} lots`}
                         data-selected={outlined || undefined}
                         className={cn(
-                          "text-center text-muted-foreground",
+                          "num text-right whitespace-nowrap",
+                          SHADE,
                           OUTLINE
                         )}
+                        style={
+                          {
+                            "--shade": `${Math.round(8 + (50 * cell.hundredths) / largest)}%`,
+                          } as CSSProperties
+                        }
                       >
-                        ·
+                        {Effect.runSync(plain(cell.hundredths / 100, 2))}
+                        {mark && (
+                          <span
+                            title={mark.label}
+                            className={cn("ml-0.5", mark.className)}
+                          >
+                            {mark.text}
+                          </span>
+                        )}
                       </td>
                     )
-                  const mark = cell.move && MARK[cell.move]
-                  return (
-                    <td
-                      key={index}
-                      data-selected={outlined || undefined}
-                      className={cn(
-                        "num text-right whitespace-nowrap",
-                        SHADE,
-                        OUTLINE
-                      )}
-                      style={
-                        {
-                          "--shade": `${Math.round(8 + (50 * cell.hundredths) / largest)}%`,
-                        } as CSSProperties
-                      }
-                    >
-                      {Effect.runSync(plain(cell.hundredths / 100, 2))}
-                      {mark && (
-                        <span
-                          title={mark.label}
-                          className={cn("ml-0.5", mark.className)}
-                        >
-                          {mark.text}
-                        </span>
-                      )}
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
+                  })}
+                </tr>
+              )}
+            </BoundedRows>
           </tbody>
         </table>
       </div>

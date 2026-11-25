@@ -16,7 +16,13 @@ If a deploy fails partway through a clone, the new database exists but is incomp
 
 `clone` came out once every production cutover had landed: AuthDb and HoldingsDb on 2026-11-24, BrokerTotalsDb on 2026-11-25, each reported in APAC (Tokyo) by the D1 API. Left in, it would copy again on any later replace, from a source that may be gone. The declarations now carry only the hint, so a later change that replaces a database copies nothing and loses its data unless that change brings back a clone of its own.
 
-The move took admin pages' fresh session read (`authorize`) from a p50 of about 390 ms to about 180 ms from Singapore, measured on 2026-11-25. That is short of the hoped-for well under 100 ms: `apac` placed the primaries in Tokyo, not Singapore, and the hint can be no finer.
+The move took admin pages' fresh session read (`authorize`) from a p50 of about 390 ms to about 180 ms from Singapore, measured on 2026-11-25. That is short of the hoped-for well under 100 ms. Reading the session and its user in one joined statement (apinrdw/kumora#689) brought it to about 92 ms.
+
+`apac` names a region, not a city. A query's `served_by_colo` showed production's primaries on 2026-11-25: AuthDb and BrokerTotalsDb in Tokyo (NRT), HoldingsDb in Seoul (ICN), ArchiveDb in Singapore (SIN). ArchiveDb answers an admin page's batch in 13–35 ms, so the location matters more than the statement count. Four of six throwaway apac databases created the same day landed in SIN.
+
+AuthDb therefore carries an explicit name with a roll number, `AUTH_DB_ROLL`, and `clone` again. Raising the roll renames it, which makes Alchemy create a new apac database and copy the old one into it, the same cutover as the first move. If production's new AuthDb is not in SIN, the next change raises the roll again. Once one lands in SIN, a follow-up removes `clone` and keeps the name.
+
+Roll 2 (2026-11-25) copied production's AuthDb whole, keeping every user, session and account, but landed in Osaka (KIX). `authorize` stayed at a median of about 97 ms. Roll 3 (2026-11-25) landed in Hong Kong (HKG), again with every row, and brought `authorize` to a median of about 55 ms, from about 390 ms before the move. The owner stopped re-rolling there rather than pay another production cutover for Singapore's 15–30 ms. `clone` came out of AuthDb again; its name keeps `AUTH_DB_ROLL` at 3, and raising the roll now would replace AuthDb without copying it.
 
 Sites:
 - `apps/dashboard/alchemy.run.ts`

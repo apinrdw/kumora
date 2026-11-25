@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from "react"
 import { createRoot } from "react-dom/client"
+import { renderToString } from "react-dom/server"
 import { afterEach, describe, expect, test } from "vitest"
 
 import { EveryMonth } from "@/components/stocks/every-month"
@@ -113,6 +114,29 @@ describe("Every month", () => {
       "A dot is a month the holder was not listed: sold out or fell below 1%."
     )
   })
+  test("server-renders as many rows as fit 6,000 cells, fewer of more months, and every row once hydrated", async () => {
+    // 100 months of 2 holders no other month has: 200 rows of 100 cells.
+    const months = Array.from({ length: 100 }, (_, at) =>
+      month(new Date(Date.UTC(2020, at, 28)).toISOString().slice(0, 10), [
+        holder(`A${at}`, [row(`ALPHA ${at}`, 300, 300)]),
+        holder(`B${at}`, [row(`BETA ${at}`, 200, 200)]),
+      ])
+    )
+    const last = months.at(-1)?.dataDate ?? ""
+    const server = document.createElement("div")
+    server.innerHTML = renderToString(
+      <EveryMonth months={months} selected={last} />
+    )
+    expect(server.querySelectorAll("tbody tr")).toHaveLength(60)
+    await act(() => root.render(<EveryMonth months={months} selected={last} />))
+    expect(
+      rows()
+        .slice(0, 2)
+        .map(([name]) => name)
+    ).toEqual(["ALPHA 99", "BETA 99"])
+    expect(rows()).toHaveLength(200)
+  })
+
   test("shades every cell the lightest when every holder holds 0%", async () => {
     await act(() =>
       root.render(

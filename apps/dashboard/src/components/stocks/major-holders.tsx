@@ -2,23 +2,31 @@
 // holders panel"; apinrdw/kumora#474's layout A): one above-1% report month,
 // picked by its own month tabs, as layout B's ownership bar and a table of the
 // stock's ≥1% holders, each against the report month before, off-list holders
-// greyed at the bottom, then every month's holders in a grid.
+// greyed below them, then every earlier holder as Off list since the month it
+// left, then every month's holders in a grid.
 import type { StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import { Fragment, useState } from "react"
 
+import { BoundedRows } from "@/components/k/bounded-rows"
 import { kCard, kFocus } from "@/components/k/styles"
-import { KTooltip } from "@/components/k/tooltip"
 import { MonthTabs } from "@/components/stocks/choice"
 import { EveryMonth } from "@/components/stocks/every-month"
-import { MOVEMENT } from "@/components/stocks/holder-movement"
-import { compact, count, MINUS, plain } from "@/lib/format"
 import {
-  type Change,
+  Delta,
+  lotsChangeText,
+  MoveChip,
+  OwnershipBar,
+  percentChangeText,
+  percentOf,
+} from "@/components/stocks/holder-cells"
+import { count, lotsOfShares } from "@/lib/format"
+import {
   type HolderLine,
   majorHolders,
   type MonthHolders,
+  monthReports,
 } from "@/lib/major-holders"
 import { monthLabel, shortMonth } from "@/lib/stock-page-display"
 import type { MajorHoldersMonth } from "@/server/holdings/stock-page"
@@ -26,7 +34,8 @@ import type { MajorHoldersMonth } from "@/server/holdings/stock-page"
 export type MajorHoldersProps = {
   code: StockCode
   months: ReadonlyArray<MajorHoldersMonth>
-  // The URL's `YYYY-MM`; a month the stock has no row in shows its newest.
+  // The URL's `YYYY-MM`; a month with no report the stock is in shows its
+  // newest.
   month: string | undefined
   onMonth: (dataDate: string) => void
 }
@@ -62,14 +71,11 @@ export function MajorHolders({
         <>
           <MonthTabs
             code={code}
-            months={months.map((each) => ({
-              dataDate: each.dataDate,
-              held: each.holders.length > 0,
-            }))}
+            months={Effect.runSync(monthReports(months))}
             selected={holders.dataDate}
             onMonth={onMonth}
           />
-          <OwnershipBar holders={holders} />
+          <MonthBar holders={holders} />
           <HoldersTable holders={holders} />
           <p className="text-[12px] text-muted-foreground">
             Percent of listed shares, scrip included, as IDX publishes it.
@@ -81,22 +87,6 @@ export function MajorHolders({
     </section>
   )
 }
-
-/** 4110 → `41.10%` */
-const percentOf = (hundredths: number) =>
-  Effect.map(plain(hundredths / 100, 2), (text) => `${text}%`)
-
-const signOf = (n: number) => Effect.succeed(n > 0 ? "+" : n < 0 ? MINUS : "±")
-
-/** 10 → `+0.10 pp`, 0 → `±0.00 pp` */
-const ppText = Effect.fnUntraced(function* (hundredths: number) {
-  return `${yield* signOf(hundredths)}${yield* plain(Math.abs(hundredths) / 100, 2)} pp`
-})
-
-/** 10,000,000 → `+10 M` */
-const sharesText = Effect.fnUntraced(function* (shares: number) {
-  return `${yield* signOf(shares)}${yield* compact(shares)}`
-})
 
 // The month's line: its holders and their %, then the changes against the
 // month before, or why there are none.
@@ -114,113 +104,34 @@ const summary = Effect.fnUntraced(function* (
   return `${held} · vs ${label}: ${counts.new} new, ${counts.up} up, ${counts.down} down, ${counts.offList} off list`
 })
 
-// Each tone's shades, stepped per segment so neighbours of one tone part.
-const TONES = {
-  gold: ["bg-warning", "bg-warning/70", "bg-warning/85", "bg-warning/55"],
-  blue: ["bg-info", "bg-info/70", "bg-info/85", "bg-info/55"],
-} as const
-const UNDER_1 = "bg-neutral/40"
-const LEGEND_TOP = 6
-
-// apinrdw/kumora#474's layout B bar: the month's listed shares split among
-// its holders in table order, controllers and affiliates gold, then the
-// rest of the 100% as Under 1%. Published percentages can sum past 100%:
-// Under 1% is then none, and the bar splits that sum instead.
-function OwnershipBar({ holders }: { holders: MonthHolders }) {
-  const segments = holders.listed.map((line, index) => {
-    const tone = line.controller ? "gold" : "blue"
-    return {
-      line,
-      tone,
-      className: TONES[tone][index % TONES[tone].length],
-      percent: Effect.runSync(percentOf(line.percentageHundredths)),
-    }
-  })
-  const under = Math.max(0, 10_000 - holders.totalHundredths)
-  const whole = Math.max(10_000, holders.totalHundredths)
-  const underPercent = Effect.runSync(percentOf(under))
-  const more = segments.length - LEGEND_TOP
+// The month's holders as the bar's segments, in table order.
+function MonthBar({ holders }: { holders: MonthHolders }) {
   return (
-    <div className="flex flex-col gap-2">
-      <div
-        role="img"
-        aria-label="Ownership of listed shares"
-        className="flex h-6 overflow-hidden rounded-md"
-      >
-        {segments.map(({ line, tone, className, percent }) => (
-          <div
-            key={line.key}
-            title={`${line.name} ${percent}`}
-            data-tone={tone}
-            style={{ width: `${(100 * line.percentageHundredths) / whole}%` }}
-            className={cn("border-surface min-w-px border-r", className)}
-          />
-        ))}
-        <div
-          title={`Holders under 1% ${underPercent}`}
-          data-tone="under"
-          style={{ width: `${(100 * under) / whole}%` }}
-          className={UNDER_1}
-        />
-      </div>
-      <ul
-        aria-label="Ownership legend"
-        className="flex flex-wrap gap-x-3.5 gap-y-1 text-[12px] text-muted-foreground"
-      >
-        {segments.slice(0, LEGEND_TOP).map(({ line, className, percent }) => (
-          <li key={line.key} className="whitespace-nowrap">
-            <Swatch className={className} />
-            <span
-              className="inline-block max-w-60 truncate align-bottom"
-              title={line.name}
-            >
-              {line.name}
-            </span>{" "}
-            {percent}
-          </li>
-        ))}
-        {more > 0 && <li>+{more} more</li>}
-        <li className="whitespace-nowrap">
-          <Swatch className={UNDER_1} />
-          Under 1% {underPercent}
-        </li>
-        <li className="whitespace-nowrap">
-          <Swatch className={TONES.gold[0]} />
-          Gold = controller or affiliate
-        </li>
-      </ul>
-    </div>
-  )
-}
-
-function Swatch({ className }: { className: string }) {
-  return (
-    <i
-      aria-hidden
-      className={cn(
-        "mr-1.5 inline-block size-2.5 rounded-xs align-[-1px]",
-        className
-      )}
+    <OwnershipBar
+      segments={holders.listed.map((line) => ({
+        key: line.holder,
+        name: line.name,
+        hundredths: line.percentageHundredths,
+        shares: line.total,
+        gold: line.controller !== undefined,
+      }))}
+      threshold="1%"
+      controllers
     />
   )
 }
 
-const CHIP_CLASS =
-  "inline-flex h-5 items-center rounded-full px-2 text-[11px] font-semibold whitespace-nowrap"
-
-// Off list's chip is a button, so its tooltip opens on focus too.
-function ChangeChip({ change }: { change: Change | undefined }) {
-  if (change === undefined) return null
-  const { label, text, chip } = MOVEMENT[change]
-  const className = cn(text, chip)
-  return change === "off list" ? (
-    <KTooltip content="Sold out or fell below 1%">
-      <button type="button" className={cn(CHIP_CLASS, kFocus, className)}>
-        {label}
-      </button>
-    </KTooltip>
-  ) : (
-    <span className={cn(CHIP_CLASS, className)}>{label}</span>
+function ChangeChip({ line }: { line: HolderLine }) {
+  return (
+    <MoveChip
+      move={line.change}
+      since={
+        line.offListSince === undefined
+          ? undefined
+          : Effect.runSync(monthLabel(line.offListSince))
+      }
+      offListTip="Sold out or fell below 1%"
+    />
   )
 }
 
@@ -254,7 +165,7 @@ function HoldersTable({ holders }: { holders: MonthHolders }) {
               % of listed
             </th>
             <th scope="col" className="text-right">
-              Shares
+              Lots
             </th>
             <th scope="col" className="text-right">
               In scrip
@@ -262,14 +173,20 @@ function HoldersTable({ holders }: { holders: MonthHolders }) {
           </tr>
         </thead>
         <tbody>
-          {[...holders.listed, ...holders.offList].map((line) => (
-            <HolderRow
-              key={line.key}
-              line={line}
-              open={open.has(line.key)}
-              onToggle={() => toggle(line.key)}
-            />
-          ))}
+          {/* Decision: a page renders a list of stored rows through BoundedRows
+              (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md) */}
+          <BoundedRows
+            rows={[...holders.listed, ...holders.offList, ...holders.history]}
+          >
+            {(line) => (
+              <HolderRow
+                key={line.holder}
+                line={line}
+                open={open.has(line.holder)}
+                onToggle={() => toggle(line.holder)}
+              />
+            )}
+          </BoundedRows>
         </tbody>
       </table>
     </div>
@@ -310,8 +227,8 @@ function HolderRow({
               <ul className="mt-1 flex flex-col gap-0.5 text-[12px] text-muted-foreground">
                 {line.rows.map((row, index) => (
                   <li key={index}>
-                    {row.name} · {Effect.runSync(compact(row.total))} ·{" "}
-                    {Effect.runSync(percentOf(row.percentageHundredths))}
+                    {row.name} · {Effect.runSync(lotsOfShares(row.total))} lots
+                    · {Effect.runSync(percentOf(row.percentageHundredths))}
                   </li>
                 ))}
               </ul>
@@ -320,7 +237,7 @@ function HolderRow({
         )}
       </th>
       <td>
-        <ChangeChip change={line.change} />
+        <ChangeChip line={line} />
       </td>
       <td className="num text-right whitespace-nowrap">
         <div>
@@ -329,12 +246,12 @@ function HolderRow({
         {off ? (
           <div>was {Effect.runSync(percentOf(line.percentageHundredths))}</div>
         ) : (
-          <Delta value={line.ppChange} text={ppText} />
+          <Delta value={line.percentageChange} text={percentChangeText} />
         )}
       </td>
       <td className="num text-right whitespace-nowrap">
-        <div>{off ? "—" : Effect.runSync(compact(line.total))}</div>
-        {!off && <Delta value={line.shareChange} text={sharesText} />}
+        <div>{off ? "—" : Effect.runSync(lotsOfShares(line.total))}</div>
+        {!off && <Delta value={line.shareChange} text={lotsChangeText} />}
       </td>
       <td className="num text-right whitespace-nowrap">
         {off || line.inScrip === undefined
@@ -342,30 +259,6 @@ function HolderRow({
           : `${Math.round(line.inScrip * 100)}%`}
       </td>
     </tr>
-  )
-}
-
-function Delta({
-  value,
-  text,
-}: {
-  value: number | undefined
-  text: (value: number) => Effect.Effect<string>
-}) {
-  if (value === undefined) return null
-  return (
-    <div
-      className={cn(
-        "text-[12px]",
-        value > 0
-          ? "text-up"
-          : value < 0
-            ? "text-down"
-            : "text-muted-foreground"
-      )}
-    >
-      {Effect.runSync(text(value))}
-    </div>
   )
 }
 

@@ -315,8 +315,15 @@ describe("the stock page read", () => {
         { code: "ACRO", issuerName: "SAMCRO HYOSUNG ADILESTARI Tbk" },
         // Only KSEI has APOL, and KSEI's report names no issuer.
         { code: "APOL", issuerName: undefined },
+        // Only the investor-type report has ASRI, BIKE, CPGT, ENRG, MAMIP,
+        // NSSS and TRUE, and it names no issuer.
+        { code: "ASRI", issuerName: undefined },
         { code: "BBCA", issuerName: "BANK CENTRAL ASIA Tbk" },
-        // Only the investor-type report has TRUE, and it names no issuer.
+        { code: "BIKE", issuerName: undefined },
+        { code: "CPGT", issuerName: undefined },
+        { code: "ENRG", issuerName: undefined },
+        { code: "MAMIP", issuerName: undefined },
+        { code: "NSSS", issuerName: undefined },
         { code: "TRUE", issuerName: undefined },
         { code: "WBSA", issuerName: "BSA LOGISTICS INDONESIA Tbk" },
       ])

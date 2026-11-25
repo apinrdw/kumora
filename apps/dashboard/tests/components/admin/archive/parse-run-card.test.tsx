@@ -24,7 +24,8 @@ const text = (html: string) =>
   html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
 
 const card = (
-  lastParseRun: Parameters<typeof ParseRunCard>[0]["lastParseRun"]
+  lastParseRun: Parameters<typeof ParseRunCard>[0]["lastParseRun"],
+  unit?: "day"
 ) =>
   renderAt("/", () => (
     <ParseRunCard
@@ -35,6 +36,7 @@ const card = (
       times="21:00 WIB"
       nextParseRun="2026-11-15T14:00:00.000Z"
       now="2026-11-14T15:00:00.000Z"
+      unit={unit}
     />
   ))
 
@@ -58,5 +60,16 @@ describe("a parse run card", () => {
     expect(html).toContain(
       "2 months could not be parsed. They keep their earlier parsed holdings; the next run tries again. 2026-05-29: The report has no stocks 2026-10-30: Header row 4 has no TOTAL SCRIPLESS"
     )
+  })
+
+  test("counts the days parsed for a kind parsed by the day", async () => {
+    const html = text(
+      await card(
+        { result: PARTIAL, inProgress: false, workflowStatus: null },
+        "day"
+      )
+    )
+    expect(html).toContain("Days parsed 3")
+    expect(html).toContain("2 days could not be parsed.")
   })
 })

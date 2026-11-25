@@ -129,27 +129,27 @@ describe("an archive run", () => {
       const dailyHash = yield* sha256(`xlsx bytes of ${daily.Prospectus}`)
       assert.include(xlsx, `reports/above-5/2026-11-12/${dailyHash}.xlsx`)
       const typeReport = idx.listing.find((item) =>
-        item.Prospectus.endsWith("peng-05-00010-tipe.xlsx")
+        item.Prospectus.endsWith("peng-03-00008-tipe.xlsx")
       )
       assert.isDefined(typeReport)
       const typeHash = yield* sha256(`xlsx bytes of ${typeReport.Prospectus}`)
-      assert.include(xlsx, `reports/investor-type/2026-05-29/${typeHash}.xlsx`)
+      assert.include(xlsx, `reports/investor-type/2026-03-31/${typeHash}.xlsx`)
       assert.strictEqual(
-        bucket.objects.get(`reports/investor-type/2026-05-29/${typeHash}.xlsx`)
+        bucket.objects.get(`reports/investor-type/2026-03-31/${typeHash}.xlsx`)
           ?.body,
         `xlsx bytes of ${typeReport.Prospectus}`
       )
 
       const [typeRecordKey] = records.filter((key) =>
-        key.startsWith(`reports/investor-type/2026-05-29/${typeHash}.`)
+        key.startsWith(`reports/investor-type/2026-03-31/${typeHash}.`)
       )
       assert.isDefined(typeRecordKey)
       assert.deepStrictEqual(json(bucket, typeRecordKey), {
         description:
-          "Data Kepemilikan Saham Perusahaan Tercatat per Tipe Investor per 29 Mei 2026",
+          "Data Kepemilikan Saham Perusahaan Tercatat per Tipe Investor per 31 Maret 2026",
         rawDescription:
-          "Data Kepemilikan Saham Perusahaan Tercatat per Tipe Investor per 29 Mei 2026  \n",
-        dataDate: "2026-05-29",
+          "Data Kepemilikan Saham Perusahaan Tercatat per Tipe Investor per 31 Maret 2026  \n",
+        dataDate: "2026-03-31",
         kind: "investor-type",
         sourceUrl: typeReport.Prospectus,
         fetchedUrl: idxIdUrl(typeReport.Prospectus),

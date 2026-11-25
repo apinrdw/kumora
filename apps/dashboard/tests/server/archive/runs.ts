@@ -26,6 +26,7 @@ export type ShareholdingParseKind =
   | "investor-classification"
   | "investor-type"
   | "above-1"
+  | "above-5"
 
 export const shareholdingParse = (
   kind: ShareholdingParseKind

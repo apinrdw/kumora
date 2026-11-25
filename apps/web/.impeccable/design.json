@@ -1,0 +1,447 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-25T13:47:49Z",
+  "title": "Design System: KUMORA Web",
+  "extensions": {
+    "colorMeta": {
+      "cloth": {
+        "role": "primary",
+        "displayName": "Passbook Cobalt",
+        "tonalRamp": [
+          "#020a20",
+          "#072154",
+          "#1f3f7b",
+          "#426097",
+          "#6783b4",
+          "#8ea6d0",
+          "#b6caed",
+          "#e6efff"
+        ]
+      },
+      "cloth-deep": {
+        "role": "primary",
+        "displayName": "Deep Cloth",
+        "tonalRamp": [
+          "#020a1e",
+          "#0b224f",
+          "#28416f",
+          "#4a618c",
+          "#6d83a9",
+          "#93a6c7",
+          "#bacae6",
+          "#e7effc"
+        ]
+      },
+      "cloth-thread": {
+        "role": "primary",
+        "displayName": "Thread Cobalt",
+        "tonalRamp": [
+          "#020a20",
+          "#062154",
+          "#1d3e7e",
+          "#3d609f",
+          "#6382ba",
+          "#8ba6d6",
+          "#b4caf1",
+          "#e5efff"
+        ]
+      },
+      "stamp": {
+        "role": "secondary",
+        "displayName": "Teller Violet",
+        "tonalRamp": [
+          "#10041e",
+          "#310e51",
+          "#52287c",
+          "#7347a4",
+          "#926ebf",
+          "#b295d9",
+          "#d3bdf4",
+          "#f3eaff"
+        ]
+      },
+      "up": {
+        "role": "tertiary",
+        "displayName": "Price Green",
+        "tonalRamp": [
+          "#001005",
+          "#002f14",
+          "#00502c",
+          "#237248",
+          "#55926c",
+          "#81b393",
+          "#aed4ba",
+          "#e3f3e8"
+        ]
+      },
+      "down": {
+        "role": "tertiary",
+        "displayName": "Price Red",
+        "tonalRamp": [
+          "#1e0102",
+          "#510004",
+          "#7e0718",
+          "#ac2930",
+          "#c95b59",
+          "#e48783",
+          "#feb3ae",
+          "#ffe5e3"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Security Paper",
+        "tonalRamp": [
+          "#0a0c0a",
+          "#222624",
+          "#3f4340",
+          "#5d635f",
+          "#7e8480",
+          "#9fa7a2",
+          "#c3ccc5",
+          "#eaf0ec"
+        ]
+      },
+      "paper-edge": {
+        "role": "neutral",
+        "displayName": "Paper Edge",
+        "tonalRamp": [
+          "#0a0c0a",
+          "#222623",
+          "#3e443f",
+          "#5c635e",
+          "#7c857f",
+          "#9ea8a1",
+          "#c1cdc4",
+          "#e9f1eb"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Ruling Green",
+        "tonalRamp": [
+          "#080c0a",
+          "#1d2822",
+          "#38463e",
+          "#55665c",
+          "#74887d",
+          "#94ac9e",
+          "#b8d0c3",
+          "#e5f2eb"
+        ]
+      },
+      "ticket-stock": {
+        "role": "neutral",
+        "displayName": "Ticket Stock",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252524",
+          "#424241",
+          "#616160",
+          "#828281",
+          "#a4a5a3",
+          "#c9c9c7",
+          "#eeefed"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ribbon Ink",
+        "tonalRamp": [
+          "#0c0912",
+          "#282134",
+          "#453e51",
+          "#645e6f",
+          "#847f8f",
+          "#a7a2b0",
+          "#cbc7d3",
+          "#efedf3"
+        ]
+      },
+      "ink-soft": {
+        "role": "neutral",
+        "displayName": "Soft Ink",
+        "tonalRamp": [
+          "#0c0a10",
+          "#272231",
+          "#453e51",
+          "#645d70",
+          "#857f90",
+          "#a7a2b1",
+          "#cbc7d3",
+          "#efedf3"
+        ]
+      },
+      "ink-faint": {
+        "role": "neutral",
+        "displayName": "Faint Ink",
+        "tonalRamp": [
+          "#0c0a0e",
+          "#27232d",
+          "#443f4d",
+          "#645e6f",
+          "#857f90",
+          "#a7a2b1",
+          "#cbc7d3",
+          "#efedf3"
+        ]
+      },
+      "foil": {
+        "role": "neutral",
+        "displayName": "Foil",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#232529",
+          "#404247",
+          "#5e6167",
+          "#7f8289",
+          "#a1a5ad",
+          "#c5c9d2",
+          "#ebeef4"
+        ]
+      },
+      "foil-dim": {
+        "role": "neutral",
+        "displayName": "Dim Foil",
+        "tonalRamp": [
+          "#090b0f",
+          "#20252f",
+          "#3c424e",
+          "#596271",
+          "#798395",
+          "#9aa5bb",
+          "#bdcae2",
+          "#e8effc"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The hook on the passbook's left page; the closing heading on the cloth in foil."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section headings on later sheets."
+      },
+      "title": {
+        "displayName": "Account Line",
+        "purpose": "The ledger's account line, uppercase."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Ledes and section copy, 46-52ch."
+      },
+      "label": {
+        "displayName": "Form Header",
+        "purpose": "Cobalt pre-printed table headers, uppercase."
+      },
+      "print": {
+        "displayName": "Print",
+        "purpose": "Every machine-printed entry: ledger, saldo, email field, print head. 13px under 420px."
+      },
+      "print-queue-number": {
+        "displayName": "Queue Number",
+        "purpose": "The queue ticket's number only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "sheet",
+        "value": "0 1px 0 var(--paper-edge), 0 18px 40px -18px rgb(8 20 48 / 0.75)",
+        "purpose": "Every single sheet on the cloth."
+      },
+      {
+        "name": "spread",
+        "value": "0 2px 0 var(--paper-edge), 0 30px 60px -24px rgb(6 16 40 / 0.85)",
+        "purpose": "The open passbook in the first viewport."
+      },
+      {
+        "name": "ticket",
+        "value": "0 10px 24px -12px rgb(19 44 92 / 0.55)",
+        "purpose": "The queue ticket lying on the page."
+      },
+      {
+        "name": "button-lip",
+        "value": "0 2px 0 var(--cloth-deep), 0 6px 14px -6px rgb(19 44 92 / 0.7)",
+        "purpose": "Primary button key travel; collapses to 0 on :active."
+      },
+      {
+        "name": "spine",
+        "value": "linear-gradient(90deg, rgb(20 40 30 / 0.18), transparent) 40px wide",
+        "purpose": "The fold on the right page's inner edge, lg and up."
+      }
+    ],
+    "motion": [
+      {
+        "name": "line-interval",
+        "value": "520ms",
+        "purpose": "One ledger line prints every 520ms while the ledger is visible and the tab is shown."
+      },
+      {
+        "name": "print-line",
+        "value": "340ms steps(9, end)",
+        "purpose": "The newest line wipes in left to right, in print-head steps."
+      },
+      {
+        "name": "carriage",
+        "value": "340ms steps(9, end)",
+        "purpose": "A paper-colored carriage block crosses the print head, then lifts away."
+      },
+      {
+        "name": "stamp-down",
+        "value": "420ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "A BIG TRADE stamp lands from 1.35x, overshoots to 0.96x, settles at its -4deg tilt."
+      },
+      {
+        "name": "ticket-out",
+        "value": "700ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "The queue ticket feeds down out of the machine; not replayed when restored from storage."
+      },
+      {
+        "name": "press",
+        "value": "150ms ease-out",
+        "purpose": "Button background and 2px press."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "Ledger stays on its server-rendered still frame (line 96); no print, carriage or stamp-down. ticket-out should also stop (not yet gated in the build)."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "narrow-print",
+        "value": "420px"
+      },
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The cobalt key that takes a queue number; presses down 2px onto its lip.",
+      "html": "<button class=\"ds-btn-primary\">Take a queue number</button>",
+      "css": ".ds-btn-primary { background: var(--cloth, #1b3b78); color: var(--foil, #e9eef8); min-height: 48px; padding: 0 20px; border: 0; border-radius: 3px; font-family: \"Archivo Variable\", \"Arial Narrow\", Arial, sans-serif; font-size: 15px; font-weight: 750; font-stretch: 92%; letter-spacing: 0.02em; box-shadow: 0 2px 0 var(--cloth-deep, #132c5c), 0 6px 14px -6px rgb(19 44 92 / 0.7); transition: transform 150ms ease-out, background-color 150ms ease-out, box-shadow 150ms ease-out; cursor: pointer; } .ds-btn-primary:hover { background: #21468c; } .ds-btn-primary:focus-visible { outline: 2px solid var(--stamp, #6a3b9c); outline-offset: 3px; } .ds-btn-primary:active { transform: translateY(2px); box-shadow: 0 0 0 var(--cloth-deep, #132c5c); }"
+    },
+    {
+      "name": "Ledger Email Field",
+      "kind": "input",
+      "refersTo": "input-ledger",
+      "description": "A dashed line on the form, typed in print; solid violet on focus, red when invalid.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Email</span><input class=\"ds-input-ledger\" type=\"email\" placeholder=\"you@example.com\"></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 12px; max-width: 30rem; padding: 16px; background: var(--paper, #e4eee7); } .ds-field-label { color: var(--ink-soft, #4b4458); font-family: \"Archivo Variable\", \"Arial Narrow\", Arial, sans-serif; font-size: 12px; font-weight: 750; font-stretch: 75%; letter-spacing: 0.14em; text-transform: uppercase; } .ds-input-ledger { min-height: 48px; padding: 0 4px; border: 0; border-bottom: 2px dashed var(--ink, #241d30); background: transparent; color: var(--ink, #241d30); caret-color: var(--stamp, #6a3b9c); font-family: \"Doto Variable\", \"Courier New\", monospace; font-size: 17px; font-weight: 800; letter-spacing: 0.02em; outline: none; } .ds-input-ledger::placeholder { color: var(--ink-soft, #4b4458); } .ds-input-ledger:focus-visible { border-bottom-style: solid; border-bottom-color: var(--stamp, #6a3b9c); background: rgb(228 238 231 / 0.6); } .ds-input-ledger[aria-invalid=true] { border-bottom-color: var(--down, #a8202b); }"
+    },
+    {
+      "name": "Foil Navigation",
+      "kind": "nav",
+      "description": "Foil links set directly on the cobalt cloth.",
+      "html": "<nav class=\"ds-nav\"><a href=\"#\">Bahasa Indonesia</a></nav>",
+      "css": ".ds-nav { display: flex; gap: 20px; align-items: center; padding: 16px; background: var(--cloth, #1b3b78); color: var(--foil-dim, #b9c6de); font-family: \"Archivo Variable\", \"Arial Narrow\", Arial, sans-serif; font-size: 14px; } .ds-nav a { color: var(--foil, #e9eef8); font-weight: 650; text-decoration: underline; text-decoration-color: rgb(185 198 222 / 0.7); text-underline-offset: 3px; text-decoration-thickness: 1px; } .ds-nav a:hover { text-decoration-color: var(--foil, #e9eef8); } .ds-nav a:focus-visible { outline: 2px solid var(--stamp, #6a3b9c); outline-offset: 3px; }"
+    },
+    {
+      "name": "Rubber Stamp",
+      "kind": "chip",
+      "refersTo": "stamp",
+      "description": "Violet teller stamp for facts about the record: RECORDED, BIG TRADE, NET BUYER. The live page inks it through the #stamp-ink filter.",
+      "html": "<span class=\"ds-stamp\">Big trade Rp1.1 B</span>",
+      "css": ".ds-stamp { display: inline-block; border: 2px solid var(--stamp, #6a3b9c); border-radius: 3px; color: var(--stamp, #6a3b9c); font-family: \"Archivo Variable\", \"Arial Narrow\", Arial, sans-serif; font-stretch: 80%; font-weight: 800; font-size: 11px; line-height: 1; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 6px 3px; transform: rotate(-4deg); }"
+    },
+    {
+      "name": "Paper Sheet",
+      "kind": "card",
+      "refersTo": "sheet",
+      "description": "A sheet of security paper lying on the cloth.",
+      "html": "<div class=\"ds-cloth\"><div class=\"ds-sheet\"><h2>In twelve seconds, one foreign broker took 22,328 lots.</h2><p>Add up each broker's buys and sells and the book balances like a passbook.</p></div></div>",
+      "css": ".ds-cloth { padding: 24px; background: repeating-linear-gradient(90deg, transparent 0 2px, rgb(36 72 140 / 0.55) 2px 3px), repeating-linear-gradient(0deg, transparent 0 2px, rgb(19 44 92 / 0.45) 2px 3px), var(--cloth, #1b3b78); } .ds-sheet { background: var(--paper, #e4eee7); border-radius: 3px; padding: 40px; color: var(--ink, #241d30); box-shadow: 0 1px 0 var(--paper-edge, #d3e0d7), 0 18px 40px -18px rgb(8 20 48 / 0.75); font-family: \"Archivo Variable\", \"Arial Narrow\", Arial, sans-serif; } .ds-sheet h2 { margin: 0 0 16px; font-size: 2rem; font-weight: 800; font-stretch: 108%; line-height: 1.06; letter-spacing: -0.015em; } .ds-sheet p { margin: 0; color: var(--ink-soft, #4b4458); font-size: 17px; line-height: 1.6; max-width: 46ch; }"
+    },
+    {
+      "name": "Ledger",
+      "kind": "custom",
+      "description": "Doto entries under cobalt form headers; older lines fade, the newest is double-struck, a Rp1 B+ trade reverses and takes a stamp; the print head below.",
+      "html": "<div class=\"ds-ledger\"><table><thead><tr><th>Time</th><th class=\"r\">Price</th><th class=\"r\">Lots</th><th>Buyer</th><th>Seller</th></tr></thead><tbody><tr style=\"color:color-mix(in srgb,#241d30 91%,#e4eee7)\"><td>09:01:48</td><td class=\"r up\">2,850</td><td class=\"r\">20</td><td>AK [F]</td><td>XL [D]</td></tr><tr class=\"big\"><td>09:01:48</td><td class=\"r\">2,850</td><td class=\"r\">3,918</td><td>AK [F]</td><td>CC [D]</td></tr><tr class=\"new\"><td>09:01:48</td><td class=\"r up\">2,850</td><td class=\"r\">8</td><td>AK [F]</td><td>XL [D]</td></tr></tbody></table><div class=\"ds-head\"><span>Printing 09:01:48 WIB</span><span>96/318</span></div></div>",
+      "css": ".ds-ledger { padding: 24px; background: var(--paper, #e4eee7); color: var(--ink, #241d30); } .ds-ledger table { width: 100%; border-collapse: collapse; font-family: \"Doto Variable\", \"Courier New\", monospace; font-size: 15px; line-height: 24px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; } .ds-ledger th { font-family: \"Archivo Variable\", \"Arial Narrow\", Arial, sans-serif; font-size: 11px; line-height: 16px; font-weight: 750; letter-spacing: 0.12em; font-stretch: 78%; text-transform: uppercase; color: var(--cloth, #1b3b78); text-align: left; padding-bottom: 6px; border-bottom: 1px solid rgb(27 59 120 / 0.4); } .ds-ledger th + th, .ds-ledger td + td { border-left: 1px solid rgb(27 59 120 / 0.25); padding-left: 8px; } .ds-ledger .r { text-align: right; padding-right: 4px; } .ds-ledger tbody tr { border-bottom: 1px dashed rgb(159 184 170 / 0.6); } .ds-ledger .up { color: var(--up, #146b40); } .ds-ledger .new, .ds-ledger .big { font-weight: 900; text-shadow: 0.6px 0 0 currentColor; } .ds-ledger .big { background: var(--ink, #241d30); color: var(--paper, #e4eee7); } .ds-head { display: flex; justify-content: space-between; margin-top: 12px; padding: 4px 8px; border-radius: 2px; background: var(--ink, #241d30); color: var(--paper, #e4eee7); font-family: \"Doto Variable\", \"Courier New\", monospace; font-size: 15px; font-weight: 800; }"
+    },
+    {
+      "name": "Queue Ticket",
+      "kind": "custom",
+      "refersTo": "queue-ticket",
+      "description": "The thermal ticket the slip prints after joining, replacing the form in place.",
+      "html": "<div class=\"ds-ticket-bed\"><div class=\"ds-ticket\"><div class=\"ds-ticket-top\"><span>Your queue number</span><span class=\"ds-print\">Taken 14.45 WIB</span></div><div class=\"ds-ticket-no\">A-0127</div><p>You're in the queue. We'll email you when it's your turn.</p></div></div>",
+      "css": ".ds-ticket-bed { padding: 24px; background: var(--paper, #e4eee7); } .ds-ticket { position: relative; max-width: 22rem; padding: 16px 20px 20px; background: #fbfcf9; color: var(--ink, #241d30); font-family: \"Archivo Variable\", \"Arial Narrow\", Arial, sans-serif; box-shadow: 0 10px 24px -12px rgb(19 44 92 / 0.55); } .ds-ticket::before { content: ''; position: absolute; left: 0; right: 0; top: -5px; height: 10px; background: radial-gradient(circle at 6px 5px, var(--paper, #e4eee7) 4px, transparent 4.5px) repeat-x; background-size: 12px 10px; } .ds-ticket-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-bottom: 8px; border-bottom: 1px dashed var(--rule, #9fb8aa); font-size: 13px; font-weight: 750; letter-spacing: 0.08em; font-stretch: 80%; text-transform: uppercase; } .ds-print { font-family: \"Doto Variable\", \"Courier New\", monospace; font-size: 15px; font-weight: 800; text-transform: none; letter-spacing: 0.02em; color: var(--ink-soft, #4b4458); } .ds-ticket-no { padding: 4px 0; text-align: center; font-family: \"Doto Variable\", \"Courier New\", monospace; font-size: 64px; line-height: 1; font-weight: 900; letter-spacing: 0.04em; } .ds-ticket p { margin: 8px 0 0; color: var(--ink-soft, #4b4458); font-size: 14px; line-height: 1.45; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Market Passbook",
+    "overview": "The public site is an Indonesian bank passbook lying open on its cobalt cloth cover. Every trade is a dot-matrix line in ribbon ink with the broker who bought and the broker who sold; the bank's own pre-printed form sits underneath in cobalt; the teller's violet rubber stamp marks what matters. Nothing glows and nothing floats: depth is paper on cloth, ink on paper, and a ticket torn from a queue machine.\n\nTwo type voices carry the whole system. Archivo, pushed wide for headings and narrow for form labels, is the bank's printed stationery. Doto is the printer: one size for every ledger line, with rank made by striking harder, reversing, or stamping, never by printing bigger. Color is scarce and assigned by material: cobalt is cloth and form ink, violet is stamp ink, green and red are reserved for prices.\n\nThe page is calm where the passbook is calm (wide paper, generous sheet padding) and live where the market is live: one line prints every 520 ms under a moving print head, and the newest line is always the darkest.",
+    "keyCharacteristics": [
+      "Cobalt cloth ground with a woven thread texture; pale green security paper sheets with a tiling guilloche.",
+      "Two faces: Archivo Variable (width axis) for the form, Doto Variable for every printed entry.",
+      "One ledger print size; rank by double-strike, reversal, underline and stamps.",
+      "Cobalt form ink for pre-printed headers and column rules, ribbon ink for entries.",
+      "Violet rubber stamps with uneven inking; green and red only on prices.",
+      "Motion is the printer's: line print, carriage, stamp-down, ticket-out. All of it is decoration on a readable still frame."
+    ],
+    "rules": [
+      {
+        "name": "The Prices-Only Rule",
+        "body": "Green and red appear on prices and nowhere else, except red for a form error. Broker codes, lots, values and nets stay in ribbon ink; direction is read from the sign.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Inks Rule",
+        "body": "Anything pre-printed by the bank (column headers, column rules, table-head rules) is cobalt form ink; anything the machine printed is ribbon ink. Never swap them.",
+        "section": "colors"
+      },
+      {
+        "name": "The Ribbon Fade Rule",
+        "body": "In a running ledger the newest line is darkest; each older line mixes ink toward the paper by 3% per line, capped at 32% so every line stays above 4.5:1. Prices keep their full side ink.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Print Size Rule",
+        "body": "Inside a ledger every printed line is 15px (13px under 420px). Rank comes from double-strike (900 weight plus a 0.6px shadow strike), reversal (ink ground, paper text), a heavier rule, or a stamp, never from a larger size.",
+        "section": "typography"
+      },
+      {
+        "name": "The Width Axis Rule",
+        "body": "Hierarchy in Archivo is set by weight and width together: wide and heavy for headings, narrow and tracked for labels. Don't add a second sans.",
+        "section": "typography"
+      },
+      {
+        "name": "The Paper-Thickness Rule",
+        "body": "The hard 1 to 2px line under a sheet is paper thickness, and the button's 2px lip is key travel that disappears on press. Neither is a decorative offset shadow; don't add hard offsets anywhere else.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do set every ledger entry in Doto at the one print size (15px, 13px under 420px) and rank lines with double-strike, reversal, rules or a stamp.",
+      "Do put pre-printed form parts (headers, column rules) in cobalt and machine-printed entries in ribbon ink.",
+      "Do fade older ledger lines toward the paper by at most 32% and keep the newest darkest.",
+      "Do reserve green and red for prices, with red also allowed for a form error.",
+      "Do lay content on security paper sheets over the cobalt cloth, with the sheet shadow and paper-edge line.",
+      "Do keep motion to the printer's grammar (line print, carriage, stamp-down, ticket-out) and render a complete still frame with all of it off under reduced motion."
+    ],
+    "donts": [
+      "Don't print a ledger line larger to make it important; double-strike or stamp it.",
+      "Don't use violet for anything but stamps, focus, caret and selection.",
+      "Don't add glows, gradients on type, or a dark screenshot hero; the passbook is paper and ink.",
+      "Don't box the email field; it is a dashed line on the form.",
+      "Don't add hard offset shadows beyond paper thickness and the button's key lip.",
+      "Don't stamp calls to action; a stamp records a fact about a trade or the record."
+    ]
+  }
+}

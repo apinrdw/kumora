@@ -27,12 +27,26 @@ import { stageCrons } from "./src/server/stage-crons.ts"
 const apacDatabase = (id: string, migrations: string) =>
   Cloudflare.D1.Database(id, { migrations, primaryLocationHint: "apac" })
 
+// Which apac AuthDb this is. apac names a region, not a city: rolls 1 and 2
+// landed in Tokyo and Osaka, roll 3 in Hong Kong, ~55 ms from the Singapore
+// requests. The name keeps the database in place; changing it would replace
+// AuthDb and lose its data, since nothing clones it any more.
+const AUTH_DB_ROLL = 3
+
 // scripts/auth-schema.ts replays the same directory for the drift check and
 // the handler test seam. apps/e2e/reset-test-stage.ts reads this resource's
 // state file, AuthDb.json, by this id.
 // Decision: every D1 is recreated in apac by cloning the one it replaces
 // (apps/dashboard/docs/adr/0124-every-d1-is-recreated-in-apac-by-cloning-the-one-it-replaces.md)
-const AuthDb = apacDatabase("AuthDb", "./migrations")
+const AuthDb = Effect.gen(function* () {
+  const { name, stage } = yield* Stack
+  return yield* Cloudflare.D1.Database("AuthDb", {
+    // D1 names are at most 64 characters.
+    name: `${name}-AuthDb-${AUTH_DB_ROLL}-${stage}`.slice(0, 64),
+    migrations: "./migrations",
+    primaryLocationHint: "apac",
+  })
+})
 
 // Parsed holdings: the parse runs parse reports into it, the stock page
 // reads it. Bound on every stage like the archive buckets; only
@@ -252,6 +266,12 @@ export const Website = Cloudflare.Website.Vite(
         // other parse runs.
         ABOVE_1_PARSE: Cloudflare.Workflow<RunParams>("Above1Parse", {
           className: "Above1Parse",
+        }),
+        // The above-5% parse run, which parses the shareholding archive's
+        // daily holders-above-5% reports into HoldingsDb, on every stage
+        // like the other parse runs.
+        ABOVE_5_PARSE: Cloudflare.Workflow<RunParams>("Above5Parse", {
+          className: "Above5Parse",
         }),
         // Company logos, which /logos/{CODE} serves (src/server/logos/).
         // On every stage like the archive buckets; only Production's fills.

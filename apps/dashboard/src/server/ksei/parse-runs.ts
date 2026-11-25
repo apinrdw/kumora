@@ -12,6 +12,7 @@ import {
   KSEI_TABLES,
   parseKseiMonth,
 } from "../holdings/ksei.ts"
+import { parseCoverageByMonth } from "../holdings/parse-coverage.ts"
 import { parseRunsOf } from "../holdings/parse-runs.ts"
 import { kindPrefix, reportKey } from "./keys.ts"
 import { kseiIndex } from "./report-index.ts"
@@ -37,5 +38,6 @@ export const kseiParseRuns = parseRunsOf({
     parse: parseKseiMonth,
   },
   newestVersions: kseiIndex.newestVersions(KIND),
+  coverageLayout: parseCoverageByMonth,
   workflow: KseiParseWorkflow,
 })

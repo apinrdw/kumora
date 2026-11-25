@@ -7,6 +7,7 @@ import { MARKET_CLOCK_OFFSET } from "./support/clock"
 import { TEST_INGEST_TOKEN } from "./support/ingest"
 import {
   COLD_DAY_SPEC,
+  HOLDER_MOVES_SPEC,
   RELAY_LOAD_SPEC,
   REPAINT_BENCH_SPEC,
   recording,
@@ -40,6 +41,7 @@ const projects = [
     testIgnore: [
       TRADING_DAY_SPECS,
       COLD_DAY_SPEC,
+      HOLDER_MOVES_SPEC,
       RELAY_LOAD_SPEC,
       REPAINT_BENCH_SPEC,
       ...recorded.chromium,
@@ -84,6 +86,20 @@ const projects = [
     ],
     testMatch: COLD_DAY_SPEC,
     ...(recorded.coldDay ? { use: { video } } : {}),
+  },
+  // The Holder moves spec runs after every chromium spec too. It parses
+  // fixtures into the one HoldingsDb with Parse now, which the shareholding
+  // admin spec expects no run of yet, and which the stocks spec's seed
+  // empties.
+  {
+    name: "holder-moves",
+    dependencies: [
+      "setup",
+      "chromium",
+      ...(recorded.chromium.length > 0 ? ["chromium-video"] : []),
+    ],
+    testMatch: HOLDER_MOVES_SPEC,
+    ...(recorded.holderMoves ? { use: { video } } : {}),
   },
 ]
 

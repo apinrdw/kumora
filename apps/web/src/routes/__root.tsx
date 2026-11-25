@@ -1,6 +1,11 @@
-import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
+import {
+  HeadContent,
+  Scripts,
+  createRootRoute,
+  useRouterState,
+} from "@tanstack/react-router"
 
-import appCss from "@workspace/ui/globals.css?url"
+import appCss from "@/styles.css?url"
 
 const TITLE = "KUMORA AI"
 const DESCRIPTION =
@@ -14,7 +19,7 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { name: "theme-color", content: "#020816" },
+      { name: "theme-color", content: "#1b3b78" },
       { title: TITLE },
       { name: "description", content: DESCRIPTION },
       { property: "og:type", content: "website" },
@@ -48,8 +53,12 @@ export const Route = createRootRoute({
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  // The Indonesian page lives at /id; every other page is English.
+  const lang = useRouterState({
+    select: (s) => (/^\/id(\/|$)/.test(s.location.pathname) ? "id" : "en"),
+  })
   return (
-    <html lang="en">
+    <html lang={lang}>
       <head>
         <HeadContent />
       </head>

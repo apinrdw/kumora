@@ -4,6 +4,18 @@
 import { Effect } from "effect"
 
 import { CLASSIFICATIONS, KSEI_TYPE_LABELS } from "@/domain/holdings"
+import {
+  earlierHolders,
+  type HolderId,
+  holderMoves,
+  type Listed,
+  mostFirst,
+  type Move,
+  type MoveRule,
+  trendOf,
+  type TrendCell,
+  type Unlisted,
+} from "@/lib/holder-identity"
 import type {
   Above1Holder,
   MajorHoldersMonth,
@@ -11,12 +23,8 @@ import type {
 
 type Row = Above1Holder["rows"][number]
 
-// Against the report month before: decided by the change in summed
-// percentage, or absent from it (new) or from this month (off list).
-export type Change = "new" | "up" | "down" | "unchanged" | "off list"
-
 export interface HolderLine {
-  readonly key: string
+  readonly holder: HolderId
   // Its largest row's, by total shares.
   readonly name: string
   // Controller when any row is, else affiliate when any row is.
@@ -27,16 +35,21 @@ export interface HolderLine {
   readonly origin: Row["origin"]
   readonly domicile: string | undefined
   readonly rows: ReadonlyArray<Row>
-  // An off-list holder's are the month before's.
+  // An off-list holder's are those of its last month.
   readonly percentageHundredths: number
   readonly total: number
   // Scrip ÷ total, 0 to 1; undefined of no shares.
   readonly inScrip: number | undefined
   // Undefined without a comparable month before.
-  readonly change: Change | undefined
-  // Up, down or unchanged only.
-  readonly ppChange: number | undefined
+  readonly change: Move | undefined
+  // The change of its % against the month before, × 100: up, down or
+  // unchanged only.
+  readonly percentageChange: number | undefined
   readonly shareChange: number | undefined
+  // An earlier holder's: the month after its last listing.
+  readonly offListSince: string | undefined
+  // Its change in shares over the last months up to this one.
+  readonly trend: ReadonlyArray<TrendCell>
 }
 
 // What the month's changes are against: the report month before, or why
@@ -53,6 +66,9 @@ export interface MonthHolders {
   readonly listed: ReadonlyArray<HolderLine>
   // Listed the month before and not now, most % first.
   readonly offList: ReadonlyArray<HolderLine>
+  // Every earlier holder not listed now nor the month before: the latest
+  // off the list first, then most % first.
+  readonly history: ReadonlyArray<HolderLine>
   // The listed holders' summed % × 100.
   readonly totalHundredths: number
   // Undefined without a comparable month before.
@@ -88,125 +104,181 @@ const labelOf = ({ classification, type }: Row) =>
       : CLASSIFICATIONS[classification].label
   )
 
-// The month before's holders by key, when it is comparable.
-type Before = ReadonlyMap<string, Above1Holder> | undefined
+// Major holders' change rule, which the table's chips and the Every month
+// grid's marks both follow: the change in summed percentage.
+//
+// Decision: a holder matches by key, then as returning; a month has no rename
+// pass (apps/dashboard/docs/adr/0129-a-renamed-or-returning-holder-keeps-its-identity.md)
+const BY_PERCENTAGE: MoveRule<Above1Holder> = {
+  change: (before, now) =>
+    Effect.succeed(now.percentageHundredths - before.percentageHundredths),
+  shares: (holder) => Effect.succeed(holder.total),
+}
 
-// The one movement rule, which the table's chips and the Every month grid's
-// marks both follow: a holder's change against the month before's holders,
-// by the change in summed hundredths, or new when absent from them;
-// undefined without a comparable month before.
-export const changeOf = (holder: Above1Holder, before: Before) =>
-  Effect.sync((): Change | undefined => {
-    if (before === undefined) return undefined
-    const previous = before.get(holder.key)
-    if (previous === undefined) return "new"
-    const pp = holder.percentageHundredths - previous.percentageHundredths
-    return pp > 0 ? "up" : pp < 0 ? "down" : "unchanged"
-  })
+// Every month's moves, in `months`' order.
+export const monthMoves = (months: ReadonlyArray<MajorHoldersMonth>) =>
+  holderMoves(
+    // A month without the stock has no report for it.
+    months.map(({ dataDate, holders }) => ({
+      period: dataDate,
+      holders: holders.length === 0 ? undefined : holders,
+    })),
+    BY_PERCENTAGE
+  )
 
 const lineOf = Effect.fnUntraced(function* (
-  holder: Above1Holder,
-  before: Before
+  holder: HolderId,
+  now: Above1Holder,
+  before: Above1Holder | undefined,
+  change: Move | undefined,
+  offListSince: string | undefined,
+  trend: ReadonlyArray<TrendCell>
 ) {
-  const largest = yield* largestRow(holder)
-  const previous = before?.get(holder.key)
-  const ppChange =
-    previous && holder.percentageHundredths - previous.percentageHundredths
+  const largest = yield* largestRow(now)
   return {
-    key: holder.key,
+    holder,
     name: largest.name,
-    controller: yield* controllerOf(holder.rows),
+    controller: yield* controllerOf(now.rows),
     label: yield* labelOf(largest),
     origin: largest.origin,
     domicile: largest.domicile,
-    rows: holder.rows,
-    percentageHundredths: holder.percentageHundredths,
-    total: holder.total,
-    inScrip: holder.total === 0 ? undefined : holder.scrip / holder.total,
-    change: yield* changeOf(holder, before),
-    ppChange,
-    shareChange: previous && holder.total - previous.total,
+    rows: now.rows,
+    percentageHundredths: now.percentageHundredths,
+    total: now.total,
+    inScrip: now.total === 0 ? undefined : now.scrip / now.total,
+    change,
+    percentageChange:
+      before && now.percentageHundredths - before.percentageHundredths,
+    shareChange: before && now.total - before.total,
+    offListSince,
+    trend,
   } satisfies HolderLine
 })
 
-const byPercentage = (lines: ReadonlyArray<HolderLine>) =>
-  Effect.succeed(
-    [...lines].sort((a, b) => b.percentageHundredths - a.percentageHundredths)
-  )
-
-const comparisonOf = (
+// The report dated `dataDate` when the stock has holders in it, else its
+// newest such report; undefined when it has none in any.
+export const majorHoldersOn = Effect.fnUntraced(function* (
   months: ReadonlyArray<MajorHoldersMonth>,
-  index: number
-) =>
-  Effect.sync((): Comparison => {
-    const before = months[index - 1]
-    if (
-      before === undefined ||
-      months.slice(0, index).every(({ holders }) => holders.length === 0)
-    )
-      return { kind: "first" }
-    return {
-      kind: before.holders.length === 0 ? "gap" : "compared",
-      dataDate: before.dataDate,
-    }
-  })
-
-// What month `index` of `months` is compared with, and the month before's
-// holders when they are comparable.
-export const beforeOf = Effect.fnUntraced(function* (
-  months: ReadonlyArray<MajorHoldersMonth>,
-  index: number
-) {
-  const comparison = yield* comparisonOf(months, index)
-  const before: Before =
-    comparison.kind === "compared"
-      ? new Map(months[index - 1]?.holders.map((each) => [each.key, each]))
-      : undefined
-  return { comparison, before }
-})
-
-// The month `month` (`YYYY-MM`) names when the stock has holders in it,
-// else its newest such month; undefined when it has none in any.
-export const majorHolders = Effect.fnUntraced(function* (
-  months: ReadonlyArray<MajorHoldersMonth>,
-  month: string | undefined
+  dataDate: string | undefined
 ) {
   const held = months.filter(({ holders }) => holders.length > 0)
   const selected =
-    held.find(({ dataDate }) => dataDate.slice(0, 7) === month) ?? held.at(-1)
+    held.find((each) => each.dataDate === dataDate) ?? held.at(-1)
   if (selected === undefined) return undefined
+  const every = yield* monthMoves(months)
   const index = months.indexOf(selected)
-  const { comparison, before } = yield* beforeOf(months, index)
-  const listed = yield* byPercentage(
-    yield* Effect.forEach(selected.holders, (each) => lineOf(each, before))
-  )
-  const keys = new Set(selected.holders.map(({ key }) => key))
-  const offList = yield* byPercentage(
-    yield* Effect.forEach(
-      [...(before?.values() ?? [])].filter(({ key }) => !keys.has(key)),
-      (each) =>
-        Effect.map(lineOf(each, undefined), (line) => ({
-          ...line,
-          change: "off list" as const,
-        }))
+  const moves = every[index]
+  if (moves === undefined) return undefined
+  const trend = (holder: HolderId) =>
+    trendOf(every, index, holder, BY_PERCENTAGE)
+  const listedLine = Effect.fnUntraced(function* ({
+    holder,
+    now,
+    before,
+    move,
+  }: Listed<Above1Holder>) {
+    return yield* lineOf(
+      holder,
+      now,
+      before,
+      move,
+      undefined,
+      yield* trend(holder)
     )
+  })
+  const unlistedLine = Effect.fnUntraced(function* (
+    { holder, last }: Unlisted<Above1Holder>,
+    offListSince: string | undefined
+  ) {
+    return yield* lineOf(
+      holder,
+      last,
+      undefined,
+      "off list",
+      offListSince,
+      yield* trend(holder)
+    )
+  })
+  const comparison: Comparison =
+    moves.comparison.kind === "first"
+      ? moves.comparison
+      : { kind: moves.comparison.kind, dataDate: moves.comparison.period }
+  const listed = yield* mostFirst(
+    yield* Effect.forEach(moves.listed, listedLine),
+    ({ percentageHundredths }) => percentageHundredths
   )
-  const counted = (change: Change) =>
+  const offList = yield* mostFirst(
+    yield* Effect.forEach(moves.offList, (each) =>
+      unlistedLine(each, undefined)
+    ),
+    ({ percentageHundredths }) => percentageHundredths
+  )
+  const unsorted = yield* Effect.forEach(
+    yield* earlierHolders(every, index),
+    (each) => unlistedLine(each, each.since)
+  )
+  const history = unsorted.sort(
+    (a, b) =>
+      (b.offListSince ?? "").localeCompare(a.offListSince ?? "") ||
+      b.percentageHundredths - a.percentageHundredths
+  )
+  const counted = (change: Move) =>
     listed.filter((line) => line.change === change).length
   return {
     dataDate: selected.dataDate,
     comparison,
     listed,
     offList,
+    history,
     totalHundredths: listed.reduce(
       (sum, { percentageHundredths }) => sum + percentageHundredths,
       0
     ),
-    counts: before && {
-      new: counted("new"),
-      up: counted("up"),
-      down: counted("down"),
-      offList: offList.length,
-    },
+    counts:
+      comparison.kind === "compared"
+        ? {
+            new: counted("new"),
+            up: counted("up"),
+            down: counted("down"),
+            offList: offList.length,
+          }
+        : undefined,
   } satisfies MonthHolders
 })
+
+// The report each calendar month shows, oldest first: its newest that
+// holds the stock, since one month can hold two reports; or, of a month
+// with none that does, its newest, not `held`. Holder moves' read shows a
+// month's newest report (the monthly `periods` in
+// server/holdings/holder-moves.ts), and a stock with a line there is in it,
+// so a line's link opens the report it came from.
+//
+// Decision: a calendar month with two reports shows its newest that holds the stock
+// (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
+export const monthReports = (months: ReadonlyArray<MajorHoldersMonth>) =>
+  Effect.sync(() => {
+    const reports = new Map<string, { dataDate: string; held: boolean }>()
+    for (const { dataDate, holders } of months) {
+      const held = holders.length > 0
+      const month = dataDate.slice(0, 7)
+      if (held || !reports.get(month)?.held)
+        reports.set(month, { dataDate, held })
+    }
+    return [...reports.values()]
+  })
+
+// The report the month `month` (`YYYY-MM`) shows (monthReports), as
+// majorHoldersOn reads it: the newest held one's for a month that shows
+// none with the stock.
+export const majorHolders = (
+  months: ReadonlyArray<MajorHoldersMonth>,
+  month: string | undefined
+) =>
+  Effect.flatMap(monthReports(months), (reports) =>
+    majorHoldersOn(
+      months,
+      reports.find(
+        ({ dataDate, held }) => held && dataDate.slice(0, 7) === month
+      )?.dataDate
+    )
+  )

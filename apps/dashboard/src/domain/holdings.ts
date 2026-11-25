@@ -1,7 +1,19 @@
 // Parsed holdings' vocabulary, shared by the server's reads and the stock
 // page: origins, the 39 investor classifications and KSEI's 9 investor
 // types.
-import { Schema } from "effect"
+import { WibDate } from "@workspace/relay"
+import { Effect, Schema } from "effect"
+
+// A report month as a URL or a server function spells it, `YYYY-MM`: a
+// classification, investor-type or above-1% report's month.
+export const Month = Schema.String.check(
+  Schema.isPattern(/^\d{4}-(0[1-9]|1[0-2])$/)
+).pipe(Schema.brand("Month"))
+export type Month = typeof Month.Type
+
+// The month of a report's data date, `YYYY-MM-DD`.
+export const monthOf = (dataDate: string) =>
+  Effect.sync(() => Month.make(dataDate.slice(0, 7)))
 
 // Whether holdings are local or foreign: KSEI's holdings always are, and a
 // split classification report month's.
@@ -261,3 +273,31 @@ export const Classification = Schema.Literals(
   Object.keys(CLASSIFICATIONS) as ReadonlyArray<keyof typeof CLASSIFICATIONS>
 )
 export type Classification = typeof Classification.Type
+
+// What Holder moves shows: Daily is above-5% holders by trading day,
+// Monthly ≥1% holders by above-1% report month.
+export const MOVE_KINDS = ["daily", "monthly"] as const
+export type MoveKind = (typeof MOVE_KINDS)[number]
+
+// Which period of a kind Holder moves shows: a trading day of Daily, or an
+// above-1% report month of Monthly; absent for the newest parsed.
+export const MovesSelection = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("daily"),
+    day: Schema.optional(WibDate),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("monthly"),
+    month: Schema.optional(Month),
+  }),
+])
+export type MovesSelection = typeof MovesSelection.Type
+
+// The periods Holder moves' rail shows, newest last, each with one before
+// it.
+export const RAIL_PERIODS = 10
+
+// The periods a holder's Trend covers, on Major holders, Daily holders and
+// Holder moves alike, ending at the selected one. Its oldest bar compares
+// with the period before them.
+export const TREND_PERIODS = 20

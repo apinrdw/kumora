@@ -292,6 +292,39 @@ export const columnLetters = (column: number) =>
     return letters
   })
 
+// The text a header cell shows: an error's, a string's trimmed, a number's;
+// empty for no cell.
+export const cellText = (cell: ReadCell | undefined) =>
+  Effect.sync(() =>
+    cell instanceof CellError
+      ? cell.text
+      : typeof cell === "string"
+        ? cell.trim()
+        : cell === undefined
+          ? ""
+          : String(cell)
+  )
+
+// Why a header row's labels, from A, aren't `labels`, a column past them
+// empty; undefined when they are. Each parser fails with it as its own error.
+export const headerMismatch = Effect.fnUntraced(function* (
+  rowNumber: number,
+  cells: ReadRow,
+  labels: ReadonlyArray<string>
+) {
+  const last = Math.max(labels.length - 1, ...cells.keys())
+  for (let column = 0; column <= last; column++) {
+    const label = yield* cellText(cells.get(column))
+    const want = labels[column] ?? ""
+    if (label === want) continue
+    const where = `Header row ${rowNumber}'s ${yield* columnLetters(column)}`
+    return want === ""
+      ? `${where} isn't empty: ${yield* excerpt(label)}`
+      : `${where} isn't ${want}: ${yield* excerpt(label)}`
+  }
+  return undefined
+})
+
 // `cells` as a row with no error, refused on its first error.
 const refuseErrors = Effect.fnUntraced(function* (
   rowNumber: number,

@@ -6,7 +6,8 @@ import { HoldingsDb, HoldingsDbError } from "@/server/holdings/db"
 
 import { memoryD1, type MemoryD1 } from "../memory-d1.ts"
 
-const MIGRATIONS = import.meta.glob<string>(
+// holdings-migrations/, by path.
+export const MIGRATIONS = import.meta.glob<string>(
   "../../../holdings-migrations/*.sql",
   { query: "?raw", import: "default", eager: true }
 )

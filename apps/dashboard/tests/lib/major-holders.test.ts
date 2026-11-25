@@ -63,10 +63,10 @@ describe("Major holders' figures", () => {
         dataDate: "2026-09-30",
       })
       expect(
-        shown?.listed.map(({ name, change, ppChange }) => [
+        shown?.listed.map(({ name, change, percentageChange }) => [
           name,
           change,
-          ppChange,
+          percentageChange,
         ])
       ).toEqual([
         ["ALPHA", "up", 50],
@@ -115,6 +115,24 @@ describe("Major holders' figures", () => {
     })
   )
 
+  // Two reports in October, the stock in the older one only (apinrdw/kumora#673's
+  // review): the month opened another month's report.
+  it.effect(
+    "show a month's newest report that holds the stock, not a later one without it",
+    () =>
+      Effect.gen(function* () {
+        const months = [
+          SEPTEMBER,
+          month("2026-10-29", OCTOBER.holders),
+          month("2026-10-30", []),
+          month("2026-11-30", [holder("A", [row("ALPHA", 2000, 2000)])]),
+        ]
+        expect((yield* majorHolders(months, "2026-10"))?.dataDate).toBe(
+          "2026-10-29"
+        )
+      })
+  )
+
   it.effect("compare nothing after a month without the stock", () =>
     Effect.gen(function* () {
       const shown = yield* majorHolders(
@@ -142,6 +160,70 @@ describe("Major holders' figures", () => {
       )
       expect(shown?.listed[0]?.change).toBe("new")
     })
+  )
+
+  it.effect(
+    "keep every earlier holder below as Off list since the month after its last listing, the latest off the list first",
+    () =>
+      Effect.gen(function* () {
+        const months = [
+          SEPTEMBER,
+          OCTOBER,
+          month("2026-11-30", [holder("A", [row("ALPHA", 2050, 2050)])]),
+          month("2026-12-31", [holder("A", [row("ALPHA", 2050, 2050)])]),
+        ]
+        const shown = yield* majorHolders(months, undefined)
+        expect(shown?.offList).toEqual([])
+        expect(
+          shown?.history.map(
+            ({ name, change, offListSince, percentageHundredths }) => [
+              name,
+              change,
+              offListSince,
+              percentageHundredths,
+            ]
+          )
+        ).toEqual([
+          ["BETA", "off list", "2026-11-30", 500],
+          ["EPSILON", "off list", "2026-11-30", 300],
+          ["DELTA", "off list", "2026-11-30", 120],
+          ["GAMMA", "off list", "2026-10-30", 200],
+        ])
+        // The month they left lists them as its Off list, not as history.
+        const november = yield* majorHolders(months, "2026-11")
+        expect(november?.offList.map(({ name }) => name)).toEqual([
+          "BETA",
+          "EPSILON",
+          "DELTA",
+        ])
+        expect(november?.history.map(({ name }) => name)).toEqual(["GAMMA"])
+        // None before the stock's first month.
+        expect((yield* majorHolders(months, "2026-09"))?.history).toEqual([])
+      })
+  )
+
+  it.effect(
+    "keep a returning holder as one holder: New on its return, out of history",
+    () =>
+      Effect.gen(function* () {
+        const months = [
+          SEPTEMBER,
+          OCTOBER,
+          month("2026-11-30", [
+            holder("A", [row("ALPHA", 2050, 2050)]),
+            holder("C", [row("GAMMA", 210, 210)]),
+          ]),
+        ]
+        const shown = yield* majorHolders(months, undefined)
+        const gamma = shown?.listed.find(({ name }) => name === "GAMMA")
+        expect(gamma?.change).toBe("new")
+        expect(gamma?.holder).toBe(
+          (yield* majorHolders(months, "2026-09"))?.listed.find(
+            ({ name }) => name === "GAMMA"
+          )?.holder
+        )
+        expect(shown?.history.map(({ name }) => name)).not.toContain("GAMMA")
+      })
   )
 
   it.effect("are none for a stock in no month", () =>

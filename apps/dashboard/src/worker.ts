@@ -14,6 +14,7 @@ export { KseiArchive } from "./server/ksei/workflow.ts"
 export { KseiParse } from "./server/ksei/parse-workflow.ts"
 export {
   Above1Parse,
+  Above5Parse,
   ClassificationParse,
   InvestorTypeParse,
 } from "./server/shareholding/parse-workflow.ts"
