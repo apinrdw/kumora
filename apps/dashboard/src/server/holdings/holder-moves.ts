@@ -123,7 +123,7 @@ const KINDS = {
   }
 >
 
-// The CTE `selected`: the one shown period the read shows, the one that
+// The CTE `selected`: the one period the read shows, the one that
 // matches ?1, else the newest. The period's lines and its date both come
 // from it.
 const SELECTED = (match: string) => `

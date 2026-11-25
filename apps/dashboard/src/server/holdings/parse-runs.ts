@@ -143,15 +143,18 @@ export const parseRunsOf = <Self, Coverage>(kind: {
     return result
   })
 
-  // `reconcile` failed, so nothing was parsed: the run is failed with its
-  // message.
-  const recordReconcileFailure = Effect.fnUntraced(function* (
+  // A `reconcile` step failed: the run is failed with its message, and keeps
+  // what it parsed before, nothing when the parse's own `reconcile` failed.
+  const recordFailure = Effect.fnUntraced(function* (
     run: ParseRun,
-    error: string
+    error: string,
+    { monthsParsed, parseFailures }: Parses
   ) {
     const result = ParseRunResult.make({
       ...(yield* finishedResult(run)),
       outcome: "failed",
+      monthsParsed,
+      parseFailures,
       error: yield* runError(error),
     })
     yield* writeRunRow(source, result)
@@ -195,14 +198,15 @@ export const parseRunsOf = <Self, Coverage>(kind: {
       const parses = yield* failingRun(
         steps,
         parseMonths(steps, kind.months),
-        (message) => recordReconcileFailure(run, message)
+        (message) =>
+          recordFailure(run, message, { monthsParsed: 0, parseFailures: [] })
       )
       const derived = kind.derived
       const deriveFailures =
         derived === undefined
           ? []
           : yield* failingRun(steps, deriveDates(steps, derived), (message) =>
-              recordReconcileFailure(run, message)
+              recordFailure(run, message, parses)
             )
       return yield* steps.do(
         "summary",
