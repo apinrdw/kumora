@@ -1,5 +1,5 @@
 // The HoldingsDb a heap test's worker thread reads its memory D1 through
-// (derive-worker.ts, daily-holders-worker.ts).
+// (derive-worker.ts, stock-page-worker.tsx).
 import { Effect } from "effect"
 
 import type { HoldingsDb } from "../../../src/server/holdings/db.ts"

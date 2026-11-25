@@ -1,6 +1,8 @@
+import { fileURLToPath } from "node:url"
 import { Worker } from "node:worker_threads"
 
 import { Effect } from "effect"
+import { build } from "vite"
 
 // Decision: a report's parse is bounded to fit 48 MiB of the Worker's heap
 // (apps/dashboard/docs/adr/0045-a-holdings-parse-fits-a-bounded-heap.md)
@@ -25,6 +27,44 @@ export const inBoundedHeap = (worker: URL, data: unknown, mib: number) =>
     thread.once("error", (error) => resume(Effect.fail(error)))
     return Effect.promise(() => thread.terminate())
   })
+
+// The worker `entry` and all it imports as one module, a `data:` URL that
+// inBoundedHeap runs: a worker that renders components, which plain Node
+// can't load (JSX, `@/`). React's production build is in it, the one a
+// Worker runs.
+export const bundled = (entry: URL) =>
+  Effect.promise(() =>
+    build({
+      configFile: false,
+      logLevel: "silent",
+      root: fileURLToPath(new URL("../../../", import.meta.url)),
+      resolve: { tsconfigPaths: true },
+      define: { "process.env.NODE_ENV": JSON.stringify("production") },
+      // Vitest's NODE_ENV would pick React's development JSX.
+      oxc: { jsx: { runtime: "automatic", development: false } },
+      ssr: { noExternal: true },
+      build: {
+        ssr: fileURLToPath(entry),
+        write: false,
+        minify: false,
+        rolldownOptions: {
+          // The bridge imports it when a request runs, which none does here.
+          external: ["cloudflare:workers"],
+          output: { codeSplitting: false },
+        },
+      },
+    })
+  ).pipe(
+    Effect.map((built) => {
+      const [{ output }] = [built].flat() as Array<{
+        output: ReadonlyArray<{ type: string; code?: string }>
+      }>
+      const code = output.find(({ type }) => type === "chunk")?.code ?? ""
+      return new URL(
+        `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`
+      )
+    })
+  )
 
 // What parsing `bytes` as `report` posts (parse-worker.ts), parsed in a
 // worker thread whose heap stops at PARSE_HEAP_MIB.

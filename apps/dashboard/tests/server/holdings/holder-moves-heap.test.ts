@@ -25,7 +25,7 @@ import {
   renameEveryOtherDay,
   seedAbove5AtCap,
 } from "./above-5-at-cap.ts"
-import { inBoundedHeap } from "./bounded-heap.ts"
+import { bundled, inBoundedHeap } from "./bounded-heap.ts"
 import { memoryHoldingsDb, MIGRATIONS } from "./memory-holdings-db.ts"
 
 // Decision: Holder moves are derived at parse time
@@ -140,5 +140,49 @@ describe("Holder moves' Monthly derivation and read", () => {
         )
       }),
     { timeout: 300_000 }
+  )
+})
+
+// The whole heap of a worker that holds a period's lines as the read gives
+// them and renders the page from them (holder-moves-page-worker.tsx): about
+// 30 MiB is its own, React and the router with it. A day's lines fit 64 MiB
+// and a month's 88, the month's not always 84, on 25 Nov 2026; a worker
+// thread's limit isn't exact, so the bound leaves room.
+const PAGE_HEAP_MIB = 96
+
+// What the Holder moves page of `lines` lines of `kind` shows: the lines it
+// counts and the table rows rendered.
+const pageInBoundedHeap = (kind: "daily" | "monthly", lines: number) =>
+  Effect.flatMap(
+    bundled(new URL("./holder-moves-page-worker.tsx", import.meta.url)),
+    (worker) => inBoundedHeap(worker, { kind, lines }, PAGE_HEAP_MIB)
+  )
+
+// The table renders its first rows of the period's lines (BoundedRows): its
+// header, the rows shown and the row that shows more. Rendered whole, a
+// period at the caps took more heap than a Worker has.
+describe("the Holder moves page's render", () => {
+  it.effect(
+    "shows a day at the parse's caps in 96 MiB of heap",
+    () =>
+      Effect.gen(function* () {
+        assert.strictEqual(
+          yield* pageInBoundedHeap("daily", LINES),
+          `${LINES} holders above 5% moved, ${LINES} entered or left; ${1 + 200 + 1} rows`
+        )
+      }),
+    { timeout: 120_000 }
+  )
+
+  it.effect(
+    "shows a month at the parse's caps in 96 MiB of heap",
+    () =>
+      Effect.gen(function* () {
+        assert.strictEqual(
+          yield* pageInBoundedHeap("monthly", MONTH_LINES),
+          `${MONTH_LINES} holders above 1% moved, ${MONTH_LINES} entered or left; ${1 + 200 + 1} rows`
+        )
+      }),
+    { timeout: 120_000 }
   )
 })

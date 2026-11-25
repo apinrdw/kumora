@@ -57,3 +57,44 @@ export const seedAbove1AtCap = (
   })
   database.exec("COMMIT")
 }
+
+// `dates`' months of the stock `code`, each with `holders` holders no other
+// month has: every month's holders are New and the month before's Off list,
+// and every holder before those is an earlier one, so the stock has the
+// most earlier holders, and the most Every month rows, its months can.
+export const seedAbove1Churn = (
+  { database }: Pick<MemoryD1, "database">,
+  dates: ReadonlyArray<string>,
+  code: string,
+  holders: number
+) => {
+  const month = database.prepare(
+    "INSERT INTO above_1_month VALUES (?, 'sha', 1, '2026-11-25T00:00:00Z')"
+  )
+  const holding = database.prepare(
+    `INSERT INTO above_1_holding VALUES
+      (?, ?, ?, ?, ?, ?, NULL, 'CP', 'foreign', ?, ?, NULL, ?, 0, ?, ?)`
+  )
+  database.exec("BEGIN")
+  dates.forEach((date, at) => {
+    month.run(date)
+    for (let seq = 1; seq <= holders; seq++) {
+      const name = padded(`HOLDER ${at} ${seq}`, 256)
+      const shares = 1_000_000 + seq
+      holding.run(
+        date,
+        code,
+        seq,
+        padded(`ISSUER ${code}`, 128),
+        name,
+        name,
+        padded("NATIONALITY", 128),
+        padded("DOMICILE", 128),
+        shares,
+        shares,
+        100 + seq
+      )
+    }
+  })
+  database.exec("COMMIT")
+}
