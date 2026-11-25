@@ -261,6 +261,69 @@ describe("the stock page's Daily holders", () => {
       })
   )
 
+  it.effect(
+    "show each account's broker code from IDX's member list, none at a bank",
+    () =>
+      Effect.gen(function* () {
+        const brokers = new Map<string, string | undefined>()
+        for (const day of ["2026-06-11", "2026-11-20"])
+          for (const code of ["ASRI", "BIKE", "CPGT", "ENRG", "MAMIP", "NSSS"])
+            for (const line of (yield* shown(code, day)).listed)
+              for (const { custodian, broker } of line.accounts)
+                brokers.set(custodian, broker)
+        assert.deepInclude(Object.fromEntries(brokers), {
+          "PT INDO PREMIER SEKURITAS": "PD",
+          "PANIN SEKURITAS Tbk, PT": "GR",
+          "PT CGS International Sekuritas Indonesia": "YU",
+          "PT BANK DBS INDONESIA": undefined,
+          // A closed member's KSEI holding account carries its code.
+          "PT YUGEN BERTUMBUH SEKURITAS (REKENING TAMPUNGAN KSEI UNTUK CLOSED MEMBER -IP001)":
+            "IP",
+          "BUT DEUTSCHE BANK AG": undefined,
+        })
+      })
+  )
+
+  it.effect(
+    "show Through as the brokers of the accounts that moved, largest first",
+    () =>
+      Effect.gen(function* () {
+        const enrg = yield* shown("ENRG", "2026-11-20")
+        assert.deepStrictEqual(
+          enrg.listed.map(({ name, move, through }) => [
+            name,
+            move,
+            through.join(" "),
+          ]),
+          [
+            // Its accounts shuffled, none moved.
+            ["PT Shima Global Kapital", "unchanged", ""],
+            ["PT TRIMEGAH SEKURITAS INDONESIA TBK", "unchanged", ""],
+            ["CGS INTERNATIONAL SECURITIES HONG KONG LIMITED", "unchanged", ""],
+            ["CGS INTERNATIONAL SEKURITAS INDONESIA", "down", "YU"],
+            // Renamed, with its 20,000-share trade.
+            ["MAYBANK SEKURITAS INDONESIA", "up", "ZP"],
+          ]
+        )
+        // A holder that left: the accounts it held the day before.
+        const nsss = yield* shown("NSSS", "2026-06-12")
+        assert.strictEqual(
+          named(nsss.offList, "PT SAMUEL TUMBUH BERSAMA").through.join(" "),
+          "IF"
+        )
+        // A New holder: all its accounts. An earlier holder: none.
+        const away = yield* shown("NSSS", "2026-06-24")
+        assert.strictEqual(
+          named(away.listed, "PARADISO RESOURCES LTD").through.join(" "),
+          "IF"
+        )
+        assert.isEmpty(named(away.history, "PT SAMUEL TUMBUH BERSAMA").through)
+        // The first parsed day has no moves.
+        const first = yield* shown("ENRG", "2026-06-11")
+        assert.isTrue(first.listed.every(({ through }) => through.length === 0))
+      })
+  )
+
   it.effect("show nothing for a stock without an above-5% holder", () =>
     Effect.gen(function* () {
       const page = yield* pageOf(yield* parsed, "BBCA")

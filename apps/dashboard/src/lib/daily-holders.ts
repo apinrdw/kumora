@@ -2,8 +2,10 @@
 // apinrdw/kumora#673, "Holder identity and moves"; apinrdw/kumora#677): the
 // stock's above-5% holders, repeat blocks collapsed, each against the trading
 // day before by shares, those off the list since, and every earlier holder.
+import type { BrokerCode } from "@workspace/relay"
 import { Effect } from "effect"
 
+import { brokerOf } from "@/lib/broker-code"
 import {
   collapseRepeats,
   type HolderId,
@@ -27,6 +29,8 @@ interface DailyHolder extends Above5Holder {
 }
 
 export interface AccountLine {
+  // Its custodian's broker code; undefined at a bank or other custodian.
+  readonly broker: BrokerCode | undefined
   readonly custodian: string
   readonly name: string
   readonly origin: Above5Account["origin"]
@@ -58,6 +62,11 @@ export interface DailyHolderLine {
   readonly move: Move | undefined
   // An earlier holder's: the day after its last listing.
   readonly offListSince: string | undefined
+  // The broker codes of the accounts its move went through, largest change
+  // first, "custodian" for those without one: on a move, those whose shares
+  // changed (a New holder's all, an Off-list holder's all the day before's);
+  // none without a move this day.
+  readonly through: ReadonlyArray<BrokerCode | "custodian">
   // The last 20 trading days up to the selected one, oldest first.
   readonly trend: ReadonlyArray<TrendCell>
   // Largest first, then those emptied since the day before.
@@ -164,31 +173,57 @@ const accountLines = Effect.fnUntraced(function* (
   now: ReadonlyArray<Above5Account>,
   before: ReadonlyArray<Above5Account> | undefined
 ) {
-  const line = (account: Above5Account, change: number | undefined) => ({
-    custodian: account.custodian,
-    name: account.name,
-    origin: account.origin,
-    domicile: account.domicile,
-    shares: account.scripless,
-    shareChange: change,
-  })
+  const line = (
+    account: Above5Account,
+    change: number | undefined
+  ): Effect.Effect<AccountLine> =>
+    Effect.map(brokerOf(account.custodian), (broker) => ({
+      broker,
+      custodian: account.custodian,
+      name: account.name,
+      origin: account.origin,
+      domicile: account.domicile,
+      shares: account.scripless,
+      shareChange: change,
+    }))
+  const largestFirst = (lines: ReadonlyArray<AccountLine>) =>
+    [...lines].sort((a, b) => b.shares - a.shares)
   if (before === undefined)
-    return now
-      .map((account) => line(account, undefined))
-      .sort((a, b) => b.shares - a.shares)
+    return largestFirst(
+      yield* Effect.forEach(now, (account) => line(account, undefined))
+    )
   const { paired, emptied } = yield* pairAccounts(now, before)
   return [
-    ...now
-      .map((account, at) =>
+    ...largestFirst(
+      yield* Effect.forEach(now, (account, at) =>
         line(account, account.scripless - (paired[at]?.scripless ?? 0))
       )
-      .sort((a, b) => b.shares - a.shares),
-    ...emptied.map((account) => ({
-      ...line(account, -account.scripless),
-      shares: 0,
-    })),
-  ] satisfies ReadonlyArray<AccountLine>
+    ),
+    ...(yield* Effect.forEach(emptied, (account) =>
+      Effect.map(line(account, -account.scripless), (emptiedLine) => ({
+        ...emptiedLine,
+        shares: 0,
+      }))
+    )),
+  ]
 })
+
+// Each moved account's broker once, at its largest change. An account with
+// nothing to pair against (a New holder's, an Off-list holder's last) moved
+// its whole holding.
+const throughOf = (accounts: ReadonlyArray<AccountLine>) =>
+  Effect.sync(() => {
+    const moved = accounts
+      .map((account) => ({
+        account,
+        change: Math.abs(account.shareChange ?? account.shares),
+      }))
+      .filter(({ change }) => change !== 0)
+      .sort((a, b) => b.change - a.change)
+    return [
+      ...new Set(moved.map(({ account }) => account.broker ?? "custodian")),
+    ] satisfies DailyHolderLine["through"]
+  })
 
 const originOf = (accounts: ReadonlyArray<Above5Account>) =>
   Effect.sync((): DailyHolderLine["origin"] => {
@@ -237,6 +272,7 @@ export const dailyHolders = Effect.fnUntraced(function* (
     move,
     renamed,
   }: Listed<DailyHolder>) {
+    const accounts = yield* accountLines(now.accounts, before?.accounts)
     return {
       holder,
       name: now.name,
@@ -253,8 +289,9 @@ export const dailyHolders = Effect.fnUntraced(function* (
         before && now.percentageHundredths - before.percentageHundredths,
       move,
       offListSince: undefined,
+      through: move === undefined ? [] : yield* throughOf(accounts),
       trend: yield* trend(holder),
-      accounts: yield* accountLines(now.accounts, before?.accounts),
+      accounts,
     } satisfies DailyHolderLine
   })
 
@@ -262,6 +299,7 @@ export const dailyHolders = Effect.fnUntraced(function* (
     { holder, last }: Unlisted<DailyHolder>,
     offListSince: string | undefined
   ) {
+    const accounts = yield* accountLines(last.accounts, undefined)
     return {
       holder,
       name: last.name,
@@ -274,8 +312,10 @@ export const dailyHolders = Effect.fnUntraced(function* (
       percentageChange: undefined,
       move: "off list",
       offListSince,
+      // Only the day's Off list moved this day; an earlier holder left before.
+      through: offListSince === undefined ? yield* throughOf(accounts) : [],
       trend: yield* trend(holder),
-      accounts: yield* accountLines(last.accounts, undefined),
+      accounts,
     } satisfies DailyHolderLine
   })
 
