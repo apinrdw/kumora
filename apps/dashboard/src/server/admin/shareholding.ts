@@ -1,6 +1,6 @@
 // The shareholding archive's admin page, /admin/shareholding: the last archive
 // run and Run now, the last parse run of each kind (parse-runs.ts) with its
-// Parse now, the classification and investor-type parse coverage, the recent
+// Parse now, the classification, investor-type and above-5% parse coverage, the recent
 // runs and the archive totals (spec apinrdw/kumora#303, "The admin page",
 // #402, "Admin", #458, #479, "Admin", and #673, "Admin").
 import { Conflict } from "@workspace/server"
@@ -54,6 +54,7 @@ export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
         lastAbove5ParseRun: above5ParseRuns.last,
         classificationParseCoverage: classificationParseRuns.parseCoverage,
         investorTypeParseCoverage: investorTypeParseRuns.parseCoverage,
+        above5ParseCoverage: above5ParseRuns.parseCoverage,
       },
       timed
     ).pipe(timed("reads"), importingAsConflict)
@@ -66,6 +67,7 @@ export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
       lastAbove5ParseRun: read.lastAbove5ParseRun,
       classificationParseCoverage: read.classificationParseCoverage,
       investorTypeParseCoverage: read.investorTypeParseCoverage,
+      above5ParseCoverage: read.above5ParseCoverage,
       nextParseRun: (yield* nextParseRun(
         DateTime.toDateUtc(now)
       )).toISOString(),

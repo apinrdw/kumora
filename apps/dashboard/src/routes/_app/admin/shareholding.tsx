@@ -54,6 +54,7 @@ function ShareholdingPage() {
       nextParseRun,
       classificationParseCoverage,
       investorTypeParseCoverage,
+      above5ParseCoverage,
       ...lastRun
     },
     sectors,
@@ -121,18 +122,28 @@ function ShareholdingPage() {
         <SectorsCard {...sectors} />
       </ArchiveLedger>
       <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-2">
-        <ParseCoverageCard
-          grids={[
-            {
-              title: KIND_LABEL["investor-classification"],
-              parseCoverage: classificationParseCoverage,
-            },
-            {
-              title: KIND_LABEL["investor-type"],
-              parseCoverage: investorTypeParseCoverage,
-            },
-          ]}
-        />
+        {/* The whole row: the above-5% grid's 31 days need its width. */}
+        <div className="min-w-0 xl:col-span-2">
+          <ParseCoverageCard
+            grids={[
+              {
+                title: KIND_LABEL["investor-classification"],
+                layout: "month",
+                parseCoverage: classificationParseCoverage,
+              },
+              {
+                title: KIND_LABEL["investor-type"],
+                layout: "month",
+                parseCoverage: investorTypeParseCoverage,
+              },
+              {
+                title: KIND_LABEL["above-5"],
+                layout: "day",
+                parseCoverage: above5ParseCoverage,
+              },
+            ]}
+          />
+        </div>
         <ArchiveTotalsCard totals={totals} />
       </div>
       <RecentRunsCard runs={recentRuns} />

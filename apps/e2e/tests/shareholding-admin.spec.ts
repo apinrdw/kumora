@@ -84,8 +84,8 @@ const above1ParseCard = (page: Page) =>
 const above5ParseCard = (page: Page) =>
   page.getByRole("region", { name: /Last above-5% parse run/ })
 
-// A month's mark in one parsed kind's grid on the Parse coverage card, by
-// its name: the month, then the mark's label.
+// A month's (or a daily kind's day's) mark in one parsed kind's grid on the
+// Parse coverage card, by its name: the month or day, then the mark's label.
 const parseCoverageMark = (page: Page, kind: string, name: RegExp) =>
   page
     .getByRole("region", { name: "Parse coverage", exact: true })
@@ -446,5 +446,15 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     await expect(
       above5ParseCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
+    // The day is a square in November's row; selecting it shows its detail.
+    const day = parseCoverageMark(
+      page,
+      "Holders above 5%",
+      /^20 November 2026: Parsed /
+    )
+    await day.click()
+    await expect(
+      page.getByRole("region", { name: "Holders above 5% day detail" })
+    ).toContainText(/Stocks\s*1/)
   })
 })

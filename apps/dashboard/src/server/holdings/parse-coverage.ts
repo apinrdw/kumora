@@ -154,7 +154,7 @@ const DailyParseCoverage = Schema.Array(
     days: Schema.Array(Schema.NullOr(ParseCoverageMonth)),
   })
 )
-type DailyParseCoverage = typeof DailyParseCoverage.Type
+export type DailyParseCoverage = typeof DailyParseCoverage.Type
 
 // A daily kind's cells, laid out month by day; empty before any day is
 // archived.

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test } from "vitest"
 import { ParseCoverageCard } from "@/components/admin/archive/parse-coverage-card"
 import { RunId } from "@/server/archive/run"
 import type {
+  DailyParseCoverage,
   ParseCoverage,
   ParseCoverageMonth,
   ParseCoverageState,
@@ -38,7 +39,7 @@ const month = (
 const card = (parseCoverage: ParseCoverage) =>
   renderAt("/", () => (
     <ParseCoverageCard
-      grids={[{ title: "Securities holdings", parseCoverage }]}
+      grids={[{ title: "Securities holdings", layout: "month", parseCoverage }]}
     />
   ))
 
@@ -135,7 +136,13 @@ describe("a parse coverage month's detail", () => {
     act(() =>
       root.render(
         <ParseCoverageCard
-          grids={[{ title: "Securities holdings", parseCoverage: COVERAGE }]}
+          grids={[
+            {
+              title: "Securities holdings",
+              layout: "month",
+              parseCoverage: COVERAGE,
+            },
+          ]}
         />
       )
     )
@@ -225,5 +232,156 @@ describe("a parse coverage month's detail", () => {
     expect(detail).toContain("Newest version 666666666666")
     expect(detail).toContain("No parsed holdings")
     expect(detail).not.toContain("Parsed from")
+  })
+})
+
+describe("a by-day parse coverage", () => {
+  const container = document.createElement("div")
+  document.body.append(container)
+  const root = createRoot(container)
+  afterEach(() => act(() => root.render(null)))
+
+  // Days by day of month from the 1st; null where none is archived.
+  const days = (...cells: ReadonlyArray<[number, ParseCoverageMonth]>) => {
+    const row: Array<ParseCoverageMonth | null> = []
+    for (const [day, cell] of cells) row[day - 1] = cell
+    return Array.from(row, (cell) => cell ?? null)
+  }
+
+  const DAYS: DailyParseCoverage = [
+    {
+      month: "2026-06",
+      days: days(
+        [11, month("2026-06-11", "parsed")],
+        [12, month("2026-06-12", "stale")]
+      ),
+    },
+    { month: "2026-07", days: [] },
+    {
+      month: "2026-11",
+      days: days(
+        [19, month("2026-11-19", "not-parsed", { newestSha256: sha("7") })],
+        [
+          20,
+          month("2026-11-20", "failed", {
+            newestSha256: sha("8"),
+            parsed: {
+              sha256: sha("9"),
+              parserVersion: 1,
+              parsedAt: "2026-11-20T14:00:00.000Z",
+              stockCount: 7,
+            },
+            failure: {
+              message: "BIKE's Perubahan isn't the known label",
+              run: RunId.make("cron-2026-11-25"),
+            },
+          }),
+        ]
+      ),
+    },
+  ]
+
+  const render = () =>
+    act(() =>
+      root.render(
+        <ParseCoverageCard
+          grids={[
+            {
+              title: "Investor type",
+              layout: "month",
+              parseCoverage: [
+                {
+                  year: 2026,
+                  months: [
+                    ...Array.from({ length: 9 }, () => null),
+                    month("2026-10-30", "parsed"),
+                  ],
+                },
+              ],
+            },
+            { title: "Above 5%", layout: "day", parseCoverage: DAYS },
+          ]}
+        />
+      )
+    )
+
+  const dayGrid = () =>
+    container.querySelector('[aria-label="Above 5% parse coverage"]')
+
+  const select = (name: string) =>
+    act(() => {
+      const button = [...container.querySelectorAll("button")].find((b) =>
+        b.getAttribute("aria-label")?.startsWith(name)
+      )
+      if (button === undefined) throw new Error(`no ${name} cell`)
+      button.click()
+    })
+
+  const panel = () => {
+    const section = container.querySelector(
+      '[aria-label="Above 5% day detail"]'
+    )
+    return section === null
+      ? undefined
+      : [...section.querySelectorAll("h4, dt, dd")]
+          .map((element) => element.textContent)
+          .join(" ")
+  }
+
+  test("lays out each archived day as a square in its month's row", async () => {
+    await render()
+    const grid = dayGrid()
+    expect(grid).not.toBeNull()
+    // A row per month, its days under columns 01 to 31.
+    const rows = [...(grid?.querySelectorAll("tbody tr") ?? [])]
+    expect(rows.map((row) => row.querySelector("th")?.textContent)).toEqual([
+      "Jun 2026",
+      "Jul 2026",
+      "Nov 2026",
+    ])
+    const squares = (row: Element | undefined) =>
+      [...(row?.querySelectorAll("td") ?? [])].flatMap((cell, i) =>
+        cell.title === "" ? [] : [`${i + 1} ${cell.title}`]
+      )
+    expect(squares(rows[0])).toEqual([
+      "11 11 June 2026: Parsed (2026-06-11)",
+      "12 12 June 2026: Stale (2026-06-12)",
+    ])
+    expect(squares(rows[1])).toEqual([])
+    expect(squares(rows[2])).toEqual([
+      "19 19 November 2026: Not parsed yet (2026-11-19)",
+      "20 20 November 2026: Failed (2026-11-20)",
+    ])
+    expect(grid?.querySelectorAll("thead th[abbr]")).toHaveLength(31)
+  })
+
+  test("keeps the monthly kind's year-by-month grid beside it", async () => {
+    await render()
+    expect(
+      container.querySelector('[title="October 2026: Parsed (2026-10-30)"]')
+    ).not.toBeNull()
+  })
+
+  test("shows a failed day's message and its run", async () => {
+    await render()
+    expect(panel()).toBeUndefined()
+    await select("20 November 2026")
+    const detail = panel()
+    expect(detail).toContain("20 November 2026 2026-11-20 Failed")
+    expect(detail).toContain("Newest version 888888888888")
+    expect(detail).toContain("Parsed from 999999999999")
+    expect(detail).toContain("Stocks 7")
+    expect(detail).toContain("Failure BIKE's Perubahan isn't the known label")
+    expect(detail).toContain("Run cron-2026-11-25")
+  })
+
+  test("moves the detail to another selected day, and hides it on a second press", async () => {
+    await render()
+    await select("20 November 2026")
+    await select("19 November 2026")
+    expect(panel()).toContain("19 November 2026 2026-11-19 Not parsed yet")
+    expect(panel()).toContain("No parsed holdings")
+    await select("19 November 2026")
+    expect(panel()).toBeUndefined()
   })
 })
