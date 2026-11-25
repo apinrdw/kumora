@@ -1,5 +1,4 @@
 export { StockCode } from "@workspace/relay"
-export { DashboardBasePath, pathUnderBase } from "./base-path.ts"
 export { clientLayer, clientRuntime } from "./client-runtime.ts"
 export { makeDayStateStore, selectDayState } from "./day-state-store.ts"
 export type {

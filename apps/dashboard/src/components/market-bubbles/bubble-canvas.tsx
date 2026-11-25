@@ -1,4 +1,4 @@
-import { DashboardBasePath } from "@workspace/client"
+import { DashboardBasePath } from "@workspace/client/base-path"
 import type { SectorName, StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
