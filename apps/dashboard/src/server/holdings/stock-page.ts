@@ -133,7 +133,7 @@ export type Above1Holder = typeof Above1Holder.Type
 
 // An above-1% report month, its holders in the order of their first row;
 // none when the report has no row for the stock.
-export const MajorHoldersMonth = Schema.Struct({
+const MajorHoldersMonth = Schema.Struct({
   dataDate: Schema.String,
   holders: Schema.Array(Above1Holder),
 })

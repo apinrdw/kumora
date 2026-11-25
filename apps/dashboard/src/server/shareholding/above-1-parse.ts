@@ -1,10 +1,13 @@
 // The Above-1% parse run: it parses the shareholding archive's holders-above-1%
 // reports into ≥1% holders (../holdings/parse-runs.ts; which months,
-// ../holdings/months-to-parse.ts). Spec apinrdw/kumora#479, "Above-1% parse
-// run".
+// ../holdings/months-to-parse.ts), then derives Holder moves' Monthly lines
+// from them (../holdings/above-1-moves.ts). Spec apinrdw/kumora#479,
+// "Above-1% parse run".
+import { WibDate } from "@workspace/relay"
 import { Context } from "effect"
 
 import type { ArchiveWorkflow } from "../archive/workflow.ts"
+import { deriveMoveMonth, staleMoveMonths } from "../holdings/above-1-moves.ts"
 import {
   ABOVE_1_TABLES,
   ABOVE_1_PARSER_VERSION,
@@ -39,4 +42,11 @@ export const above1ParseRuns = parseRunsOf({
   newestVersions: shareholdingIndex.newestVersions(KIND),
   coverageLayout: parseCoverageByMonth,
   workflow: Above1ParseWorkflow,
+  // Decision: Holder moves are derived at parse time
+  // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
+  derived: {
+    name: "Holder moves",
+    stale: staleMoveMonths(),
+    derive: (date) => deriveMoveMonth(WibDate.make(date)),
+  },
 })

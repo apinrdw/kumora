@@ -40,7 +40,7 @@ const unreadable = (message: string) => new Above1Unreadable({ message })
 
 // Decision: a report's parse is bounded to fit 48 MiB of the Worker's heap
 // (apps/dashboard/docs/adr/0045-a-holdings-parse-fits-a-bounded-heap.md)
-const MAX_ROWS = 15_000
+export const MAX_HOLDING_ROWS = 15_000
 const MAX_NAME_LENGTH = 256
 const MAX_TEXT_LENGTH = 128
 
@@ -371,9 +371,9 @@ const parseSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
       }
       const stock = yield* rowStock(rowNumber, cells)
       if (stock === undefined) return
-      if (rowCount === MAX_ROWS)
+      if (rowCount === MAX_HOLDING_ROWS)
         return yield* unreadable(
-          `The report lists more than ${MAX_ROWS.toLocaleString("en-US")} holders`
+          `The report lists more than ${MAX_HOLDING_ROWS.toLocaleString("en-US")} holders`
         )
       rowCount++
       const seq = (seqs.get(stock) ?? 0) + 1

@@ -14,16 +14,12 @@ import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 import { archiveRun } from "@/server/shareholding/archive-run"
 import { investorTypeParseRuns } from "@/server/shareholding/investor-type-parse"
 
+import { republishAbove1 as republish } from "./above-5-world.ts"
 import {
-  type Above1Fixture,
-  above1Fixture,
-  above1Item,
   above1Items,
   type BrokenAbove1Fixture,
   type FakeIdx,
-  type SplitAbove1Fixture,
   fakeIdx,
-  idxIdUrl,
   investorTypeItems,
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
@@ -97,19 +93,6 @@ const runParse =
     )
 
 const parse = runParse(above1ParseRuns)
-
-// IDX replaces a month's report in place with a fixture's bytes.
-const republish = (
-  { idx }: World,
-  dataDate: Above1Fixture,
-  fixture: Above1Fixture | BrokenAbove1Fixture | SplitAbove1Fixture
-) => {
-  idx.files.set(idxIdUrl(above1Item(dataDate).Prospectus), {
-    body: above1Fixture(fixture),
-    etag: `"etag-${dataDate}:${fixture}"`,
-    lastModified: "Sat, 14 Nov 2026 09:00:00 GMT",
-  })
-}
 
 // A parse run's record as the admin page reads it.
 const runRecord = (

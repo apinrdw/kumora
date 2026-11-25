@@ -13,17 +13,22 @@ import { archiveRun } from "@/server/shareholding/archive-run"
 import { investorTypeParseRuns } from "@/server/shareholding/investor-type-parse"
 
 import {
+  type Above1Fixture,
+  above1Fixture,
+  above1Item,
   type Above5Fixture,
   above1Items,
   above5Fixture,
   above5Item,
   above5Items,
+  type BrokenAbove1Fixture,
   type BrokenAbove5Fixture,
   type FakeIdx,
   fakeIdx,
   idxIdUrl,
   listedSharesItems,
   type RepublishedAbove5Fixture,
+  type SplitAbove1Fixture,
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
 import { archiveDbOf } from "../archive/runs.ts"
@@ -124,6 +129,19 @@ export const republish = (
     body: above5Fixture(fixture),
     etag: `"etag-${dataDate}:${fixture}"`,
     lastModified: "Wed, 25 Nov 2026 09:00:00 GMT",
+  })
+}
+
+// IDX replaces a month's above-1% report in place with a fixture's bytes.
+export const republishAbove1 = (
+  { idx }: Pick<World, "idx">,
+  dataDate: Above1Fixture,
+  fixture: Above1Fixture | BrokenAbove1Fixture | SplitAbove1Fixture
+) => {
+  idx.files.set(idxIdUrl(above1Item(dataDate).Prospectus), {
+    body: above1Fixture(fixture),
+    etag: `"etag-${dataDate}:${fixture}"`,
+    lastModified: "Sat, 14 Nov 2026 09:00:00 GMT",
   })
 }
 

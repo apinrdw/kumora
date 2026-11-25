@@ -11,16 +11,19 @@ import {
 } from "@/lib/holder-moves"
 import { majorHolders } from "@/lib/major-holders"
 import { Month } from "@/domain/holdings"
+import { staleMoveMonths } from "@/server/holdings/above-1-moves"
 import { holderMovesRead } from "@/server/holdings/holder-moves"
 import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 
 import {
   archive,
   pageOf,
+  republishAbove1,
   runParse,
   type World,
   world,
 } from "./above-5-world.ts"
+import { above1Item } from "./fake-idx.ts"
 
 const MONTHS = [
   "2026-02-27",
@@ -31,10 +34,12 @@ const MONTHS = [
 ]
 const STOCKS = ["AADI", "BSDE", "FLMC", "RALS", "TLKM", "TRUE"]
 
+const parseAbove1 = runParse(above1ParseRuns)
+
 const parsed = Effect.gen(function* () {
   const w = world({ withAbove1: true })
   yield* archive(w, "cron-2026-11-25T13")
-  yield* runParse(above1ParseRuns)(w, "cron-2026-11-25")
+  yield* parseAbove1(w, "cron-2026-11-25")
   return w
 })
 
@@ -48,6 +53,60 @@ const movesOf = Effect.fnUntraced(function* (w: World, month?: string) {
   const moves = yield* holderMovesView(yield* readOf(w, month))
   assert.isDefined(moves)
   return moves
+})
+
+// `month`'s lines are, stock by stock, the stock's Major holders chips
+// that moved.
+const assertMajorHolders = Effect.fnUntraced(function* (
+  w: World,
+  month: string
+) {
+  const moves = yield* movesOf(w, month.slice(0, 7))
+  assert.strictEqual(moves.period, month)
+  for (const code of STOCKS) {
+    const held = yield* majorHolders(
+      (yield* pageOf(w, code)).majorHolders,
+      month.slice(0, 7)
+    )
+    const expected =
+      held?.dataDate === month
+        ? [...held.listed, ...held.offList]
+            .filter(
+              ({ change }) => change !== undefined && change !== "unchanged"
+            )
+            .map((line) =>
+              JSON.stringify([
+                line.holder,
+                line.name,
+                line.change,
+                // Lots: a New holder's whole holding in, an Off-list one's
+                // last out.
+                line.change === "new"
+                  ? line.total
+                  : line.change === "off list"
+                    ? -line.total
+                    : line.shareChange,
+                line.percentageChange,
+                line.trend,
+              ])
+            )
+            .sort()
+        : []
+    const shown = moves.lines
+      .filter((line) => line.code === code)
+      .map((line) =>
+        JSON.stringify([
+          line.holder,
+          line.name,
+          line.move,
+          line.shareChange,
+          line.percentageChange,
+          line.trend,
+        ])
+      )
+      .sort()
+    assert.deepStrictEqual(shown, expected, `${code} ${month}`)
+  }
 })
 
 const DANANTARA = "PERUSAHAAN PERSEROAN (PERSERO) PT DANANTARA ASSET MANAGEMENT"
@@ -78,55 +137,7 @@ describe("Holder moves, Monthly", () => {
     () =>
       Effect.gen(function* () {
         const w = yield* parsed
-        for (const month of MONTHS.slice(1)) {
-          const moves = yield* movesOf(w, month.slice(0, 7))
-          assert.strictEqual(moves.period, month)
-          for (const code of STOCKS) {
-            const held = yield* majorHolders(
-              (yield* pageOf(w, code)).majorHolders,
-              month.slice(0, 7)
-            )
-            const expected =
-              held?.dataDate === month
-                ? [...held.listed, ...held.offList]
-                    .filter(
-                      ({ change }) =>
-                        change !== undefined && change !== "unchanged"
-                    )
-                    .map((line) =>
-                      JSON.stringify([
-                        line.holder,
-                        line.name,
-                        line.change,
-                        // Lots: a New holder's whole holding in, an
-                        // Off-list one's last out.
-                        line.change === "new"
-                          ? line.total
-                          : line.change === "off list"
-                            ? -line.total
-                            : line.shareChange,
-                        line.percentageChange,
-                        line.trend,
-                      ])
-                    )
-                    .sort()
-                : []
-            const shown = moves.lines
-              .filter((line) => line.code === code)
-              .map((line) =>
-                JSON.stringify([
-                  line.holder,
-                  line.name,
-                  line.move,
-                  line.shareChange,
-                  line.percentageChange,
-                  line.trend,
-                ])
-              )
-              .sort()
-            assert.deepStrictEqual(shown, expected, `${code} ${month}`)
-          }
-        }
+        for (const month of MONTHS.slice(1)) yield* assertMajorHolders(w, month)
       })
   )
 
@@ -203,22 +214,116 @@ describe("Holder moves, Monthly", () => {
       assert.isUndefined(yield* holderMovesView(read))
     })
   )
+})
 
-  it.effect("reads only the months the moving stocks' rows need", () =>
+describe("Holder moves, Monthly, as the above-1% parse run derives them", () => {
+  it.effect("derives each parsed month once", () =>
     Effect.gen(function* () {
-      const read = yield* readOf(yield* parsed, "2026-04")
-      assert.strictEqual(read.kind, "monthly")
-      const monthsOf = (code: string) =>
-        read.kind === "monthly"
-          ? read.stocks
-              .find((stock) => stock.code === code)
-              ?.months.map(({ dataDate }) => dataDate)
-          : undefined
-      // AADI's holders in April are February's, unchanged: only the rail's
-      // later months and the month before each are read.
-      assert.deepStrictEqual(monthsOf("AADI"), MONTHS.slice(1))
-      // TLKM moved in April: its February too, for the trend.
-      assert.deepStrictEqual(monthsOf("TLKM"), MONTHS)
+      const w = yield* parsed
+      const stale = staleMoveMonths().pipe(Effect.provide(w.holdings.layer))
+      assert.deepStrictEqual(yield* stale, [])
+      w.holdings.statements.length = 0
+      const again = yield* parseAbove1(w, "cron-2026-11-26")
+      assert.deepInclude(again, {
+        outcome: "complete",
+        monthsParsed: 0,
+        parseFailures: [],
+      })
+      // Nothing new was parsed, so no month's lines were replaced.
+      assert.isFalse(
+        w.holdings.statements.some(({ sql }) =>
+          sql.includes("INTO above_1_move_month")
+        )
+      )
     })
+  )
+
+  it.effect(
+    "derives a month parsed late, and again the months after it whose Trend reads it",
+    () =>
+      Effect.gen(function* () {
+        const w = world({ withAbove1: true })
+        const late = above1Item("2026-04-30")
+        const listing = w.idx.listing
+        w.idx.listing = listing.filter((item) => item !== late)
+        yield* archive(w, "cron-2026-11-25T13")
+        yield* parseAbove1(w, "cron-2026-11-25")
+        const before = yield* movesOf(w, "2026-08")
+        assert.strictEqual(before.against, "2026-02-27")
+
+        w.idx.listing = listing
+        yield* archive(w, "cron-2026-11-26T13")
+        const result = yield* parseAbove1(w, "cron-2026-11-26")
+        assert.deepInclude(result, { outcome: "complete", monthsParsed: 1 })
+        const after = yield* movesOf(w, "2026-08")
+        assert.strictEqual(after.against, "2026-04-30")
+        assert.deepStrictEqual(
+          after.lines
+            .filter(({ code, name }) => code === "TLKM" && name === DANANTARA)
+            .map(({ move, trend }) => [move, trend]),
+          [["new", [null, "out", "in"]]]
+        )
+        for (const month of MONTHS.slice(1)) yield* assertMajorHolders(w, month)
+      })
+  )
+
+  it.effect("derives a month parsed again from its new version", () =>
+    Effect.gen(function* () {
+      const w = yield* parsed
+      const before = yield* movesOf(w, "2026-10")
+      republishAbove1(w, "2026-10-30", "split")
+      yield* archive(w, "cron-2026-11-26T13")
+      yield* parseAbove1(w, "cron-2026-11-26")
+      assert.notDeepEqual(yield* movesOf(w, "2026-10"), before)
+      yield* assertMajorHolders(w, "2026-10-30")
+    })
+  )
+
+  it.effect("keeps a month's lines when its new version fails to parse", () =>
+    Effect.gen(function* () {
+      const w = yield* parsed
+      const before = yield* movesOf(w, "2026-10")
+      republishAbove1(w, "2026-10-30", "unknown-header")
+      yield* archive(w, "cron-2026-11-26T13")
+      const result = yield* parseAbove1(w, "cron-2026-11-26")
+      assert.deepInclude(result, { outcome: "partial", monthsParsed: 0 })
+      assert.deepStrictEqual(yield* movesOf(w, "2026-10"), before)
+      yield* assertMajorHolders(w, "2026-10-30")
+    })
+  )
+
+  it.effect(
+    "keeps a month's lines when deriving it fails, and derives it on the next run",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        const before = yield* movesOf(w, "2026-10")
+        republishAbove1(w, "2026-10-30", "split")
+        yield* archive(w, "cron-2026-11-26T13")
+        w.holdings.failBatch = (sql) =>
+          sql.some((statement) =>
+            statement.includes("INSERT INTO above_1_move")
+          )
+        const failed = yield* parseAbove1(w, "cron-2026-11-26")
+        assert.deepInclude(failed, { outcome: "partial", monthsParsed: 1 })
+        assert.deepStrictEqual(
+          failed.parseFailures.map(({ date, message }) => [
+            date,
+            message.startsWith("Holder moves: "),
+          ]),
+          [["2026-10-30", true]]
+        )
+        // Its lines are the version before's, whole.
+        assert.deepStrictEqual(yield* movesOf(w, "2026-10"), before)
+
+        w.holdings.failBatch = undefined
+        const retried = yield* parseAbove1(w, "cron-2026-11-27")
+        assert.deepInclude(retried, {
+          outcome: "complete",
+          monthsParsed: 0,
+          parseFailures: [],
+        })
+        yield* assertMajorHolders(w, "2026-10-30")
+      })
   )
 })
