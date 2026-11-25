@@ -4,7 +4,7 @@ import { Effect } from "effect"
 
 import {
   ADMIN_EMAIL,
-  BASE_URL,
+  DASHBOARD_URL,
   cookiesAfter,
   cookiesFrom,
   linkIn,
@@ -24,7 +24,10 @@ describe("sign-up", () => {
       assert.strictEqual(response.status, 200)
       assert.strictEqual(mails.length, 1)
       assert.strictEqual(mails[0]?.to, "ayu@example.com")
-      assert.include(mails[0]?.text, `${BASE_URL}/api/auth/verify-email?token=`)
+      assert.include(
+        mails[0]?.text,
+        `${DASHBOARD_URL}/api/auth/verify-email?token=`
+      )
     }).pipe(Effect.provide(layer))
   })
 
@@ -199,7 +202,10 @@ describe("password reset", () => {
       vi.useFakeTimers({ toFake: ["Date"] })
       vi.setSystemTime(Date.now() + minutes * 60 * 1000)
       const response = yield* send(linkIn(mails[1]))
-      assert.include(response.headers.get("location"), `${BASE_URL}${location}`)
+      assert.include(
+        response.headers.get("location"),
+        `${DASHBOARD_URL}${location}`
+      )
     }).pipe(
       Effect.ensuring(Effect.sync(() => vi.useRealTimers())),
       Effect.provide(layer)
@@ -276,7 +282,10 @@ describe("a sign-up on an unverified email", () => {
       assert.strictEqual(mails.length, 2)
       assert.strictEqual(mails[1]?.to, EMAIL)
       assert.strictEqual(mails[1]?.subject, "Set your KUMORA password")
-      assert.include(mails[1]?.text, `${BASE_URL}/api/auth/reset-password/`)
+      assert.include(
+        mails[1]?.text,
+        `${DASHBOARD_URL}/api/auth/reset-password/`
+      )
       assert.notInclude(mails[1]?.text, "/verify-email?")
     }).pipe(Effect.provide(layer))
   })
@@ -353,7 +362,10 @@ describe("a sign-up on an unverified email", () => {
         assert.strictEqual(resent.status, 200)
         assert.strictEqual(mails.length, 3)
         assert.strictEqual(mails[2]?.subject, "Set your KUMORA password")
-        assert.include(mails[2]?.text, `${BASE_URL}/api/auth/reset-password/`)
+        assert.include(
+          mails[2]?.text,
+          `${DASHBOARD_URL}/api/auth/reset-password/`
+        )
       }).pipe(Effect.provide(layer))
     }
   )
@@ -405,7 +417,7 @@ describe("a sign-up on an unverified email", () => {
         assert.strictEqual(mails.length, 2)
         assert.include(
           mails[1]?.text,
-          `${BASE_URL}/api/auth/verify-email?token=`
+          `${DASHBOARD_URL}/api/auth/verify-email?token=`
         )
       }).pipe(Effect.provide(layer))
     }
@@ -426,7 +438,7 @@ describe("a sign-up on an unverified email", () => {
         )
         assert.include(
           mails[1]?.text,
-          `${BASE_URL}/api/auth/verify-email?token=`
+          `${DASHBOARD_URL}/api/auth/verify-email?token=`
         )
         yield* signUp(EMAIL, OWN)
         assert.strictEqual((yield* signIn(EMAIL, SQUATTED)).status, 401)
