@@ -8,9 +8,6 @@ import { Saldo } from "./saldo"
 import { useWaitlist } from "./use-waitlist"
 import { WaitlistSlip } from "./waitlist-slip"
 
-// Production's dashboard: the sign-in for people already let in.
-const SIGN_IN_URL = "https://kumora-dashboard.kumora.workers.dev/sign-in"
-
 const gutter = "px-[max(16px,env(safe-area-inset-left))] sm:px-6 lg:px-10"
 const frame = "mx-auto w-full max-w-[1240px]"
 // A sheet of passbook paper lying on the cloth.
@@ -82,7 +79,7 @@ export function Landing({ lang }: { lang: Lang }) {
               smart money
             </span>
           </div>
-          <nav className="text-foil flex items-center gap-x-5 gap-y-1 text-[14px] max-sm:flex-col max-sm:items-end">
+          <nav className="text-foil flex items-center text-[14px]">
             <Link
               to={other === "id" ? "/id" : "/"}
               hrefLang={other}
@@ -92,15 +89,6 @@ export function Landing({ lang }: { lang: Lang }) {
             >
               {copy.switchTo}
             </Link>
-            <span className="text-foil-dim max-sm:hidden">
-              {copy.hasAccess}{" "}
-              <a
-                href={SIGN_IN_URL}
-                className="text-foil decoration-foil-dim/70 hover:decoration-foil font-[650] underline"
-              >
-                {copy.signIn}
-              </a>
-            </span>
           </nav>
         </div>
       </header>
@@ -121,15 +109,6 @@ export function Landing({ lang }: { lang: Lang }) {
                 {copy.lede}
               </p>
               <WaitlistSlip copy={copy} state={state} onSubmit={submit} />
-              <p className="text-ink-soft text-[14px] sm:hidden">
-                {copy.hasAccess}{" "}
-                <a
-                  href={SIGN_IN_URL}
-                  className="text-cloth font-[650] underline"
-                >
-                  {copy.signIn}
-                </a>
-              </p>
               <p className="text-ink-faint mt-auto pt-4 text-[11px] tracking-[0.14em] uppercase [font-stretch:75%]">
                 {copy.formCode}
               </p>
