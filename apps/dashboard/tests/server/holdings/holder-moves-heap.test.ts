@@ -34,8 +34,8 @@ import { memoryHoldingsDb, MIGRATIONS } from "./memory-holdings-db.ts"
 //
 // The worker's whole heap: about 25 MiB is its own (its modules and the
 // seeded memory D1), and deriving takes the rest. A day fit 64 MiB, not 56,
-// and a month 72, not 64, on 25 Nov 2026.
-const DERIVE_HEAP_MIB = 72
+// and a month 72, not 64, on Node 26; on CI's Node 24 a month needed 80.
+const DERIVE_HEAP_MIB = 80
 const READ_HEAP_MIB = 32
 // A month at the caps has twice a day's lines; it read in 39.5 MiB on 25 Nov
 // 2026.
@@ -68,7 +68,7 @@ const deriveInBoundedHeap = (
 
 describe("Holder moves' Daily derivation and read", () => {
   it.effect(
-    "derive a day at the parse's caps in 72 MiB of heap",
+    "derive a day at the parse's caps in 80 MiB of heap",
     () =>
       Effect.gen(function* () {
         assert.strictEqual(
@@ -107,7 +107,7 @@ describe("Holder moves' Daily derivation and read", () => {
 
 describe("Holder moves' Monthly derivation and read", () => {
   it.effect(
-    "derive a month at the parse's caps in 72 MiB of heap",
+    "derive a month at the parse's caps in 80 MiB of heap",
     () =>
       Effect.gen(function* () {
         assert.strictEqual(

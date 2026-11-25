@@ -10,9 +10,9 @@ Each derived period records its basis: a digest of the derivation's version and 
 
 Both kinds share one derivation (`server/holdings/derived-moves.ts`). Stocks are read in turns whose rows fit the kind's row budget and decoded one stock at a time. Each turn's lines are staged in the kind's `_pending` table, and one batch then swaps the period's staged lines in, so a reader or a failed attempt sees a period's lines whole. Through is stored as custodian names, and broker codes are still looked up on read (ADR 0132). A month's read leaves out the row labels a line doesn't store, since a read's rows set the heap.
 
-`tests/server/holdings/holder-moves-heap.test.ts` checks the bounds at each parse's caps, in a worker whose heap stops at 72 MiB, about 25 MiB of it the worker's own:
+`tests/server/holdings/holder-moves-heap.test.ts` checks the bounds at each parse's caps, in a worker whose heap stops at 80 MiB, about 25 MiB of it the worker's own:
 - a day: 16,000 lines from 21 days of 8,000 rows; it fit 64 MiB, not 56, on 25 Nov 2026, and reads in under 32 MiB;
-- a month: 30,000 lines from 21 months of 15,000 rows; it fit 72 MiB, not 64, and reads in under 48 MiB (39.5 MiB measured).
+- a month: 30,000 lines from 21 months of 15,000 rows; it fit 72 MiB, not 64, on Node 26 and needed 80 on CI's Node 24, and reads in under 48 MiB (39.5 MiB measured).
 
 The page renders its table and its Entered or left list through `BoundedRows` (ADR 0133): the server renders each list's first 200 lines, by stock code, and the browser every line once the page hydrates. The filters' counts, the headline and the search cover every line. A real day passes 200 lines, since each of its 263 to 343 moving stocks has at least one, so the server's table of a real day is cut until the page hydrates. Rendered whole, a period at the caps did not fit 96 MiB. The same test file holds the render's bound: a worker that holds a period's lines as the read gives them, 16,000 of a day or 30,000 of a month, and renders the page from them (`holder-moves-page-worker.tsx`) fits 96 MiB of heap, about 30 MiB of it the worker's own. A day fit 64 MiB and a month 88, not always 84, on 25 Nov 2026.
 

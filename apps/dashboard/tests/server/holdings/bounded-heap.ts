@@ -16,12 +16,17 @@ export type Report =
   | "above-5"
 
 // What the worker thread `worker` posts when handed `data`, its heap stopped
-// at `mib`. Work past it fails with the worker's out-of-memory error.
+// at `mib`. Work past it fails with the worker's out-of-memory error. The
+// young generation is fixed: V8 sizes it from the heap limit otherwise, so
+// on Node 26 a derive passed at 72 MiB, failed at 80 and passed at 96.
 export const inBoundedHeap = (worker: URL, data: unknown, mib: number) =>
   Effect.callback<string, Error>((resume) => {
     const thread = new Worker(worker, {
       workerData: data,
-      resourceLimits: { maxOldGenerationSizeMb: mib },
+      resourceLimits: {
+        maxOldGenerationSizeMb: mib,
+        maxYoungGenerationSizeMb: 16,
+      },
     })
     thread.once("message", (message: string) => resume(Effect.succeed(message)))
     thread.once("error", (error) => resume(Effect.fail(error)))
