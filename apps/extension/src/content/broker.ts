@@ -38,6 +38,8 @@ const AJAIB_API_BASE = "https://ht2.ajaib.co.id/api/"
 const feed: Feed = location.hostname === "stockbit.com" ? "Stockbit" : "Ajaib"
 
 // The headers that sign one call, which the static headers never hold.
+// Branded by a cast, not decoded: this script can't load Schema, and the
+// worker decodes what it's sent (tab.ts).
 const SIGNING_HEADERS = ["authorization", "x-device-signature"]
 const staticHeaders = (request: ApiRequest) =>
   ({
