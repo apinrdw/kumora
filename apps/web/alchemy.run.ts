@@ -1,6 +1,17 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
-import { devPort, stackName, stageKind } from "@workspace/deploy"
-import { stackOptions, stackStage, websiteProps } from "@workspace/deploy/stack"
+import {
+  devPort,
+  stackName,
+  stageKind,
+  stageUrl,
+  type Stage,
+} from "@workspace/deploy"
+import {
+  productionZone,
+  stackOptions,
+  stackStage,
+  websiteProps,
+} from "@workspace/deploy/stack"
 import * as Alchemy from "alchemy"
 import * as RemovalPolicy from "alchemy/RemovalPolicy"
 import { Stack } from "alchemy/Stack"
@@ -37,6 +48,21 @@ export const Website = Cloudflare.Website.Vite(
   })
 )
 
+// Production's host, proxied to Cloudflare, where both apps' zone routes
+// (websiteProps) pick it up.
+// Decision: Production is served through zone routes on a proxied AAAA record
+// (packages/deploy/docs/adr/0005-production-is-served-through-zone-routes-on-a-proxied-aaaa-record.md)
+const ProductionHost = (stage: Stage) =>
+  Effect.gen(function* () {
+    return yield* Cloudflare.DNS.Record("ProductionHost", {
+      zoneId: (yield* productionZone).id,
+      name: new URL(yield* stageUrl("web", stage)).hostname,
+      type: "AAAA",
+      content: "100::",
+      proxied: true,
+    })
+  })
+
 export type WebEnv = Cloudflare.InferEnv<typeof Website>
 
 declare module "@workspace/server" {
@@ -50,6 +76,8 @@ export default Alchemy.Stack(
   Effect.runSync(stackName("web")),
   Effect.runSync(stackOptions("web")),
   Effect.gen(function* () {
+    const stage = yield* Effect.orDie(stackStage((yield* Stack).stage))
+    if ((yield* stageKind(stage)) === "production") yield* ProductionHost(stage)
     const website = yield* Website
     return { url: website.url.as<string>() }
   })

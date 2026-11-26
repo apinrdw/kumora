@@ -84,7 +84,7 @@ describe("stageUrl", () => {
   // Each case reads an empty environment, so a port variable the shell
   // exports cannot move the local stages off their default.
   it.effect.each([
-    ["production", "https://kumora-dashboard.kumora.workers.dev/dashboard"],
+    ["production", "https://kumora.pusat.ai/dashboard"],
     [
       "staging",
       "https://kumora-dashboard-staging.kumora.workers.dev/dashboard",
@@ -105,6 +105,7 @@ describe("stageUrl", () => {
   )
 
   it.effect.each([
+    ["production", "https://kumora.pusat.ai"],
     ["staging", "https://kumora-web-staging.kumora.workers.dev"],
     [
       "feat-sign-in-a1b2c3",

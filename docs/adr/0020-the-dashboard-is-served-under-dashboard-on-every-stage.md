@@ -12,6 +12,7 @@ Sites:
 - `packages/client/src/base-path.ts`
 - `packages/deploy/src/target.ts`
 - `packages/deploy/src/stage-url.ts`
+- `packages/deploy/src/stack.ts`
 - `apps/dashboard/vite.config.ts`
 - `apps/dashboard/src/server/base-redirect.ts`
 - `packages/server/src/bridge.ts`

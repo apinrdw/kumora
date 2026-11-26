@@ -102,13 +102,13 @@ Production and Staging offer Continue with Google; Previews, Dev and Test stages
 
    Each stage URL is the one `stageUrl` in `packages/deploy/src/target.ts` builds for the dashboard; `scripts/deploy-setup.sh` prints both URIs from it.
 
-   **Before the dashboard moves under `/dashboard` reaches Staging** (apinrdw/kumora#686, merged into `staging`): add `https://kumora-dashboard-staging.kumora.workers.dev/dashboard/api/auth/callback/google` to the client's Authorized redirect URIs. Until then, Google sign-in on Staging fails with a redirect URI mismatch. Keep the old root URI until the change is on Staging, then remove it.
+   **Before the dashboard moves under `/dashboard` reaches Staging** (apinrdw/kumora#686, merged into `staging`): add `https://kumora-dashboard-staging.kumora.workers.dev/dashboard/api/auth/callback/google` to the client's Authorized redirect URIs. Until then, Google sign-in on Staging fails with a redirect URI mismatch. Keep the old root URI until the change is on Staging, then remove it. Production's URI moves to `kumora.pusat.ai` in step 15.
 2. In Infisical project `kumora`, add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from that client at `/dashboard` of **both** `prod` and `staging`. Do this before the first deploy of either stage with Google.
 3. Check by hand on Staging: sign in with Google on a new Google address (it lands signed in and verified), then on the email of a verified password account (it links, and both sign-ins work), then on the email of an unverified password account (it returns to sign-in with "Sign in with your password and verify your email first."). Check that a Preview's sign-in page shows no Google button.
 
 ## 11. Dashboard Turnstile ⬜
 
-Create account and Send reset link carry a Turnstile widget. Production and Staging each own one, a `Cloudflare.Turnstile.Widget` for their own workers.dev hostname in `apps/dashboard/alchemy.run.ts`; Previews, Dev and Test stages use Cloudflare's always-pass test keys and own none.
+Create account and Send reset link carry a Turnstile widget. Production and Staging each own one, a `Cloudflare.Turnstile.Widget` for the hostname that `turnstileKeys` in `apps/dashboard/alchemy.run.ts` names; Previews, Dev and Test stages use Cloudflare's always-pass test keys and own none.
 
 1. Before the first Production and Staging deploys with auth, give both the `prod` and the `staging` Cloudflare tokens (step 2) the Turnstile write permission in their Entire Account policy. As observed 2026-11-07 on the edit-policy screen, searching the policy for "Turnstile" finds the group; the exact row name (Alchemy's docs call it Turnstile Sites Write) is unverified. Step 2's policy lacks it, so until then the deploy fails creating the widget. Previews need nothing new.
 2. After each deploy, list the account's widgets with the stage's token (`scripts/deploy-setup.sh` does this as `check_turnstile_widget`): `curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/challenges/widgets"` must list the stage's hostname under a widget's `domains`. Then check that Create account on that stage shows the widget.
@@ -160,3 +160,45 @@ gh release create v0.1.10-20261114 --target "$(git rev-parse v0.1.10-20261114-1)
 On the web, Releases → Draft a new release does the same: type the Production tag, pick the Candidate's commit as the target, and publish. A draft or a pre-release does nothing.
 
 `.github/workflows/release.yml` checks each tag with `scripts/release-tag.mts` and deletes one it refuses, with its Release; its run log says why. A Production tag pushed without a Release is refused. On a published Release it fast-forwards `main` to the tag, which Workers Builds deploys. It refuses a Release while `main` holds a Hotfix that `staging` lacks: merge the open Sync PR, then tag a new Candidate. Publish after 16:35 WIB or on a non-trading day (step 9.2). Never open a `staging` into `main` PR: its merge commit would stop every later fast-forward.
+
+## 15. Production on kumora.pusat.ai ⬜
+
+The Release that carries spec apinrdw/kumora#683 moves Production's Stage URLs (`stageUrl` in `packages/deploy/src/target.ts`) to `kumora.pusat.ai`. Both apps serve it through zone routes on a proxied DNS record that web's Production stack owns (`packages/deploy/docs/adr/0005-production-is-served-through-zone-routes-on-a-proxied-aaaa-record.md`; the routes are in `packages/deploy/src/stack.ts`, the record in `apps/web/alchemy.run.ts`). Both Workers keep their workers.dev URLs, and the dashboard's redirects to the Stage URL (`apps/dashboard/docs/adr/0135-production-alone-redirects-other-hosts-to-its-stage-url.md`). `scripts/deploy-setup.sh` does not walk this step. Do these in order.
+
+**Before the Release:**
+
+1. Give the `prod` Cloudflare token (step 2) DNS Edit and Workers Routes Edit in its policy scoped to the `pusat.ai` zone (the one that holds Zone Read, step 9.3). The exact permission row names are unverified. Without them the web deploy fails creating the DNS record, and either deploy fails creating its zone routes.
+2. In the Google OAuth client (step 10.1), add `https://kumora.pusat.ai/dashboard/api/auth/callback/google` to the Authorized redirect URIs. Keep `https://kumora-dashboard.kumora.workers.dev/dashboard/api/auth/callback/google` until the checks below pass, then remove it.
+
+Then publish the Release (step 14), after 16:35 WIB or on a non-trading day. The dashboard deploy also moves Production's Turnstile widget to its new hostname (step 11).
+
+**After the Release:**
+
+3. Rebuild and reload the relay (step 12.1 and 12.2). An older build stays disconnected from Production until then (`apps/dashboard/docs/adr/0135-production-alone-redirects-other-hosts-to-its-stage-url.md`). The options page must show Production "Connected".
+4. Check the routes, the DNS record and the redirects:
+
+   ```sh
+   check() { curl -sS -o /dev/null -w "%{http_code} %{redirect_url}  $1\n" "$1"; }
+   check https://kumora.pusat.ai/
+   check https://kumora.pusat.ai/probe
+   check https://kumora.pusat.ai/dashboard/sign-in
+   check https://kumora.pusat.ai/dashboard/
+   check 'https://kumora.pusat.ai/dashboard?tab=brokers'
+   check 'https://kumora-dashboard.kumora.workers.dev/stocks/BBCA?tab=brokers'
+   check https://kumora-dashboard.kumora.workers.dev/dashboard/sign-in
+   check https://kumora-web.kumora.workers.dev/
+   ```
+
+   | URL | Expected |
+   | --- | --- |
+   | `kumora.pusat.ai/` | `200`, the web landing page. A `403` means the `*.pusat.ai` wildcard still answers: the DNS record or web's route is missing. |
+   | `kumora.pusat.ai/probe` | `200`, web's probe, whose `secretSha256Prefix` matches `prod` (step 8). |
+   | `kumora.pusat.ai/dashboard/sign-in` | `200`, the dashboard's sign-in page. A `404` means the dashboard's routes are missing and web answered. |
+   | `kumora.pusat.ai/dashboard/` | `307` to `https://kumora.pusat.ai/dashboard/sign-in?...` (signed out). |
+   | `kumora.pusat.ai/dashboard?tab=brokers` | `301` to `https://kumora.pusat.ai/dashboard/?tab=brokers`, answered by web. A `404` means web runs a build without the redirect. |
+   | `kumora-dashboard.kumora.workers.dev/stocks/BBCA?tab=brokers` | `301` to `https://kumora.pusat.ai/dashboard/stocks/BBCA?tab=brokers`. |
+   | `kumora-dashboard.kumora.workers.dev/dashboard/sign-in` | `301` to `https://kumora.pusat.ai/dashboard/sign-in`. |
+   | `kumora-web.kumora.workers.dev/` | `200`, the web landing page. |
+
+   Then, in a browser, sign in at `https://kumora.pusat.ai/dashboard/sign-in` with email and password, then with Google, and check that Market Live shows rows from the relay in IDX hours.
+5. Production users sign in once more. Their sessions were cookies on the workers.dev host, which the browser never sends to `kumora.pusat.ai`. Accounts and their data are unchanged. Settings the dashboard saves in the browser belong to the old origin too, so they start empty on `kumora.pusat.ai`, once.

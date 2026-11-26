@@ -8,7 +8,12 @@ import {
   stageUrl,
   type Stage,
 } from "@workspace/deploy"
-import { stackOptions, stackStage, websiteProps } from "@workspace/deploy/stack"
+import {
+  productionZone,
+  stackOptions,
+  stackStage,
+  websiteProps,
+} from "@workspace/deploy/stack"
 import * as Alchemy from "alchemy"
 import * as RemovalPolicy from "alchemy/RemovalPolicy"
 import { Stack } from "alchemy/Stack"
@@ -86,15 +91,8 @@ const ArchiveDb = apacDatabase("ArchiveDb", "./archive-migrations")
 // Decision: Production alone owns the mailer.pusat.ai sending subdomain
 // (apps/dashboard/docs/adr/0002-production-alone-owns-the-mail-sending-subdomain.md)
 const SendingSubdomain = Effect.gen(function* () {
-  const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment
-  const zone = yield* Cloudflare.Zone.findZoneByName({
-    accountId,
-    name: "pusat.ai",
-  }).pipe(Effect.orDie)
-  if (zone === undefined)
-    return yield* Effect.die(new Error("Zone pusat.ai is not in the account"))
   return yield* Cloudflare.Email.SendingSubdomain("MailSender", {
-    zoneId: zone.id,
+    zoneId: (yield* productionZone).id,
     name: SENDING_SUBDOMAIN,
     previewEnabled: false,
   })
@@ -163,6 +161,12 @@ export const Website = Cloudflare.Website.Vite(
     // (apps/dashboard/docs/adr/0005-the-test-stage-alone-moves-days-to-r2-in-streaming-hours.md)
     const testMoves: Partial<Record<"MARKET_LIVE_MOVES_ANY_HOUR", "on">> =
       stage === TEST ? { MARKET_LIVE_MOVES_ANY_HOUR: "on" } : {}
+    // Decision: Production alone redirects other hosts to its Stage URL
+    // (apps/dashboard/docs/adr/0135-production-alone-redirects-other-hosts-to-its-stage-url.md)
+    const toStageUrl: Partial<Record<"REDIRECT_TO_STAGE_URL", "on">> =
+      (yield* stageKind(stage)) === "production"
+        ? { REDIRECT_TO_STAGE_URL: "on" }
+        : {}
     // The stage's crons and their Decisions: src/server/stage-crons.ts.
     const crons = stageCrons((yield* stageKind(stage)) === "production")
     return {
@@ -281,6 +285,7 @@ export const Website = Cloudflare.Website.Vite(
         ...google,
         ...clockOffset,
         ...testMoves,
+        ...toStageUrl,
       },
     }
   })

@@ -3,9 +3,20 @@ import { devtools } from "@tanstack/devtools-vite"
 import { tanstackStart } from "@tanstack/react-start/plugin/vite"
 import viteReact from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
+import { parseStage, stageUrl } from "@workspace/deploy"
+import { Effect } from "effect"
+
+// Web's Production Stage URL, which every Stage's pages name as the canonical
+// site and the link preview's image host.
+const productionWeb = Effect.runSync(
+  Effect.orDie(
+    Effect.flatMap(parseStage("production"), (stage) => stageUrl("web", stage))
+  )
+)
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
+  define: { __PRODUCTION_WEB__: JSON.stringify(productionWeb) },
   plugins: [
     devtools(),
     tailwindcss(),

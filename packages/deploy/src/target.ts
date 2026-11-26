@@ -199,10 +199,15 @@ const APP_PATHS = {
   dashboard: DashboardBasePath,
 } as const satisfies Record<App, string>
 
-// An app's Stage URL (GLOSSARY.md): its Worker's workers.dev URL, or the app's
-// dev server on Dev and Test stages, which run only under `alchemy dev`, plus
-// the path the app is served under. It may carry a path, so a caller that
-// needs only the host or origin reads it from `new URL(...)`.
+// Production's one host for both apps, in the pusat.ai zone. Each app's stack
+// routes its part of it (stack.ts, productionRoutes).
+const PRODUCTION_HOST = "kumora.pusat.ai"
+export const PRODUCTION_ZONE = "pusat.ai"
+
+// An app's Stage URL (GLOSSARY.md): Production's host, its Worker's workers.dev
+// URL, or the app's dev server on Dev and Test stages, which run only under
+// `alchemy dev`, plus the path the app is served under. It may carry a path,
+// so a caller that needs only the host or origin reads it from `new URL(...)`.
 // Decision: the dashboard is served under /dashboard on every Stage
 // (docs/adr/0020-the-dashboard-is-served-under-dashboard-on-every-stage.md)
 export const stageUrl = Effect.fnUntraced(function* (
@@ -210,6 +215,8 @@ export const stageUrl = Effect.fnUntraced(function* (
   stage: Stage
 ): Effect.fn.Return<StageUrl> {
   const kind = yield* stageKind(stage)
+  if (kind === "production")
+    return StageUrl.make(`https://${PRODUCTION_HOST}${APP_PATHS[app]}`)
   if (kind === "dev" || kind === "test")
     return StageUrl.make(
       `http://localhost:${yield* devPort(app)}${APP_PATHS[app]}`

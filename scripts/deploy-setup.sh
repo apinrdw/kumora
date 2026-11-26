@@ -198,13 +198,18 @@ ACCOUNT="8ecc24065089e01c57d5470fa0848f9a"
 CF="https://dash.cloudflare.com/$ACCOUNT"
 INFISICAL="https://app.infisical.com"
 SIGN_IN_PR="https://github.com/apinrdw/kumora/pull/94"
-# stage_url APP STAGE asks packages/deploy, which owns the Worker name and
-# the workers.dev subdomain.
+# stage_url APP STAGE [PART] asks packages/deploy, which owns every Stage URL.
+# PART is a URL property, such as hostname, read from the parsed URL; without
+# it, the Stage URL as is (it may carry a path, such as /dashboard).
 stage_url() {
-  bun -e 'import { parseStage, stageUrl } from "./packages/deploy/src/target.ts"
-console.log(stageUrl(process.argv[1], parseStage(process.argv[2])))' "$1" "$2"
+  bun -e 'import { Effect } from "effect"
+import { parseStage, stageUrl } from "./packages/deploy/src/target.ts"
+const [, app, stage, part] = process.argv
+const url = Effect.runSync(Effect.flatMap(parseStage(stage), (s) => stageUrl(app, s)))
+console.log(part ? new URL(url)[part] : url)' "$1" "$2" "${3:-}"
 }
 PROD_URL="$(stage_url dashboard production)"
+PROD_HOST="$(stage_url dashboard production hostname)"
 STAGING_URL="$(stage_url dashboard staging)"
 
 # infisical_has ENV NAME: does /dashboard of ENV hold a non-empty NAME? Prints
@@ -397,7 +402,7 @@ open_url "$PROD_URL/sign-up"
 step "Create an account with one of prod's ADMIN_EMAILS (Turnstile shows here: it's a real widget)."
 step "The mail must come from no-reply@mailer.pusat.ai. Open its link: you land signed in."
 step "The sidebar must show the Admin group, and /admin/users must list your account."
-check_turnstile_widget prod "${PROD_URL#https://}"
+check_turnstile_widget prod "$PROD_HOST"
 if confirm "Did the mail arrive, verify you, and make you an admin?"; then :; else SKIPPED+=("Production sign-up, mail and admin check"); fi
 
 # ── 9 ─────────────────────────────────────────────────────────────────────
