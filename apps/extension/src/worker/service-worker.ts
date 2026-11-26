@@ -1,6 +1,7 @@
 // The relay's service worker (spec apinrdw/kumora#138, "The extension"). It
 // drives the broker tabs' connections on a 10 s tick, batches their frames,
 // and sends the envelopes to every target's ingest socket.
+import { StageUrl } from "@workspace/deploy/stage-url"
 import {
   encodeIngestUp,
   wibDateAt,
@@ -55,7 +56,6 @@ import { windowAt } from "./gate.ts"
 import { makeOnDemandCodes } from "./on-demand-codes.ts"
 import { makePacer } from "./pacer.ts"
 import {
-  DashboardOrigin,
   ajaibCatchUpStore,
   ajaibWalkStore,
   clearRelayStopped,
@@ -261,7 +261,7 @@ const makeTargets = Effect.fnUntraced(function* (options: {
     const settings = yield* loadSettings
     if (settings.productionToken !== applied.productionToken)
       yield* restart("production", {
-        origin: DashboardOrigin.make(__PRODUCTION_DASHBOARD__),
+        url: StageUrl.make(__PRODUCTION_DASHBOARD__),
         token: settings.productionToken,
       })
     if (JSON.stringify(settings.extra) !== JSON.stringify(applied.extra))
@@ -455,8 +455,8 @@ const main = Effect.gen(function* () {
     trades: progress.trades,
     signedOut: progress.signedOut,
   })
-  const ajaibCatchUp = yield* extra.catchUp("Ajaib", ({ post, origin }) =>
-    Effect.flatMap(ajaibCatchUpStore(origin), (store) =>
+  const ajaibCatchUp = yield* extra.catchUp("Ajaib", ({ post, url }) =>
+    Effect.flatMap(ajaibCatchUpStore(url), (store) =>
       makeAjaibWalk({ tab: ajaibWalkTab, post, store })
     )
   )
@@ -495,7 +495,7 @@ const main = Effect.gen(function* () {
     store: historyStore,
     incompleteDays: incompleteDaysStore,
     catchUp: stockbitExtraCatchUp,
-    catchUpStore: yield* historyCatchUpStore(extra.origin),
+    catchUpStore: yield* historyCatchUpStore(extra.url),
     report: progress.report,
   })
   const brokerCodes = yield* makeRunQueue({

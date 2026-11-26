@@ -18,6 +18,8 @@ export class Conflict extends Schema.TaggedError<Conflict>()("Conflict", {
   message: Schema.String,
 }) {}
 
+// Decision: `redirectTo` is a whole router path, without the basepath
+// (docs/adr/0020-the-dashboard-is-served-under-dashboard-on-every-stage.md)
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
   "Unauthorized",
   { redirectTo: Schema.String }

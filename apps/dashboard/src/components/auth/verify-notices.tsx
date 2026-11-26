@@ -7,7 +7,7 @@ import { useState } from "react"
 import { KButton } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
 import { linkLifetime } from "@/lib/link-lifetime"
-import { withRedirect } from "@/lib/redirect"
+import { hostPath, withRedirect } from "@/lib/redirect"
 import { retryAfter } from "@/lib/retry-after"
 
 import { FormError, Notice } from "./auth-page"
@@ -21,9 +21,10 @@ const resend = Effect.fnUntraced(function* (
   redirect: string
 ): Effect.fn.Return<Resend> {
   const retry = yield* retryAfter()
+  const callbackURL = yield* hostPath(redirect)
   const { error } = yield* Effect.promise(() =>
     authClient.sendVerificationEmail(
-      { email, callbackURL: redirect },
+      { email, callbackURL },
       { onError: retry.onError }
     )
   )

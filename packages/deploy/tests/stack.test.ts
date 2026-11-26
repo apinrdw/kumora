@@ -84,18 +84,37 @@ describe("stageUrl", () => {
   // Each case reads an empty environment, so a port variable the shell
   // exports cannot move the local stages off their default.
   it.effect.each([
-    ["production", "https://kumora-dashboard.kumora.workers.dev"],
-    ["staging", "https://kumora-dashboard-staging.kumora.workers.dev"],
+    ["production", "https://kumora-dashboard.kumora.workers.dev/dashboard"],
+    [
+      "staging",
+      "https://kumora-dashboard-staging.kumora.workers.dev/dashboard",
+    ],
     [
       "feat-sign-in-a1b2c3",
-      "https://kumora-dashboard-feat-sign-in-a1b2c3.kumora.workers.dev",
+      "https://kumora-dashboard-feat-sign-in-a1b2c3.kumora.workers.dev/dashboard",
     ],
-    ["dev_jarvis", "http://localhost:3001"],
-    ["test", "http://localhost:3001"],
-  ] as const)("serves the dashboard on %s from %s", ([stage, url]) =>
+    ["dev_jarvis", "http://localhost:3001/dashboard"],
+    ["test", "http://localhost:3001/dashboard"],
+  ] as const)("serves the dashboard on %s at %s", ([stage, url]) =>
     Effect.gen(function* () {
       const parsed = yield* stackStage(stage)
-      assert.strictEqual(yield* stageUrl("dashboard", parsed), url)
+      assert.strictEqual<string>(yield* stageUrl("dashboard", parsed), url)
+    }).pipe(
+      Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({})))
+    )
+  )
+
+  it.effect.each([
+    ["staging", "https://kumora-web-staging.kumora.workers.dev"],
+    [
+      "feat-sign-in-a1b2c3",
+      "https://kumora-web-feat-sign-in-a1b2c3.kumora.workers.dev",
+    ],
+    ["test", "http://localhost:3000"],
+  ] as const)("serves web on %s at its host's root, %s", ([stage, url]) =>
+    Effect.gen(function* () {
+      const parsed = yield* stackStage(stage)
+      assert.strictEqual<string>(yield* stageUrl("web", parsed), url)
     }).pipe(
       Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({})))
     )
@@ -106,7 +125,7 @@ describe("stageUrl", () => {
       const parsed = yield* stackStage("test")
       assert.strictEqual(
         yield* stageUrl("dashboard", parsed),
-        "http://localhost:4123"
+        "http://localhost:4123/dashboard"
       )
     }).pipe(
       Effect.provide(

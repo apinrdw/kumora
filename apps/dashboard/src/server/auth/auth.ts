@@ -3,6 +3,7 @@ import { betterAuth, getCurrentAdapter, type Session } from "better-auth"
 import { Context, Effect, Layer } from "effect"
 import type { UnknownError } from "effect/Cause"
 
+import { dashboardStageUrl } from "../dashboard-url.ts"
 import { LiveViewers } from "../market-live/live-viewers.ts"
 import { Accounts } from "./accounts.ts"
 import { AdminEmails } from "./admin-emails.ts"
@@ -181,7 +182,7 @@ export class Auth extends Context.Service<
       const env = yield* WorkerEnv
       return Auth.make({
         database: env.AUTH_DB,
-        baseURL: env.AUTH_BASE_URL,
+        dashboardUrl: yield* dashboardStageUrl,
         secret: env.BETTER_AUTH_SECRET,
         // No schema check on the Worker. It would introspect D1 on
         // every request, since Auth is built per request; the migration drift

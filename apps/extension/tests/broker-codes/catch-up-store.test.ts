@@ -1,18 +1,16 @@
 // The extra target's Ajaib catch-up position over a chrome.storage.local
 // kept in memory: another extra target starts its own.
 import { afterEach, assert, describe, it, vi } from "@effect/vitest"
+import type { StageUrl } from "@workspace/deploy/stage-url"
 import { WibDate } from "@workspace/relay"
 import { Effect, Option } from "effect"
 
 import type { AjaibWalkPosition } from "../../src/worker/broker-codes/ajaib-walk.ts"
-import {
-  ajaibCatchUpStore,
-  type DashboardOrigin,
-} from "../../src/worker/settings.ts"
+import { ajaibCatchUpStore } from "../../src/worker/settings.ts"
 
 const DAY = WibDate.make("2026-11-12")
-const STAGING = "https://staging.example.com" as DashboardOrigin
-const PREVIEW = "https://preview.example.com" as DashboardOrigin
+const STAGING = "https://staging.example.com/dashboard" as StageUrl
+const PREVIEW = "https://preview.example.com/dashboard" as StageUrl
 
 const memoryLocal = () => {
   const memory: Record<string, unknown> = {}
@@ -35,11 +33,11 @@ afterEach(() => {
 })
 
 describe("the Ajaib catch-up position", () => {
-  it.effect("is kept per extra target's origin", () =>
+  it.effect("is kept per extra target's URL", () =>
     Effect.gen(function* () {
       memoryLocal()
-      let origin = Option.some(STAGING)
-      const store = yield* ajaibCatchUpStore(Effect.sync(() => origin))
+      let url = Option.some(STAGING)
+      const store = yield* ajaibCatchUpStore(Effect.sync(() => url))
       const done: AjaibWalkPosition = {
         day: DAY,
         pass: "done",
@@ -50,26 +48,26 @@ describe("the Ajaib catch-up position", () => {
       yield* store.save(done)
       assert.deepStrictEqual(yield* store.load, Option.some(done))
 
-      origin = Option.some(PREVIEW)
+      url = Option.some(PREVIEW)
       assert.isTrue(Option.isNone(yield* store.load))
 
-      origin = Option.none()
+      url = Option.none()
       assert.isTrue(Option.isNone(yield* store.load))
 
-      origin = Option.some(STAGING)
+      url = Option.some(STAGING)
       assert.deepStrictEqual(yield* store.load, Option.some(done))
     })
   )
 
   // Codex review round 11: the save after a settings change credited the
   // old target's position to the new one.
-  it.effect("credits a walk's position only to the origin it loaded for", () =>
+  it.effect("credits a walk's position only to the URL it loaded for", () =>
     Effect.gen(function* () {
       memoryLocal()
-      let origin = Option.some(STAGING)
-      const store = yield* ajaibCatchUpStore(Effect.sync(() => origin))
+      let url = Option.some(STAGING)
+      const store = yield* ajaibCatchUpStore(Effect.sync(() => url))
       assert.isTrue(Option.isNone(yield* store.load))
-      origin = Option.some(PREVIEW)
+      url = Option.some(PREVIEW)
       yield* store.save({ day: DAY, pass: "done", next: 0, repair: [] })
       assert.isTrue(Option.isNone(yield* store.load))
     })

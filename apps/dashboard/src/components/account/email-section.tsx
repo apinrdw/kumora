@@ -5,6 +5,7 @@ import type { FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
+import { hostPath } from "@/lib/redirect"
 import type { FileRoutesByFullPath } from "@/routeTree.gen"
 
 import {
@@ -28,8 +29,9 @@ const changeEmail = Effect.fnUntraced(function* (
   newEmail: string,
   email: string
 ): Effect.fn.Return<Outcome> {
+  const callbackURL = yield* hostPath(ACCOUNT_PATH)
   const { error } = yield* Effect.promise(() =>
-    authClient.changeEmail({ newEmail, callbackURL: ACCOUNT_PATH })
+    authClient.changeEmail({ newEmail, callbackURL })
   )
   if (error)
     return {

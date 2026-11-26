@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import { StageUrl } from "@workspace/deploy/stage-url"
 import {
   EncodedIngestUp,
   IngestCloseCode,
@@ -13,7 +14,7 @@ import { Effect, Layer, PubSub, SubscriptionRef } from "effect"
 import * as Socket from "effect/socket/Socket"
 import { TestClock } from "effect/testing"
 
-import { DashboardOrigin, type TargetState } from "../src/worker/settings.ts"
+import { type TargetState } from "../src/worker/settings.ts"
 import { runTarget } from "../src/worker/target.ts"
 
 type Listener = (event: Socket.WebSocketEvent) => void
@@ -61,11 +62,13 @@ class FakeIngest implements Socket.WebSocketLike {
   }
 }
 
-const origin = DashboardOrigin.make("http://localhost:3001")
+const DASHBOARD = StageUrl.make("http://localhost:3001")
 
 // `catchUp`: what every fresh socket is sent after the token. With
-// `handshake`, the first socket opens only when the test says.
+// `handshake`, the first socket opens only when the test says. The dashboard
+// is DASHBOARD unless `url` names another.
 const harness = Effect.fnUntraced(function* (options?: {
+  readonly url?: StageUrl
   readonly catchUp?: ReadonlyArray<EncodedIngestUp>
   readonly handshake?: boolean
 }) {
@@ -76,7 +79,7 @@ const harness = Effect.fnUntraced(function* (options?: {
   const envelopes = yield* PubSub.sliding<EncodedIngestUp>(16)
   const day = yield* SubscriptionRef.make(WibDate.make("2026-11-09"))
   const fiber = yield* runTarget({
-    origin,
+    url: options?.url ?? DASHBOARD,
     token: "the token",
     envelopes,
     day,
@@ -124,6 +127,19 @@ describe("a target's ingest socket", () => {
         assert.deepStrictEqual(sockets[0]?.sent.slice(1), ["envelope 1"])
         assert.deepStrictEqual(states, ["connecting", "connected"])
       }).pipe(Effect.scoped)
+  )
+
+  it.effect("opens under a dashboard served at a path", () =>
+    Effect.gen(function* () {
+      const { sockets, settle } = yield* harness({
+        url: StageUrl.make("https://staging.example/dashboard"),
+      })
+      yield* settle
+      assert.strictEqual(
+        sockets[0]?.url,
+        "wss://staging.example/dashboard/market-live/ingest"
+      )
+    }).pipe(Effect.scoped)
   )
 
   for (const [code, state] of [

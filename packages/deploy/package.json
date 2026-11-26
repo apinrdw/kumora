@@ -12,7 +12,8 @@
   },
   "exports": {
     ".": "./src/target.ts",
-    "./stack": "./src/stack.ts"
+    "./stack": "./src/stack.ts",
+    "./stage-url": "./src/stage-url.ts"
   },
   "devDependencies": {
     "@effect/platform-node": "catalog:",
@@ -25,6 +26,7 @@
     "@alchemy.run/cloudflare": "catalog:",
     "@alchemy.run/infisical": "catalog:",
     "@effect/platform-bun": "catalog:",
+    "@workspace/client": "workspace:*",
     "alchemy": "catalog:",
     "effect": "catalog:"
   }

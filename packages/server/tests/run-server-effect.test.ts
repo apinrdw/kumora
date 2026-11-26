@@ -1,4 +1,10 @@
 import { assert, describe, it } from "@effect/vitest"
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  isRedirect,
+} from "@tanstack/react-router"
 import { Cause, Context, Effect, Layer, Logger, Result } from "effect"
 
 import {
@@ -71,16 +77,34 @@ describe("runServerEffect", () => {
     })
   )
 
-  it.effect("redirects Unauthorized to its target", () =>
-    Effect.gen(function* () {
-      const { run } = capturingBridge()
-      const response = yield* thrown(
-        run(Effect.fail(new Unauthorized({ redirectTo: "/login" })))
-      )
-      assert.instanceOf(response, Response)
-      assert.strictEqual(response.status, 307)
-      assert.strictEqual(response.headers.get("location"), "/login")
-    })
+  it.effect.each([
+    "/sign-in?redirect=%2Fstocks%2FA",
+    // The router writes a typed search value as JSON, so it reads back typed.
+    "/market-live?big=true&top=25",
+    // A section link, such as the stock page's holders, keeps its fragment.
+    "/stocks/BBCA?tab=holders#daily-holders",
+  ])(
+    "redirects Unauthorized to %s, under the router's basepath",
+    (redirectTo) =>
+      Effect.gen(function* () {
+        const { run } = capturingBridge()
+        const thrownRedirect = yield* thrown(
+          run(Effect.fail(new Unauthorized({ redirectTo })))
+        )
+        assert.isTrue(isRedirect(thrownRedirect))
+        if (!isRedirect(thrownRedirect)) return
+        const router = createRouter({
+          routeTree: createRootRoute(),
+          basepath: "/app",
+          history: createMemoryHistory(),
+        })
+        const resolved = router.resolveRedirect(thrownRedirect)
+        assert.strictEqual(resolved.status, 307)
+        assert.strictEqual(
+          resolved.headers.get("location"),
+          `/app${redirectTo}`
+        )
+      })
   )
 
   it.effect("logs any other failure and answers a bare 500", () =>

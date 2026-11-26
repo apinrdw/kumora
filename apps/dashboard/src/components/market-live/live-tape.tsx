@@ -1,6 +1,5 @@
 import { clientRuntime, viewerMessages } from "@workspace/client"
 import {
-  MarketLivePath,
   ViewerProtocolVersion,
   type StockCode,
   type ViewerDown,
@@ -100,10 +99,8 @@ export function LiveTape({
   const firstOnSocket = useRef(true)
 
   useEffect(() => {
-    const scheme = window.location.protocol === "https:" ? "wss" : "ws"
     firstOnSocket.current = true
     const messages = viewerMessages({
-      url: `${scheme}://${window.location.host}${MarketLivePath.live}`,
       select,
       onReconnecting: Effect.andThen(
         Effect.sync(() => {

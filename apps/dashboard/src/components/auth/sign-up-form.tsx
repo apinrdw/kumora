@@ -6,6 +6,7 @@ import { useState, type FormEvent } from "react"
 import { KButton, KInput } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
 import { MIN_PASSWORD_LENGTH } from "@/lib/password"
+import { hostPath } from "@/lib/redirect"
 import { retryAfter } from "@/lib/retry-after"
 
 import { FormError, formFields, linkClass } from "./auth-page"
@@ -28,9 +29,10 @@ const signUp = Effect.fnUntraced(function* (
 ): Effect.fn.Return<Step> {
   const fields = yield* formFields(form, ["name", "email", "password"])
   const retry = yield* retryAfter()
+  const callbackURL = yield* hostPath(redirect)
   const { error } = yield* Effect.promise(() =>
     authClient.signUp.email(
-      { ...fields, callbackURL: redirect },
+      { ...fields, callbackURL },
       {
         headers: { [CAPTCHA_HEADER]: token },
         onError: retry.onError,

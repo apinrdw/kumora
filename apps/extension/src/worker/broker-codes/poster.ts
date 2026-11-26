@@ -1,6 +1,7 @@
 // Posting broker codes batches to a target (spec apinrdw/kumora#244, "The
 // extension: targets"). Production drives the walks; each batch a walk
 // builds goes through one poster per target.
+import { StageUrl } from "@workspace/deploy/stage-url"
 import {
   BROKER_CODES_AUTH_SCHEME,
   brokerCodesPath,
@@ -9,16 +10,12 @@ import {
 } from "@workspace/relay"
 import { Duration, Effect, Option } from "effect"
 
-import {
-  DashboardOrigin,
-  type Settings,
-  type TargetState,
-} from "../settings.ts"
+import { type Settings, type TargetState } from "../settings.ts"
 import { FIRST_RETRY, LAST_RETRY } from "../target.ts"
 
 // Where a target takes batches: its dashboard and its ingest token.
 export interface BrokerCodesTarget {
-  readonly origin: DashboardOrigin
+  readonly url: StageUrl
   readonly token: string
 }
 
@@ -27,7 +24,7 @@ export interface BrokerCodesTarget {
 export const brokerCodesTargets = (settings: Settings) =>
   Effect.sync(() => ({
     production: Option.some<BrokerCodesTarget>({
-      origin: DashboardOrigin.make(__PRODUCTION_DASHBOARD__),
+      url: StageUrl.make(__PRODUCTION_DASHBOARD__),
       token: settings.productionToken,
     }).pipe(Option.filter(({ token }) => token !== "")),
     extra: Option.filter(
@@ -45,19 +42,20 @@ export type PostOutcome =
 // How a batch ended short of written.
 export type PostStop = Exclude<PostOutcome, "sent">
 
-// One POST's answer status; 0 when it got none.
+// One POST's answer status; 0 when it got none. `url` is a path joined
+// onto `target`'s URL, and the request carries its token.
 export type Send = (request: {
+  readonly target: BrokerCodesTarget
   readonly url: string
-  readonly token: string
   readonly body: string
 }) => Effect.Effect<number>
 
-export const fetchSend: Send = ({ url, token, body }) =>
+export const fetchSend: Send = ({ target, url, body }) =>
   Effect.tryPromise(() =>
     fetch(url, {
       method: "POST",
       headers: {
-        authorization: `${BROKER_CODES_AUTH_SCHEME}${token}`,
+        authorization: `${BROKER_CODES_AUTH_SCHEME}${target.token}`,
         "content-type": "application/json",
       },
       body,
@@ -96,10 +94,9 @@ export const makeBrokerCodesPoster = Effect.fnUntraced(function* (options: {
         if (Option.isNone(target)) return "off" satisfies PostOutcome
         const halt = yield* halted(target.value)
         if (Option.isSome(halt)) return halt.value
-        const { origin, token } = target.value
         const status = yield* options.send({
-          url: `${origin}${path}`,
-          token,
+          target: target.value,
+          url: `${target.value.url}${path}`,
           body,
         })
         if (status === 200) return "sent" satisfies PostOutcome

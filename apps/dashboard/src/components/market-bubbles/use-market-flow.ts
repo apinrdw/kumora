@@ -6,7 +6,6 @@ import {
 } from "@workspace/client"
 import {
   FLUSH_PAST_MINUTE,
-  MarketLivePath,
   MINUTE_MS,
   ViewerProtocolVersion,
   type ViewerDown,
@@ -144,10 +143,8 @@ const followMarketFlow = Effect.fnUntraced(
     { today, clockOffset }: DayClock,
     { setStatus, setIhsg }: FlowListeners
   ) {
-    const scheme = window.location.protocol === "https:" ? "wss" : "ws"
     const select = yield* SubscriptionRef.make(SELECT)
     const messages = viewerMessages({
-      url: `${scheme}://${window.location.host}${MarketLivePath.live}`,
       select,
       onReconnecting: conditionsReconnecting,
     })

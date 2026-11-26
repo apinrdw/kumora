@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite"
 import { authOptions } from "@/server/auth/options"
 
 import { replayMigrations } from "../../../scripts/auth-schema.ts"
-import { BASE_URL } from "./seam.ts"
+import { DASHBOARD_URL } from "./seam.ts"
 
 // The routes the dashboard offers: what its forms, menus and links call, the
 // links it mails, and Google's return. Every other route Better Auth mounts
@@ -61,7 +61,7 @@ const mountedRoutes = () => {
   replayMigrations(database)
   const options = authOptions({
     database,
-    baseURL: BASE_URL,
+    dashboardUrl: DASHBOARD_URL,
     secret: "routes-test-secret-0123456789abcdef0123456789",
     validateSchema: false,
     sendVerificationEmail: noop,

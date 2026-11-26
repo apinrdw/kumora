@@ -182,7 +182,7 @@ export const Website = Cloudflare.Website.Vite(
         ARCHIVE_DB: ArchiveDb.pipe(
           RemovalPolicy.retain((yield* stageKind(stage)) === "production")
         ),
-        AUTH_BASE_URL: yield* stageUrl("dashboard", stage),
+        DASHBOARD_URL: yield* stageUrl("dashboard", stage),
         BETTER_AUTH_SECRET: Alchemy.makeRandom("BetterAuthSecret"),
         EMAIL: Cloudflare.Email.SendEmail("Email", {
           allowedSenderAddresses: [SENDER],

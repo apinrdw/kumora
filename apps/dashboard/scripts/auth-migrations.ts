@@ -4,6 +4,7 @@
 //   node scripts/auth-migrations.ts --check  fails if one is needed (CI)
 import { writeFileSync } from "node:fs"
 import { DatabaseSync } from "node:sqlite"
+import { StageUrl } from "@workspace/deploy/stage-url"
 import { getMigrations } from "better-auth/db/migration"
 
 import { authOptions } from "../src/server/auth/options.ts"
@@ -29,7 +30,7 @@ const { compileMigrations, unsafeChanges, schemaProblems } =
   await getMigrations(
     authOptions({
       database,
-      baseURL: "http://localhost:3001",
+      dashboardUrl: StageUrl.make("http://localhost:3001/dashboard"),
       secret: "auth-migrations-placeholder-secret-0123456789",
       validateSchema: false,
       sendVerificationEmail: async () => {},

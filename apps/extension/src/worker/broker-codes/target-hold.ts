@@ -1,5 +1,5 @@
 // What a target's broker codes requests left it in under one set of
-// settings, its origin and token (spec apinrdw/kumora#244, "Retries"). One
+// settings, its URL and token (spec apinrdw/kumora#244, "Retries"). One
 // value holds it, replaced whole when the settings change, so nothing
 // outlives the settings it came from. The Target state shows it over the
 // socket's state (makeTargets in service-worker.ts), and the target sends
@@ -31,7 +31,7 @@ export const makeTargetHold = Effect.fnUntraced(function* (
     Effect.sync(() =>
       Option.exists(
         held.target,
-        (own) => own.origin === target.origin && own.token === target.token
+        (own) => own.url === target.url && own.token === target.token
       )
     )
 

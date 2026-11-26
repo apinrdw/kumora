@@ -1,3 +1,4 @@
+import { DashboardBasePath, pathUnderBase } from "@workspace/client/base-path"
 import { parseStage, stageUrl } from "@workspace/deploy"
 import {
   WibDate,
@@ -15,11 +16,12 @@ import {
   type BrowserContext,
   type Worker,
 } from "@playwright/test"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { execFileSync } from "node:child_process"
 import { appendFileSync, mkdtempSync, readFileSync } from "node:fs"
 import {
   createServer as createHttpServer,
+  type IncomingMessage,
   type ServerResponse,
 } from "node:http"
 import { createServer, type Server } from "node:https"
@@ -42,7 +44,7 @@ export const AJAIB_TAB = "https://trade.ajaib.co.id/"
 export const STOCKBIT_TAB = "https://stockbit.com/"
 
 /** Production's dashboard, as the built extension names it. */
-const PRODUCTION_HOST = new URL(
+const PRODUCTION = new URL(
   Effect.runSync(
     Effect.orDie(
       Effect.flatMap(parseStage("production"), (stage) =>
@@ -50,7 +52,8 @@ const PRODUCTION_HOST = new URL(
       )
     )
   )
-).host
+)
+const PRODUCTION_HOST = PRODUCTION.host
 
 /**
  * Every host the fakes answer for, all on one local port: the brokers', and
@@ -66,19 +69,25 @@ const HOSTS = [
   PRODUCTION_HOST,
 ]
 
-// A status GET answers the same status whatever its `?after=` names.
+// A status GET under a fake dashboard's path answers the same status
+// whatever its `?after=` names.
 const BROKER_CODES_PATH = /^\/api\/broker-codes\/(\d{4}-\d{2}-\d{2})(?:\?.*)?$/
 
 // A day's broker codes status, by day; none answers 404.
 type DayStatuses = (day: WibDate) => BrokerCodesStatus | undefined
 
-// Answers a broker codes status GET from `statuses`.
+// Answers a broker codes status GET from `statuses`, for a fake dashboard
+// served under `base`.
 const answerStatus = (
   statuses: DayStatuses,
+  base: typeof DashboardBasePath,
   path: string,
   response: ServerResponse
 ) => {
-  const day = BROKER_CODES_PATH.exec(path)?.[1]
+  const under = Effect.runSync(pathUnderBase(path, base))
+  const day = Option.isSome(under)
+    ? BROKER_CODES_PATH.exec(under.value)?.[1]
+    : undefined
   const status = day === undefined ? undefined : statuses(WibDate.make(day))
   if (status === undefined) {
     response.writeHead(404)
@@ -252,7 +261,12 @@ export async function startFakeBrokers() {
         })
       }
       if (host === PRODUCTION_HOST)
-        return answerStatus(production.statuses, path, response)
+        return answerStatus(
+          production.statuses,
+          DashboardBasePath,
+          path,
+          response
+        )
       if (host === "exodus.stockbit.com") {
         response.setHeader(
           "access-control-allow-origin",
@@ -376,26 +390,42 @@ export async function startFakeBrokers() {
 }
 
 /**
- * A fake dashboard's ingest socket for the extra target: it accepts any
- * token, keeps what the relay sends up with when it arrived, and sends down
- * what the test tells it.
+ * A fake dashboard's ingest socket for the extra target, served under the
+ * dashboard base path as every dashboard is: it accepts any token, keeps what
+ * the relay sends up with when it arrived, and sends down what the test tells
+ * it. Off the base path it refuses a socket and answers a request 301, as the
+ * real dashboard's root redirect does.
  */
 export async function startFakeIngest() {
   // Its broker codes statuses; a test sets them. The extension holds no
   // host permission for an extra target, so the fake allows its origin.
   const brokerCodes: { statuses: DayStatuses } = { statuses: () => undefined }
+  const underBase = (path: string | undefined) =>
+    Option.isSome(Effect.runSync(pathUnderBase(path ?? "/")))
   const server = createHttpServer((request, response) => {
     response.setHeader("access-control-allow-origin", "*")
     response.setHeader("access-control-allow-headers", "authorization")
     if (request.method === "OPTIONS") return response.end()
-    answerStatus(brokerCodes.statuses, request.url ?? "/", response)
+    if (!underBase(request.url)) {
+      response.writeHead(301, { location: DashboardBasePath })
+      return response.end()
+    }
+    answerStatus(
+      brokerCodes.statuses,
+      DashboardBasePath,
+      request.url ?? "/",
+      response
+    )
   })
   const sockets: Array<WebSocket> = []
   // Stamped on arrival and decoded only when read, each once, so a busy
   // relay's envelopes are timed as they arrive.
   const received: Array<{ text: string; at: number }> = []
   const decoded: Array<{ message: IngestUp; at: number }> = []
-  new WebSocketServer({ server }).on("connection", (socket) => {
+  new WebSocketServer({
+    server,
+    verifyClient: ({ req }: { req: IncomingMessage }) => underBase(req.url),
+  }).on("connection", (socket) => {
     sockets.push(socket)
     socket.on("message", (data) =>
       received.push({ text: String(data), at: Date.now() })

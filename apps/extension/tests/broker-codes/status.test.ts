@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import { StageUrl } from "@workspace/deploy/stage-url"
 import {
   BrokerCodesProtocolVersion,
   TradeNumber,
@@ -10,12 +11,14 @@ import { Effect, Fiber, Option } from "effect"
 import { TestClock } from "effect/testing"
 
 import type { BrokerCodesTarget } from "../../src/worker/broker-codes/poster.ts"
-import { makeBrokerCodesStatus } from "../../src/worker/broker-codes/status.ts"
-import { DashboardOrigin } from "../../src/worker/settings.ts"
+import {
+  makeBrokerCodesStatus,
+  type Get,
+} from "../../src/worker/broker-codes/status.ts"
 
 const DAY = WibDate.make("2026-11-12")
 const PRODUCTION: BrokerCodesTarget = {
-  origin: DashboardOrigin.make("https://dashboard.example"),
+  url: StageUrl.make("https://dashboard.example"),
   token: "ingest-token",
 }
 const STATUS: BrokerCodesStatus = {
@@ -36,10 +39,10 @@ const fakeTarget = Effect.fnUntraced(function* (
   answers: ReadonlyArray<{ status: number; body: string }>
 ) {
   const body = yield* encodeBrokerCodesStatus(STATUS)
-  const requests: Array<{ url: string; token: string }> = []
+  const requests: Array<Parameters<Get>[0]> = []
   return {
     requests,
-    get: (request: { url: string; token: string }) =>
+    get: (request: Parameters<Get>[0]) =>
       Effect.sync(() => {
         requests.push(request)
         return answers[requests.length - 1] ?? { status: 200, body }
@@ -62,14 +65,36 @@ describe("reading a day's broker codes status", () => {
       )
       assert.deepStrictEqual(target.requests, [
         {
+          target: PRODUCTION,
           url: "https://dashboard.example/api/broker-codes/2026-11-12?after=0",
-          token: "ingest-token",
         },
         {
+          target: PRODUCTION,
           url: "https://dashboard.example/api/broker-codes/2026-11-12?after=2000",
-          token: "ingest-token",
         },
       ])
+    })
+  )
+
+  it.effect("asks under a dashboard served at a path", () =>
+    Effect.gen(function* () {
+      const target = yield* fakeTarget([])
+      const reader = yield* makeBrokerCodesStatus({
+        target: Effect.succeed(
+          Option.some({
+            ...PRODUCTION,
+            url: StageUrl.make("https://dashboard.example/dashboard"),
+          })
+        ),
+        get: target.get,
+      })
+      assert.deepStrictEqual(yield* reader.status(DAY), STATUS)
+      assert.deepStrictEqual(
+        target.requests.map(({ url }) => url),
+        [
+          "https://dashboard.example/dashboard/api/broker-codes/2026-11-12?after=0",
+        ]
+      )
     })
   )
 

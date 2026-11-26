@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import { StageUrl } from "@workspace/deploy/stage-url"
 import {
   BrokerCode,
   BrokerCodesProtocolVersion,
@@ -13,11 +14,11 @@ import { TestClock } from "effect/testing"
 import {
   makeBrokerCodesPoster,
   type BrokerCodesTarget,
+  type Send,
 } from "../../src/worker/broker-codes/poster.ts"
-import { DashboardOrigin } from "../../src/worker/settings.ts"
 
 const PRODUCTION: BrokerCodesTarget = {
-  origin: DashboardOrigin.make("https://dashboard.example"),
+  url: StageUrl.make("https://dashboard.example"),
   token: "ingest-token",
 }
 
@@ -41,10 +42,10 @@ const BATCH: BrokerCodesBatch = {
 // A target answering each POST with the next status in `statuses` (then 200),
 // keeping each request and the test-clock time it came.
 const fakeTarget = (statuses: ReadonlyArray<number>) => {
-  const requests: Array<{ url: string; token: string; body: string }> = []
+  const requests: Array<Parameters<Send>[0]> = []
   return {
     requests,
-    send: (request: { url: string; token: string; body: string }) =>
+    send: (request: Parameters<Send>[0]) =>
       Effect.sync(() => {
         requests.push(request)
         return statuses[requests.length - 1] ?? 200
@@ -67,10 +68,30 @@ describe("posting broker codes to a target", () => {
         request?.url,
         "https://dashboard.example/api/broker-codes/2026-11-12"
       )
-      assert.strictEqual(request?.token, "ingest-token")
+      assert.strictEqual(request?.target.token, "ingest-token")
       assert.deepStrictEqual(
         yield* decodeBrokerCodesBatch(request?.body ?? ""),
         BATCH
+      )
+    })
+  )
+
+  it.effect("posts under a dashboard served at a path", () =>
+    Effect.gen(function* () {
+      const target = fakeTarget([])
+      const poster = yield* makeBrokerCodesPoster({
+        target: Effect.succeed(
+          Option.some({
+            ...PRODUCTION,
+            url: StageUrl.make("https://dashboard.example/dashboard"),
+          })
+        ),
+        send: target.send,
+      })
+      assert.strictEqual(yield* poster.post(BATCH), "sent")
+      assert.deepStrictEqual(
+        target.requests.map(({ url }) => url),
+        ["https://dashboard.example/dashboard/api/broker-codes/2026-11-12"]
       )
     })
   )

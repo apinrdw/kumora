@@ -18,17 +18,20 @@ import type { BrokerCodesTarget, PostOutcome } from "./poster.ts"
 // on a 401 or 426 until its settings change.
 export type StatusOutcome = BrokerCodesStatus | Exclude<PostOutcome, "sent">
 
-// One GET's answer; status 0 when it got none.
+// One GET's answer; status 0 when it got none. `url` is a path joined onto
+// `target`'s URL, and the request carries its token.
 export type Get = (request: {
+  readonly target: BrokerCodesTarget
   readonly url: string
-  readonly token: string
 }) => Effect.Effect<{ readonly status: number; readonly body: string }>
 
-export const fetchGet: Get = ({ url, token }) =>
+export const fetchGet: Get = ({ target, url }) =>
   Effect.gen(function* () {
     const response = yield* Effect.tryPromise(() =>
       fetch(url, {
-        headers: { authorization: `${BROKER_CODES_AUTH_SCHEME}${token}` },
+        headers: {
+          authorization: `${BROKER_CODES_AUTH_SCHEME}${target.token}`,
+        },
         cache: "no-store",
       })
     )
@@ -59,10 +62,7 @@ export const askStatus = Effect.fnUntraced(function* (
   after: TradeNumber = FROM_START
 ) {
   const path = yield* brokerCodesStatusPath(day, after)
-  const answer = yield* get({
-    url: `${target.origin}${path}`,
-    token: target.token,
-  })
+  const answer = yield* get({ target, url: `${target.url}${path}` })
   if (answer.status === 401) return Option.some<Asked>("rejected-token")
   if (answer.status === 426) return Option.some<Asked>("reload-extension")
   if (answer.status !== 200) return Option.none<Asked>()

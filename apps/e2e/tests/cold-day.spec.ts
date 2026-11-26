@@ -21,7 +21,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import { DASHBOARD, MEMBER } from "../support/accounts"
+import { DASHBOARD, DASHBOARD_PATH, MEMBER } from "../support/accounts"
 import { tradingDaysBeforeToday } from "../support/broker-totals"
 import { wibInstant } from "../support/clock"
 import { TEST_INGEST_TOKEN, freshCode } from "../support/ingest"
@@ -111,7 +111,7 @@ interface DayGet {
 // Each of the day's GETs the page sends from now on, as Chromium's network
 // domain reports them.
 const dayGets = async (page: Page, day: WibDate) => {
-  const prefix = `/market-live/days/${day}/`
+  const prefix = `${DASHBOARD_PATH}/market-live/days/${day}/`
   const gets: Array<DayGet> = []
   const byId = new Map<string, DayGet>()
   const cdp = await page.context().newCDPSession(page)

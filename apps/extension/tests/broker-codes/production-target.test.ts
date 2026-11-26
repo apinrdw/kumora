@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import { StageUrl } from "@workspace/deploy/stage-url"
 import {
   BrokerCodesProtocolVersion,
   WibDate,
@@ -10,11 +11,10 @@ import { TestClock } from "effect/testing"
 import type { BrokerCodesTarget } from "../../src/worker/broker-codes/poster.ts"
 import { makeProductionTarget } from "../../src/worker/broker-codes/production-target.ts"
 import { makeTargetHold } from "../../src/worker/broker-codes/target-hold.ts"
-import { DashboardOrigin } from "../../src/worker/settings.ts"
 
 const DAY = WibDate.make("2026-11-12")
 const PRODUCTION: BrokerCodesTarget = {
-  origin: DashboardOrigin.make("https://dashboard.example"),
+  url: StageUrl.make("https://dashboard.example"),
   token: "ingest-token",
 }
 const BATCH: BrokerCodesBatch = {

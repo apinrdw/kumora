@@ -1,3 +1,4 @@
+import { StageUrl } from "@workspace/deploy/stage-url"
 import { Effect, Layer } from "effect"
 import { DatabaseSync } from "node:sqlite"
 import { vi } from "vitest"
@@ -11,7 +12,8 @@ import { CLIENT_IP_HEADER } from "@/server/auth/options"
 
 import { replayMigrations } from "../../../scripts/auth-schema.ts"
 
-export const BASE_URL = "http://localhost:3001"
+// The dashboard Stage URL on a local stage: under the dashboard base path.
+export const DASHBOARD_URL = StageUrl.make("http://localhost:3001/dashboard")
 
 export const ADMIN_EMAIL = "admin@example.com"
 
@@ -72,7 +74,7 @@ export function seam(
   })
   const layer = Auth.make({
     database,
-    baseURL: BASE_URL,
+    dashboardUrl: DASHBOARD_URL,
     secret: "handler-test-secret-0123456789abcdef0123456789",
     validateSchema: true,
     turnstileSecretKey: TURNSTILE_SECRET,
@@ -107,7 +109,7 @@ export const send = Effect.fnUntraced(function* (
   })
   new Headers(init?.headers).forEach((value, name) => headers.set(name, value))
   return yield* auth.handler(
-    new Request(`${BASE_URL}/api/auth${path}`, { ...init, headers })
+    new Request(`${DASHBOARD_URL}/api/auth${path}`, { ...init, headers })
   )
 })
 
@@ -180,5 +182,5 @@ export const sessionOf = (cookie: string) =>
 // The path under /api/auth of the link in a mail.
 export const linkIn = (mail: Mail | undefined) => {
   const url = mail?.text.match(/https?:\/\/\S+/)?.[0] ?? ""
-  return url.slice(`${BASE_URL}/api/auth`.length)
+  return url.slice(`${DASHBOARD_URL}/api/auth`.length)
 }

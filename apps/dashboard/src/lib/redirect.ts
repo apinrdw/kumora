@@ -1,4 +1,5 @@
-import { Effect } from "effect"
+import { DashboardBasePath, pathUnderBase } from "@workspace/client/base-path"
+import { Effect, Option } from "effect"
 
 import type { FileRoutesByFullPath } from "../routeTree.gen.ts"
 
@@ -26,6 +27,17 @@ export const safeRedirect = (raw: unknown) =>
 // The gate screens: src/routes/sign-in.tsx and src/routes/verify.tsx.
 const SIGN_IN_PATH = "/sign-in" satisfies keyof FileRoutesByFullPath
 const VERIFY_PATH = "/verify" satisfies keyof FileRoutesByFullPath
+
+/**
+ * A router path as a path on the host, under the dashboard base path. Better
+ * Auth redirects to a callbackURL as is, past the router.
+ */
+export const hostPath = (path: string) =>
+  Effect.sync(() => `${DashboardBasePath}${path}`)
+
+/** A path on the host as a router path, or `/` when it is outside the base. */
+export const routerPath = (pathname: string) =>
+  pathUnderBase(pathname).pipe(Effect.map(Option.getOrElse(() => "/")))
 
 /** A gate screen that sends the visitor back to `href` when it's done. */
 export const withRedirect = (

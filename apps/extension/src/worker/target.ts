@@ -1,6 +1,7 @@
 // One target's ingest socket (spec apinrdw/kumora#138, "Batching and
 // targets"). Each target runs on its own fiber and its own subscription to the
 // envelopes, so a failing extra target never touches Production.
+import type { StageUrl } from "@workspace/deploy/stage-url"
 import {
   IngestCloseCode,
   IngestProtocolVersion,
@@ -21,7 +22,7 @@ import {
 } from "effect"
 import * as Socket from "effect/socket/Socket"
 
-import type { DashboardOrigin, TargetState } from "./settings.ts"
+import type { TargetState } from "./settings.ts"
 
 // Decision: 4403 refuses the token, 4426 a protocol; both stop ingest retries
 // (packages/relay/docs/adr/0003-ingest-socket-closes-4403-and-4426-stop-retries.md)
@@ -31,8 +32,8 @@ export const LAST_RETRY = Duration.seconds(30)
 // The WIB date moved on while the socket was open.
 class DayChanged extends Schema.TaggedError<DayChanged>()("DayChanged", {}) {}
 
-const ingestUrl = Effect.fnUntraced(function* (origin: DashboardOrigin) {
-  return `${origin.replace(/^http/, "ws")}${MarketLivePath.ingest}`
+const ingestUrl = Effect.fnUntraced(function* (dashboard: StageUrl) {
+  return `${dashboard.replace(/^http/, "ws")}${MarketLivePath.ingest}`
 })
 
 // Holds the target's ingest socket open and sends it every envelope published
@@ -40,7 +41,7 @@ const ingestUrl = Effect.fnUntraced(function* (origin: DashboardOrigin) {
 // trading-day object's backfill fills the gap. It returns only on a terminal
 // close.
 export const runTarget = Effect.fnUntraced(function* (options: {
-  readonly origin: DashboardOrigin
+  readonly url: StageUrl
   readonly token: string
   readonly envelopes: PubSub.PubSub<EncodedIngestUp>
   // Today's WIB date on the relay's schedule clock.
@@ -58,7 +59,7 @@ export const runTarget = Effect.fnUntraced(function* (options: {
   // requests.
   readonly receive: (message: IngestDown) => Effect.Effect<void>
 }) {
-  const url = yield* ingestUrl(options.origin)
+  const url = yield* ingestUrl(options.url)
   const token = yield* encodeIngestUp({
     _tag: "Token",
     protocolVersion: IngestProtocolVersion,
