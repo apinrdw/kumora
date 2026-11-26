@@ -12,14 +12,14 @@ Research for [#106](https://github.com/apinrdw/kumora/issues/106), child of the 
 
 ## 1. What the lockfile says
 
-| Fact | Source |
-| --- | --- |
-| alchemy's peers: `@alchemy.run/frontend-frameworks`, `@effect/platform-bun`, `@effect/platform-node`, `effect`, `vite`, `ws`. All except `effect` are optional. There is no `vitest` or `@effect/vitest`. | `pnpm-lock.yaml` on `main`, `packages:` entry `alchemy@2.0.0-beta.85` |
-| `main` has two alchemy snapshots. They differ only in the last suffix: `(ws@8.22.0)` and `(ws@8.22.1)`. | `pnpm-lock.yaml` on `main`, `snapshots:` lines 6173 and 6195 |
-| The root importer has `ws: specifier ^8.22.0, version 8.22.0`, and its `@alchemy.run/infisical` is bound to the `ws@8.22.0` alchemy. `apps/dashboard`, `apps/web` and `packages/deploy` all resolve the `ws@8.22.1` alchemy, and `packages/deploy` has its own `@alchemy.run/infisical` snapshot bound to it. | `pnpm-lock.yaml` `importers:` |
-| `@effect/platform-node-shared@4.1.2` depends on `ws: 8.22.1`. That is where the apps' `ws@8.22.1` comes from. | `pnpm-lock.yaml` `snapshots:` |
-| happy-dom's diff to the lockfile: `vitest@5.0.5(…)` becomes `vitest@5.0.5(…)(happy-dom@21.0.4)(…)` in every importer, and `@effect/vitest` follows. There is still one `vitest` snapshot, one `@effect/vitest` snapshot and the same two alchemy snapshots. | `git diff pnpm-lock.yaml` after `pnpm --filter dashboard add -D happy-dom@21.0.4` |
-| The prototype branch's lockfile has the same shape: every importer resolves the same alchemy variant. A fresh `pnpm install --frozen-lockfile` of `origin/prototype/atom-seam-data-table` gives one dashboard `tsc` error, in `bench.test.tsx` (see section 4), and none in `alchemy.run.ts`. | `git checkout origin/prototype/atom-seam-data-table -- .`, then install and `tsc` |
+| Fact                                                                                                                                                                                                                                                                                                          | Source                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| alchemy's peers: `@alchemy.run/frontend-frameworks`, `@effect/platform-bun`, `@effect/platform-node`, `effect`, `vite`, `ws`. All except `effect` are optional. There is no `vitest` or `@effect/vitest`.                                                                                                     | `pnpm-lock.yaml` on `main`, `packages:` entry `alchemy@2.0.0-beta.85`             |
+| `main` has two alchemy snapshots. They differ only in the last suffix: `(ws@8.22.0)` and `(ws@8.22.1)`.                                                                                                                                                                                                       | `pnpm-lock.yaml` on `main`, `snapshots:` lines 6173 and 6195                      |
+| The root importer has `ws: specifier ^8.22.0, version 8.22.0`, and its `@alchemy.run/infisical` is bound to the `ws@8.22.0` alchemy. `apps/dashboard`, `apps/web` and `packages/deploy` all resolve the `ws@8.22.1` alchemy, and `packages/deploy` has its own `@alchemy.run/infisical` snapshot bound to it. | `pnpm-lock.yaml` `importers:`                                                     |
+| `@effect/platform-node-shared@4.1.2` depends on `ws: 8.22.1`. That is where the apps' `ws@8.22.1` comes from.                                                                                                                                                                                                 | `pnpm-lock.yaml` `snapshots:`                                                     |
+| happy-dom's diff to the lockfile: `vitest@5.0.5(…)` becomes `vitest@5.0.5(…)(happy-dom@21.0.4)(…)` in every importer, and `@effect/vitest` follows. There is still one `vitest` snapshot, one `@effect/vitest` snapshot and the same two alchemy snapshots.                                                   | `git diff pnpm-lock.yaml` after `pnpm --filter dashboard add -D happy-dom@21.0.4` |
+| The prototype branch's lockfile has the same shape: every importer resolves the same alchemy variant. A fresh `pnpm install --frozen-lockfile` of `origin/prototype/atom-seam-data-table` gives one dashboard `tsc` error, in `bench.test.tsx` (see section 4), and none in `alchemy.run.ts`.                 | `git checkout origin/prototype/atom-seam-data-table -- .`, then install and `tsc` |
 
 `@effect/vitest` gets a renamed peer variant, not a second one. pnpm's `dedupePeerDependents` (default `true`) moves every `vitest` consumer onto the happy-dom variant.
 
@@ -45,18 +45,18 @@ A plain `pnpm install` afterwards links every package and the count drops to 0. 
 
 Each candidate starts from `main` with the config change applied. **F** is the failing scenario: delete every `node_modules`, run the filtered add, run dashboard `tsc`. **I** follows F with a full `pnpm install` and runs `tsc` in each package. "Dirs" counts `alchemy@*` under `node_modules/.pnpm`, and "keys" counts alchemy snapshots in `pnpm-lock.yaml`.
 
-| Candidate | F: dashboard tsc | F: dirs | I: tsc dashboard / web / deploy / ui | I: dirs | Lock keys |
-| --- | --- | --- | --- | --- | --- |
-| `main`, no change | n/a | n/a | 0 / 0 / 0 / 0 | 2 | 2 |
-| Control: `scheduler@0.28.0`, no DOM package | 133 | 2 | 0 / 0 / 0 / 0 | 2 | 2 |
-| `happy-dom@21.0.4` in `apps/dashboard` | 133 | 2 | 0 / 0 / 0 / 0 | 2 | 2 |
-| `jsdom` in `apps/dashboard` | 133 | 2 | 0 / 0 / 0 / 0 | 2 | 2 |
-| `overrides: { ws: 8.22.1 }` + happy-dom | 132 | 1 | 0 / 0 / 0 / 0 | 1 | 1 |
-| `pnpm dedupe` + happy-dom | 132 | 1 | 0 / 0 / 0 / 0 | 1 | 1 |
-| `dedupePeers: true` + happy-dom | 133 | 2 | **1 / 1** / 0 / 0 | 2 | 2 |
-| `peerDependencyRules` (`allowedVersions` and `allowAny` for `ws`) + happy-dom | 133 | 2 | 0 / 0 / 0 / 0 | 2 | 2 |
-| happy-dom at the root (`pnpm add -w -D`) | 2¹ | 1 | 0 / 0 / 0 / 0 | 2 | 2 |
-| **Winner:** happy-dom in `apps/dashboard` and `packages/ui`, `pnpm install`, `pnpm dedupe` | 0² | 1 | 0 / 0 / 0 / 0 | 1 | 1 |
+| Candidate                                                                                  | F: dashboard tsc | F: dirs | I: tsc dashboard / web / deploy / ui | I: dirs | Lock keys |
+| ------------------------------------------------------------------------------------------ | ---------------- | ------- | ------------------------------------ | ------- | --------- |
+| `main`, no change                                                                          | n/a              | n/a     | 0 / 0 / 0 / 0                        | 2       | 2         |
+| Control: `scheduler@0.28.0`, no DOM package                                                | 133              | 2       | 0 / 0 / 0 / 0                        | 2       | 2         |
+| `happy-dom@21.0.4` in `apps/dashboard`                                                     | 133              | 2       | 0 / 0 / 0 / 0                        | 2       | 2         |
+| `jsdom` in `apps/dashboard`                                                                | 133              | 2       | 0 / 0 / 0 / 0                        | 2       | 2         |
+| `overrides: { ws: 8.22.1 }` + happy-dom                                                    | 132              | 1       | 0 / 0 / 0 / 0                        | 1       | 1         |
+| `pnpm dedupe` + happy-dom                                                                  | 132              | 1       | 0 / 0 / 0 / 0                        | 1       | 1         |
+| `dedupePeers: true` + happy-dom                                                            | 133              | 2       | **1 / 1** / 0 / 0                    | 2       | 2         |
+| `peerDependencyRules` (`allowedVersions` and `allowAny` for `ws`) + happy-dom              | 133              | 2       | 0 / 0 / 0 / 0                        | 2       | 2         |
+| happy-dom at the root (`pnpm add -w -D`)                                                   | 2¹               | 1       | 0 / 0 / 0 / 0                        | 2       | 2         |
+| **Winner:** happy-dom in `apps/dashboard` and `packages/ui`, `pnpm install`, `pnpm dedupe` | 0²               | 1       | 0 / 0 / 0 / 0                        | 1       | 1         |
 
 ¹ `pnpm add -w` in a fresh worktree links only the root, so dashboard `tsc` stops at `Cannot find type definition file for '@cloudflare/workers-types'` and `'vite/client'`.
 ² Measured after `pnpm install --frozen-lockfile` from no `node_modules`, and again with `pnpm --filter 'dashboard...' install --frozen-lockfile`, which links `apps/dashboard`, `packages/deploy` and `packages/ui`.
@@ -81,13 +81,13 @@ What the rows show:
 
 The pnpm.io pages now document pnpm 12 (they cite v12.7.0 behavior). The defaults below were checked in the installed pnpm 11.25.0 bundle, `node_modules/pnpm/dist/pnpm.mjs`, which defines `"auto-install-peers": true`, `"dedupe-peer-dependents": true`, `"dedupe-peers": false`, `"dedupe-direct-deps": false`, `"recursive-install": true` and `"resolve-peers-from-workspace-root": true`.
 
-| Setting | Documented behavior | Source |
-| --- | --- | --- |
-| `dedupePeerDependents` (default `true`) | "packages with peer dependencies will be deduplicated after peers resolution." This is why happy-dom moves every importer onto one vitest snapshot. | [pnpm.io/settings/peer-dependencies](https://pnpm.io/settings/peer-dependencies) |
-| `dedupePeers` (default `false`) | "peer dependency suffixes use version-only identifiers (`name@version`) instead of full dep paths." | same page |
-| `resolvePeersFromWorkspaceRoot` (default `true`) | Root dependencies are used to resolve peers of workspace projects. Even so, the apps' alchemy resolved its optional `ws` peer to 8.22.1, the version `@effect/platform-node-shared` already brings into their tree, and not to the root's 8.22.0. That is measured; why the root's version loses is inferred and not traced in pnpm source. | same page |
-| `peerDependencyRules` (`ignoreMissing`, `allowedVersions`, `allowAny`) | Deprecated. Each option only suppresses peer warnings. | same page |
-| `--filter` | "restrict commands to specific subsets of packages". `<pkg>...` selects the package and its dependencies. | [pnpm.io/filtering](https://pnpm.io/filtering) |
-| `overrides` | Lives in `pnpm-workspace.yaml` and applies to the whole shared lockfile. | [pnpm.io/settings](https://pnpm.io/settings), "Dependency resolution" |
+| Setting                                                                | Documented behavior                                                                                                                                                                                                                                                                                                                         | Source                                                                           |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `dedupePeerDependents` (default `true`)                                | "packages with peer dependencies will be deduplicated after peers resolution." This is why happy-dom moves every importer onto one vitest snapshot.                                                                                                                                                                                         | [pnpm.io/settings/peer-dependencies](https://pnpm.io/settings/peer-dependencies) |
+| `dedupePeers` (default `false`)                                        | "peer dependency suffixes use version-only identifiers (`name@version`) instead of full dep paths."                                                                                                                                                                                                                                         | same page                                                                        |
+| `resolvePeersFromWorkspaceRoot` (default `true`)                       | Root dependencies are used to resolve peers of workspace projects. Even so, the apps' alchemy resolved its optional `ws` peer to 8.22.1, the version `@effect/platform-node-shared` already brings into their tree, and not to the root's 8.22.0. That is measured; why the root's version loses is inferred and not traced in pnpm source. | same page                                                                        |
+| `peerDependencyRules` (`ignoreMissing`, `allowedVersions`, `allowAny`) | Deprecated. Each option only suppresses peer warnings.                                                                                                                                                                                                                                                                                      | same page                                                                        |
+| `--filter`                                                             | "restrict commands to specific subsets of packages". `<pkg>...` selects the package and its dependencies.                                                                                                                                                                                                                                   | [pnpm.io/filtering](https://pnpm.io/filtering)                                   |
+| `overrides`                                                            | Lives in `pnpm-workspace.yaml` and applies to the whole shared lockfile.                                                                                                                                                                                                                                                                    | [pnpm.io/settings](https://pnpm.io/settings), "Dependency resolution"            |
 
 The docs don't say whether a filtered `pnpm add` links only the selected projects. Section 2 shows that it does.

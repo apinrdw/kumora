@@ -5,6 +5,7 @@ A cold day's R2 keys sit under `days/{date}/`. Its answers sit in a folder named
 The version is bumped only when a stored answer's format changes. Such a change either converts on read or rewrites the days already moved, R2 to R2.
 
 Sites:
+
 - `apps/dashboard/src/server/market-live/cold-bucket.ts`
 
 Source: apinrdw/kumora#556, apinrdw/kumora#606, apinrdw/kumora#612

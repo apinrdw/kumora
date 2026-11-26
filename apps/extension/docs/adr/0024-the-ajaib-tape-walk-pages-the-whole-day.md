@@ -5,6 +5,7 @@ The walk of the newest closed day on Ajaib's REST tape (`running_trades/`) used 
 The walk keeps its position in `chrome.storage.local` after each page: `{ day, pass, page, lastTimestamp, fetched, reached, missed }` while it walks, and `{ day, pass: "done" }` once walked. `reached` and `missed` are the first pass's reached offset and the offsets before it whose row it didn't post, other than another day's: the first pass adds to them page by page, and the second pass reads them as the first left them. The walk keeps no state outside its position, so a restart at any page loses nothing the second pass's choice of trades depends on. A restarted worker resumes on the same `last_timestamp`, so its pages line up with those before the restart, its second pass posts the same trades, and its trade count carries on. A position kept mid-walk in the old block shape doesn't decode and the day is walked afresh; Production keeps the trades it already holds. Each page's rows go up as consecutive batches of at most `BATCH_ROWS` (packages/relay ADR 0012).
 
 Sites:
+
 - `apps/extension/src/worker/broker-codes/ajaib-walk.ts`
 
 Source: apinrdw/kumora#711

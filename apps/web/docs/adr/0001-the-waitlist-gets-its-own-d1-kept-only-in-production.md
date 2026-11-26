@@ -5,6 +5,7 @@ The landing page's waitlist holds the emails visitors leave and their queue numb
 Production's WaitlistDb is retained (`RemovalPolicy.retain`) across a stack destroy, as the dashboard's ArchiveDb is (`apps/dashboard/docs/adr/0126-only-production-s-archivedb-survives-a-stack-destroy.md`). Its rows cannot be rebuilt: each is a visitor who signed up, and their queue number was shown to them. Every other stage's WaitlistDb is test data and is destroyed with its stack, so a closed Preview leaves nothing behind.
 
 Sites:
+
 - `apps/web/alchemy.run.ts`
 
 Source: none

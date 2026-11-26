@@ -13,6 +13,7 @@ Every earlier holder not listed now stays below the current ones as Off list sin
 A rename with a trade and no shared account still shows as Off list plus New. Undoing the rename pass floods Holder moves with IDX's renamings; undoing the return pass splits one investor's history into a row per listing spell in every view at once, and Holder moves' counts would no longer agree with the stock page's.
 
 Sites:
+
 - `apps/dashboard/src/lib/holder-identity.ts`
 - `apps/dashboard/src/lib/daily-holders.ts`
 - `apps/dashboard/src/lib/major-holders.ts`

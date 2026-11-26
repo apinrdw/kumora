@@ -128,6 +128,7 @@ Two type voices carry the whole system. Archivo, pushed wide for headings and na
 The page is calm where the passbook is calm (wide paper, generous sheet padding) and live where the market is live: one line prints every 520 ms under a moving print head, and the newest line is always the darkest.
 
 **Key Characteristics:**
+
 - Cobalt cloth ground with a woven thread texture; pale green security paper sheets with a tiling guilloche.
 - Two faces: Archivo Variable (width axis) for the form, Doto Variable for every printed entry.
 - One ledger print size; rank by double-strike, reversal, underline and stamps.
@@ -140,17 +141,21 @@ The page is calm where the passbook is calm (wide paper, generous sheet padding)
 A cloth-and-paper palette: one saturated cobalt for the cover and the form, one pale green paper, an aubergine-black ribbon ink, and three spot inks with fixed jobs.
 
 ### Primary
+
 - **Passbook Cobalt** (cloth): the cover cloth behind every sheet, the primary button, and, at 25 to 60% opacity, the pre-printed form layer: ledger column headers, column rules, and the heavy rule under a table head.
 - **Deep Cloth** (cloth-deep): the cloth's shadow threads and the primary button's pressed lip.
 - **Thread Cobalt** (cloth-thread): the lighter crossing threads of the cloth weave only.
 
 ### Secondary
+
 - **Teller Violet** (stamp): rubber stamp ink (RECORDED, BIG TRADE, NET BUYER), the focus ring, the input caret, and the text selection tint (28%). It is the only accent allowed to touch interaction.
 
 ### Tertiary
+
 - **Price Green** (up) and **Price Red** (down): the price cell of a buy-side or sell-side trade. Red also carries the input's invalid border and the error message, the one place it leaves the price column.
 
 ### Neutral
+
 - **Security Paper** (paper): every sheet, the inside of the passbook, the text on reversed lines and the print head.
 - **Paper Edge** (paper-edge): the 1 to 2px edge of paper thickness under each sheet.
 - **Ruling Green** (rule): dashed row rules, dividers inside sheets, the phone fold.
@@ -163,6 +168,7 @@ A cloth-and-paper palette: one saturated cobalt for the cover and the form, one 
 The guilloche artwork (`public/passbook-guilloche.svg`) draws its sine waves in two of its own greens (#b5cdbf, #c8dace) at 0.6 stroke width; it is an asset, not a token.
 
 ### Named Rules
+
 **The Prices-Only Rule.** Green and red appear on prices and nowhere else, except red for a form error. Broker codes, lots, values and nets stay in ribbon ink; direction is read from the sign.
 
 **The Two Inks Rule.** Anything pre-printed by the bank (column headers, column rules, table-head rules) is cobalt form ink; anything the machine printed is ribbon ink. Never swap them.
@@ -178,6 +184,7 @@ The guilloche artwork (`public/passbook-guilloche.svg`) draws its sine waves in 
 **Character:** Archivo's width axis does the work a second sans would: wide and heavy (wdth 108 to 112) it is the passbook's cover lettering; narrow (wdth 75 to 92) it is the fine print of a bank form. Doto is a dot-matrix printer face, used only for what a machine printed.
 
 ### Hierarchy
+
 - **Display** (850, clamp 2.4 to 4.4rem, 0.98): the hook on the left page. The closing heading on the cloth uses the same voice at clamp(2rem, 4vw, 3.2rem), 1.02, in foil.
 - **Headline** (800, clamp 1.75 to 2.6rem, 1.06): section headings on later sheets.
 - **Title** (750, 15px, 0.06em, uppercase, wdth 85): the ledger's account line (BBRI · 10 NOV 2026). Index entry names use 750 at 16px, wdth 90.
@@ -187,6 +194,7 @@ The guilloche artwork (`public/passbook-guilloche.svg`) draws its sine waves in 
 - **Queue number** (Doto 900, 64px): the ticket's number, the one print set large, because it is a different machine's output.
 
 ### Named Rules
+
 **The One Print Size Rule.** Inside a ledger every printed line is 15px (13px under 420px). Rank comes from double-strike (900 weight plus a 0.6px shadow strike), reversal (ink ground, paper text), a heavier rule, or a stamp, never from a larger size.
 
 **The Width Axis Rule.** Hierarchy in Archivo is set by weight and width together: wide and heavy for headings, narrow and tracked for labels. Don't add a second sans.
@@ -204,12 +212,14 @@ Column rules are the only grid inside the ledger: 1px cobalt at 25% on the left 
 Depth is physical and shallow: paper lying on cloth. Each sheet carries a thin paper-edge line under it and a soft shadow cast onto the cloth; the spread casts a slightly deeper one. The queue ticket, the only object that lifts off the page, casts its own small shadow. There are no glows, no blur, and no layered cards inside a sheet.
 
 ### Shadow Vocabulary
+
 - **Sheet** (`box-shadow: 0 1px 0 var(--paper-edge), 0 18px 40px -18px rgb(8 20 48 / 0.75)`): every single sheet on the cloth.
 - **Spread** (`box-shadow: 0 2px 0 var(--paper-edge), 0 30px 60px -24px rgb(6 16 40 / 0.85)`): the open passbook in the first viewport.
 - **Ticket** (`box-shadow: 0 10px 24px -12px rgb(19 44 92 / 0.55)`): the queue ticket lying on the page.
 - **Button lip** (`box-shadow: 0 2px 0 var(--cloth-deep), 0 6px 14px -6px rgb(19 44 92 / 0.7)`): the primary button's key travel; it collapses to zero as the button presses down 2px.
 
 ### Named Rules
+
 **The Paper-Thickness Rule.** The hard 1 to 2px line under a sheet is paper thickness, and the button's 2px lip is key travel that disappears on press. Neither is a decorative offset shadow; don't add hard offsets anywhere else.
 
 ## Shapes
@@ -219,38 +229,48 @@ Nearly square. Sheets and stamps round at 3px, the spread at 4px, the print head
 ## Components
 
 ### Buttons
+
 Tactile and stationery-plain: a cobalt key with foil lettering.
+
 - **Shape:** gently squared (3px), 48px minimum height, 20px side padding.
 - **Primary:** cloth background, foil text, Archivo 750 at 15px, wdth 92, 0.02em tracking.
 - **Hover / Focus:** background lifts to a lighter cobalt; focus is the global 2px violet ring at 3px offset. Active presses down 2px and the lip collapses (150ms ease-out).
 - **Disabled / Sending:** label changes to the sending copy, 80% opacity, progress cursor.
 
 ### Inputs / Fields
+
 - **Style:** a line on a form, not a box: transparent ground, 2px dashed ink baseline, Doto print at 17px, violet caret, soft-ink placeholder.
 - **Focus:** the baseline turns solid violet and the paper behind it brightens slightly (paper at 60%).
 - **Error / Disabled:** invalid turns the baseline red and replaces the privacy line with a red message (14px); disabled drops to 60%.
 
 ### Navigation
+
 Foil on cloth, top right: the language switch (Archivo 650, underlined in dim foil, full foil on hover). The sign-in link for people already let in is hidden for now.
 
 ### Sheet
+
 The container for everything below the fold: security paper with the 96px guilloche tile, 3px corners, the sheet shadow, 40px by 56px padding from sm.
 
 ### Ledger (signature)
+
 A Doto table on the right page. Cobalt form headers (TIME, PRICE, LOTS, BUYER, SELLER), 1px cobalt column rules, dashed rows, the Ribbon Fade on older lines, the newest line double-struck. A trade of Rp1 B or more reverses (ink ground, paper text), double-strikes and takes a BIG TRADE stamp with its value. Under the table, the print head: a reversed strip naming the replay's current trade time and position (96/318).
 
 ### Stamp
+
 Violet rubber stamp: 2px violet border, Archivo 800 at 11px, wdth 80, 0.12em uppercase, tilted -4 degrees, inked through `#stamp-ink`. Used for RECORDED, BIG TRADE and NET BUYER: facts about the record, never calls to action.
 
 ### Queue Ticket (signature)
+
 What the slip becomes after joining: a near-white thermal ticket (max 22rem) with a perforated top, a title and the time taken separated by a dashed rule, the queue number in 64px Doto (A-0127), and a one-line status. It replaces the form in place in both slips.
 
 ### Saldo Table
+
 The ledger's balance page: broker, net lots, net value in print, buyers above a 2px ink rule and sellers below, the top buyer double-struck with a NET BUYER stamp.
 
 ## Do's and Don'ts
 
 ### Do:
+
 - **Do** set every ledger entry in Doto at the one print size (15px, 13px under 420px) and rank lines with double-strike, reversal, rules or a stamp.
 - **Do** put pre-printed form parts (headers, column rules) in cobalt and machine-printed entries in ribbon ink.
 - **Do** fade older ledger lines toward the paper by at most 32% and keep the newest darkest.
@@ -259,6 +279,7 @@ The ledger's balance page: broker, net lots, net value in print, buyers above a 
 - **Do** keep motion to the printer's grammar (line print, carriage, stamp-down, ticket-out) and render a complete still frame with all of it off under reduced motion.
 
 ### Don't:
+
 - **Don't** print a ledger line larger to make it important; double-strike or stamp it.
 - **Don't** use violet for anything but stamps, focus, caret and selection.
 - **Don't** add glows, gradients on type, or a dark screenshot hero; the passbook is paper and ink.

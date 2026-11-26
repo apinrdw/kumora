@@ -5,6 +5,7 @@ Alchemy's dev runtime fires a Worker's crons, so an ungated cron would make `vp 
 The broker totals reconcile is the deliberate exception and runs on every stage: it touches only the stage's own day index, BrokerTotalsDb and trading days, and the extension's extra target feeds a second stage, so a dev or Preview run calls nothing outside.
 
 Sites:
+
 - `apps/dashboard/src/server/stage-crons.ts`
 
 Source: apinrdw/kumora#308, apinrdw/kumora#326, apinrdw/kumora#359, apinrdw/kumora#397, apinrdw/kumora#427, apinrdw/kumora#432, apinrdw/kumora#437, apinrdw/kumora#521

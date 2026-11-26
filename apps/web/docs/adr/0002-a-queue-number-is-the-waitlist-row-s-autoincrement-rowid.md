@@ -7,10 +7,12 @@ The queue number is the row's `INTEGER PRIMARY KEY AUTOINCREMENT`, the rowid. SQ
 The join inserts only when the email has no row (`INSERT ... SELECT ... WHERE NOT EXISTS`). An `ON CONFLICT DO NOTHING` insert would still advance AUTOINCREMENT's counter, so every return visit would burn a number. The table is created by `apps/web/waitlist-migrations/0001_waitlist.sql`.
 
 We rejected these alternatives:
+
 - `COALESCE(MAX(number), 0) + 1` in the INSERT. It is atomic on D1 too, but it reuses the highest number after a delete.
 - A counter row updated with each join. It is a second write per join, and it can drift from the table.
 
 Sites:
+
 - `apps/web/src/server/waitlist/waitlist.ts`
 
 Source: none

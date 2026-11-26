@@ -11,9 +11,9 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - oxlint
-  - '@oxlint/*'
+  - "@oxlint/*"
   - oxfmt
-  - '@oxfmt/*'
+  - "@oxfmt/*"
 
 # Decision: the Effect and Alchemy pins live once, in the catalog
 # (docs/adr/0015-effect-and-alchemy-pins-live-once-in-the-catalog.md)

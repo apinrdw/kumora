@@ -22,14 +22,14 @@ Paths below are relative to that commit unless they are URLs.
 
 Alchemy persists each resource's state between deploys to compute diffs. The record holds the resource type, input props, output attributes, instance ID, lifecycle status and bindings. State is keyed by stack name, then stage, then the resource's fully qualified name. Different stacks and stages are fully isolated. Source: [State Store](https://alchemy.run/state-store/) (`website/src/content/docs/state-store/index.mdx`).
 
-| Store | Where state lives | Locks concurrent deploys of one stage? | Notes |
-| --- | --- | --- | --- |
-| Local (default) | `.alchemy/state/<stack>/<stage>/<fqn>.json` on disk | No | "Works for solo development." Lost with an ephemeral filesystem. |
-| `Cloudflare.state()` | A Worker named `alchemy-state-store`, backed by a Durable Object with embedded SQLite, on your account | No lock found in source (see below) | Recommended "for projects already running on Cloudflare". Encrypted at rest. |
-| `AWS.state()` | One DynamoDB table per account and region (overflow to S3) | — | Not relevant to us. |
-| `GCP.state()` | A Cloud Storage bucket, `alchemy-state-<project>` | Yes: a `__lease__.json` lease (`packages/alchemy/src/State/BucketState.ts`) | Not relevant to us. |
-| `postgresState()` | A Postgres database you run | Yes: a session advisory lock per `(stack, stage)` | Needs `@effect/sql-pg`. |
-| Custom | Any Effect `Layer` that provides the `State` service | Up to you | [Custom State Store](https://alchemy.run/state-store/custom-state-store/) |
+| Store                | Where state lives                                                                                      | Locks concurrent deploys of one stage?                                      | Notes                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Local (default)      | `.alchemy/state/<stack>/<stage>/<fqn>.json` on disk                                                    | No                                                                          | "Works for solo development." Lost with an ephemeral filesystem.             |
+| `Cloudflare.state()` | A Worker named `alchemy-state-store`, backed by a Durable Object with embedded SQLite, on your account | No lock found in source (see below)                                         | Recommended "for projects already running on Cloudflare". Encrypted at rest. |
+| `AWS.state()`        | One DynamoDB table per account and region (overflow to S3)                                             | —                                                                           | Not relevant to us.                                                          |
+| `GCP.state()`        | A Cloud Storage bucket, `alchemy-state-<project>`                                                      | Yes: a `__lease__.json` lease (`packages/alchemy/src/State/BucketState.ts`) | Not relevant to us.                                                          |
+| `postgresState()`    | A Postgres database you run                                                                            | Yes: a session advisory lock per `(stack, stage)`                           | Needs `@effect/sql-pg`.                                                      |
+| Custom               | Any Effect `Layer` that provides the `State` service                                                   | Up to you                                                                   | [Custom State Store](https://alchemy.run/state-store/custom-state-store/)    |
 
 There is **no R2 state store**. The generic bucket store (`packages/alchemy/src/State/BucketState.ts`) is used only by `packages/aws/src/StateStore/State.ts` and `packages/gcp/src/StateStore/State.ts`. Nothing under `packages/cloudflare/src/StateStore/` uses R2.
 
@@ -44,6 +44,7 @@ From `state-store/index.mdx` and `packages/cloudflare/src/StateStore/State.ts`:
   - a Secrets Store, `StateStoreSecrets`, that holds the token and the key.
 
   These are shared by every stack and stage on the account that uses `Cloudflare.state()`.
+
 - **In CI it does not bootstrap.** When `CI=true`, a missing store fails the run. In `State.ts`, `CI` is read as `Config.Boolean("CI").pipe(Config.withDefault(false))`. Bootstrap it once ahead of time with `alchemy state bootstrap --profile <ci-profile>`.
 - **Credentials in CI.** When `CI=true`, Alchemy reads the store's credentials from the Secrets Store on every run, through a short-lived edge-preview Worker. Nothing needs to persist on disk. Outside CI, Alchemy caches them in `~/.alchemy/profiles/<profile>/state-stores/cloudflare.json`.
 - **Token permissions.** Because of that edge-preview Worker, the deploy token needs **`Secrets Store Write`**: `Read` is rejected when the Worker binds the secret. Source: [CI guide](https://alchemy.run/environments/ci/) (`website/src/content/docs/environments/ci.mdx`), "Why `Secrets Store Write`?". The guide's suggested token policy is Workers Scripts Write, Workers KV Storage Write, Workers R2 Storage Write, D1 Write, Queues Write, Pages Write, Account Settings Write, Secrets Store Write and Workers Tail Read, scoped to the account.
@@ -76,7 +77,7 @@ Source: [Stages](https://alchemy.run/environments/stages/) (`website/src/content
 - **Valid names.** Stage names must match `[a-z0-9][-_a-z0-9]*`. A git branch such as `research/alchemy-state-stages` is **not** a valid stage name as is, because of the `/`.
 - **Conventional names.** `live_<user>`, `dev_<user>`, `test_<user>`, `pr-<n>`, `staging`, `prod`.
 - **Isolation.** Each stage has its own state, its own physical names, and its own logs and metrics. Deploying or destroying one stage never touches another.
-- **Stage vs profile.** A stage chooses *what* is deployed; a profile chooses *how* Alchemy authenticates. They are independent of each other.
+- **Stage vs profile.** A stage chooses _what_ is deployed; a profile chooses _how_ Alchemy authenticates. They are independent of each other.
 - **Branching in code.** The program can branch on `(yield* Stack).stage`, for example `RemovalPolicy.retain(stack.stage === "prod")`, or use `Stack.useSync` for resources declared at module scope.
 - **Teardown.** `alchemy destroy --stage pr-42 --yes` deletes every resource in that one stack and stage that the state store records. `alchemy nuke` is the unscoped, account-wide variant. Don't use it.
 

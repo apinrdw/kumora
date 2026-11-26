@@ -74,14 +74,14 @@ Without `Accept: application/json`, the same URL returns `405 {"code":405,"messa
 
 ### Parameters and paging
 
-| Parameter | Effect (observed) |
-|---|---|
-| `page[size]` | Page size. The page sends 8. The default when omitted is 30. `100` and `1000` both return all 36 in one page (`last_page: 1`). |
-| `page[number]` | A 1-based page index. |
-| `filter[date]` | A year. `2023` returned 2 entries (Nov and Dec 2023), and `2022` returned 0. |
-| `search` | A text filter on `name`. `Juni` returned the three June entries. |
+| Parameter           | Effect (observed)                                                                                                                                                        |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `page[size]`        | Page size. The page sends 8. The default when omitted is 30. `100` and `1000` both return all 36 in one page (`last_page: 1`).                                           |
+| `page[number]`      | A 1-based page index.                                                                                                                                                    |
+| `filter[date]`      | A year. `2023` returned 2 entries (Nov and Dec 2023), and `2022` returned 0.                                                                                             |
+| `search`            | A text filter on `name`. `Juni` returned the three June entries.                                                                                                         |
 | `locale` + `append` | `locale=en&append=pdf_en` returns English names ("Master Securities October 30, 2026") with the **same** file URLs. The file key follows `append`: `pdf_id` or `pdf_en`. |
-| `filter[published]` | No visible effect: `false` also returned the same 36. |
+| `filter[published]` | No visible effect: `false` also returned the same 36.                                                                                                                    |
 
 `meta.total` is present, so a client can check it got everything. One call with `page[size]=100` (or more) and no `filter[date]` returns the whole listing.
 
@@ -103,10 +103,10 @@ Without `Accept: application/json`, the same URL returns `405 {"code":405,"messa
 
 The two October 2026 files:
 
-| File | Zip bytes | Inner file | Unzipped bytes | Lines |
-|---|---|---|---|---|
-| `StatisEfek20261030.txt.zip` | 143,181 | `StatisEfek20261030.txt` | 924,811 | 3,654 |
-| `BalanceposEfek20261030.zip` | 125,333 | `Balancepos20261030.txt` | 528,033 | 3,734 |
+| File                         | Zip bytes | Inner file               | Unzipped bytes | Lines |
+| ---------------------------- | --------- | ------------------------ | -------------- | ----- |
+| `StatisEfek20261030.txt.zip` | 143,181   | `StatisEfek20261030.txt` | 924,811        | 3,654 |
+| `BalanceposEfek20261030.zip` | 125,333   | `Balancepos20261030.txt` | 528,033        | 3,734 |
 
 Both are `|`-delimited with a header row. Statistik Efek has one row per security (`Date|Code|Description|Type|Isin Code|Issuer|Status|...`). Kepemilikan Efek has one row per security, with holdings split by local and foreign investor type (`Date|Code|Type|Sec. Num|Price|Local IS|Local CP|...|Foreign OT|Total`). Parsing them is out of scope here.
 
@@ -114,10 +114,10 @@ Both are `|`-delimited with a header row. Statistik Efek has one row per securit
 
 From `HEAD` on every listed URL. All 72 returned 200.
 
-| Series | Count | Smallest | Largest | Total |
-|---|---|---|---|---|
-| StatisEfek | 36 | 122,503 (2023-12-29) | 157,740 (2026-06-30) | 5,115,515 |
-| BalanceposEfek | 36 | 104,114 (2023-11-30) | 126,396 (2026-06-30) | 4,169,811 |
+| Series         | Count | Smallest             | Largest              | Total     |
+| -------------- | ----- | -------------------- | -------------------- | --------- |
+| StatisEfek     | 36    | 122,503 (2023-12-29) | 157,740 (2026-06-30) | 5,115,515 |
+| BalanceposEfek | 36    | 104,114 (2023-11-30) | 126,396 (2026-06-30) | 4,169,811 |
 
 That is 9.3 MB in all, with growth of about 270 KB a month for both series together.
 
@@ -157,8 +157,8 @@ access-control-allow-origin: *
 
 Upload time is the file's `Last-Modified`, shown here in WIB (UTC+7). The listing has no publish time.
 
-| Period end | StatisEfek | BalanceposEfek |
-|---|---|---|
+| Period end       | StatisEfek      | BalanceposEfek  |
+| ---------------- | --------------- | --------------- |
 | 2026-10-30 (Fri) | Mon 2 Nov 07:09 | Mon 2 Nov 07:08 |
 | 2026-09-30 (Wed) | Thu 1 Oct 07:08 | Thu 1 Oct 07:07 |
 | 2026-08-31 (Mon) | Tue 1 Sep 07:08 | Tue 1 Sep 07:07 |
@@ -171,14 +171,15 @@ Since August 2026 both files arrive around 07:07–07:09 WIB on the first calend
 
 - **Bytes:** for four files, the SHA-1 of today's download (base32) matches the Wayback Machine's digest for an older capture of the same file name:
 
-  | File | Wayback capture (old URL) | Digest |
-  |---|---|---|
-  | `StatisEfek20231031.txt.zip` | 2023-12-15, `www.ksei.co.id/Download/` | `CLRGPYIWY6HY2NUYLIVFRMTA76WBR3ZV` |
+  | File                         | Wayback capture (old URL)                                                         | Digest                             |
+  | ---------------------------- | --------------------------------------------------------------------------------- | ---------------------------------- |
+  | `StatisEfek20231031.txt.zip` | 2023-12-15, `www.ksei.co.id/Download/`                                            | `CLRGPYIWY6HY2NUYLIVFRMTA76WBR3ZV` |
   | `StatisEfek20250131.txt.zip` | 2025-07-15, `www.ksei.co.id/Download/` and 2026-02-06, `web.ksei.co.id/Download/` | `5APLS6RI4PPHQBAWAUDTKYIQ7MGIV5QB` |
-  | `BalanceposEfek20251230.zip` | 2026-02-02, `web.ksei.co.id/Download/` | `N7FKS23DCYZPPDL2Z56JBI4UWZ44SLD4` |
-  | `StatisEfek20260130.txt.zip` | 2026-02-10, `web.ksei.co.id/Download/` | `75H3WKRP3D363WZ57Y3BMD77ISSYU4ZS` |
+  | `BalanceposEfek20251230.zip` | 2026-02-02, `web.ksei.co.id/Download/`                                            | `N7FKS23DCYZPPDL2Z56JBI4UWZ44SLD4` |
+  | `StatisEfek20260130.txt.zip` | 2026-02-10, `web.ksei.co.id/Download/`                                            | `75H3WKRP3D363WZ57Y3BMD77ISSYU4ZS` |
 
   So these four files were not rewritten across the move, one of them for nearly three years. This sample cannot rule out a correction elsewhere.
+
 - **URLs:** the path is not stable over years. Until at least February 2026 the files lived at `https://www.ksei.co.id/Download/<name>` and `https://web.ksei.co.id/Download/<name>`. Today `https://www.ksei.co.id/Download/...` returns 404. `https://web.ksei.co.id/Download/StatisEfek20261030.txt.zip` still returns the same 143,181 bytes from a separate Apache server (`180.92.214.50`), with an Apache-style `ETag` (`"22f4d-65f3f9ff537b4"`) and `Last-Modified: Sun, 01 Nov 2026 23:45:31 GMT`. That host looks like the legacy site, still fed with new files. The file name stayed the same across the move.
 - **For the archive:** key each stored object by the period-end date and series, and keep the source URL, `ETag` and `Last-Modified` beside it. A changed `ETag` on a known name is a republish. The name, not the full URL, is the stable identity.
 

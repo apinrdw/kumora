@@ -31,7 +31,7 @@ Source: [Configuration](https://developers.cloudflare.com/workers/ci-cd/builds/c
 
 - A build runs an optional **build command**, then a **deploy command**. The deploy command defaults to `npx wrangler deploy`, "but you may customize this command". The examples include `npm run deploy`. [Advanced setups](https://developers.cloudflare.com/workers/ci-cd/builds/advanced-setups/) (Sep 22, 2026) also shows `turbo deploy -F product-service`. The command does not have to be Wrangler.
 - Non-production branches run a **preview command** instead. It defaults to `npx wrangler preview` and "Like the build and deploy commands, it can be customized."
-- One caveat. On [Build branches](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/) (Oct 1, 2026), the one-time switch that moves *existing* Workers onto Worker Previews says "Custom commands must invoke `npx wrangler preview`". For new Workers the docs set no such rule. A Worker created now should not need the switch. Confirm this on the throwaway deploy.
+- One caveat. On [Build branches](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/) (Oct 1, 2026), the one-time switch that moves _existing_ Workers onto Worker Previews says "Custom commands must invoke `npx wrangler preview`". For new Workers the docs set no such rule. A Worker created now should not need the switch. Confirm this on the throwaway deploy.
 - Workers Builds "does not honor the configurations set in Custom Builds" in the Wrangler config. That does not matter here.
 - Builds have a 20-minute timeout and 8 GB of memory. Free accounts get 1 concurrent build and 2 vCPU; Paid accounts get 6 concurrent builds and 4 vCPU. Each Worker can hold 64 build variables of up to 5 KB each. Source: [Limits & pricing](https://developers.cloudflare.com/workers/ci-cd/builds/limits-and-pricing/) (Oct 28, 2026).
 
@@ -76,6 +76,7 @@ Sources: [Configuration § API token](https://developers.cloudflare.com/workers/
   - User: User Details read, Memberships read.
 
   The docs **do not say** whether that token reaches the build as `CLOUDFLARE_API_TOKEN`. Even if it does, it lacks Secrets Store access. `Cloudflare.state()` needs Secrets Store access, because it reads the state-store token and encryption key "from the Secrets Store on every run".
+
 - Workable path: make a scoped token yourself and add it under Settings › Build › Build variables and secrets, with `CLOUDFLARE_ACCOUNT_ID`. Alchemy's [CI](https://alchemy.run/environments/ci) guide shows a `stacks/github.ts` that mints such a token with `Cloudflare.ApiToken.AccountApiToken`. For this setup, its `GitHub.Secret` sink would have to become a manual paste into Workers Builds. No Alchemy resource writes Workers Builds build secrets. The source tree under `packages/cloudflare/src` has no Workers Builds resource; the only `workersBuilds` reference is a Queue event-source type.
 - In CI, Alchemy fails if the state store does not exist yet: "In CI (`CI=true`) a missing store fails the run". Run `alchemy state bootstrap` once from a local profile before the first build.
 - Workers Builds accepts only user tokens for its own build token: "account-owned token support coming soon". A token you add as a build secret has no such limit, because Workers Builds never reads it.
@@ -89,6 +90,7 @@ Sources: [Alchemy Infisical](https://alchemy.run/environments/infisical), `packa
   - `INFISICAL_IDENTITY_ID`, plus an OIDC token that Alchemy detects or that you pass in `INFISICAL_OIDC_TOKEN`.
 
   It has **no client ID and secret path in CI**. Universal Auth client credentials work only through a local profile, and profiles are ignored when `CI=true`.
+
 - Alchemy detects OIDC only on Vercel, GitHub Actions, GitLab CI and GCP (`OidcToken.ts`). Workers Builds documents no OIDC token, so the `INFISICAL_IDENTITY_ID` route is closed.
 - That leaves `INFISICAL_TOKEN`. A Universal Auth access token expires. The default TTL is 30 days, and the login example shows 7200 s. Storing one token as a build secret means rotating it by hand. Two better options:
   - **Mint at build time (recommended).** Store `INFISICAL_CLIENT_ID` and `INFISICAL_CLIENT_SECRET` as build secrets. The Bun deploy script calls `POST /api/v1/auth/universal-auth/login`, sets `INFISICAL_TOKEN`, and then runs `alchemy deploy`. The client secret has an infinite TTL by default.

@@ -5,6 +5,7 @@ Oxlint and Oxfmt replace ESLint and Prettier: the same rule set lints the whole 
 Vite Plus was deferred: it re-aliases `vite` and adds a second task runner.
 
 Sites:
+
 - `vite.config.ts`
 
 Source: apinrdw/kumora-monorepo#3

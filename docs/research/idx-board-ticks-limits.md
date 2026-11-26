@@ -11,21 +11,23 @@ Research for [#488](https://github.com/apinrdw/kumora/issues/488), part of the m
   ```
 
   The page's own list of board members (`/secondary/get/SpecialMonitoringEffects/MonitoringEffectsHistorical`) agrees with it, so the radar can use either one as a check on the other. The `PapanPencatatan` field in `GetCompanyProfiles` (the #410 sector source) is **stale** for at least one code. Do not use it.
+
 - **Tick sizes:** Peraturan II-A, section VI.5.2 (Kep-00158/BEI/10-2026). The table matches the map's note: Rp1 below Rp200, Rp2 from Rp200, Rp5 from Rp500, Rp10 from Rp2,000, Rp25 from Rp5,000. It has no end date. VI.5.4 says the tick follows the price of each order in real time, so one book can use two tick sizes when it straddles a band edge.
 - **Price limits now:** Kep-00158/BEI/10-2026, issued and in force on 2026-10-20, replaced Kep-00157 (2026-10-19) after one day. Until 2026-12-31:
 
   | Reference price | Upper (ARA) | Lower (ARB) |
-  |---|---|---|
-  | Rp1–Rp10 | +Rp1 | −Rp1 |
-  | Rp11–Rp14 | +35% | **−Rp1** |
-  | Rp15–Rp200 | +35% | −7% |
-  | >Rp200–Rp5,000 | +25% | −7% |
-  | >Rp5,000 | +20% | −7% |
+  | --------------- | ----------- | ----------- |
+  | Rp1–Rp10        | +Rp1        | −Rp1        |
+  | Rp11–Rp14       | +35%        | **−Rp1**    |
+  | Rp15–Rp200      | +35%        | −7%         |
+  | >Rp200–Rp5,000  | +25%        | −7%         |
+  | >Rp5,000        | +20%        | −7%         |
 
   The press reported "7% for everything above Rp10". The decree itself gives the Rp11–14 band a Rp1 lower limit. Special Monitoring Board codes follow their own rule (Peraturan II-X): ±Rp1 for Rp1–10 and ±10% above Rp10. The 7% change does not touch them.
+
 - **From 2027-01-01**, unless IDX extends the transition, the permanent II-A table VI.7.1.1 applies. It is symmetric: ±35% for Rp11–200, ±25% for >Rp200–5,000, ±20% above Rp5,000, and ±Rp1 for Rp1–10.
 - **Minimum price:** Rp1 on the regular, cash and negotiated markets (II-A VI.6 and VII.3; II-X II.1.4). There is no end date.
-- **Relay frames:** no frame the relay receives carries a code's notation or its listing board. The `board` and `market_board` fields that it decodes are the *market* (RG regular, TN cash, NG negotiated), which is a different thing. The radar has to join the IDX list.
+- **Relay frames:** no frame the relay receives carries a code's notation or its listing board. The `board` and `market_board` fields that it decodes are the _market_ (RG regular, TN cash, NG negotiated), which is a different thing. The radar has to join the IDX list.
 - **Recommendation:** a Production-only daily cron reads the special-notation API and stores `code -> notations`. The tick and limit tables are code constants, each carrying a `Decision:` comment that cites its decree and its end date. Rp1–10 codes need no list, because the radar can judge them from the live previous close.
 
 ## Special Monitoring Board membership
@@ -34,11 +36,11 @@ Research for [#488](https://github.com/apinrdw/kumora/issues/488), part of the m
 
 All three were read on 2026-11-18. Each is unauthenticated JSON on `www.idx.id`, which has no Cloudflare challenge.
 
-| Source | Members | Notes |
-|---|---|---|
-| `/secondary/get/ListedCompanies/SpecialNotation/SpecialNotation` (the "Notasi Khusus" page) | 59 with `X` | One row per code that has any notation: `EmitenCode`, `Notation` (`"E,X"`), `Remarks` (a 30-character positional string), `Date`, and `Description`. `GetNotationLatestDate` returned `2026-11-17T15:00:00`, so the data runs one trading day behind. Also reachable at `/primary/ListedCompany/GetSpecialNotation?start=0&length=9999`, which returns the same rows. |
-| `/secondary/get/SpecialMonitoringEffects/MonitoringEffectsHistorical?startDate=20200101&endDate=<today>&View=Export&length=9999&start=0` (the "Efek Pada Papan Pemantauan Khusus" page) | 59 open rows (`TanggalKeluar: null`) | One row per entry: `Kode`, `Nama`, `Kriteria` (`"2, 5"`), `TanggalMasuk`, `TanggalKeluar`. `View=Table` filters by entry date, so a 3-year window missed `CMPP` (in since 2022-05-31). Use a start date before 2021. 467 rows of history. |
-| `GetCompanyProfiles` `PapanPencatatan == "Watchlist"` (and `GetSecuritiesStock` `ListingBoard`) | 60 | Includes `BRRC`. The history shows BRRC entered on 2025-02-03 and left on 2025-02-12. It has no `X` notation, it traded 2.8M shares on 2026-11-17, and its `Remarks` board digit reads Development. The profile field is stale. |
+| Source                                                                                                                                                                                  | Members                              | Notes                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/secondary/get/ListedCompanies/SpecialNotation/SpecialNotation` (the "Notasi Khusus" page)                                                                                             | 59 with `X`                          | One row per code that has any notation: `EmitenCode`, `Notation` (`"E,X"`), `Remarks` (a 30-character positional string), `Date`, and `Description`. `GetNotationLatestDate` returned `2026-11-17T15:00:00`, so the data runs one trading day behind. Also reachable at `/primary/ListedCompany/GetSpecialNotation?start=0&length=9999`, which returns the same rows. |
+| `/secondary/get/SpecialMonitoringEffects/MonitoringEffectsHistorical?startDate=20200101&endDate=<today>&View=Export&length=9999&start=0` (the "Efek Pada Papan Pemantauan Khusus" page) | 59 open rows (`TanggalKeluar: null`) | One row per entry: `Kode`, `Nama`, `Kriteria` (`"2, 5"`), `TanggalMasuk`, `TanggalKeluar`. `View=Table` filters by entry date, so a 3-year window missed `CMPP` (in since 2022-05-31). Use a start date before 2021. 467 rows of history.                                                                                                                             |
+| `GetCompanyProfiles` `PapanPencatatan == "Watchlist"` (and `GetSecuritiesStock` `ListingBoard`)                                                                                         | 60                                   | Includes `BRRC`. The history shows BRRC entered on 2025-02-03 and left on 2025-02-12. It has no `X` notation, it traded 2.8M shares on 2026-11-17, and its `Remarks` board digit reads Development. The profile field is stale.                                                                                                                                       |
 
 The first two sources match exactly: the same 59 codes.
 
@@ -73,13 +75,13 @@ The map's note says these codes "show no bid or offer, only IEP/IEV". Peraturan 
 
 Source: Peraturan II-A, Lampiran Kep-00157/BEI/10-2026 as amended by Kep-00158/BEI/10-2026, section VI.5. The PDF is `https://www.idx.co.id/Media/stumk2gi/signed_peraturan_nomor_ii_a_tentang_perdagangan_efek_bersifat_ekuitas-261020.pdf`, which is also served without a challenge at the same path on `www.idx.id`. It is listed by `GET https://www.idx.id/primary/Regulation/GetTradingRegulations?pageSize=100&indexFrom=0&lang=id`.
 
-| Price | Tick | Maximum step per order change |
-|---|---|---|
-| < Rp200 | Rp1 | Rp10 |
-| Rp200 to < Rp500 | Rp2 | Rp20 |
-| Rp500 to < Rp2,000 | Rp5 | Rp50 |
-| Rp2,000 to < Rp5,000 | Rp10 | Rp100 |
-| ≥ Rp5,000 | Rp25 | Rp250 |
+| Price                | Tick | Maximum step per order change |
+| -------------------- | ---- | ----------------------------- |
+| < Rp200              | Rp1  | Rp10                          |
+| Rp200 to < Rp500     | Rp2  | Rp20                          |
+| Rp500 to < Rp2,000   | Rp5  | Rp50                          |
+| Rp2,000 to < Rp5,000 | Rp10 | Rp100                         |
+| ≥ Rp5,000            | Rp25 | Rp250                         |
 
 - VI.5.2 states the bands in terms of the "Harga Previous". VI.5.4 then says the tick and the maximum step change "secara seketika (real time)" with the price of the order entered. So the tick at a level depends on that level's price. Spread in ticks across a band edge (for example 498 bid, 500 offer) has to count Rp2 steps below 500 and Rp5 steps from 500.
 - The table applies on the regular and cash markets. The maximum step does not apply to warrants (VI.5.3) or to call-auction trading on the Special Monitoring Board (II-X II.1.6).
@@ -92,12 +94,12 @@ Source: Peraturan II-A, Lampiran Kep-00157/BEI/10-2026 as amended by Kep-00158/B
 Source: Kep-00158/BEI/10-2026, issued and in force on 2026-10-20, points 2 and 3. It revoked Kep-00157 of 2026-10-19 (point 4). The reference price (Acuan Harga, VI.7.3) is the previous close, the theoretical price after a corporate action, the IPO price on a listing day, or an appraiser's fair value.
 
 | Reference price | Rejected if above | Rejected if below |
-|---|---|---|
-| Rp1–Rp10 | reference + Rp1 | reference − Rp1 |
-| Rp11–Rp14 | reference + 35% | reference − Rp1 |
-| Rp15–Rp200 | reference + 35% | reference − 7% |
-| >Rp200–Rp5,000 | reference + 25% | reference − 7% |
-| >Rp5,000 | reference + 20% | reference − 7% |
+| --------------- | ----------------- | ----------------- |
+| Rp1–Rp10        | reference + Rp1   | reference − Rp1   |
+| Rp11–Rp14       | reference + 35%   | reference − Rp1   |
+| Rp15–Rp200      | reference + 35%   | reference − 7%    |
+| >Rp200–Rp5,000  | reference + 25%   | reference − 7%    |
+| >Rp5,000        | reference + 20%   | reference − 7%    |
 
 There is also an absolute floor: any price below Rp1 is rejected (VI.7.1.1.1 and VI.6).
 

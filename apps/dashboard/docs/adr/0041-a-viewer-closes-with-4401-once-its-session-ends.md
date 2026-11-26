@@ -5,6 +5,7 @@ A session that expires unread deletes no row, so the delete hook never fires for
 The trade-off: an idle expired socket stays open, served nothing, until its next serve, and a session renewed after the upgrade still closes at the end the gate saw, so the page signs in again.
 
 Sites:
+
 - `apps/dashboard/src/server/market-live/gate.ts`
 - `apps/dashboard/src/server/market-live/trading-day.ts`
 

@@ -6,20 +6,20 @@ Wayfinder task [#599](https://github.com/apinrdw/kumora/issues/599), under map [
 
 Every starting value holds. At these values a busy code gets about one order flow event every 90 minutes outside the open, far under the target of one per 10 minutes, and the market-wide feed after the open averages 1.7 events a minute. Two things the thresholds can't fix are in [Surprises](#surprises): a pile-up at the session's first Exhaustion check, and a recurring relay gap that blocks most afternoon Delta divergences.
 
-| Threshold | Default | Why |
-| --- | --- | --- |
-| Exhaustion push length | **5 minutes** | At 3 or 8 minutes, busy-code rates change by 10% or less. 5 matches the 5-minute push the owner described, and the first check comes at 09:05. |
-| Exhaustion lots ratio | **½** of the push's busiest minute | Almost inert. At ⅓, busy codes lose 1–6% of events, and at ⅔ they gain 2–3%. In 54% of busy events the latest minute traded under a tenth of the busiest push minute's lots, so any ratio from ⅓ to ⅔ passes them. |
-| Exhaustion range ratio | **½** of the push's widest minute | This is the lever. At ⅓, busy events fall by two thirds (0.63 → 0.21 an hour after the open). Ranges are whole ticks and usually small, so ⅓ mostly turns "2 ticks, then 1" into "2 ticks, then 0". At ⅔, nothing changes. Keep ½. If the owner wants fewer events, use the push minimum below instead. |
-| Exhaustion "near" distance | **2 ticks** | At 1 tick, open events fall by 16% and later ones by 6%. At 3 ticks, they rise by 9% and 2%. No reason to move it. |
-| Exhaustion floor | **Rp100 M** on the busiest push minute's aggressor value | Busy codes barely notice it: at Rp250 M they lose 3–6%. It decides mid and quiet codes: at Rp250 M, mid codes lose 36% after the open (46% at it) and quiet codes 73%. At Rp50 M, quiet codes nearly double. Rp100 M matches the book events' floor. |
-| Divergence gap | **10 minutes** | At 5 minutes, busy-code events at the open rise by half (0.10 → 0.15 an hour), with no change after the open. At 20 minutes, the open's events nearly vanish (0.02), because most open divergences compare against the auction high or a 09:0x high. |
-| Divergence pullback | **3 ticks** | At 2 ticks, rates rise slightly. At 5 ticks, they fall by 40–60%. 3 ticks separates the two highs without losing the cases on cheap codes, where 3 ticks is a few percent. |
-| Divergence margin | **Rp100 M** | Busy codes don't notice it: their cumulative delta moves by tens of thousands of lots, so a disagreement is always over Rp250 M. For mid and quiet codes, it keeps the event off small disagreements: at 0, quiet events at the open rise sixfold (0.01 → 0.06 an hour). |
-| Failed break level age | **10 minutes** | At 5 minutes, busy-code events at the open double (0.10 → 0.23 an hour) because the 09:0x highs become levels by 09:10. At 20 minutes, open events nearly vanish. Keep 10, which matches Divergence. |
-| Failed break distance | **1 tick** (confirmed) | 79 of 121 failed breaks went exactly 1 tick past the level, and 25 went 2. At 2 ticks, busy-code events fall by three quarters or more. A 1-tick poke with Rp100 M behind it is the most common real case. |
-| Failed break value | **Rp100 M** beyond the level | At 0, mid-code events rise about fivefold, and quiet codes go from none to 0.04–0.07 an hour. At Rp250 M, busy events lose a quarter to a third. Rp100 M is the shared floor. |
-| Failed break return | **3 minutes** | At 2, busy events after the open halve. At 5, they rise by half. Only 13% of breaks of an aged level come back inside within 3 minutes. The rest held. |
+| Threshold                  | Default                                                  | Why                                                                                                                                                                                                                                                                                                     |
+| -------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exhaustion push length     | **5 minutes**                                            | At 3 or 8 minutes, busy-code rates change by 10% or less. 5 matches the 5-minute push the owner described, and the first check comes at 09:05.                                                                                                                                                          |
+| Exhaustion lots ratio      | **½** of the push's busiest minute                       | Almost inert. At ⅓, busy codes lose 1–6% of events, and at ⅔ they gain 2–3%. In 54% of busy events the latest minute traded under a tenth of the busiest push minute's lots, so any ratio from ⅓ to ⅔ passes them.                                                                                      |
+| Exhaustion range ratio     | **½** of the push's widest minute                        | This is the lever. At ⅓, busy events fall by two thirds (0.63 → 0.21 an hour after the open). Ranges are whole ticks and usually small, so ⅓ mostly turns "2 ticks, then 1" into "2 ticks, then 0". At ⅔, nothing changes. Keep ½. If the owner wants fewer events, use the push minimum below instead. |
+| Exhaustion "near" distance | **2 ticks**                                              | At 1 tick, open events fall by 16% and later ones by 6%. At 3 ticks, they rise by 9% and 2%. No reason to move it.                                                                                                                                                                                      |
+| Exhaustion floor           | **Rp100 M** on the busiest push minute's aggressor value | Busy codes barely notice it: at Rp250 M they lose 3–6%. It decides mid and quiet codes: at Rp250 M, mid codes lose 36% after the open (46% at it) and quiet codes 73%. At Rp50 M, quiet codes nearly double. Rp100 M matches the book events' floor.                                                    |
+| Divergence gap             | **10 minutes**                                           | At 5 minutes, busy-code events at the open rise by half (0.10 → 0.15 an hour), with no change after the open. At 20 minutes, the open's events nearly vanish (0.02), because most open divergences compare against the auction high or a 09:0x high.                                                    |
+| Divergence pullback        | **3 ticks**                                              | At 2 ticks, rates rise slightly. At 5 ticks, they fall by 40–60%. 3 ticks separates the two highs without losing the cases on cheap codes, where 3 ticks is a few percent.                                                                                                                              |
+| Divergence margin          | **Rp100 M**                                              | Busy codes don't notice it: their cumulative delta moves by tens of thousands of lots, so a disagreement is always over Rp250 M. For mid and quiet codes, it keeps the event off small disagreements: at 0, quiet events at the open rise sixfold (0.01 → 0.06 an hour).                                |
+| Failed break level age     | **10 minutes**                                           | At 5 minutes, busy-code events at the open double (0.10 → 0.23 an hour) because the 09:0x highs become levels by 09:10. At 20 minutes, open events nearly vanish. Keep 10, which matches Divergence.                                                                                                    |
+| Failed break distance      | **1 tick** (confirmed)                                   | 79 of 121 failed breaks went exactly 1 tick past the level, and 25 went 2. At 2 ticks, busy-code events fall by three quarters or more. A 1-tick poke with Rp100 M behind it is the most common real case.                                                                                              |
+| Failed break value         | **Rp100 M** beyond the level                             | At 0, mid-code events rise about fivefold, and quiet codes go from none to 0.04–0.07 an hour. At Rp250 M, busy events lose a quarter to a third. Rp100 M is the shared floor.                                                                                                                           |
+| Failed break return        | **3 minutes**                                            | At 2, busy events after the open halve. At 5, they rise by half. Only 13% of breaks of an aged level come back inside within 3 minutes. The rest held.                                                                                                                                                  |
 
 Unchanged from the decisions: checks run at each closed one-minute candle in continuous trading, the day's high and low include the auctions, and cumulative delta runs all day.
 
@@ -36,14 +36,14 @@ The data is five sealed days, 2026-11-19, -18, -17, -16 (Monday to Thursday) and
 
 The table gives events per code per hour, high side + low side, averaged over the tier. "Open" is an event on a candle labelled 09:00–09:29. "Rest" is all other continuous minutes of Sessions 1 and 2 (290 minutes Monday to Thursday, 230 on Friday).
 
-| Window | Tier | Exhaustion | Delta divergence | Failed break | Total an hour | Total per 10 min |
-| --- | --- | --- | --- | --- | --- | --- |
-| Open 09:00–09:29 | busy | 2.98 (1.83 + 1.15) | 0.10 (0.10 + 0.01) | 0.10 (0.04 + 0.06) | **3.19** | 0.53 |
-| | mid | 1.53 (0.89 + 0.64) | 0.05 (0.04 + 0.01) | 0.03 (0.01 + 0.02) | **1.61** | 0.27 |
-| | quiet | 0.38 (0.19 + 0.19) | 0.01 (0.01 + 0.00) | 0.00 | **0.39** | 0.07 |
-| Rest | busy | 0.63 (0.26 + 0.37) | 0.02 (0.02 + 0.00) | 0.04 (0.02 + 0.02) | **0.69** | 0.11 |
-| | mid | 0.33 (0.18 + 0.15) | 0.01 (0.01 + 0.00) | 0.01 (0.01 + 0.00) | **0.35** | 0.06 |
-| | quiet | 0.11 (0.05 + 0.06) | 0.00 | 0.00 | **0.12** | 0.02 |
+| Window           | Tier  | Exhaustion         | Delta divergence   | Failed break       | Total an hour | Total per 10 min |
+| ---------------- | ----- | ------------------ | ------------------ | ------------------ | ------------- | ---------------- |
+| Open 09:00–09:29 | busy  | 2.98 (1.83 + 1.15) | 0.10 (0.10 + 0.01) | 0.10 (0.04 + 0.06) | **3.19**      | 0.53             |
+|                  | mid   | 1.53 (0.89 + 0.64) | 0.05 (0.04 + 0.01) | 0.03 (0.01 + 0.02) | **1.61**      | 0.27             |
+|                  | quiet | 0.38 (0.19 + 0.19) | 0.01 (0.01 + 0.00) | 0.00               | **0.39**      | 0.07             |
+| Rest             | busy  | 0.63 (0.26 + 0.37) | 0.02 (0.02 + 0.00) | 0.04 (0.02 + 0.02) | **0.69**      | 0.11             |
+|                  | mid   | 0.33 (0.18 + 0.15) | 0.01 (0.01 + 0.00) | 0.01 (0.01 + 0.00) | **0.35**      | 0.06             |
+|                  | quiet | 0.11 (0.05 + 0.06) | 0.00               | 0.00               | **0.12**      | 0.02             |
 
 - **Busy codes stay readable.** The busiest busy code-day had 11 events outside the open (0.4 per 10 minutes), and the 90th percentile had 7. The target of at most 1 per 10 minutes is met with room to spare.
 - **Exhaustion is 94% of all events.** Delta divergence and Failed break fire about once per busy code every two to three days.
@@ -64,51 +64,51 @@ One parameter changed at a time. Each cell is that kind's events per code per ho
 
 **Exhaustion**
 
-| Set | busy | mid | quiet | market a minute | busiest |
-| --- | --- | --- | --- | --- | --- |
-| defaults | 2.98 / 0.63 | 1.53 / 0.33 | 0.38 / 0.11 | 1.71 | 115 |
-| lots ⅓ | 2.81 / 0.62 | 1.48 / 0.32 | 0.38 / 0.11 | 1.69 | 110 |
-| lots ⅔ | 3.06 / 0.64 | 1.57 / 0.33 | 0.38 / 0.11 | 1.72 | 117 |
-| range ⅓ | 0.87 / 0.21 | 0.91 / 0.24 | 0.34 / 0.09 | 1.10 | 54 |
-| range ⅔ | 3.17 / 0.64 | 1.57 / 0.34 | 0.39 / 0.11 | 1.75 | 119 |
-| push 3 | 2.77 / 0.57 | 1.39 / 0.28 | 0.32 / 0.09 | 1.49 | 74 |
-| push 8 | 2.69 / 0.65 | 1.56 / 0.36 | 0.39 / 0.12 | 1.84 | 105 |
-| near 1 tick | 2.51 / 0.59 | 1.31 / 0.30 | 0.35 / 0.10 | 1.59 | 79 |
-| near 3 ticks | 3.26 / 0.64 | 1.63 / 0.34 | 0.39 / 0.11 | 1.75 | 134 |
-| floor Rp50 M | 2.99 / 0.64 | 1.97 / 0.39 | 0.82 / 0.20 | 2.17 | 141 |
-| floor Rp250 M | 2.80 / 0.61 | 0.82 / 0.21 | 0.11 / 0.03 | 1.21 | 69 |
-| floor Rp500 M | 2.33 / 0.55 | 0.38 / 0.10 | 0.02 / 0.01 | 0.84 | 38 |
-| *push widest ≥ 3 ticks (proposed)* | 1.42 / 0.15 | 0.54 / 0.08 | 0.14 / 0.03 | 0.51 | 69 |
-| *push skips the session's first minute* | 2.62 / 0.63 | 1.35 / 0.33 | 0.31 / 0.11 | 1.70 | 70 |
-| *push skips the first 5 minutes* | 1.63 / 0.62 | 0.87 / 0.32 | 0.23 / 0.11 | 1.68 | 34 |
+| Set                                     | busy        | mid         | quiet       | market a minute | busiest |
+| --------------------------------------- | ----------- | ----------- | ----------- | --------------- | ------- |
+| defaults                                | 2.98 / 0.63 | 1.53 / 0.33 | 0.38 / 0.11 | 1.71            | 115     |
+| lots ⅓                                  | 2.81 / 0.62 | 1.48 / 0.32 | 0.38 / 0.11 | 1.69            | 110     |
+| lots ⅔                                  | 3.06 / 0.64 | 1.57 / 0.33 | 0.38 / 0.11 | 1.72            | 117     |
+| range ⅓                                 | 0.87 / 0.21 | 0.91 / 0.24 | 0.34 / 0.09 | 1.10            | 54      |
+| range ⅔                                 | 3.17 / 0.64 | 1.57 / 0.34 | 0.39 / 0.11 | 1.75            | 119     |
+| push 3                                  | 2.77 / 0.57 | 1.39 / 0.28 | 0.32 / 0.09 | 1.49            | 74      |
+| push 8                                  | 2.69 / 0.65 | 1.56 / 0.36 | 0.39 / 0.12 | 1.84            | 105     |
+| near 1 tick                             | 2.51 / 0.59 | 1.31 / 0.30 | 0.35 / 0.10 | 1.59            | 79      |
+| near 3 ticks                            | 3.26 / 0.64 | 1.63 / 0.34 | 0.39 / 0.11 | 1.75            | 134     |
+| floor Rp50 M                            | 2.99 / 0.64 | 1.97 / 0.39 | 0.82 / 0.20 | 2.17            | 141     |
+| floor Rp250 M                           | 2.80 / 0.61 | 0.82 / 0.21 | 0.11 / 0.03 | 1.21            | 69      |
+| floor Rp500 M                           | 2.33 / 0.55 | 0.38 / 0.10 | 0.02 / 0.01 | 0.84            | 38      |
+| _push widest ≥ 3 ticks (proposed)_      | 1.42 / 0.15 | 0.54 / 0.08 | 0.14 / 0.03 | 0.51            | 69      |
+| _push skips the session's first minute_ | 2.62 / 0.63 | 1.35 / 0.33 | 0.31 / 0.11 | 1.70            | 70      |
+| _push skips the first 5 minutes_        | 1.63 / 0.62 | 0.87 / 0.32 | 0.23 / 0.11 | 1.68            | 34      |
 
 **Delta divergence**
 
-| Set | busy | mid | quiet | market a minute | busiest |
-| --- | --- | --- | --- | --- | --- |
-| defaults | 0.10 / 0.02 | 0.05 / 0.01 | 0.01 / 0.00 | 1.71 | 115 |
-| gap 5 min | 0.15 / 0.02 | 0.06 / 0.01 | 0.01 / 0.00 | 1.71 | 116 |
-| gap 20 min | 0.02 / 0.02 | 0.01 / 0.01 | 0.00 / 0.00 | 1.70 | 115 |
-| pullback 2 ticks | 0.10 / 0.03 | 0.06 / 0.01 | 0.02 / 0.01 | 1.73 | 115 |
-| pullback 5 ticks | 0.06 / 0.01 | 0.02 / 0.00 | 0.01 / 0.00 | 1.68 | 115 |
-| margin Rp50 M | 0.10 / 0.02 | 0.05 / 0.01 | 0.02 / 0.01 | 1.72 | 115 |
-| margin Rp250 M | 0.10 / 0.02 | 0.02 / 0.01 | 0.00 / 0.00 | 1.69 | 115 |
-| margin 0 | 0.10 / 0.02 | 0.08 / 0.01 | 0.06 / 0.01 | 1.79 | 115 |
-| *compare across relay gaps* | 0.14 / 0.06 | 0.06 / 0.04 | 0.02 / 0.01 | 1.85 | 115 |
+| Set                         | busy        | mid         | quiet       | market a minute | busiest |
+| --------------------------- | ----------- | ----------- | ----------- | --------------- | ------- |
+| defaults                    | 0.10 / 0.02 | 0.05 / 0.01 | 0.01 / 0.00 | 1.71            | 115     |
+| gap 5 min                   | 0.15 / 0.02 | 0.06 / 0.01 | 0.01 / 0.00 | 1.71            | 116     |
+| gap 20 min                  | 0.02 / 0.02 | 0.01 / 0.01 | 0.00 / 0.00 | 1.70            | 115     |
+| pullback 2 ticks            | 0.10 / 0.03 | 0.06 / 0.01 | 0.02 / 0.01 | 1.73            | 115     |
+| pullback 5 ticks            | 0.06 / 0.01 | 0.02 / 0.00 | 0.01 / 0.00 | 1.68            | 115     |
+| margin Rp50 M               | 0.10 / 0.02 | 0.05 / 0.01 | 0.02 / 0.01 | 1.72            | 115     |
+| margin Rp250 M              | 0.10 / 0.02 | 0.02 / 0.01 | 0.00 / 0.00 | 1.69            | 115     |
+| margin 0                    | 0.10 / 0.02 | 0.08 / 0.01 | 0.06 / 0.01 | 1.79            | 115     |
+| _compare across relay gaps_ | 0.14 / 0.06 | 0.06 / 0.04 | 0.02 / 0.01 | 1.85            | 115     |
 
 **Failed break**
 
-| Set | busy | mid | quiet | market a minute | busiest |
-| --- | --- | --- | --- | --- | --- |
-| defaults | 0.10 / 0.04 | 0.03 / 0.01 | 0.00 / 0.00 | 1.71 | 115 |
-| age 5 min | 0.23 / 0.05 | 0.07 / 0.01 | 0.00 / 0.00 | 1.73 | 116 |
-| age 20 min | 0.02 / 0.03 | 0.01 / 0.01 | 0.00 / 0.00 | 1.70 | 115 |
-| return 2 min | 0.09 / 0.02 | 0.02 / 0.01 | 0.00 / 0.00 | 1.68 | 115 |
-| return 5 min | 0.16 / 0.06 | 0.05 / 0.02 | 0.00 / 0.01 | 1.76 | 115 |
-| value Rp50 M | 0.12 / 0.04 | 0.04 / 0.02 | 0.00 / 0.01 | 1.74 | 115 |
-| value Rp250 M | 0.07 / 0.03 | 0.02 / 0.00 | 0.00 / 0.00 | 1.67 | 115 |
-| value 0 | 0.16 / 0.06 | 0.14 / 0.05 | 0.07 / 0.04 | 2.10 | 115 |
-| 2 ticks past | 0.02 / 0.01 | 0.01 / 0.00 | 0.00 / 0.00 | 1.66 | 115 |
+| Set           | busy        | mid         | quiet       | market a minute | busiest |
+| ------------- | ----------- | ----------- | ----------- | --------------- | ------- |
+| defaults      | 0.10 / 0.04 | 0.03 / 0.01 | 0.00 / 0.00 | 1.71            | 115     |
+| age 5 min     | 0.23 / 0.05 | 0.07 / 0.01 | 0.00 / 0.00 | 1.73            | 116     |
+| age 20 min    | 0.02 / 0.03 | 0.01 / 0.01 | 0.00 / 0.00 | 1.70            | 115     |
+| return 2 min  | 0.09 / 0.02 | 0.02 / 0.01 | 0.00 / 0.00 | 1.68            | 115     |
+| return 5 min  | 0.16 / 0.06 | 0.05 / 0.02 | 0.00 / 0.01 | 1.76            | 115     |
+| value Rp50 M  | 0.12 / 0.04 | 0.04 / 0.02 | 0.00 / 0.01 | 1.74            | 115     |
+| value Rp250 M | 0.07 / 0.03 | 0.02 / 0.00 | 0.00 / 0.00 | 1.67            | 115     |
+| value 0       | 0.16 / 0.06 | 0.14 / 0.05 | 0.07 / 0.04 | 2.10            | 115     |
+| 2 ticks past  | 0.02 / 0.01 | 0.01 / 0.00 | 0.00 / 0.00 | 1.66            | 115     |
 
 Italic rows are rule changes, not in the decisions, measured to explain the surprises below.
 

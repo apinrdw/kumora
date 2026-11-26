@@ -3,6 +3,7 @@
 Each browser keeps its own watchlist in localStorage, not on the account, and the other per-user settings follow it: the Speaker toggle (off until turned on), the All codes tab's standout level (1% until picked), the chart settings under one key, the fill estimate order size (one amount per unit, so the Rupiah / Lots toggle goes back to the last amount in each), the order book radar's value floor, filters and Rank by, the last stock, and the book alerts' rules, chime and history. The e2e seeds or reloads these keys (`apps/e2e/tests/market-live-watchlist.spec.ts`, `apps/e2e/tests/market-live-footprint-controls.spec.ts`).
 
 Sites:
+
 - `apps/dashboard/src/components/market-live/use-watchlist.ts`
 - `apps/dashboard/src/components/market-live/speaker-toggle.tsx`
 - `apps/dashboard/src/components/market-live/all-codes.tsx`

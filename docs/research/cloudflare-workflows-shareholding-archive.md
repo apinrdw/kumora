@@ -14,20 +14,20 @@ Sources:
 
 From [Limits](https://developers.cloudflare.com/workflows/reference/limits/):
 
-| Limit | Workers Paid |
-| --- | --- |
-| Steps per instance | 10,000 by default, configurable up to 25,000. `step.sleep` does not count. |
-| Retries per step | 10,000 |
-| CPU per step | 30 s by default, up to 5 min through `limits.cpu_ms` (the Worker's CPU limit). |
-| Wall clock per step | Unlimited |
-| Non-stream step result | 1 MiB (2^20 bytes) |
-| Event payload (`params`) | 1 MiB |
-| Persisted state per instance | 1 GB, including streamed step outputs |
-| Subrequests | "10,000/request (default) / configurable up to 10 million" through `limits.subrequests` |
-| Concurrent instances per account | 50,000. `waiting` and `paused` instances don't count. |
-| Instance creation rate | 300/s per account, 100/s per Workflow |
-| Instance ID length | 100 characters, pattern `^[a-zA-Z0-9_][a-zA-Z0-9-_]*$` |
-| Completed instance state retention | 7 days by default, configurable up to 30 days |
+| Limit                              | Workers Paid                                                                            |
+| ---------------------------------- | --------------------------------------------------------------------------------------- |
+| Steps per instance                 | 10,000 by default, configurable up to 25,000. `step.sleep` does not count.              |
+| Retries per step                   | 10,000                                                                                  |
+| CPU per step                       | 30 s by default, up to 5 min through `limits.cpu_ms` (the Worker's CPU limit).          |
+| Wall clock per step                | Unlimited                                                                               |
+| Non-stream step result             | 1 MiB (2^20 bytes)                                                                      |
+| Event payload (`params`)           | 1 MiB                                                                                   |
+| Persisted state per instance       | 1 GB, including streamed step outputs                                                   |
+| Subrequests                        | "10,000/request (default) / configurable up to 10 million" through `limits.subrequests` |
+| Concurrent instances per account   | 50,000. `waiting` and `paused` instances don't count.                                   |
+| Instance creation rate             | 300/s per account, 100/s per Workflow                                                   |
+| Instance ID length                 | 100 characters, pattern `^[a-zA-Z0-9_][a-zA-Z0-9-_]*$`                                  |
+| Completed instance state retention | 7 days by default, configurable up to 30 days                                           |
 
 Default step config when none is given ([Sleeping and retrying](https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/)): `retries: { limit: 5, delay: 10000, backoff: "exponential" }` and `timeout: "10 minutes"`, per attempt. [Rules of Workflows](https://developers.cloudflare.com/workflows/build/rules-of-workflows/) says to keep step timeouts at 30 minutes or less.
 
@@ -97,6 +97,7 @@ Never return the xlsx bytes from a step.
   ```
 
   `apps/dashboard/src/worker.ts` then exports a class `ShareholdingArchive extends WorkflowEntrypoint` from `cloudflare:workers`, next to the Durable Object exports, and adds `scheduled` to the default export.
+
 - The Effect-native form, `Cloudflare.Workflow<Self>()(name, Effect.gen(...))` with `Cloudflare.Workflows.task`, requires an Effect-native `Worker` in its context (`WorkflowClass` in `Workflows/Workflow.ts`). The dashboard is an async Worker with a file `main`, so that form doesn't apply.
 - CPU and subrequest limits are Worker-level `limits` (`WorkerLimits`, `Workers/Worker.ts:80` and `:826`, typed from the Cloudflare API's `limits` with `cpuMs` and `subrequests`). They apply to every handler on the dashboard Worker, including `fetch`. Alchemy's `WorkflowLimits` only has `steps`.
 

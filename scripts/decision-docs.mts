@@ -320,9 +320,9 @@ export const checkDecisionDocs = Effect.fn("checkDecisionDocs")(function* (
   }
 
   // The backticked paths in the body's `Sites:` list, or nothing when the
-  // body has no list.
+  // body has no list. `vp fmt` sets the list off by a blank line.
   const sitesListed = (text: string) => {
-    const list = /^Sites:\n((?:- .*(?:\n|$))+)/m.exec(text)?.[1]
+    const list = /^Sites:\n\n?((?:- .*(?:\n|$))+)/m.exec(text)?.[1]
     return list === undefined
       ? undefined
       : [...list.matchAll(/`([^`]+)`/g)].flatMap(([, site]) =>

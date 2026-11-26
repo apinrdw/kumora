@@ -6,14 +6,14 @@ Research for [#101](https://github.com/apinrdw/kumora/issues/101), a child of th
 
 Oxlint 1.90 can express all five bans, and each can be scoped to a directory with `overrides`. Built-in rules cover four of them: imports, `process.exit`, `new Promise` and `async`. A `throw` ban needs a JS plugin. Oxlint has no `no-restricted-syntax`.
 
-| Ban | Built-in rule | Message names the fix? | Gaps found by testing |
-| --- | --- | --- | --- |
-| `node:fs`, `node:child_process` imports | `no-restricted-imports` (`paths` + `patterns.regex`) | Yes, as `help:` | none |
-| `process.exit` | `no-restricted-properties` (`object: "process"`, `property: "exit"`) | Yes, as `help:` | `globalThis.process.exit` is not caught |
-| `new Promise` | `no-restricted-globals` (`Promise`) | Yes, in the main message | Also flags `Promise.resolve`. Type positions (`Promise<T>`) are not flagged. |
-| `async` functions | `oxc/no-async-await` | **No.** The text is fixed: "async is not allowed". | none (declarations, arrows and methods are all caught) |
-| React `useState`/`useEffect`/`useMemo` | `no-restricted-imports` (`importNames`) + `no-restricted-properties` (`object: "React"`) | Yes, as `help:` | It rejects every `import * as React`. A default import (`R.useMemo`) gets through. |
-| `throw` | **none** | n/a | A JS plugin is needed |
+| Ban                                     | Built-in rule                                                                            | Message names the fix?                             | Gaps found by testing                                                              |
+| --------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `node:fs`, `node:child_process` imports | `no-restricted-imports` (`paths` + `patterns.regex`)                                     | Yes, as `help:`                                    | none                                                                               |
+| `process.exit`                          | `no-restricted-properties` (`object: "process"`, `property: "exit"`)                     | Yes, as `help:`                                    | `globalThis.process.exit` is not caught                                            |
+| `new Promise`                           | `no-restricted-globals` (`Promise`)                                                      | Yes, in the main message                           | Also flags `Promise.resolve`. Type positions (`Promise<T>`) are not flagged.       |
+| `async` functions                       | `oxc/no-async-await`                                                                     | **No.** The text is fixed: "async is not allowed". | none (declarations, arrows and methods are all caught)                             |
+| React `useState`/`useEffect`/`useMemo`  | `no-restricted-imports` (`importNames`) + `no-restricted-properties` (`object: "React"`) | Yes, as `help:`                                    | It rejects every `import * as React`. A default import (`R.useMemo`) gets through. |
+| `throw`                                 | **none**                                                                                 | n/a                                                | A JS plugin is needed                                                              |
 
 A local JS plugin rule of about 15 lines works like ESLint's `no-restricted-syntax` and covers all six bans with esquery selectors and custom messages. It works inside `overrides`. JS plugins are **alpha and not subject to semver** in 1.90.
 

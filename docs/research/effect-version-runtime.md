@@ -12,25 +12,25 @@ Research for [#15](https://github.com/apinrdw/kumora/issues/15), child of the ma
 
 ## 1. Which Effect major
 
-| Fact | Source |
-| --- | --- |
-| npm dist-tags: `latest` 4.1.2 (published 2026-11-02), `prev` 3.22.4. v3 still gets patches (3.22.4 came out 2026-10-22). | `npm view effect dist-tags time` |
-| `alchemy@2.0.0-beta.85` (the npm `latest` tag) has the peer dependencies `effect ^4.1.0`, `@effect/platform-bun ^4.1.0` and `@effect/platform-node ^4.1.0`. | `npm view alchemy@latest peerDependencies`; [`packages/alchemy/package.json`](https://github.com/alchemy-run/alchemy/blob/main/packages/alchemy/package.json) |
-| Alchemy's workspace catalog pins `effect: 4.1.0` and `@effect/vitest ^4.1.0`. | [`pnpm-workspace.yaml`](https://github.com/alchemy-run/alchemy/blob/main/pnpm-workspace.yaml) |
-| v4: "All Effect ecosystem packages now share a single version number and are released together." `@effect/platform`, `@effect/rpc` and `@effect/cluster` are merged into `effect`. The packages that stay separate are `@effect/platform-*`, `@effect/sql-*`, `@effect/ai-*`, `@effect/opentelemetry`, `@effect/atom-*` and `@effect/vitest`. | [`MIGRATION.md`](https://github.com/Effect-TS/effect/blob/main/MIGRATION.md) § Versioning, § Package Consolidation |
-| Modules such as `http`, `http-api`, `rpc`, `schema`, `sql` and `workers` are imported as `effect/<module>` but are marked `@stability unstable`: they can break in minor releases. | `MIGRATION.md` § Unstable Module System |
+| Fact                                                                                                                                                                                                                                                                                                                                          | Source                                                                                                                                                        |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| npm dist-tags: `latest` 4.1.2 (published 2026-11-02), `prev` 3.22.4. v3 still gets patches (3.22.4 came out 2026-10-22).                                                                                                                                                                                                                      | `npm view effect dist-tags time`                                                                                                                              |
+| `alchemy@2.0.0-beta.85` (the npm `latest` tag) has the peer dependencies `effect ^4.1.0`, `@effect/platform-bun ^4.1.0` and `@effect/platform-node ^4.1.0`.                                                                                                                                                                                   | `npm view alchemy@latest peerDependencies`; [`packages/alchemy/package.json`](https://github.com/alchemy-run/alchemy/blob/main/packages/alchemy/package.json) |
+| Alchemy's workspace catalog pins `effect: 4.1.0` and `@effect/vitest ^4.1.0`.                                                                                                                                                                                                                                                                 | [`pnpm-workspace.yaml`](https://github.com/alchemy-run/alchemy/blob/main/pnpm-workspace.yaml)                                                                 |
+| v4: "All Effect ecosystem packages now share a single version number and are released together." `@effect/platform`, `@effect/rpc` and `@effect/cluster` are merged into `effect`. The packages that stay separate are `@effect/platform-*`, `@effect/sql-*`, `@effect/ai-*`, `@effect/opentelemetry`, `@effect/atom-*` and `@effect/vitest`. | [`MIGRATION.md`](https://github.com/Effect-TS/effect/blob/main/MIGRATION.md) § Versioning, § Package Consolidation                                            |
+| Modules such as `http`, `http-api`, `rpc`, `schema`, `sql` and `workers` are imported as `effect/<module>` but are marked `@stability unstable`: they can break in minor releases.                                                                                                                                                            | `MIGRATION.md` § Unstable Module System                                                                                                                       |
 
 Conclusion: adopt v4. Pin the `effect` version exactly, or at least to a minor (`~4.1.x`), because the `http` and `rpc` modules that server code uses may break in minor releases.
 
 ## 2. Which repo and branch to vendor
 
-| Fact | Source |
-| --- | --- |
-| `Effect-TS/effect` has default branch `main`. `packages/effect/package.json` on `main` has version `4.1.2`. The root has `LLMS.md` (433 lines), `MIGRATION.md` and `ai-docs/`, and LLMS.md links into `ai-docs/src/**`. | `gh api repos/Effect-TS/effect/contents` |
-| The `effect-smol` README: "Effect V4 Has Moved. This repository is archived and read-only… V4 (`main`), V3 (`v3`)". | [`Effect-TS/effect-smol` README](https://github.com/Effect-TS/effect-smol) |
+| Fact                                                                                                                                                                                                                                                                                                               | Source                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Effect-TS/effect` has default branch `main`. `packages/effect/package.json` on `main` has version `4.1.2`. The root has `LLMS.md` (433 lines), `MIGRATION.md` and `ai-docs/`, and LLMS.md links into `ai-docs/src/**`.                                                                                            | `gh api repos/Effect-TS/effect/contents`                                                                                                      |
+| The `effect-smol` README: "Effect V4 Has Moved. This repository is archived and read-only… V4 (`main`), V3 (`v3`)".                                                                                                                                                                                                | [`Effect-TS/effect-smol` README](https://github.com/Effect-TS/effect-smol)                                                                    |
 | The blog post uses `git subtree add --prefix=repos/effect https://github.com/Effect-TS/effect.git main --squash` (and the matching `pull`). It also says: "If you've created a subtree for Effect v4, you can also explicitly tell the agent to always read @repos/effect/LLMS.md before writing any Effect code." | [effect.website blog](https://effect.website/blog/the-one-weird-git-trick-that-makes-coding-agents-more-effect-ive) (last updated 2026-05-11) |
-| `LLMS.md` opens: "use this documentation and the Effect source code available in your environment. Avoid unrelated copies of Effect or external documentation, as they may be outdated." | `LLMS.md` lines 1–10 |
-| Alchemy repo: `alchemy-run/alchemy`, default branch `main` (package `alchemy@2.0.0-beta.85`). It has `AGENTS.md`, `CLAUDE.md`, `examples/` and `website/src/content/docs/`. | `gh repo view alchemy-run/alchemy` |
+| `LLMS.md` opens: "use this documentation and the Effect source code available in your environment. Avoid unrelated copies of Effect or external documentation, as they may be outdated."                                                                                                                           | `LLMS.md` lines 1–10                                                                                                                          |
+| Alchemy repo: `alchemy-run/alchemy`, default branch `main` (package `alchemy@2.0.0-beta.85`). It has `AGENTS.md`, `CLAUDE.md`, `examples/` and `website/src/content/docs/`.                                                                                                                                        | `gh repo view alchemy-run/alchemy`                                                                                                            |
 
 Vendoring `main` follows the latest release line, not the version installed from npm. Tracking a release tag instead (for example `effect@4.1.2`) keeps the vendored source matched to `package.json`. That choice is for the "Vendored-repo upkeep" item on the map.
 
@@ -71,7 +71,7 @@ The example builds `ManagedRuntime.make(AppLayer, { memoMap })` once at module s
 
 ### Recommended pattern, derived from the sources above
 
-No source shows Effect *inside* TanStack Start server functions on Workers. This combines the patterns above:
+No source shows Effect _inside_ TanStack Start server functions on Workers. This combines the patterns above:
 
 1. **Runtime per isolate.** In a server-only module, write `const runtime = ManagedRuntime.make(AppLayer)` at module scope. Layers in it must be stateless or safe to share between requests: config, loggers, pure services. Layer construction must not do binding I/O, because the runtime builds lazily on the first `run*` call. That call happens inside a request, but a resource opened then would be reused by later requests, which Cloudflare forbids for I/O objects. The source docs confirm the lazy build: "The layer is built lazily on first use and its context is cached". They also say "A failed layer build is also cached", so one failed build breaks every later request on that isolate (`packages/effect/src/ManagedRuntime.ts`, `make`).
 2. **`env` and request as per-request services.** Define `class WorkerEnv extends Context.Service<WorkerEnv, Env>()("WorkerEnv")`, plus a similar `CurrentRequest`. Provide them on each call: `runtime.runPromise(effect.pipe(Effect.provideService(WorkerEnv, env)))`. Use the Alchemy `Proxy`, or `cf.env` read inside the handler, to get `env`. Per-request clients, such as a DB connection through Hyperdrive, go in a request-scoped `Layer` provided in the same way.
@@ -80,13 +80,13 @@ No source shows Effect *inside* TanStack Start server functions on Workers. This
 
 ## 4. Upstream packages that matter
 
-| Package | Role for kumora |
-| --- | --- |
-| `effect` | Everything: core, `Schema`, `ManagedRuntime`, `effect/http`, `effect/rpc`, `effect/http-api`. |
-| `@effect/vitest` | `it.effect` and layer-based tests ([LLMS.md § Testing](https://github.com/Effect-TS/effect/blob/main/LLMS.md), `ai-docs/src/09_testing/`). Needs the same version as `effect`. |
-| `@effect/platform-bun` / `@effect/platform-node` | Peer dependencies of `alchemy` for the deploy program, which runs on Bun per the map. The Worker code does not need them. |
-| `@effect/schema`, `@effect/platform`, `@effect/rpc` | Do not install: these are v3-era packages now inside `effect`. |
-| `@effect/opentelemetry` | Optional. LLMS.md recommends `effect/observability` Otlp modules for new projects. |
+| Package                                             | Role for kumora                                                                                                                                                                |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `effect`                                            | Everything: core, `Schema`, `ManagedRuntime`, `effect/http`, `effect/rpc`, `effect/http-api`.                                                                                  |
+| `@effect/vitest`                                    | `it.effect` and layer-based tests ([LLMS.md § Testing](https://github.com/Effect-TS/effect/blob/main/LLMS.md), `ai-docs/src/09_testing/`). Needs the same version as `effect`. |
+| `@effect/platform-bun` / `@effect/platform-node`    | Peer dependencies of `alchemy` for the deploy program, which runs on Bun per the map. The Worker code does not need them.                                                      |
+| `@effect/schema`, `@effect/platform`, `@effect/rpc` | Do not install: these are v3-era packages now inside `effect`.                                                                                                                 |
+| `@effect/opentelemetry`                             | Optional. LLMS.md recommends `effect/observability` Otlp modules for new projects.                                                                                             |
 
 ## Open questions for a grilling ticket
 

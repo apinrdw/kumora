@@ -14,17 +14,17 @@ Research for [#530](https://github.com/apinrdw/kumora/issues/530), map [#529](ht
 
 Cloudflare's runtime counts rows with a patch to SQLite's VM, [`patches/sqlite/0001-row-counts-plain.patch`](https://github.com/cloudflare/workerd/blob/main/patches/sqlite/0001-row-counts-plain.patch) (workerd `main` at `bb08e38`, last change to the patch `8cd68e7` on 2026-11-05). It adds two statement counters, `LIBSQL_STMTSTATUS_ROWS_READ` and `LIBSQL_STMTSTATUS_ROWS_WRITTEN`, which are documented as "the number of rows read when executing this statement" and "the number of rows written". The patch increments them in these VM opcodes. The hunk contexts are in `src/vdbe.c`.
 
-| Opcode (hunk context) | Counter | Effect |
-| --- | --- | --- |
-| `OP_Count` (`sqlite3BtreeCount(db, pCrsr, &nEntry)`) | read `+= nEntry` | `count(*)` bills every row in the b-tree. The estimate branch (`p3`) adds nothing. |
-| `OP_SeekGE/GT/LE/LT`, `OP_SeekRowid`/`OP_NotExists`, `OP_Last`, `OP_Rewind` | read `+1` | each seek or positioning of a cursor |
-| `OP_Next`/`OP_Prev` | read `+1` | each step to the next row, **including steps over an ephemeral (temporary) b-tree**: the read counters have no `isEphemeral` check |
-| `OP_VNext` | read `+1` | virtual tables |
-| `OP_Insert` | write `+1` if `!pC->isEphemeral` | rowid table row |
-| `OP_IdxInsert` | write `+1` if `!pC->isEphemeral` | an index entry, **or a `WITHOUT ROWID` row** (a `WITHOUT ROWID` table is an index b-tree) |
-| `OP_Delete` with `OPFLAG_NCHANGE` | write `+1` | a deleted row |
-| `OP_Clear` | write `+= nChange` | `DELETE FROM t` with no `WHERE` |
-| `OP_VUpdate` | write `+1` | virtual tables |
+| Opcode (hunk context)                                                       | Counter                          | Effect                                                                                                                             |
+| --------------------------------------------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `OP_Count` (`sqlite3BtreeCount(db, pCrsr, &nEntry)`)                        | read `+= nEntry`                 | `count(*)` bills every row in the b-tree. The estimate branch (`p3`) adds nothing.                                                 |
+| `OP_SeekGE/GT/LE/LT`, `OP_SeekRowid`/`OP_NotExists`, `OP_Last`, `OP_Rewind` | read `+1`                        | each seek or positioning of a cursor                                                                                               |
+| `OP_Next`/`OP_Prev`                                                         | read `+1`                        | each step to the next row, **including steps over an ephemeral (temporary) b-tree**: the read counters have no `isEphemeral` check |
+| `OP_VNext`                                                                  | read `+1`                        | virtual tables                                                                                                                     |
+| `OP_Insert`                                                                 | write `+1` if `!pC->isEphemeral` | rowid table row                                                                                                                    |
+| `OP_IdxInsert`                                                              | write `+1` if `!pC->isEphemeral` | an index entry, **or a `WITHOUT ROWID` row** (a `WITHOUT ROWID` table is an index b-tree)                                          |
+| `OP_Delete` with `OPFLAG_NCHANGE`                                           | write `+1`                       | a deleted row                                                                                                                      |
+| `OP_Clear`                                                                  | write `+= nChange`               | `DELETE FROM t` with no `WHERE`                                                                                                    |
+| `OP_VUpdate`                                                                | write `+1`                       | virtual tables                                                                                                                     |
 
 `OP_IdxDelete` is not patched, so removing an index entry costs nothing.
 
@@ -38,60 +38,60 @@ I ran the installed `workerd` 1.20261026.1 (`workerd 2026-10-26`) with one SQLit
 
 ### Writes
 
-| Statement | Read | Written |
-| --- | --- | --- |
-| `CREATE TABLE IF NOT EXISTS` (new table) | 1 | 2 |
-| `CREATE TABLE IF NOT EXISTS` (table exists) | **0** | **0** |
-| `CREATE INDEX IF NOT EXISTS` (new, empty table) | 2 | 1 |
-| `INSERT` new trade (rowid, no index) | 1 | 1 |
-| 1,000 such inserts, summed | 1,000 | 1,000 |
-| `INSERT OR IGNORE` trade, row exists | 1 | **0** |
-| `INSERT OR IGNORE` trade, new row | 1 | 1 |
-| `INSERT OR REPLACE` trade (rowid, no index), row exists | 1 | 1 |
-| `INSERT` new candle (`WITHOUT ROWID`) | 0 | 1 |
-| `INSERT OR REPLACE` candle (`WITHOUT ROWID`), row exists | 0 | **1** |
-| `INSERT OR REPLACE` candle, new row | 0 | 1 |
-| `INSERT OR REPLACE` fact, new / exists | 0 / 0 | 1 / 1 |
-| `INSERT … ON CONFLICT DO UPDATE` candle, exists | 0 | 1 |
-| `UPDATE` candle by full primary key | 1 | 1 |
-| `INSERT` into `ix` (2 indexes) | 1 | **3** |
-| `UPDATE ix` non-indexed column | 1 | 1 |
-| `UPDATE ix` one indexed column | 1 | 2 |
-| `INSERT OR REPLACE` into `ix`, row exists (2 indexes) | 1 | 3 |
-| `DELETE` from `ix` by primary key (2 indexes) | 1 | **1** (index deletes are free) |
-| `DELETE` trade by primary key | 1 | 1 |
-| `transactionSync(() => SELECT 1)` | 0 | 0 |
+| Statement                                                | Read  | Written                        |
+| -------------------------------------------------------- | ----- | ------------------------------ |
+| `CREATE TABLE IF NOT EXISTS` (new table)                 | 1     | 2                              |
+| `CREATE TABLE IF NOT EXISTS` (table exists)              | **0** | **0**                          |
+| `CREATE INDEX IF NOT EXISTS` (new, empty table)          | 2     | 1                              |
+| `INSERT` new trade (rowid, no index)                     | 1     | 1                              |
+| 1,000 such inserts, summed                               | 1,000 | 1,000                          |
+| `INSERT OR IGNORE` trade, row exists                     | 1     | **0**                          |
+| `INSERT OR IGNORE` trade, new row                        | 1     | 1                              |
+| `INSERT OR REPLACE` trade (rowid, no index), row exists  | 1     | 1                              |
+| `INSERT` new candle (`WITHOUT ROWID`)                    | 0     | 1                              |
+| `INSERT OR REPLACE` candle (`WITHOUT ROWID`), row exists | 0     | **1**                          |
+| `INSERT OR REPLACE` candle, new row                      | 0     | 1                              |
+| `INSERT OR REPLACE` fact, new / exists                   | 0 / 0 | 1 / 1                          |
+| `INSERT … ON CONFLICT DO UPDATE` candle, exists          | 0     | 1                              |
+| `UPDATE` candle by full primary key                      | 1     | 1                              |
+| `INSERT` into `ix` (2 indexes)                           | 1     | **3**                          |
+| `UPDATE ix` non-indexed column                           | 1     | 1                              |
+| `UPDATE ix` one indexed column                           | 1     | 2                              |
+| `INSERT OR REPLACE` into `ix`, row exists (2 indexes)    | 1     | 3                              |
+| `DELETE` from `ix` by primary key (2 indexes)            | 1     | **1** (index deletes are free) |
+| `DELETE` trade by primary key                            | 1     | 1                              |
+| `transactionSync(() => SELECT 1)`                        | 0     | 0                              |
 
 ### Reads (`trades` has 1,001 rows at this point)
 
-| Statement | Returned | Read |
-| --- | --- | --- |
-| `SELECT * FROM trades` | 1,001 | 1,001 |
-| `… WHERE price = 500` (unindexed, 1 match) | 1 | **1,001** |
-| `… LIMIT 10` | 10 | 10 |
-| `… WHERE number = 500` (rowid primary key) | 1 | 1 |
-| `candles WHERE code = ? AND minute = ?` (`WITHOUT ROWID` primary key) | 1 | 1 |
-| `candles WHERE code = 'C1'` (primary-key prefix) | 100 | 101 |
-| `trades WHERE number BETWEEN 100 AND 199` | 100 | 101 |
-| `ix WHERE a = 500` (secondary index, then table) | 1 | 2 |
-| `SELECT count(*) FROM trades` | 1 | **1,001** |
-| `SELECT count(*) FROM candles` (`WITHOUT ROWID`) | 1 | 1,002 |
-| `count(*) WHERE number < 100` | 1 | 99 |
-| `count(*) WHERE price < 100` (unindexed) | 1 | 1,001 |
-| `max(number)` / `min(number)` (primary key) | 1 | **1** / 1 |
-| `max(price)` (unindexed) | 1 | 1,001 |
-| `max(minute) FROM candles WHERE code = 'C1'` | 1 | 1 |
-| `ORDER BY number DESC LIMIT 1` | 1 | 1 |
-| `ORDER BY price DESC LIMIT 1` (unindexed) | 1 | **2,002** |
-| `GROUP BY code` (unindexed, 11 groups) | 11 | **2,002** |
-| `candles GROUP BY code` (primary-key prefix) | 12 | 1,002 |
-| `sum(price) OVER (ORDER BY number)` | 1,001 | **3,004** |
-| `row_number() OVER (PARTITION BY code ORDER BY number)` | 1,001 | **4,016** |
-| `WHERE number IN (SELECT number … WHERE number < 11)` | 9 | 28 |
-| `WHERE number = (SELECT max(number) FROM trades)` | 1 | 2 |
-| `SELECT DISTINCT code` | 11 | 1,001 |
-| `trades JOIN candles` on candles' primary key, `number < 50` | 47 | 96 |
-| `SELECT 1` | 1 | 0 |
+| Statement                                                             | Returned | Read      |
+| --------------------------------------------------------------------- | -------- | --------- |
+| `SELECT * FROM trades`                                                | 1,001    | 1,001     |
+| `… WHERE price = 500` (unindexed, 1 match)                            | 1        | **1,001** |
+| `… LIMIT 10`                                                          | 10       | 10        |
+| `… WHERE number = 500` (rowid primary key)                            | 1        | 1         |
+| `candles WHERE code = ? AND minute = ?` (`WITHOUT ROWID` primary key) | 1        | 1         |
+| `candles WHERE code = 'C1'` (primary-key prefix)                      | 100      | 101       |
+| `trades WHERE number BETWEEN 100 AND 199`                             | 100      | 101       |
+| `ix WHERE a = 500` (secondary index, then table)                      | 1        | 2         |
+| `SELECT count(*) FROM trades`                                         | 1        | **1,001** |
+| `SELECT count(*) FROM candles` (`WITHOUT ROWID`)                      | 1        | 1,002     |
+| `count(*) WHERE number < 100`                                         | 1        | 99        |
+| `count(*) WHERE price < 100` (unindexed)                              | 1        | 1,001     |
+| `max(number)` / `min(number)` (primary key)                           | 1        | **1** / 1 |
+| `max(price)` (unindexed)                                              | 1        | 1,001     |
+| `max(minute) FROM candles WHERE code = 'C1'`                          | 1        | 1         |
+| `ORDER BY number DESC LIMIT 1`                                        | 1        | 1         |
+| `ORDER BY price DESC LIMIT 1` (unindexed)                             | 1        | **2,002** |
+| `GROUP BY code` (unindexed, 11 groups)                                | 11       | **2,002** |
+| `candles GROUP BY code` (primary-key prefix)                          | 12       | 1,002     |
+| `sum(price) OVER (ORDER BY number)`                                   | 1,001    | **3,004** |
+| `row_number() OVER (PARTITION BY code ORDER BY number)`               | 1,001    | **4,016** |
+| `WHERE number IN (SELECT number … WHERE number < 11)`                 | 9        | 28        |
+| `WHERE number = (SELECT max(number) FROM trades)`                     | 1        | 2         |
+| `SELECT DISTINCT code`                                                | 11       | 1,001     |
+| `trades JOIN candles` on candles' primary key, `number < 50`          | 47       | 96        |
+| `SELECT 1`                                                            | 1        | 0         |
 
 The doubled reads match the patch. A sort or a grouping on a non-key column fills a temporary b-tree. Rows read count the scan of the table and then the `OP_Next` steps over the temporary b-tree. Rows written skip ephemeral cursors, so the temporary b-tree adds no writes.
 
@@ -128,25 +128,25 @@ The doubled reads match the patch. A sort or a grouping on a non-key column fill
 - **What is measured:** the SQLite database. The docs give no formula. `databaseSize` is "The current SQLite database size in bytes" ([SQLite storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)). The pricing FAQ adds: "An empty SQLite database consumes approximately 12 KB of storage". It also says writes store "nominal amounts of metadata in internal tables … which counts towards your billable storage", which stays "until you call deleteAll()" ([DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/)). workerd's observer has `setSqliteStoredBytes(uint64_t sqliteStoredBytes)` (`sqlite.h`). That storage is reported as a byte count beside the row counts is an inference from that name.
 - **Price:** "5 GB-month, + $0.20/ GB-month" on Workers Paid. "Durable Objects will be billed for stored data until the data is removed" ([DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/)).
 - **From when:** "Storage billing for SQLite-backed Durable Objects will be enabled in January 2026, with a target date of January 7, 2026 (no earlier)". "Only SQLite storage usage on and after the billing target date will incur charges" ([changelog, 2025-12-12](https://developers.cloudflare.com/changelog/post/2025-12-12-durable-objects-sqlite-storage-billing/); [release notes, 2026-01-07 entry](https://developers.cloudflare.com/durable-objects/release-notes/)). No page confirms that the switch happened on that date. The pricing pages still say "will be enabled". Because the bill lists 7.26 GB stored, storage is at least metered now.
-- **GB-month: unconfirmed for Durable Objects.** R2 defines it: "A GB-month is calculated by averaging the *peak* storage per day over a billing period (30 days)" ([R2 pricing](https://developers.cloudflare.com/r2/pricing/)). The Durable Objects and Workers pricing pages do not define it, nor whether a GB is 10⁹ or 2³⁰ bytes. Two readings fit "7.26 GB, no charge yet". In the first, 7.26 GB is today's size and the month-to-date average of daily peaks is still under 5 GB-month. In the second, the overage of (average − 5) × $0.20 is computed when the period closes. To tell them apart, take `max.storedBytes` per day from `durableObjectsSqlStorageGroups` for the billing period, summed over namespaces, and average it. Compare the result with 7.26 and with the next invoice.
+- **GB-month: unconfirmed for Durable Objects.** R2 defines it: "A GB-month is calculated by averaging the _peak_ storage per day over a billing period (30 days)" ([R2 pricing](https://developers.cloudflare.com/r2/pricing/)). The Durable Objects and Workers pricing pages do not define it, nor whether a GB is 10⁹ or 2³⁰ bytes. Two readings fit "7.26 GB, no charge yet". In the first, 7.26 GB is today's size and the month-to-date average of daily peaks is still under 5 GB-month. In the second, the overage of (average − 5) × $0.20 is computed when the period closes. To tell them apart, take `max.storedBytes` per day from `durableObjectsSqlStorageGroups` for the billing period, summed over namespaces, and average it. Compare the result with 7.26 and with the next invoice.
 
 ### Data sources
 
-| Source | Gives | Split by | Permission |
-| --- | --- | --- | --- |
-| GraphQL `durableObjectsPeriodicGroups` | `sum.rowsRead`, `sum.rowsWritten` (also `cpuTime`, `duration`, `storageReadUnits`, …) | `date`, `datetime*`, `namespaceId`, `objectId`, `name`, `coloCode` | Account Analytics Read |
-| GraphQL `durableObjectsSqlStorageGroups` | `max.storedBytes` | `date`, `datetime*`, `namespaceId` | Account Analytics Read |
-| GraphQL `durableObjectsStorageGroups` | `max.storedBytes` for the KV-backed storage backend; no dimensions | time only | Account Analytics Read |
-| GraphQL `durableObjectsInvocationsAdaptiveGroups` | requests; has `scriptName` | `scriptName`, `namespaceId`, `objectId` | Account Analytics Read |
-| REST `GET /accounts/{account_id}/workers/durable_objects/namespaces` | maps namespace `id` to `script`, `class`, `name`, `use_sqlite` | – | Workers Scripts Read (or another listed permission) |
-| `storage.sql.databaseSize` in the object | bytes of one object's database | per object | – (already in `durableSql`'s `usage()`) |
-| Dashboard: Durable Objects → namespace → Metrics | namespace metrics, filterable to one object | – | dashboard login |
+| Source                                                               | Gives                                                                                 | Split by                                                           | Permission                                          |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------- |
+| GraphQL `durableObjectsPeriodicGroups`                               | `sum.rowsRead`, `sum.rowsWritten` (also `cpuTime`, `duration`, `storageReadUnits`, …) | `date`, `datetime*`, `namespaceId`, `objectId`, `name`, `coloCode` | Account Analytics Read                              |
+| GraphQL `durableObjectsSqlStorageGroups`                             | `max.storedBytes`                                                                     | `date`, `datetime*`, `namespaceId`                                 | Account Analytics Read                              |
+| GraphQL `durableObjectsStorageGroups`                                | `max.storedBytes` for the KV-backed storage backend; no dimensions                    | time only                                                          | Account Analytics Read                              |
+| GraphQL `durableObjectsInvocationsAdaptiveGroups`                    | requests; has `scriptName`                                                            | `scriptName`, `namespaceId`, `objectId`                            | Account Analytics Read                              |
+| REST `GET /accounts/{account_id}/workers/durable_objects/namespaces` | maps namespace `id` to `script`, `class`, `name`, `use_sqlite`                        | –                                                                  | Workers Scripts Read (or another listed permission) |
+| `storage.sql.databaseSize` in the object                             | bytes of one object's database                                                        | per object                                                         | – (already in `durableSql`'s `usage()`)             |
+| Dashboard: Durable Objects → namespace → Metrics                     | namespace metrics, filterable to one object                                           | –                                                                  | dashboard login                                     |
 
 Sources and confidence:
 
 - The Durable Objects metrics page lists `durableObjectsInvocationsAdaptiveGroups`, `durableObjectsPeriodicGroups`, `durableObjectsStorageGroups` and `durableObjectsSubrequestsAdaptiveGroups`. It refers readers to introspection for fields ([metrics and analytics](https://developers.cloudflare.com/durable-objects/observability/metrics-and-analytics/)). That page does not list `durableObjectsSqlStorageGroups`.
 - **The field and dimension lists above are unconfirmed against the live schema.** I had no API token, and the endpoint answers a token-less introspection query with `"Missing X-Auth-Key, X-Auth-Email or Authorization headers"`. They come from two third-party introspection dumps. The first, [`curtcox/cronly` (2026-11-17)](https://github.com/curtcox/cronly/blob/main/docs/ops/evidence/cloudflare-analytics-schema-2026-11-17.json), gives the schema's descriptions: `rowsRead` "Sum of rows read (by sqlite backed DOs)", `rowsWritten` "Sum of rows written (by sqlite backed DOs)", and `AccountDurableObjectsSqlStorageGroupsMax.storedBytes` "Max of stored bytes". It also gives `namespaceId`/`namespaceId_in` filters on `durableObjectsSqlStorageGroups`. The second, [`standardagents/brolly` `docs/cloudflare-datasets.json` (generated 2026-08-18)](https://github.com/standardagents/brolly/blob/main/docs/cloudflare-datasets.json), gives the dimensions listed in the table. To confirm, run the introspection query below.
-- Token permission: "select *Account* in the first drop-down list, *Account Analytics* from the second drop-down list, and *Read* from the third" ([GraphQL API token auth](https://developers.cloudflare.com/analytics/graphql-api/getting-started/authentication/api-token-auth/)). The endpoint is `https://api.cloudflare.com/client/v4/graphql`.
+- Token permission: "select _Account_ in the first drop-down list, _Account Analytics_ from the second drop-down list, and _Read_ from the third" ([GraphQL API token auth](https://developers.cloudflare.com/analytics/graphql-api/getting-started/authentication/api-token-auth/)). The endpoint is `https://api.cloudflare.com/client/v4/graphql`.
 - Namespaces list: [API reference](https://developers.cloudflare.com/api/resources/durable_objects/subresources/namespaces/methods/list/), which gives the response fields `id`, `class`, `name`, `script` and `use_sqlite`.
 - Retention: each dataset's `settings` node gives `notOlderThan` ("how far back in time a query can read") and `maxDuration` ([settings](https://developers.cloudflare.com/analytics/graphql-api/features/discovery/settings/)). The retention of these two datasets is unconfirmed. Query it with the settings query below before relying on a whole billing period.
 
