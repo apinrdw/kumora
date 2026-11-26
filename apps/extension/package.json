@@ -6,10 +6,6 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite build --watch",
-    "lint": "vp lint --deny-warnings",
-    "format": "vp fmt --write \"**/*.{ts,tsx}\" package.json",
-    "format:check": "vp fmt --check \"**/*.{ts,tsx}\" package.json",
-    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {

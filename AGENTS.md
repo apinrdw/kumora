@@ -73,6 +73,8 @@ CI holds a PR that touches `apps/{web,dashboard,extension,e2e}` or `packages/` o
 
 Oxlint and Oxfmt through `vp lint` and `vp fmt`, configured once in the `lint` and `fmt` blocks of the root `vite.config.ts`. Plain `oxlint` and `oxfmt` don't read that file, so always call them through `vp`. Run from the repo root.
 
+- Types are checked by tsrs, not `tsc`: the config turns on type-aware lint and type checking, so `vp lint` reports TypeScript errors under each file's nearest `tsconfig.json`. `vp check` runs format, lint and types together; CI runs it as the root `vp-check` task in `check:static`. No package has its own `typecheck`, `lint` or `format` script.
+
 - After making code changes, run `vp lint --fix`, then `vp fmt`. `--fix` applies only safe fixes; do not add `--fix-suggestions` or `--fix-dangerously`.
 - Before finishing, run `vp lint --deny-warnings --format=agent` and `vp fmt --check`. Both must exit 0; warnings count as failures. The pre-commit hook runs `vp lint --deny-warnings && vp fmt --check`.
 - `vp` applies only the root config, never the vendored configs under `repos/`, which both tools ignore, as they do generated files (`routeTree.gen.ts`). `vp fmt` formats every file type it supports, Markdown, JSON and YAML included; `fmt.ignorePatterns` keeps machine-written files out, and a `prettier-ignore` range keeps fallow's managed block below as fallow writes it. Do not add inline ignore comments to silence a rule; fix the code or raise it.

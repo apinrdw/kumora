@@ -2,28 +2,13 @@
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
   "agentGuidance": false,
-  "globalDependencies": ["vite.config.ts", "scripts/oxlint-plugin.mts"],
   "tasks": {
+    // Only apps/extension builds; the apps deploy through Alchemy instead.
     // Decision: CI's package tasks hash no Markdown, so GLOSSARY edits replay cache
     // (docs/adr/0017-ci-package-tasks-hash-no-markdown.md)
-    "lint": {
-      "dependsOn": ["^lint"],
-      "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
-    },
-    "format": {
-      "dependsOn": ["^format"]
-    },
-    "format:check": {
-      "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
-    },
-    // Only apps/extension builds; the apps deploy through Alchemy instead.
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**"],
-      "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
-    },
-    "typecheck": {
-      "dependsOn": ["^typecheck"],
       "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
     },
     "dev": {
@@ -62,17 +47,12 @@
       "dependsOn": ["^transit"],
       "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
     },
-    "//#lint:root": {
-      "inputs": ["scripts/**"]
-    },
-    "//#format:root": {
-      "inputs": ["scripts/**"]
-    },
-    "//#format:check:root": {
-      "inputs": ["scripts/**", "package.json"]
-    },
-    "//#typecheck:root": {
-      "inputs": ["scripts/**", "tsconfig.json"]
+    // A root task's default inputs are every file in the repo, Markdown
+    // included, which `vp check` formats; vite.config.ts is among them.
+    // Decision: tsrs checks types through vp check, with type-aware lint on
+    // (docs/adr/0023-types-are-checked-by-tsrs-through-vp-check-with-type-aware-lint-on.md)
+    "//#vp-check": {
+      "inputs": ["$TURBO_DEFAULT$"]
     },
     // Decision: the root tests split by what they read, checked by a repo test
     // (docs/adr/0018-root-tests-split-by-what-they-read.md)

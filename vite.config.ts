@@ -78,7 +78,7 @@ const plugin = "./scripts/oxlint-plugin.mts"
 
 export default defineConfig({
   lint: {
-    // Decision: Oxlint and Oxfmt replace ESLint and Prettier; tsc stays the type gate
+    // Decision: Oxlint and Oxfmt replace ESLint and Prettier
     // (docs/adr/0011-oxlint-and-oxfmt-replace-eslint-and-prettier.md)
     plugins: [
       "eslint",
@@ -91,6 +91,9 @@ export default defineConfig({
       "vitest",
     ],
     categories: { correctness: "error" },
+    // Decision: tsrs checks types through vp check, with type-aware lint on
+    // (docs/adr/0023-types-are-checked-by-tsrs-through-vp-check-with-type-aware-lint-on.md)
+    options: { typeAware: true, typeCheck: true },
     rules: {
       "no-unused-vars": [
         "error",

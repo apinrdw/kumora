@@ -6,10 +6,6 @@
   "scripts": {
     "dev": "bun alchemy dev",
     "generate-routes": "tsr generate",
-    "lint": "vp lint --deny-warnings",
-    "format": "vp fmt --write \"**/*.{ts,tsx}\" package.json",
-    "format:check": "vp fmt --check \"**/*.{ts,tsx}\" package.json",
-    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {

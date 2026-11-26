@@ -42,9 +42,10 @@ const fixtures: Array<Fixture> = []
 const caseDir = (index: number) => `case-${index}`
 
 // The repo's lint block as it applies inside each case directory of a
-// temporary root.
+// temporary root. The bans read syntax alone, and the temporary root installs
+// none of the packages a snippet imports, so its type check stays off.
 const underCases = (root: string, path: Path.Path) => {
-  const lint = config.lint ?? {}
+  const { options: _typeChecking, ...lint } = config.lint ?? {}
   const inCases = (glob: string) => `case-*/${glob}`
   const plugins = (jsPlugins: ReadonlyArray<unknown> | null | undefined) =>
     jsPlugins?.map((plugin) =>

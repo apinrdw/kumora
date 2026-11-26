@@ -86,15 +86,61 @@ layer(NodeServices.layer)("check scripts", (it) => {
   )
 
   it.effect(
+    "check:static lints, formats and checks types in one root vp check",
+    () =>
+      Effect.gen(function* () {
+        const scripts = yield* rootScripts
+        const tasks = yield* turboDryRun(
+          turboTasks(scripts["check:static"] ?? "")
+        )
+        assert.deepStrictEqual(
+          tasks
+            .filter(({ command }) =>
+              /^(vp (check|lint|fmt)|tsc)\b/.test(command)
+            )
+            .map(({ taskId, command }) => [taskId, command]),
+          [["//#vp-check", "vp check --deny-warnings"]]
+        )
+      })
+  )
+
+  it.effect("no package has its own lint, format or typecheck script", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const root = path.resolve(import.meta.dirname, "..")
+      const dirs = (yield* Effect.forEach(["apps", "packages"], (parent) =>
+        Effect.map(fs.readDirectory(path.join(root, parent)), (names) =>
+          names.map((name) => path.join(parent, name))
+        )
+      )).flat()
+      const manifests = yield* Effect.filter(
+        ["", ...dirs].map((dir) => path.join(dir, "package.json")),
+        (file) => fs.exists(path.join(root, file))
+      )
+      assert.isAbove(manifests.length, 1, "found the package manifests")
+      const found = yield* Effect.forEach(manifests, (file) =>
+        Effect.gen(function* () {
+          const { scripts } = yield* Schema.decodeEffect(Manifest)(
+            yield* fs.readFileString(path.join(root, file))
+          )
+          return Object.keys(scripts)
+            .filter((name) => /^(typecheck|lint|format)(:|$)/.test(name))
+            .map((name) => `${file} "${name}"`)
+        })
+      )
+      assert.deepStrictEqual(found.flat(), [])
+    })
+  )
+
+  it.effect(
     "check:static and check:test split every check task between them",
     () =>
       Effect.gen(function* () {
         const scripts = yield* rootScripts
         const ids = (tasks: ReadonlyArray<{ taskId: string }>) =>
           new Set(tasks.map(({ taskId }) => taskId))
-        const wanted = yield* turboDryRun(
-          CHECK_KINDS.flatMap((kind) => turboTasks(scripts[kind] ?? ""))
-        )
+        const wanted = yield* turboDryRun(CHECK_KINDS)
         const staticTasks = yield* turboDryRun(
           turboTasks(scripts["check:static"] ?? "")
         )
