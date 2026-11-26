@@ -53,6 +53,19 @@ const SKIPPED: SeededDisclosureRun = {
   ],
 }
 
+const UNLISTED: SeededDisclosureRun = {
+  ...COMPLETE,
+  id: "admin-1795662100000",
+  outcome: "partial",
+  unlistedDays: [
+    {
+      day: "2023-07-03",
+      message:
+        "IDX's disclosures of 2023-07-03 (id) answered 500 (https://www.idx.id/primary/ListedCompany/GetAnnouncement?pageSize=500)",
+    },
+  ],
+}
+
 const LISTING_ERROR =
   "IDX's disclosures of 2026-11-26 (id) answered 500 (https://www.idx.id/primary/ListedCompany/GetAnnouncement?pageSize=500)"
 
@@ -166,6 +179,22 @@ test.describe.serial("an admin's Disclosures page", () => {
     await expect(
       card.getByRole("list", { name: "Skipped" }).getByRole("listitem")
     ).toHaveText(SKIPPED.skipped ?? [])
+  })
+
+  test("a partial run names the older days it couldn't list", async ({
+    page,
+  }) => {
+    await seedLatestDisclosureRun(UNLISTED)
+    await page.goto(DISCLOSURES)
+    const card = lastRunCard(page)
+    await expect(card).toContainText("Partial")
+    await expect(card).toContainText(
+      "1 older day couldn't be listed. The next run lists it again:"
+    )
+    await expect(card).not.toContainText("waits for the next run")
+    await expect(
+      card.getByRole("list", { name: "Not listed" }).getByRole("listitem")
+    ).toHaveText([`2023-07-03: ${UNLISTED.unlistedDays[0]?.message}`])
   })
 
   test("a failed run shows IDX's answer", async ({ page }) => {
