@@ -554,12 +554,19 @@ test.describe("signed in", () => {
     })
   })
 
-  test("a 4426 close asks for a reload", async ({ page }) => {
+  test("a 4426 close asks for a reload whichever tab is open", async ({
+    page,
+  }) => {
     await page.routeWebSocket(/\/market-live\/live$/, (socket) =>
       socket.close({ code: 4426, reason: "New version, reload" })
     )
-    await page.goto(`${DASHBOARD}${PAGE}?panel=tape`)
-    await expect(page.getByRole("alert")).toContainText("Reload to continue")
+    await page.goto(`${DASHBOARD}${PAGE}`)
+    await expect(
+      page.getByRole("tab", { name: /^Buy\/Sell sweeps/ })
+    ).toHaveAttribute("aria-selected", "true")
+    const alert = page.getByRole("alert")
+    await expect(alert).toBeVisible()
+    await expect(alert).toContainText("Reload to continue")
   })
 })
 
