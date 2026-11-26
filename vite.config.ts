@@ -78,8 +78,6 @@ const plugin = "./scripts/oxlint-plugin.mts"
 
 export default defineConfig({
   lint: {
-    // Decision: Oxlint and Oxfmt replace ESLint and Prettier
-    // (docs/adr/0011-oxlint-and-oxfmt-replace-eslint-and-prettier.md)
     plugins: [
       "eslint",
       "typescript",
