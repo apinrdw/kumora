@@ -671,6 +671,31 @@ describe("a disclosure run", () => {
   )
 
   it.effect(
+    "counts every version a day adds when its step is retried after indexing a page",
+    () =>
+      Effect.gen(function* () {
+        const { idx, db, run } = world()
+        for (let n = 0; n < PAGE_SIZE + 1; n++)
+          publish(
+            idx,
+            { stamp: "20261125100000", number: `P/${n}`, files: [] },
+            ["id"]
+          )
+        // The first page is indexed, then the second page's index write
+        // fails once.
+        let versionBatches = 0
+        db.failBatch = (sql) =>
+          sql.some((each) => each.includes("INTO disclosure_version")) &&
+          ++versionBatches === 2
+
+        const result = yield* run()
+
+        assert.strictEqual(versionBatches > 2, true)
+        assert.strictEqual(result.versionsAdded, PAGE_SIZE + 1)
+      })
+  )
+
+  it.effect(
     "stores at most FILES_PER_RUN files a run, the longest keys and paths fitting its steps",
     () =>
       Effect.gen(function* () {
