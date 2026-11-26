@@ -51,8 +51,10 @@ import {
 import {
   forEachListedPage,
   type ListedVersion,
+  MAX_DAY_PAGES,
   MAX_KEY_LENGTH,
   MAX_PATH_LENGTH,
+  PAGE_SIZE,
 } from "./listing.ts"
 import {
   DisclosureRunResult,
@@ -110,14 +112,27 @@ const VERSION_CONCURRENCY = 10
 // A `files:` step's timeout: its rounds of FILE_CONCURRENCY downloads in
 // turn, each a request of at most IDX_REQUEST_TIMEOUT and its four calls to
 // the stores (stored already, the object there, the put, the index).
-// `list:`, `plan`, `waiting` and `summary` keep the runtime's 10 minutes: a
-// usual day's two pages and ~400 versions at VERSION_CONCURRENCY take
-// ~2 minutes at STORE_SLOWEST_ANSWER.
+// `plan`, `backfill`, `waiting` and `summary` keep the runtime's 10 minutes.
 const filesStep = Effect.sync((): StepConfig => ({
   timeout:
     Math.ceil(FILES_PER_STEP / FILE_CONCURRENCY) *
     (Duration.toMillis(IDX_REQUEST_TIMEOUT) +
       4 * Duration.toMillis(STORE_SLOWEST_ANSWER)),
+}))
+
+// A `list:` step's timeout: both languages' MAX_DAY_PAGES pages in turn,
+// each a request and its versions' check and put, VERSION_CONCURRENCY at a
+// time, then the index's held versions, its insert and the day's record.
+// ~89 minutes; a usual day's ~400 versions take ~2 at STORE_SLOWEST_ANSWER,
+// but an annual-report deadline a run backfills would take ~18, past the
+// runtime's 10: IDX listed 1,773 disclosures in each language on 2024-04-30.
+const listStep = Effect.sync((): StepConfig => ({
+  timeout:
+    DisclosureLanguage.literals.length *
+    MAX_DAY_PAGES *
+    (Duration.toMillis(IDX_REQUEST_TIMEOUT) +
+      (2 * Math.ceil(PAGE_SIZE / VERSION_CONCURRENCY) + 3) *
+        Duration.toMillis(STORE_SLOWEST_ANSWER)),
 }))
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
@@ -376,10 +391,11 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
   const days = yield* steps.do("plan", plan(run))
   const backfillDays: Array<string> = []
   let versionsAdded = 0
+  const listConfig = yield* listStep
   const list = Effect.fnUntraced(function* (day: string) {
     const listed = yield* failingRun(
       steps,
-      steps.do(`list:${day}`, listDay(day)),
+      steps.do(`list:${day}`, listDay(day), listConfig),
       (message) => recordFailure(run, days, backfillDays, message)
     )
     versionsAdded += listed.versionsAdded

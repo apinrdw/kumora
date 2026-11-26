@@ -28,8 +28,9 @@ const MAX_REPLY_BYTES = 16 * 1024
 const MAX_PAGE_BYTES = PAGE_SIZE * MAX_REPLY_BYTES
 
 // The most pages one day's listing in one language reads: 5,000 disclosures,
-// against ~200 on a usual day. A step holds one page at a time.
-const MAX_DAY_PAGES = 10
+// against ~200 on a usual day and 1,773 on 2024-04-30, an annual-report
+// deadline. A step holds one page at a time.
+export const MAX_DAY_PAGES = 10
 
 // The longest attachment path kept: it is part of the attachment's key in
 // the bucket and of each step result that names it.
