@@ -16,7 +16,7 @@ import {
   type StepFailed,
   type WorkflowSteps,
 } from "@workspace/server"
-import { wibDateAt } from "@workspace/relay"
+import { type WibDate, wibDateAt } from "@workspace/relay"
 import { DateTime, Duration, Effect, Stream } from "effect"
 import { HttpClient, type HttpClientError } from "effect/http"
 
@@ -24,11 +24,15 @@ import type { ArchiveDb } from "../archive/archive-db.ts"
 import { ArchiveBucket } from "../archive/bucket.ts"
 import { failingRun } from "../archive/failing-run.ts"
 import { type Run, runError, STORE_SLOWEST_ANSWER } from "../archive/run.ts"
-import { dayAfter, FIRST_DISCLOSURE_DAY } from "./coverage.ts"
+import {
+  dayAfter,
+  disclosureDayOf,
+  FIRST_DISCLOSURE_DAY,
+  listedWhole,
+} from "./disclosure-day.ts"
 import {
   indexVersions,
   isAttachmentStored,
-  type ListedDay,
   listedDays,
   markAttachmentFailed,
   markAttachmentStored,
@@ -40,12 +44,7 @@ import {
   waitingCount,
 } from "./disclosure-index.ts"
 import { IDX_REQUEST_TIMEOUT } from "./http.ts"
-import {
-  attachmentKey,
-  disclosureDayOf,
-  DisclosureLanguage,
-  versionKey,
-} from "./key.ts"
+import { attachmentKey, DisclosureLanguage, versionKey } from "./key.ts"
 import {
   forEachListedPage,
   type ListedVersion,
@@ -182,7 +181,7 @@ const storeVersion = Effect.fnUntraced(function* (
 // first MAX_NOT_STORED_SHOWN; none of them waits, or fails the run.
 // Decision: a malformed disclosure entry is skipped, not failed
 // (apps/dashboard/docs/adr/0140-a-malformed-disclosure-entry-is-skipped-not-failed.md)
-const listDay = Effect.fnUntraced(function* (day: string) {
+const listDay = Effect.fnUntraced(function* (day: WibDate) {
   let versionsAdded = 0
   let entriesSkipped = 0
   const skipped: Array<string> = []
@@ -219,19 +218,10 @@ const listDay = Effect.fnUntraced(function* (day: string) {
   }
 })
 
-// Whether a run listed `day` after it ended in WIB: a listing while IDX
-// could still add to the day doesn't count toward its completeness.
-const listedWhole = Effect.fnUntraced(function* ({
-  day,
-  listed_at,
-}: ListedDay) {
-  return (yield* wibDateAt(DateTime.makeUnsafe(listed_at))) > day
-})
-
 // A day the run may backfill, oldest first: whether it is listed whole
 // already, and if so how many of its attachments wait.
 interface BackfillDay {
-  readonly day: string
+  readonly day: WibDate
   readonly listed: boolean
   readonly waiting: number
 }
@@ -241,7 +231,7 @@ interface BackfillDay {
 // from IDX's first disclosure day. A complete day is never among them.
 // Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
 // (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
-const backfill = Effect.fnUntraced(function* (recent: ReadonlyArray<string>) {
+const backfill = Effect.fnUntraced(function* (recent: ReadonlyArray<WibDate>) {
   const before = recent.at(-1) ?? FIRST_DISCLOSURE_DAY
   const listed = new Map(
     (yield* listedDays(FIRST_DISCLOSURE_DAY)).map((row) => [row.day, row])
@@ -254,7 +244,8 @@ const backfill = Effect.fnUntraced(function* (recent: ReadonlyArray<string>) {
   ) {
     const row = listed.get(day)
     if (row?.complete_at != null) continue
-    const whole = row !== undefined && (yield* listedWhole(row))
+    const whole =
+      row !== undefined && (yield* listedWhole(row.day, row.listed_at))
     days.push({ day, listed: whole, waiting: whole ? row.waiting : 0 })
   }
   return { recentWaiting: yield* waitingCount(recent), days }
@@ -262,15 +253,17 @@ const backfill = Effect.fnUntraced(function* (recent: ReadonlyArray<string>) {
 
 // Of `days`, each older than the run's recent days, those now complete:
 // listed whole, with nothing waiting.
-const completeDays = Effect.fnUntraced(function* (days: ReadonlyArray<string>) {
+const completeDays = Effect.fnUntraced(function* (
+  days: ReadonlyArray<WibDate>
+) {
   const [oldest] = days
   if (oldest === undefined) return []
-  const complete: Array<string> = []
+  const complete: Array<WibDate> = []
   for (const row of yield* listedDays(oldest))
     if (
       days.includes(row.day) &&
       row.waiting === 0 &&
-      (yield* listedWhole(row))
+      (yield* listedWhole(row.day, row.listed_at))
     )
       complete.push(row.day)
   return complete
@@ -434,7 +427,7 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
   run: DisclosureRun
 ): Effect.fn.Return<DisclosureRunResult, StepFailed> {
   const days = yield* steps.do("plan", plan(run))
-  const backfillDays: Array<string> = []
+  const backfillDays: Array<WibDate> = []
   const skipped: Array<string> = []
   const notStored: Array<NotStoredAttachment> = []
   const progress = {
@@ -447,7 +440,7 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
     notStored,
   }
   const listConfig = yield* listStep
-  const list = Effect.fnUntraced(function* (day: string) {
+  const list = Effect.fnUntraced(function* (day: WibDate) {
     const listed = yield* failingRun(
       steps,
       steps.do(`list:${day}`, listDay(day), listConfig),

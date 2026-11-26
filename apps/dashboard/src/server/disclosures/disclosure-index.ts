@@ -4,6 +4,7 @@
 // disclosure and path, and when a run last listed each disclosure day and
 // when the day became complete. A run decides from it what the archive
 // lacks, and never lists the bucket.
+import { WibDate } from "@workspace/relay"
 import { DateTime, Duration, Effect, Schema } from "effect"
 
 import { ArchiveDb } from "../archive/archive-db.ts"
@@ -33,7 +34,7 @@ const INSERT_ATTACHMENTS =
 // The disclosure keys of `day` the archive holds a version of in
 // `language`.
 export const heldVersions = Effect.fnUntraced(function* (
-  day: string,
+  day: WibDate,
   language: DisclosureLanguage
 ) {
   const [rows = []] = yield* (yield* ArchiveDb).batch([
@@ -53,7 +54,7 @@ export const heldVersions = Effect.fnUntraced(function* (
 export interface StoredVersion {
   readonly key: DisclosureKey
   readonly language: DisclosureLanguage
-  readonly day: string
+  readonly day: WibDate
   readonly paths: ReadonlyArray<string>
 }
 
@@ -102,7 +103,7 @@ export const indexVersions = Effect.fnUntraced(function* (
 
 // Records that a run has listed `day` in both languages.
 export const recordDayListed = Effect.fnUntraced(function* (
-  day: string,
+  day: WibDate,
   listedAt: string
 ) {
   yield* (yield* ArchiveDb).batch([
@@ -128,7 +129,7 @@ const IN_DAYS = "day IN (SELECT value FROM json_each(?))"
 // A disclosure day a run has listed: when it last did, when the day became
 // complete, and how many of its attachments wait to be stored.
 const ListedDay = Schema.Struct({
-  day: Schema.String,
+  day: WibDate,
   listed_at: Schema.String,
   complete_at: Schema.NullOr(Schema.String),
   waiting: Schema.Number,
@@ -138,7 +139,7 @@ export type ListedDay = typeof ListedDay.Type
 // One row per listed day from `from` on, oldest first: a row a day, ~1,240
 // from IDX's first disclosure day to 2026-11-26. Its waiting count reads
 // the partial index of waiting attachments, never the stored ones.
-const listedDaysStatement = (from: string): Statement => ({
+const listedDaysStatement = (from: WibDate): Statement => ({
   sql:
     "SELECT day, listed_at, complete_at, (SELECT COUNT(*) FROM " +
     `disclosure_attachment AS a WHERE a.day = d.day AND ${WAITING}) ` +
@@ -148,7 +149,7 @@ const listedDaysStatement = (from: string): Statement => ({
 
 const decodeListedDays = decodeRows(ListedDay)
 
-export const listedDays = Effect.fnUntraced(function* (from: string) {
+export const listedDays = Effect.fnUntraced(function* (from: WibDate) {
   const [rows = []] = yield* (yield* ArchiveDb).batch([
     listedDaysStatement(from),
   ])
@@ -156,7 +157,7 @@ export const listedDays = Effect.fnUntraced(function* (from: string) {
 })
 
 // listedDays as a part of an admin page's read.
-export const listedDaysRead = (from: string) =>
+export const listedDaysRead = (from: WibDate) =>
   ({
     kinds: [],
     statements: [listedDaysStatement(from)],
@@ -172,15 +173,15 @@ export const earliestDayRead = {
   ],
   read: ([rows = []]) =>
     Effect.map(
-      decodeRows(Schema.Struct({ day: Schema.NullOr(Schema.String) }))(rows),
+      decodeRows(Schema.Struct({ day: Schema.NullOr(WibDate) }))(rows),
       ([row]) => row?.day ?? null
     ),
-} satisfies PageRead<string | null>
+} satisfies PageRead<WibDate | null>
 
 // Records `days` complete at `completeAt`; one already complete keeps its
 // instant.
 export const recordDaysComplete = Effect.fnUntraced(function* (
-  days: ReadonlyArray<string>,
+  days: ReadonlyArray<WibDate>,
   completeAt: string
 ) {
   if (days.length === 0) return
@@ -204,7 +205,7 @@ export type WaitingAttachment = typeof WaitingAttachment.Type
 // Up to `limit` attachments of `days` that wait to be stored, in the order
 // `days` names their days.
 export const waitingAttachments = Effect.fnUntraced(function* (
-  days: ReadonlyArray<string>,
+  days: ReadonlyArray<WibDate>,
   limit: number
 ) {
   const [rows = []] = yield* (yield* ArchiveDb).batch([
@@ -223,7 +224,7 @@ export const waitingAttachments = Effect.fnUntraced(function* (
 
 // How many attachments of `days` wait to be stored.
 export const waitingCount = Effect.fnUntraced(function* (
-  days: ReadonlyArray<string>
+  days: ReadonlyArray<WibDate>
 ) {
   const [rows = []] = yield* (yield* ArchiveDb).batch([
     {
@@ -282,7 +283,7 @@ export const MAX_UNAVAILABLE_BYTES = 256 * 1024
 const UnavailableAttachment = Schema.Struct({
   disclosure: DisclosureKey,
   path: Schema.String,
-  day: Schema.String,
+  day: WibDate,
   // ISO instants: its first failed download, and the one that made it
   // unavailable.
   firstFailedAt: Schema.String,

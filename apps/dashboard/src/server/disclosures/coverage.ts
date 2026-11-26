@@ -2,29 +2,17 @@
 // first to today in WIB, complete, incomplete or not yet listed, and the
 // earliest day it holds a disclosure of (spec apinrdw/kumora#715, ticket
 // #718).
-import { wibDateAt } from "@workspace/relay"
-import { DateTime, Effect, Schema } from "effect"
+import { WibDate, wibDateAt } from "@workspace/relay"
+import type { DateTime } from "effect"
+import { Effect, Schema } from "effect"
 
 import { bothReads, mapRead } from "../archive/page-read.ts"
+import { dayAfter, FIRST_DISCLOSURE_DAY } from "./disclosure-day.ts"
 import {
   earliestDayRead,
   type ListedDay,
   listedDaysRead,
 } from "./disclosure-index.ts"
-
-// IDX's first disclosure day, YYYY-MM-DD in WIB: GetAnnouncement listed
-// nothing before 3 July 2023 when probed on 2026-11-26. The oldest day a run
-// backfills (archive-run.ts) and the first the coverage shows.
-// Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
-// (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
-export const FIRST_DISCLOSURE_DAY = "2023-07-03"
-
-// The day after `day`, both YYYY-MM-DD.
-export const dayAfter = Effect.fnUntraced(function* (day: string) {
-  return DateTime.formatIso(
-    DateTime.add(DateTime.makeUnsafe(`${day}T00:00:00Z`), { days: 1 })
-  ).slice(0, 10)
-})
 
 // complete: no run lists the day again. incomplete: a run listed it, and
 // it is in the last 7 days, wasn't listed after it ended, or has
@@ -37,8 +25,7 @@ const DisclosureCoverageState = Schema.Literals([
 export type DisclosureCoverageState = typeof DisclosureCoverageState.Type
 
 const DisclosureCoverageDay = Schema.Struct({
-  // YYYY-MM-DD.
-  date: Schema.String,
+  date: WibDate,
   state: DisclosureCoverageState,
   // Its attachments waiting to be stored.
   waiting: Schema.Number,
@@ -48,7 +35,7 @@ export type DisclosureCoverageDay = typeof DisclosureCoverageDay.Type
 const DisclosureCoverage = Schema.Struct({
   // The oldest disclosure day the archive holds a version of; null before
   // it holds any.
-  earliestDay: Schema.NullOr(Schema.String),
+  earliestDay: Schema.NullOr(WibDate),
   // Days in each state, from FIRST_DISCLOSURE_DAY to today.
   complete: Schema.Number,
   incomplete: Schema.Number,
@@ -72,7 +59,7 @@ export const MAX_COVERAGE_BYTES = 256 * 1024
 
 const coverageOf = Effect.fnUntraced(function* (
   listed: ReadonlyArray<ListedDay>,
-  earliestDay: string | null,
+  earliestDay: WibDate | null,
   now: DateTime.DateTime
 ) {
   const today = yield* wibDateAt(now)

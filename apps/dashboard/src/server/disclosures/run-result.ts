@@ -1,6 +1,7 @@
 // A disclosure run's result: written to its ArchiveDb row while it runs and
 // when it ends, and returned as the Workflow instance's output. The admin
 // page reads it back with this Schema.
+import { WibDate } from "@workspace/relay"
 import { DateTime, Effect, Schema, Struct } from "effect"
 
 import { type Run, RunId, type RunParams, RunOutcome } from "../archive/run.ts"
@@ -43,12 +44,12 @@ export const DisclosureRunResult = Schema.Struct({
   startedAt: Schema.String,
   finishedAt: Schema.NullOr(Schema.String),
   outcome: RunOutcome,
-  // The disclosure days listed, newest first, YYYY-MM-DD.
-  days: Schema.Array(Schema.String),
+  // The disclosure days listed, newest first.
+  days: Schema.Array(WibDate),
   // The older disclosure days it took up, oldest first: listed, or resumed
   // where an earlier run's budget ran out. A record from before backfill
   // (ticket #718) has none.
-  backfillDays: Schema.Array(Schema.String).pipe(
+  backfillDays: Schema.Array(WibDate).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([]))
   ),
   // Disclosure versions the archive didn't hold, stored.

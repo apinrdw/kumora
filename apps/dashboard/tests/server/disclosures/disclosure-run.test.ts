@@ -1,9 +1,10 @@
 import { assert, describe, it } from "@effect/vitest"
+import { WibDate } from "@workspace/relay"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
 import { RunId } from "@/server/archive/run"
-import { FIRST_DISCLOSURE_DAY } from "@/server/disclosures/coverage"
+import { FIRST_DISCLOSURE_DAY } from "@/server/disclosures/disclosure-day"
 import { disclosureRun, FILES_PER_RUN } from "@/server/disclosures/archive-run"
 import {
   MAX_KEY_LENGTH,
@@ -137,13 +138,13 @@ describe("a disclosure run", () => {
           notStored: [],
         })
         assert.deepStrictEqual(result.days, [
-          "2026-11-26",
-          "2026-11-25",
-          "2026-11-24",
-          "2026-11-23",
-          "2026-11-22",
-          "2026-11-21",
-          "2026-11-20",
+          WibDate.make("2026-11-26"),
+          WibDate.make("2026-11-25"),
+          WibDate.make("2026-11-24"),
+          WibDate.make("2026-11-23"),
+          WibDate.make("2026-11-22"),
+          WibDate.make("2026-11-21"),
+          WibDate.make("2026-11-20"),
         ])
       })
   )
@@ -678,7 +679,7 @@ describe("a disclosure run", () => {
           attachmentsWaiting: 1,
           notStored: [],
         })
-        assert.deepStrictEqual(first.backfillDays, ["2023-07-03"])
+        assert.deepStrictEqual(first.backfillDays, [WibDate.make("2023-07-03")])
         idx.requests.length = 0
 
         const second = yield* run()
@@ -760,7 +761,9 @@ describe("a disclosure run", () => {
 
         const result = yield* run()
 
-        assert.deepStrictEqual(result.backfillDays, ["2026-11-15"])
+        assert.deepStrictEqual(result.backfillDays, [
+          WibDate.make("2026-11-15"),
+        ])
         assert.deepInclude(result, {
           outcome: "partial",
           attachmentsStored: FILES_PER_RUN,

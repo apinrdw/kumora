@@ -3,6 +3,7 @@
 // Worker with (as ../shareholding/listing.ts reads its own list). It answers
 // `{ResultCount, Replies: [{pengumuman, attachments}]}`, newest first, for a
 // span of days in one language. Spec apinrdw/kumora#715, "Source".
+import type { WibDate } from "@workspace/relay"
 import { NonRetryable } from "@workspace/server"
 import { Effect, Schema } from "effect"
 import { HttpClient } from "effect/http"
@@ -75,7 +76,7 @@ class ListingUnreadable extends Schema.TaggedError<ListingUnreadable>()(
 ) {}
 
 const listingUrl = Effect.fnUntraced(function* (
-  day: string,
+  day: WibDate,
   language: DisclosureLanguage,
   indexFrom: number
 ) {
@@ -106,7 +107,7 @@ const pathOf = Effect.fnUntraced(function* (fullSavePath: string) {
 
 // A reply as a version, and what of it is skipped.
 const versionOf = Effect.fnUntraced(function* (
-  day: string,
+  day: WibDate,
   language: DisclosureLanguage,
   raw: unknown,
   reply: (typeof Page.Type)["Replies"][number]
@@ -140,7 +141,7 @@ const versionOf = Effect.fnUntraced(function* (
 // One page of `day`'s listing in `language`, from `indexFrom`, how many
 // replies it held, and how many the whole listing holds.
 const readPage = Effect.fnUntraced(function* (
-  day: string,
+  day: WibDate,
   language: DisclosureLanguage,
   indexFrom: number
 ) {
@@ -189,7 +190,7 @@ const readPage = Effect.fnUntraced(function* (
 // takes each page before the next page is read, so a step holds one page at
 // most.
 export const forEachListedPage = Effect.fnUntraced(function* <E, R>(
-  day: string,
+  day: WibDate,
   language: DisclosureLanguage,
   each: (page: ListedPage) => Effect.Effect<void, E, R>
 ) {

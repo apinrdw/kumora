@@ -1,0 +1,41 @@
+// Disclosure days: the WIB date IDX publishes a disclosure on, and the day
+// arithmetic the runs and the coverage share.
+import { WibDate, wibDateAt } from "@workspace/relay"
+import { DateTime, Effect } from "effect"
+
+import type { DisclosureKey } from "./key.ts"
+
+// IDX's first disclosure day: GetAnnouncement listed nothing before 3 July
+// 2023 when probed on 2026-11-26. The oldest day a run backfills
+// (archive-run.ts) and the first the coverage shows (coverage.ts).
+// Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
+// (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
+export const FIRST_DISCLOSURE_DAY = WibDate.make("2023-07-03")
+
+// The day after `day`.
+export const dayAfter = Effect.fnUntraced(function* (day: WibDate) {
+  return WibDate.make(
+    DateTime.formatIsoDate(
+      DateTime.add(DateTime.makeUnsafe(`${day}T00:00:00Z`), { days: 1 })
+    )
+  )
+})
+
+// The disclosure day a key was published on: its first eight digits.
+export const disclosureDayOf = Effect.fnUntraced(function* (
+  key: DisclosureKey
+) {
+  return WibDate.make(
+    `${key.slice(0, 4)}-${key.slice(4, 6)}-${key.slice(6, 8)}`
+  )
+})
+
+// Whether a listing at `listedAt`, an ISO instant, came after `day` ended
+// in WIB: one while IDX could still add to the day doesn't count toward its
+// completeness.
+export const listedWhole = Effect.fnUntraced(function* (
+  day: WibDate,
+  listedAt: string
+) {
+  return (yield* wibDateAt(DateTime.makeUnsafe(listedAt))) > day
+})

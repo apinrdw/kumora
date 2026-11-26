@@ -43,13 +43,6 @@ export const disclosureKeyOf = Effect.fnUntraced(function* (
   return Schema.is(DisclosureKey)(key) ? key : undefined
 })
 
-// The disclosure day a key was published on, YYYY-MM-DD in WIB.
-export const disclosureDayOf = Effect.fnUntraced(function* (
-  key: DisclosureKey
-) {
-  return `${key.slice(0, 4)}-${key.slice(4, 6)}-${key.slice(6, 8)}`
-})
-
 const DISCLOSURES_PREFIX = "disclosures/"
 
 const disclosurePrefix = Effect.fnUntraced(function* (key: DisclosureKey) {

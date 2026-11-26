@@ -2,7 +2,7 @@
 // whole history, for the cap tests: every day from IDX's first disclosure
 // day to `last` listed whole and complete, 269,000 disclosures in both
 // languages spread evenly over them, and 600,000 attachments, all stored.
-import { FIRST_DISCLOSURE_DAY } from "@/server/disclosures/coverage"
+import { FIRST_DISCLOSURE_DAY } from "@/server/disclosures/disclosure-day"
 
 import type { MemoryArchiveDb } from "../archive/memory-archive-db.ts"
 

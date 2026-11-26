@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import { WibDate } from "@workspace/relay"
 import { Conflict, jsonBytes, Unauthorized } from "@workspace/server"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
@@ -57,8 +58,8 @@ const PARTIAL: DisclosureRunResult = {
   startedAt: "2026-11-26T03:00:00.000Z",
   finishedAt: "2026-11-26T03:04:00.000Z",
   outcome: "partial",
-  days: ["2026-11-26"],
-  backfillDays: ["2023-07-03"],
+  days: [WibDate.make("2026-11-26")],
+  backfillDays: [WibDate.make("2023-07-03")],
   versionsAdded: 380,
   entriesSkipped: 1,
   skipped: [
@@ -241,7 +242,7 @@ describe("the Disclosures admin page", () => {
         const page = yield* disclosureArchivePage(headers(cookie))
 
         assert.deepStrictEqual(page.coverage, {
-          earliestDay: "2023-07-04",
+          earliestDay: WibDate.make("2023-07-04"),
           complete: 1,
           incomplete: 1,
           notListed: 1,
@@ -251,9 +252,21 @@ describe("the Disclosures admin page", () => {
               days: [
                 null,
                 null,
-                { date: "2023-07-03", state: "complete", waiting: 0 },
-                { date: "2023-07-04", state: "incomplete", waiting: 2 },
-                { date: "2023-07-05", state: "not-listed", waiting: 0 },
+                {
+                  date: WibDate.make("2023-07-03"),
+                  state: "complete",
+                  waiting: 0,
+                },
+                {
+                  date: WibDate.make("2023-07-04"),
+                  state: "incomplete",
+                  waiting: 2,
+                },
+                {
+                  date: WibDate.make("2023-07-05"),
+                  state: "not-listed",
+                  waiting: 0,
+                },
               ],
             },
           ],
@@ -274,7 +287,7 @@ describe("the Disclosures admin page", () => {
         const { coverage } = yield* disclosureArchivePage(headers(cookie))
 
         assert.deepInclude(coverage, {
-          earliestDay: "2023-07-03",
+          earliestDay: WibDate.make("2023-07-03"),
           complete: 1242,
           incomplete: 0,
           notListed: 1,
@@ -305,7 +318,7 @@ describe("the Disclosures admin page", () => {
             {
               disclosure: DisclosureKey.make("20261102090000-B/2"),
               path: "/d.pdf",
-              day: "2026-11-02",
+              day: WibDate.make("2026-11-02"),
               firstFailedAt: "2026-11-05T03:00:00.000Z",
               unavailableAt: "2026-11-12T03:00:00.000Z",
               lastError: "IDX answered 404",
@@ -313,7 +326,7 @@ describe("the Disclosures admin page", () => {
             {
               disclosure: DisclosureKey.make("20261101090000-A/1"),
               path: "/c.pdf",
-              day: "2026-11-01",
+              day: WibDate.make("2026-11-01"),
               firstFailedAt: "2026-11-03T03:00:00.000Z",
               unavailableAt: "2026-11-10T03:00:00.000Z",
               lastError: "IDX answered 404",
