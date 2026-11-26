@@ -1,6 +1,6 @@
 // The disclosure archive's admin page, /admin/disclosures: the last
-// disclosure run, Run now and the recent runs (spec apinrdw/kumora#715,
-// ticket #716).
+// disclosure run, Run now, the recent runs and the coverage by disclosure
+// day (spec apinrdw/kumora#715, tickets #716 and #718).
 import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 
@@ -12,6 +12,7 @@ import {
 import { timePart } from "@/server/admin/part-timing"
 import { readPage } from "@/server/archive/page-read"
 import { dailyRunIdAt } from "@/server/archive/run"
+import { disclosureCoverage } from "@/server/disclosures/coverage"
 import {
   lastDisclosureRun,
   recentDisclosureRuns,
@@ -35,10 +36,12 @@ export const disclosureArchivePage = Effect.fn("disclosureArchivePage")(
       {
         lastRun: lastDisclosureRun,
         recentRuns: recentDisclosureRuns(now),
+        coverage: disclosureCoverage(now),
       },
       timed
     ).pipe(timed("reads"), importingAsConflict)
     return {
+      coverage: read.coverage,
       lastRun: read.lastRun,
       now: DateTime.formatIso(now),
       recentRuns: read.recentRuns,

@@ -7,6 +7,7 @@
 import { Effect, Schema } from "effect"
 
 import { ArchiveDb } from "../archive/archive-db.ts"
+import type { PageRead } from "../archive/page-read.ts"
 import { decodeRows, jsonChunks, type SqlValue, type Statement } from "../d1.ts"
 import {
   attachmentKey,
@@ -150,6 +151,28 @@ export const listedDays = Effect.fnUntraced(function* (from: string) {
   ])
   return yield* decodeListedDays(rows)
 })
+
+// listedDays as a part of an admin page's read.
+export const listedDaysRead = (from: string) =>
+  ({
+    kinds: [],
+    statements: [listedDaysStatement(from)],
+    read: ([rows = []]) => decodeListedDays(rows),
+  }) satisfies PageRead<ReadonlyArray<ListedDay>>
+
+// The oldest disclosure day the archive holds a version of, or null: the
+// first entry of disclosure_version_day.
+export const earliestDayRead = {
+  kinds: [],
+  statements: [
+    { sql: "SELECT MIN(day) AS day FROM disclosure_version", params: [] },
+  ],
+  read: ([rows = []]) =>
+    Effect.map(
+      decodeRows(Schema.Struct({ day: Schema.NullOr(Schema.String) }))(rows),
+      ([row]) => row?.day ?? null
+    ),
+} satisfies PageRead<string | null>
 
 // Records `days` complete at `completeAt`; one already complete keeps its
 // instant.

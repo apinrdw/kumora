@@ -20,7 +20,10 @@ import {
   send,
 } from "../auth/seam.ts"
 import { fakeWorkflow, type FakeWorkflow } from "../archive/fake-workflow.ts"
-import { memoryArchiveDb } from "../archive/memory-archive-db.ts"
+import {
+  type MemoryArchiveDb,
+  memoryArchiveDb,
+} from "../archive/memory-archive-db.ts"
 import { memoryBucket } from "../archive/memory-bucket.ts"
 import { seedRun } from "../archive/runs.ts"
 
@@ -80,6 +83,51 @@ const archive = () => {
 
 const createdIds = (workflow: FakeWorkflow) => [...workflow.instances.keys()]
 
+// A disclosure day a run listed after it ended, complete or not.
+const seedDay = (
+  db: MemoryArchiveDb,
+  day: string,
+  { complete }: { readonly complete: boolean }
+) =>
+  db.database
+    .prepare(
+      "INSERT INTO disclosure_day (day, listed_at, complete_at) VALUES (?, ?, ?)"
+    )
+    .run(day, `${day}T20:00:00.000Z`, complete ? `${day}T20:00:00.000Z` : null)
+
+// An attachment of `disclosure`'s Indonesian version, stored or waiting.
+const seedAttachment = (
+  db: MemoryArchiveDb,
+  disclosure: string,
+  path: string,
+  { stored }: { readonly stored: boolean }
+) => {
+  const day = `${disclosure.slice(0, 4)}-${disclosure.slice(4, 6)}-${disclosure.slice(6, 8)}`
+  db.database
+    .prepare(
+      "INSERT OR IGNORE INTO disclosure_version " +
+        "(disclosure_key, language, day, object_key, stored_at) VALUES (?, 'id', ?, ?, ?)"
+    )
+    .run(
+      disclosure,
+      day,
+      `disclosures/${disclosure}/id.json`,
+      `${day}T20:00:00.000Z`
+    )
+  db.database
+    .prepare(
+      "INSERT INTO disclosure_attachment (disclosure_key, path, day, object_key, stored_at) " +
+        "VALUES (?, ?, ?, ?, ?)"
+    )
+    .run(
+      disclosure,
+      path,
+      day,
+      `disclosures/${disclosure}/files${path}`,
+      stored ? `${day}T20:00:00.000Z` : null
+    )
+}
+
 describe("the Disclosures admin page", () => {
   it.effect("sends a visitor with no session to sign-in", () => {
     const { layer } = archive()
@@ -134,6 +182,54 @@ describe("the Disclosures admin page", () => {
           attachmentsStored: 610,
         },
       ])
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect(
+    "shows each day's coverage from IDX's first disclosure day, and the earliest day held",
+    () => {
+      const { layer, mails, db } = archive()
+      return Effect.gen(function* () {
+        // 11:00 WIB on 5 July 2023.
+        yield* TestClock.setTime(Date.parse("2023-07-05T04:00:00.000Z"))
+        seedDay(db, "2023-07-03", { complete: true })
+        seedDay(db, "2023-07-04", { complete: false })
+        seedAttachment(db, "20230704090000-A/1", "/a.pdf", { stored: true })
+        seedAttachment(db, "20230704090000-A/1", "/b.pdf", { stored: false })
+        seedAttachment(db, "20230704090000-A/1", "/c.pdf", { stored: false })
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+
+        const page = yield* disclosureArchivePage(headers(cookie))
+
+        assert.deepStrictEqual(page.coverage, {
+          earliestDay: "2023-07-04",
+          complete: 1,
+          incomplete: 1,
+          notListed: 1,
+          months: [
+            {
+              month: "2023-07",
+              days: [
+                null,
+                null,
+                { date: "2023-07-03", state: "complete", waiting: 0 },
+                { date: "2023-07-04", state: "incomplete", waiting: 2 },
+                { date: "2023-07-05", state: "not-listed", waiting: 0 },
+              ],
+            },
+          ],
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect("shows no earliest day before the archive holds one", () => {
+    const { layer, mails } = archive()
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2023-07-03T04:00:00.000Z"))
+      const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+      const page = yield* disclosureArchivePage(headers(cookie))
+      assert.deepInclude(page.coverage, { earliestDay: null, notListed: 1 })
     }).pipe(Effect.provide(layer))
   })
 

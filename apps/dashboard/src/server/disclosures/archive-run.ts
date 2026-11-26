@@ -26,7 +26,7 @@ import { ArchiveBucket } from "../archive/bucket.ts"
 import { readCapped } from "../archive/capped-body.ts"
 import { failingRun } from "../archive/failing-run.ts"
 import { type Run, runError, STORE_SLOWEST_ANSWER } from "../archive/run.ts"
-import { FIRST_DISCLOSURE_DAY } from "./coverage.ts"
+import { dayAfter, FIRST_DISCLOSURE_DAY } from "./coverage.ts"
 import {
   indexVersions,
   isAttachmentStored,
@@ -184,13 +184,6 @@ const listDay = Effect.fnUntraced(function* (day: string) {
   }
   yield* recordDayListed(day, yield* nowIso)
   return { versionsAdded, waiting: yield* waitingCount([day]) }
-})
-
-// The day after `day`, both YYYY-MM-DD.
-const dayAfter = Effect.fnUntraced(function* (day: string) {
-  return DateTime.formatIso(
-    DateTime.add(DateTime.makeUnsafe(`${day}T00:00:00Z`), { days: 1 })
-  ).slice(0, 10)
 })
 
 // Whether a run listed `day` after it ended in WIB: a listing while IDX

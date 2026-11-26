@@ -4,6 +4,7 @@ import { expect, test } from "../support/test"
 
 import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
 import {
+  seedDisclosureDay,
   seedDisclosureRun,
   seedLatestDisclosureRun,
   type SeededDisclosureRun,
@@ -164,6 +165,41 @@ test.describe.serial("an admin's Disclosures page", () => {
     await expect(card).toContainText("Running")
     await expect(card).toContainText("A run is in progress")
     await expect(card.getByRole("button", { name: "Run now" })).toBeDisabled()
+  })
+})
+
+test.describe("an admin's disclosure coverage", () => {
+  test.use({ storageState: ADMIN.storageState })
+
+  test("the coverage shows each day from IDX's first, and the earliest day held", async ({
+    page,
+  }) => {
+    seedDisclosureDay("2023-07-03", { complete: true, stored: 2, waiting: 0 })
+    seedDisclosureDay("2023-07-04", { complete: false, stored: 1, waiting: 1 })
+
+    await page.goto(DISCLOSURES)
+
+    const card = page.getByRole("region", { name: "Coverage", exact: true })
+    await expect(card).toContainText("Holds disclosures from 2023-07-03.")
+    await expect(card).toContainText(
+      /1 day complete, 1 incomplete, \d+ not yet listed\./
+    )
+    const table = card.getByRole("table", { name: "Disclosure coverage" })
+    const july = table
+      .getByRole("row")
+      .filter({
+        has: page.getByRole("rowheader", { name: "Jul 2023", exact: true }),
+      })
+      .getByRole("cell")
+    // Blank before IDX's first disclosure day, 3 July 2023.
+    await expect(july.nth(1)).toHaveText("")
+    await expect(july.nth(2)).toHaveText("Complete")
+    await expect(july.nth(3)).toHaveText("Incomplete")
+    await expect(july.nth(3)).toHaveAttribute(
+      "title",
+      "4 July 2023: Incomplete (1 attachment waits)"
+    )
+    await expect(july.nth(4)).toHaveText("Not yet listed")
   })
 })
 

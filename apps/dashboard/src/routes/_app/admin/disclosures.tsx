@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { Effect } from "effect"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 
+import { DisclosureCoverageCard } from "@/components/admin/disclosures/coverage-card"
 import { DisclosureLastRunCard } from "@/components/admin/disclosures/last-run-card"
 import { DisclosureRecentRunsCard } from "@/components/admin/disclosures/recent-runs-card"
 import { disclosureArchiveFn } from "@/server/admin/disclosures.functions"
@@ -18,7 +19,7 @@ export const Route = createFileRoute("/_app/admin/disclosures")({
 })
 
 function DisclosuresPage() {
-  const { lastRun, now, recentRuns } = Route.useLoaderData()
+  const { coverage, lastRun, now, recentRuns } = Route.useLoaderData()
   return (
     <div className="flex flex-col gap-6 py-6">
       <header className="flex flex-col gap-1">
@@ -28,10 +29,12 @@ function DisclosuresPage() {
         <p className="text-secondary-text max-w-[70ch] text-pretty">
           Every disclosure IDX publishes on its Keterbukaan Informasi page, in
           Indonesian and English, with every attachment, kept as published. Run
-          now stores what the last 7 days added on this stage.
+          now stores what the last 7 days added on this stage, then backfills
+          the oldest days not yet complete.
         </p>
       </header>
       <DisclosureLastRunCard lastRun={lastRun} now={now} />
+      <DisclosureCoverageCard coverage={coverage} />
       <DisclosureRecentRunsCard runs={recentRuns} />
     </div>
   )
