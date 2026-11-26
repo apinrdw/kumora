@@ -32,15 +32,14 @@ type WaitUntilShape = {
 // https://github.com/oxc-project/tsrs/issues/1113
 // Decision: only the bridge and workflow.ts import cloudflare:workers
 // (packages/server/docs/adr/0001-only-the-bridge-and-the-workflow-runner-import-cloudflare-workers.md)
-const cloudflareWorkers = (): Promise<
-  { readonly env: unknown } & WaitUntilShape
-> => import("cloudflare:workers")
+const cloudflareWorkers = Effect.promise(
+  (): Promise<{ readonly env: unknown } & WaitUntilShape> =>
+    import("cloudflare:workers")
+)
 
 const workerEnvLive = Layer.effect(
   WorkerEnv,
-  Effect.promise(cloudflareWorkers).pipe(
-    Effect.map(({ env }) => env as WorkerEnvShape)
-  )
+  cloudflareWorkers.pipe(Effect.map(({ env }) => env as WorkerEnvShape))
 )
 
 // Keeps the isolate alive for a promise the response doesn't wait on, such as
@@ -51,7 +50,7 @@ export class WaitUntil extends Context.Service<WaitUntil, WaitUntilShape>()(
 
 export const waitUntilLive = Layer.effect(
   WaitUntil,
-  Effect.promise(cloudflareWorkers).pipe(
+  cloudflareWorkers.pipe(
     Effect.map(({ waitUntil }) => WaitUntil.of({ waitUntil }))
   )
 )
