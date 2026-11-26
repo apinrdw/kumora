@@ -905,7 +905,7 @@ describe("Ajaib's walk: stopping and carrying on", () => {
             lastTimestamp: start + HOUR,
             fetched: 50_000,
             reached: 50_000,
-            unread: [],
+            missed: [],
           })
         )
 
@@ -1017,7 +1017,7 @@ describe("Ajaib's walk: stopping and carrying on", () => {
           lastTimestamp: start - 10 * MINUTE,
           fetched: N - 1,
           reached: N - 1,
-          unread: [],
+          missed: [],
         })
         const production = fakeProduction()
         const tab = fakeAjaib()
