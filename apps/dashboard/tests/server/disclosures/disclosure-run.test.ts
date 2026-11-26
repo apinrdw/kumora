@@ -28,6 +28,7 @@ import {
   RECORDED,
   replyOf,
 } from "./fake-idx.ts"
+import { seedHistory } from "./seed-history.ts"
 
 const DISCLOSURE_RUN = { archive: "disclosure", runKind: "archive" } as const
 
@@ -530,6 +531,56 @@ describe("a disclosure run", () => {
         assert.notInclude(listedDates(idx), "20230703")
       }),
     { timeout: 30_000 }
+  )
+
+  it.effect(
+    "takes up the oldest incomplete day of the whole history within its caps",
+    () =>
+      Effect.gen(function* () {
+        const { idx, db, run } = world()
+        seedHistory(db, "2026-11-16")
+        // 15 November waits for 2,000 attachments: two runs' budget.
+        db.database
+          .prepare(
+            "UPDATE disclosure_day SET complete_at = NULL WHERE day = '2026-11-15'"
+          )
+          .run()
+        const insert = db.database.prepare(
+          "INSERT INTO disclosure_attachment (disclosure_key, path, day, object_key) " +
+            "VALUES ('20261115090000-W/1', ?, '2026-11-15', ?)"
+        )
+        for (let n = 0; n < 2 * FILES_PER_RUN; n++) {
+          insert.run(pathOf(`w${n}.pdf`), `w/${n}`)
+          idx.files.set(pathOf(`w${n}.pdf`), {
+            body: bodyOf(pathOf(`w${n}.pdf`)),
+          })
+        }
+
+        assert.deepStrictEqual(
+          db.database
+            .prepare(
+              "SELECT (SELECT COUNT(*) FROM disclosure_version) AS versions, " +
+                "(SELECT COUNT(*) FROM disclosure_attachment) AS attachments"
+            )
+            .get(),
+          { versions: 538_000, attachments: 602_000 }
+        )
+
+        const result = yield* run()
+
+        assert.deepStrictEqual(result.backfillDays, ["2026-11-15"])
+        assert.deepInclude(result, {
+          outcome: "partial",
+          attachmentsStored: FILES_PER_RUN,
+          attachmentsWaiting: FILES_PER_RUN,
+        })
+        // Neither the complete days nor the day it resumed are listed.
+        assert.deepStrictEqual(
+          listedDates(idx).filter((day) => day < "20261120"),
+          []
+        )
+      }),
+    { timeout: 60_000 }
   )
 
   it.effect(

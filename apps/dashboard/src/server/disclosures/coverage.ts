@@ -55,7 +55,7 @@ const DisclosureCoverage = Schema.Struct({
   notListed: Schema.Number,
   // A row per month from FIRST_DISCLOSURE_DAY's to today's, oldest first,
   // each with its days from the 1st; null before FIRST_DISCLOSURE_DAY, and
-  // none past today. ~50 bytes a day as JSON: ~70 KB on 2026-11-26.
+  // none past today.
   months: Schema.Array(
     Schema.Struct({
       month: Schema.String,
@@ -64,6 +64,11 @@ const DisclosureCoverage = Schema.Struct({
   ),
 })
 export type DisclosureCoverage = typeof DisclosureCoverage.Type
+
+// The most bytes the coverage may take as JSON in the admin page's load: it
+// grows by a day's ~55 bytes a day, ~68 KB on 2026-11-26, so this holds
+// until about 2036. Its ArchiveDb read is a row a listed day too.
+export const MAX_COVERAGE_BYTES = 256 * 1024
 
 const coverageOf = Effect.fnUntraced(function* (
   listed: ReadonlyArray<ListedDay>,

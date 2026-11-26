@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Conflict, Unauthorized } from "@workspace/server"
+import { Conflict, jsonBytes, Unauthorized } from "@workspace/server"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
@@ -9,6 +9,7 @@ import {
 } from "@/server/admin/disclosures"
 import type { Mail } from "@/server/auth/mailer"
 import { RunId } from "@/server/archive/run"
+import { MAX_COVERAGE_BYTES } from "@/server/disclosures/coverage"
 import type { DisclosureRunResult } from "@/server/disclosures/run-result"
 
 import {
@@ -26,6 +27,7 @@ import {
 } from "../archive/memory-archive-db.ts"
 import { memoryBucket } from "../archive/memory-bucket.ts"
 import { seedRun } from "../archive/runs.ts"
+import { seedHistory } from "../disclosures/seed-history.ts"
 
 const DISCLOSURE_RUN = { archive: "disclosure", runKind: "archive" } as const
 
@@ -221,6 +223,29 @@ describe("the Disclosures admin page", () => {
         })
       }).pipe(Effect.provide(layer))
     }
+  )
+
+  it.effect(
+    "keeps the whole history's coverage within its stated size",
+    () => {
+      const { layer, mails, db } = archive()
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-26T04:00:00.000Z"))
+        seedHistory(db, "2026-11-25")
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+
+        const { coverage } = yield* disclosureArchivePage(headers(cookie))
+
+        assert.deepInclude(coverage, {
+          earliestDay: "2023-07-03",
+          complete: 1242,
+          incomplete: 0,
+          notListed: 1,
+        })
+        assert.isAtMost(yield* jsonBytes(coverage), MAX_COVERAGE_BYTES)
+      }).pipe(Effect.provide(layer))
+    },
+    { timeout: 60_000 }
   )
 
   it.effect("shows no earliest day before the archive holds one", () => {
