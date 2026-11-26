@@ -167,7 +167,7 @@ test("a candle backfilled into a relay gap after the last candle goes on the cha
   })
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
-  await act(() =>
+  await act<void>(() =>
     root.render(
       <ChartCanvas store={store} gaps={[gap("09:01", "09:04")]} pair={alone} />
     )
@@ -178,7 +178,7 @@ test("a candle backfilled into a relay gap after the last candle goes on the cha
     ["09:00", "09:01", "09:02", "09:03"].map(seconds)
   )
 
-  await act(() =>
+  await act<void>(() =>
     store.apply({
       _tag: "Delta",
       at: DateTime.makeUnsafe(0),
@@ -191,7 +191,7 @@ test("a candle backfilled into a relay gap after the last candle goes on the cha
   expect(volume!.rows.get(seconds("09:02"))).toMatchObject({ value: 1 })
 
   // A live candle after the gap still goes in as the newest bar.
-  await act(() =>
+  await act<void>(() =>
     store.apply({
       _tag: "Delta",
       at: DateTime.makeUnsafe(0),
@@ -201,7 +201,7 @@ test("a candle backfilled into a relay gap after the last candle goes on the cha
   )
   await nextFrame()
   expect(candles!.rows.get(seconds("09:05"))).toMatchObject({ close: 102 })
-  await act(() => root.unmount())
+  await act<void>(() => root.unmount())
 })
 
 test("a minute its last regular-board trade left goes off the chart, its volume bar with it", async () => {
@@ -221,13 +221,13 @@ test("a minute its last regular-board trade left goes off the chart, its volume 
   const root = createRoot(
     document.body.appendChild(document.createElement("div"))
   )
-  await act(() =>
+  await act<void>(() =>
     root.render(<ChartCanvas store={store} gaps={[]} pair={alone} />)
   )
   const [candles, volume] = series
   expect([...candles!.rows.keys()]).toEqual(["09:00", "09:01"].map(seconds))
 
-  await act(() =>
+  await act<void>(() =>
     store.apply({
       _tag: "Delta",
       at: DateTime.makeUnsafe(0),
@@ -239,7 +239,7 @@ test("a minute its last regular-board trade left goes off the chart, its volume 
   await nextFrame()
   expect([...candles!.rows.keys()]).toEqual([seconds("09:00")])
   expect([...volume!.rows.keys()]).toEqual([seconds("09:00")])
-  await act(() => root.unmount())
+  await act<void>(() => root.unmount())
 })
 
 // The price a series' axis label and crosshair show for `value`: its custom
@@ -269,11 +269,11 @@ test("an index's price axis keeps its decimals; a stock's snaps to its IDX tick"
     const root = createRoot(
       document.body.appendChild(document.createElement("div"))
     )
-    await act(() =>
+    await act<void>(() =>
       root.render(<ChartCanvas store={store} gaps={[]} pair={alone} />)
     )
     const shown = shownPrice(series[0]!, close)
-    await act(() => root.unmount())
+    await act<void>(() => root.unmount())
     return shown
   }
   expect(await shownOn(StockCode.make("IHSG"), 4_971.287)).toMatch(
@@ -316,7 +316,7 @@ describe("a click on the candle chart of a recorded day", () => {
     x: number,
     paneIndex = 0
   ) =>
-    act(() => {
+    act<void>(() => {
       for (const listener of listeners) listener(at(x, paneIndex))
     })
 
@@ -342,7 +342,7 @@ describe("a click on the candle chart of a recorded day", () => {
     const root = createRoot(
       document.body.appendChild(document.createElement("div"))
     )
-    await act(() =>
+    await act<void>(() =>
       root.render(
         <ChartCanvas
           store={store}
@@ -365,7 +365,7 @@ describe("a click on the candle chart of a recorded day", () => {
     // Off every bubble, a click still moves the cursor to its minute.
     await fire(mouse.clicks, 300)
     expect(cursor.state().at).not.toBe(before)
-    await act(() => root.unmount())
+    await act<void>(() => root.unmount())
   })
 
   test("a click in the volume pane, below a bubble, moves the cursor and selects no sweep", async () => {
@@ -374,7 +374,7 @@ describe("a click on the candle chart of a recorded day", () => {
     await fire(mouse.clicks, 130, 1)
     expect(sweeps.selected()).toBeUndefined()
     expect(cursor.state().at).not.toBe(before)
-    await act(() => root.unmount())
+    await act<void>(() => root.unmount())
   })
 
   test("a quick second click on a bubble, reported as a double click, selects its sweep", async () => {
@@ -382,6 +382,6 @@ describe("a click on the candle chart of a recorded day", () => {
     await fire(mouse.clicks, 130)
     await fire(mouse.dblClicks, 100)
     expect(sweeps.selected()).toBe(buy.firstTrade)
-    await act(() => root.unmount())
+    await act<void>(() => root.unmount())
   })
 })

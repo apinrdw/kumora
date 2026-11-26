@@ -119,11 +119,11 @@ const mount = async (today: WibDate) => {
     return null
   }
   const root = createRoot(document.createElement("div"))
-  await act(() => root.render(<Harness day={today} />))
+  await act<void>(() => root.render(<Harness day={today} />))
   return {
     held,
-    show: (day: WibDate) => act(() => root.render(<Harness day={day} />)),
-    unmount: () => act(() => root.unmount()),
+    show: (day: WibDate) => act<void>(() => root.render(<Harness day={day} />)),
+    unmount: () => act<void>(() => root.unmount()),
   }
 }
 
@@ -156,14 +156,14 @@ test("its own socket's snapshot drops the backfill the one before it follows", a
     return null
   }
   const root = createRoot(document.createElement("div"))
-  await act(() => root.render(<Harness />))
+  await act<void>(() => root.render(<Harness />))
   Queue.offerUnsafe(socket, snapshot())
   await settle()
   Queue.offerUnsafe(socket, snapshot())
   await settle()
   expect(mocks.bubbles).toHaveBeenCalledTimes(2)
   expect(dropped).toHaveBeenCalledOnce()
-  await act(() => root.unmount())
+  await act<void>(() => root.unmount())
 })
 
 test("a new day shows no IHSG until the new day's own Day state", async () => {
@@ -177,7 +177,7 @@ test("a new day shows no IHSG until the new day's own Day state", async () => {
     return null
   }
   const root = createRoot(document.createElement("div"))
-  await act(() => root.render(<Harness day={MONDAY} />))
+  await act<void>(() => root.render(<Harness day={MONDAY} />))
   Queue.offerUnsafe(socket, {
     ...delta([]),
     dayStates: [
@@ -198,9 +198,9 @@ test("a new day shows no IHSG until the new day's own Day state", async () => {
   await settle()
   expect(held.ihsg).toBe(7_200)
 
-  await act(() => root.render(<Harness day={TUESDAY} />))
+  await act<void>(() => root.render(<Harness day={TUESDAY} />))
   expect(held.ihsg).toBeUndefined()
-  await act(() => root.unmount())
+  await act<void>(() => root.unmount())
 })
 
 test("asks the backfill again, past the browser's copy, after the next minute's build", async () => {

@@ -50,7 +50,7 @@ test("IHSG's change follows the sealed day the live date turned over", async () 
   const container = document.createElement("div")
   const root = createRoot(container)
   const show = (today: WibDate) =>
-    act(() =>
+    act<void>(() =>
       root.render(
         <MarketStripBar
           flow={flow}
@@ -70,5 +70,5 @@ test("IHSG's change follows the sealed day the live date turned over", async () 
   await act(() => vi.advanceTimersByTimeAsync(20))
   expect(mocks.fetchDayStrip).toHaveBeenCalledTimes(2)
   expect(ihsg()).toContain("+1.00%")
-  await act(() => root.unmount())
+  await act<void>(() => root.unmount())
 })

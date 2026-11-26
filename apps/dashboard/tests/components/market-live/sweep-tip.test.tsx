@@ -40,8 +40,8 @@ test("an open tooltip shows a sweep's brokers once a recheck brings them", async
   const root = createRoot(
     document.body.appendChild(document.createElement("div"))
   )
-  await act(() => root.render(<SweepTip store={store} withBrokers />))
-  await act(() =>
+  await act<void>(() => root.render(<SweepTip store={store} withBrokers />))
+  await act<void>(() =>
     store.tip.set({
       id: buy.firstTrade,
       x: 10,
@@ -53,7 +53,7 @@ test("an open tooltip shows a sweep's brokers once a recheck brings them", async
   const tip = () => document.querySelector('[role="tooltip"]')?.textContent
   expect(tip()).toContain("Brokers show once every trade")
 
-  await act(() =>
+  await act<void>(() =>
     store.answerBrokers(
       {
         code: BBCA,
@@ -80,7 +80,7 @@ test("an open tooltip shows a sweep's brokers once a recheck brings them", async
   )
   expect(tip()).toContain("AK [F]")
   expect(tip()).toContain("CC [D]")
-  await act(() => root.unmount())
+  await act<void>(() => root.unmount())
 })
 
 test("an order run's tooltip names its aggressor orders and biggest passive order", async () => {
@@ -118,8 +118,8 @@ test("an order run's tooltip names its aggressor orders and biggest passive orde
   const root = createRoot(
     document.body.appendChild(document.createElement("div"))
   )
-  await act(() => root.render(<SweepTip store={store} withBrokers />))
-  await act(() =>
+  await act<void>(() => root.render(<SweepTip store={store} withBrokers />))
+  await act<void>(() =>
     store.tip.set({
       id: buy.firstTrade,
       x: 10,
@@ -131,7 +131,7 @@ test("an order run's tooltip names its aggressor orders and biggest passive orde
   expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(
     "2 aggressor orders #1515640–1515642 · biggest passive order 4 lots"
   )
-  await act(() => root.unmount())
+  await act<void>(() => root.unmount())
 })
 
 test("a sweep with more brokers than fit stays inside the viewport, and pinned, scrolls to every broker", async () => {
@@ -160,10 +160,10 @@ test("a sweep with more brokers than fit stays inside the viewport, and pinned, 
   const root = createRoot(
     document.body.appendChild(document.createElement("div"))
   )
-  await act(() => root.render(<SweepTip store={store} withBrokers />))
+  await act<void>(() => root.render(<SweepTip store={store} withBrokers />))
   // Below the middle, so it opens upwards into the room above the point.
   const y = window.innerHeight - 100
-  await act(() =>
+  await act<void>(() =>
     store.tip.set({ id: buy.firstTrade, x: 10, y, from: "chart", pinned: true })
   )
   const tip = () => document.querySelector<HTMLElement>('[role="tooltip"]')
@@ -182,7 +182,7 @@ test("a sweep with more brokers than fit stays inside the viewport, and pinned, 
     )
   )
   expect(tip()).toBeNull()
-  await act(() => root.unmount())
+  await act<void>(() => root.unmount())
 })
 
 test("a tooltip open on a sweep the replay cursor moves back before hides, and stays hidden as the cursor passes it again", async () => {
@@ -225,10 +225,10 @@ test("a tooltip open on a sweep the replay cursor moves back before hides, and s
   const root = createRoot(
     document.body.appendChild(document.createElement("div"))
   )
-  await act(() =>
+  await act<void>(() =>
     root.render(<SweepTip store={store} cursor={cursor} withBrokers />)
   )
-  await act(() =>
+  await act<void>(() =>
     store.tip.set({
       id: late.firstTrade,
       x: 10,
@@ -241,10 +241,10 @@ test("a tooltip open on a sweep the replay cursor moves back before hides, and s
   expect(tip()?.textContent).toContain("AK [F]")
 
   // Play from the close jumps back to the day's start, before the sweep.
-  await act(() => cursor.seek(cursor.day.start))
+  await act<void>(() => cursor.seek(cursor.day.start))
   expect(tip()).toBeNull()
-  await act(() => cursor.seek(cursor.day.close))
+  await act<void>(() => cursor.seek(cursor.day.close))
   expect(tip()).toBeNull()
   cursor.dispose()
-  await act(() => root.unmount())
+  await act<void>(() => root.unmount())
 })
