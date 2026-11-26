@@ -1,8 +1,9 @@
 // The disclosure archive's index in ArchiveDb
 // (archive-migrations/0005_disclosure_index.sql): a row per stored
 // disclosure version, a row per attachment its versions list, once per
-// disclosure and path, and when a run last listed each disclosure day. A
-// run decides from it what the archive lacks, and never lists the bucket.
+// disclosure and path, and when a run last listed each disclosure day and
+// when the day became complete. A run decides from it what the archive
+// lacks, and never lists the bucket.
 import { Effect, Schema } from "effect"
 
 import { ArchiveDb } from "../archive/archive-db.ts"
@@ -113,6 +114,60 @@ export const recordDayListed = Effect.fnUntraced(function* (
   ])
 })
 
+// An attachment row that waits to be stored: what keeps its day from being
+// complete. The one place that says so, for the runs and the coverage alike.
+const WAITING = "stored_at IS NULL"
+
+// Rows of the days in a bound JSON array.
+const IN_DAYS = "day IN (SELECT value FROM json_each(?))"
+
+// A disclosure day a run has listed: when it last did, when the day became
+// complete, and how many of its attachments wait to be stored.
+const ListedDay = Schema.Struct({
+  day: Schema.String,
+  listed_at: Schema.String,
+  complete_at: Schema.NullOr(Schema.String),
+  waiting: Schema.Number,
+})
+export type ListedDay = typeof ListedDay.Type
+
+// One row per listed day from `from` on, oldest first: a row a day, ~1,240
+// from IDX's first disclosure day to 2026-11-26. Its waiting count reads
+// the partial index of waiting attachments, never the stored ones.
+const listedDaysStatement = (from: string): Statement => ({
+  sql:
+    "SELECT day, listed_at, complete_at, (SELECT COUNT(*) FROM " +
+    `disclosure_attachment AS a WHERE a.day = d.day AND ${WAITING}) ` +
+    "AS waiting FROM disclosure_day AS d WHERE day >= ? ORDER BY day",
+  params: [from],
+})
+
+const decodeListedDays = decodeRows(ListedDay)
+
+export const listedDays = Effect.fnUntraced(function* (from: string) {
+  const [rows = []] = yield* (yield* ArchiveDb).batch([
+    listedDaysStatement(from),
+  ])
+  return yield* decodeListedDays(rows)
+})
+
+// Records `days` complete at `completeAt`; one already complete keeps its
+// instant.
+export const recordDaysComplete = Effect.fnUntraced(function* (
+  days: ReadonlyArray<string>,
+  completeAt: string
+) {
+  if (days.length === 0) return
+  yield* (yield* ArchiveDb).batch([
+    {
+      sql:
+        "UPDATE disclosure_day SET complete_at = ? " +
+        `WHERE complete_at IS NULL AND ${IN_DAYS}`,
+      params: [completeAt, JSON.stringify(days)],
+    },
+  ])
+})
+
 // An attachment that waits to be stored.
 const WaitingAttachment = Schema.Struct({
   disclosure: DisclosureKey,
@@ -120,11 +175,8 @@ const WaitingAttachment = Schema.Struct({
 })
 export type WaitingAttachment = typeof WaitingAttachment.Type
 
-// Rows of the days in a bound JSON array.
-const IN_DAYS = "day IN (SELECT value FROM json_each(?))"
-
-// Up to `limit` attachments of `days` that wait to be stored, newest day
-// first.
+// Up to `limit` attachments of `days` that wait to be stored, in the order
+// `days` names their days.
 export const waitingAttachments = Effect.fnUntraced(function* (
   days: ReadonlyArray<string>,
   limit: number
@@ -132,9 +184,11 @@ export const waitingAttachments = Effect.fnUntraced(function* (
   const [rows = []] = yield* (yield* ArchiveDb).batch([
     {
       sql:
-        "SELECT disclosure_key AS disclosure, path FROM disclosure_attachment " +
-        `WHERE stored_at IS NULL AND ${IN_DAYS} ` +
-        "ORDER BY day DESC, disclosure_key, path LIMIT ?",
+        // json_each has a `path` column of its own.
+        "SELECT a.disclosure_key AS disclosure, a.path " +
+        "FROM json_each(?) AS listed JOIN disclosure_attachment AS a " +
+        `ON a.day = listed.value WHERE ${WAITING} ` +
+        "ORDER BY listed.key, a.disclosure_key, a.path LIMIT ?",
       params: [JSON.stringify(days), limit],
     },
   ])
@@ -149,7 +203,7 @@ export const waitingCount = Effect.fnUntraced(function* (
     {
       sql:
         "SELECT COUNT(*) AS waiting FROM disclosure_attachment " +
-        `WHERE stored_at IS NULL AND ${IN_DAYS}`,
+        `WHERE ${WAITING} AND ${IN_DAYS}`,
       params: [JSON.stringify(days)],
     },
   ])

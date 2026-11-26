@@ -29,12 +29,18 @@ export const DisclosureRunResult = Schema.Struct({
   outcome: RunOutcome,
   // The disclosure days listed, newest first, YYYY-MM-DD.
   days: Schema.Array(Schema.String),
+  // The older disclosure days it took up, oldest first: listed, or resumed
+  // where an earlier run's budget ran out. A record from before backfill
+  // (ticket #718) has none.
+  backfillDays: Schema.Array(Schema.String).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([]))
+  ),
   // Disclosure versions the archive didn't hold, stored.
   versionsAdded: Schema.Number,
   // Attachments stored.
   attachmentsStored: Schema.Number,
-  // Attachments of the listed days that wait for a later run once this one
-  // ends: those it couldn't store, and those past its budget.
+  // Attachments of its days and backfill days that wait for a later run
+  // once this one ends: those it couldn't store, and those past its budget.
   attachmentsWaiting: Schema.Number,
   // The first MAX_NOT_STORED_SHOWN of the attachments it couldn't store.
   notStored: Schema.Array(NotStoredAttachment),
@@ -66,6 +72,7 @@ export const runningDisclosureResult = Effect.fnUntraced(function* (
     finishedAt: null,
     outcome: "running",
     days: [],
+    backfillDays: [],
     versionsAdded: 0,
     attachmentsStored: 0,
     attachmentsWaiting: 0,

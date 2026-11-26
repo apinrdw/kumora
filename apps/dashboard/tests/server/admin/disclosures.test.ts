@@ -47,6 +47,7 @@ const PARTIAL: DisclosureRunResult = {
   finishedAt: "2026-11-26T03:04:00.000Z",
   outcome: "partial",
   days: ["2026-11-26"],
+  backfillDays: ["2023-07-03"],
   versionsAdded: 380,
   attachmentsStored: 610,
   attachmentsWaiting: 1,

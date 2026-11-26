@@ -1,14 +1,15 @@
 // One disclosure run: `plan`, one `list:<day>` step per disclosure day of
-// the last 7, newest first, `waiting`, one `files:<n>` step per
+// the last 7, newest first, `backfill`, a `list:<day>` step per older day it
+// takes up that isn't listed whole, `waiting`, one `files:<n>` step per
 // FILES_PER_STEP waiting attachments, then `summary`. Each step's body is an
 // Effect; the run itself only orders the steps, so it holds nothing a
-// Workflow replay could change. Spec apinrdw/kumora#715 and #716.
+// Workflow replay could change. Spec apinrdw/kumora#715, #716 and #718.
 //
 // A `list:` step stores the versions the archive lacks and indexes their
 // attachments as waiting; the `files:` steps store waiting attachments, at
-// most FILES_PER_RUN a run, newest day first. An attachment that isn't
-// stored stays waiting in the index, so the next run takes it up without
-// listing its day again.
+// most FILES_PER_RUN a run: the recent days' newest day first, then the
+// older days' oldest first. An attachment that isn't stored stays waiting in
+// the index, so the next run takes it up without listing its day again.
 import {
   type NonRetryable,
   STEP_RESULT_BYTES,
@@ -25,12 +26,16 @@ import { ArchiveBucket } from "../archive/bucket.ts"
 import { readCapped } from "../archive/capped-body.ts"
 import { failingRun } from "../archive/failing-run.ts"
 import { type Run, runError, STORE_SLOWEST_ANSWER } from "../archive/run.ts"
+import { FIRST_DISCLOSURE_DAY } from "./coverage.ts"
 import {
   indexVersions,
   isAttachmentStored,
+  type ListedDay,
+  listedDays,
   markAttachmentFailed,
   markAttachmentStored,
   recordDayListed,
+  recordDaysComplete,
   heldVersions,
   type WaitingAttachment,
   waitingAttachments,
@@ -64,6 +69,13 @@ type StepServices = ArchiveBucket | ArchiveDb | HttpClient.HttpClient
 // The disclosure days each run lists again: today in WIB and the 6 before,
 // so a version or attachment IDX adds within a week is stored.
 const RECENT_DAYS = 7
+
+// The most days older than the recent ones one run takes up. A day of
+// ~200 disclosures waits ~500 attachments, so the budget stops a run after
+// two or three; the cap bounds a run's steps (at most 7 + 31 `list:`, 40
+// `files:` and 4 more, against a Workflow's default 10,000) where days hold
+// nothing, as before IDX's first disclosure or on a holiday.
+const MAX_BACKFILL_DAYS = 31
 
 // Attachments one `files:` step stores, FILE_CONCURRENCY at a time.
 const FILES_PER_STEP = 25
@@ -171,7 +183,71 @@ const listDay = Effect.fnUntraced(function* (day: string) {
     )
   }
   yield* recordDayListed(day, yield* nowIso)
-  return { versionsAdded }
+  return { versionsAdded, waiting: yield* waitingCount([day]) }
+})
+
+// The day after `day`, both YYYY-MM-DD.
+const dayAfter = Effect.fnUntraced(function* (day: string) {
+  return DateTime.formatIso(
+    DateTime.add(DateTime.makeUnsafe(`${day}T00:00:00Z`), { days: 1 })
+  ).slice(0, 10)
+})
+
+// Whether a run listed `day` after it ended in WIB: a listing while IDX
+// could still add to the day doesn't count toward its completeness.
+const listedWhole = Effect.fnUntraced(function* ({
+  day,
+  listed_at,
+}: ListedDay) {
+  return (yield* wibDateAt(DateTime.makeUnsafe(listed_at))) > day
+})
+
+// A day the run may backfill, oldest first: whether it is listed whole
+// already, and if so how many of its attachments wait.
+interface BackfillDay {
+  readonly day: string
+  readonly listed: boolean
+  readonly waiting: number
+}
+
+// How many attachments of the run's recent days wait, and up to
+// MAX_BACKFILL_DAYS days older than them that aren't complete, oldest first
+// from IDX's first disclosure day. A complete day is never among them.
+// Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
+// (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
+const backfill = Effect.fnUntraced(function* (recent: ReadonlyArray<string>) {
+  const before = recent.at(-1) ?? FIRST_DISCLOSURE_DAY
+  const listed = new Map(
+    (yield* listedDays(FIRST_DISCLOSURE_DAY)).map((row) => [row.day, row])
+  )
+  const days: Array<BackfillDay> = []
+  for (
+    let day = FIRST_DISCLOSURE_DAY;
+    day < before && days.length < MAX_BACKFILL_DAYS;
+    day = yield* dayAfter(day)
+  ) {
+    const row = listed.get(day)
+    if (row?.complete_at != null) continue
+    const whole = row !== undefined && (yield* listedWhole(row))
+    days.push({ day, listed: whole, waiting: whole ? row.waiting : 0 })
+  }
+  return { recentWaiting: yield* waitingCount(recent), days }
+})
+
+// Of `days`, each older than the run's recent days, those now complete:
+// listed whole, with nothing waiting.
+const completeDays = Effect.fnUntraced(function* (days: ReadonlyArray<string>) {
+  const [oldest] = days
+  if (oldest === undefined) return []
+  const complete: Array<string> = []
+  for (const row of yield* listedDays(oldest))
+    if (
+      days.includes(row.day) &&
+      row.waiting === 0 &&
+      (yield* listedWhole(row))
+    )
+      complete.push(row.day)
+  return complete
 })
 
 // Why an attachment couldn't be downloaded; the next run tries it again.
@@ -249,23 +325,30 @@ const finishedResult = Effect.fnUntraced(function* (run: DisclosureRun) {
   return { ...(yield* runningDisclosureResult(run)), finishedAt: yield* nowIso }
 })
 
+// Records the backfilled days now complete, and the run's result.
 const summary = Effect.fnUntraced(function* (
   run: DisclosureRun,
   days: ReadonlyArray<string>,
+  backfillDays: ReadonlyArray<string>,
   versionsAdded: number,
   attachmentsStored: number,
   notStored: ReadonlyArray<NotStoredAttachment>
 ) {
-  const attachmentsWaiting = yield* waitingCount(days)
+  yield* recordDaysComplete(yield* completeDays(backfillDays), yield* nowIso)
+  const attachmentsWaiting = yield* waitingCount([...days, ...backfillDays])
   const result = DisclosureRunResult.make({
     ...(yield* finishedResult(run)),
-    // Anything of the listed days left waiting makes the run partial: a
-    // download that failed, or one past the run's budget.
+    // Anything of the days it took up left waiting makes the run partial: a
+    // download that failed, or one past the run's budget, which the next
+    // run takes up first.
+    // Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
+    // (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
     outcome:
       notStored.length === 0 && attachmentsWaiting === 0
         ? "complete"
         : "partial",
     days,
+    backfillDays,
     versionsAdded,
     attachmentsStored,
     attachmentsWaiting,
@@ -279,12 +362,14 @@ const summary = Effect.fnUntraced(function* (
 const recordFailure = Effect.fnUntraced(function* (
   run: DisclosureRun,
   days: ReadonlyArray<string>,
+  backfillDays: ReadonlyArray<string>,
   error: string
 ) {
   const result = DisclosureRunResult.make({
     ...(yield* finishedResult(run)),
     outcome: "failed",
     days,
+    backfillDays,
     error: yield* runError(error),
   })
   yield* writeDisclosureRun(result)
@@ -296,18 +381,31 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
   run: DisclosureRun
 ): Effect.fn.Return<DisclosureRunResult, StepFailed> {
   const days = yield* steps.do("plan", plan(run))
+  const backfillDays: Array<string> = []
   let versionsAdded = 0
-  for (const day of days) {
+  const list = Effect.fnUntraced(function* (day: string) {
     const listed = yield* failingRun(
       steps,
       steps.do(`list:${day}`, listDay(day)),
-      (message) => recordFailure(run, days, message)
+      (message) => recordFailure(run, days, backfillDays, message)
     )
     versionsAdded += listed.versionsAdded
+    return listed.waiting
+  })
+  for (const day of days) yield* list(day)
+  // What the recent days leave of the run's budget goes to the oldest days
+  // not complete: each listed whole already is taken up as it stands, each
+  // other listed first, until their waiting attachments fill the budget.
+  const older = yield* steps.do("backfill", backfill(days))
+  let budget = FILES_PER_RUN - older.recentWaiting
+  for (const { day, listed, waiting } of older.days) {
+    if (budget <= 0) break
+    budget -= listed ? waiting : yield* list(day)
+    backfillDays.push(day)
   }
   const waiting = yield* steps.do(
     "waiting",
-    waitingAttachments(days, FILES_PER_RUN)
+    waitingAttachments([...days, ...backfillDays], FILES_PER_RUN)
   )
   const config = yield* filesStep
   let attachmentsStored = 0
@@ -340,6 +438,13 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
   }
   return yield* steps.do(
     "summary",
-    summary(run, days, versionsAdded, attachmentsStored, notStored)
+    summary(
+      run,
+      days,
+      backfillDays,
+      versionsAdded,
+      attachmentsStored,
+      notStored
+    )
   )
 })
