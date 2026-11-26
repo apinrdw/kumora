@@ -25,6 +25,7 @@ import { Route as AppMarketBubblesRouteImport } from './routes/_app/market-bubbl
 import { Route as AppMarketLiveRouteImport } from './routes/_app/market-live'
 import { Route as AppOrderBookRadarRouteImport } from './routes/_app/order-book-radar'
 import { Route as LogosCodeRouteImport } from './routes/logos/$code'
+import { Route as AppAdminDisclosuresRouteImport } from './routes/_app/admin/disclosures'
 import { Route as AppAdminKseiRouteImport } from './routes/_app/admin/ksei'
 import { Route as AppAdminShareholdingRouteImport } from './routes/_app/admin/shareholding'
 import { Route as AppAdminUsersRouteImport } from './routes/_app/admin/users'
@@ -111,6 +112,11 @@ const LogosCodeRoute = LogosCodeRouteImport.update({
   path: '/logos/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppAdminDisclosuresRoute = AppAdminDisclosuresRouteImport.update({
+  id: '/admin/disclosures',
+  path: '/admin/disclosures',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAdminKseiRoute = AppAdminKseiRouteImport.update({
   id: '/admin/ksei',
   path: '/admin/ksei',
@@ -158,6 +164,7 @@ export interface FileRoutesByFullPath {
   '/market-live': typeof AppMarketLiveRoute
   '/order-book-radar': typeof AppOrderBookRadarRoute
   '/logos/$code': typeof LogosCodeRoute
+  '/admin/disclosures': typeof AppAdminDisclosuresRoute
   '/admin/ksei': typeof AppAdminKseiRoute
   '/admin/shareholding': typeof AppAdminShareholdingRoute
   '/admin/users': typeof AppAdminUsersRoute
@@ -181,6 +188,7 @@ export interface FileRoutesByTo {
   '/order-book-radar': typeof AppOrderBookRadarRoute
   '/logos/$code': typeof LogosCodeRoute
   '/': typeof AppIndexRoute
+  '/admin/disclosures': typeof AppAdminDisclosuresRoute
   '/admin/ksei': typeof AppAdminKseiRoute
   '/admin/shareholding': typeof AppAdminShareholdingRoute
   '/admin/users': typeof AppAdminUsersRoute
@@ -206,6 +214,7 @@ export interface FileRoutesById {
   '/_app/order-book-radar': typeof AppOrderBookRadarRoute
   '/logos/$code': typeof LogosCodeRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/admin/disclosures': typeof AppAdminDisclosuresRoute
   '/_app/admin/ksei': typeof AppAdminKseiRoute
   '/_app/admin/shareholding': typeof AppAdminShareholdingRoute
   '/_app/admin/users': typeof AppAdminUsersRoute
@@ -231,6 +240,7 @@ export interface FileRouteTypes {
     | '/market-live'
     | '/order-book-radar'
     | '/logos/$code'
+    | '/admin/disclosures'
     | '/admin/ksei'
     | '/admin/shareholding'
     | '/admin/users'
@@ -254,6 +264,7 @@ export interface FileRouteTypes {
     | '/order-book-radar'
     | '/logos/$code'
     | '/'
+    | '/admin/disclosures'
     | '/admin/ksei'
     | '/admin/shareholding'
     | '/admin/users'
@@ -278,6 +289,7 @@ export interface FileRouteTypes {
     | '/_app/order-book-radar'
     | '/logos/$code'
     | '/_app/'
+    | '/_app/admin/disclosures'
     | '/_app/admin/ksei'
     | '/_app/admin/shareholding'
     | '/_app/admin/users'
@@ -412,6 +424,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LogosCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/admin/disclosures': {
+      id: '/_app/admin/disclosures'
+      path: '/admin/disclosures'
+      fullPath: '/admin/disclosures'
+      preLoaderRoute: typeof AppAdminDisclosuresRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/admin/ksei': {
       id: '/_app/admin/ksei'
       path: '/admin/ksei'
@@ -466,6 +485,7 @@ interface AppRouteChildren {
   AppMarketLiveRoute: typeof AppMarketLiveRoute
   AppOrderBookRadarRoute: typeof AppOrderBookRadarRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppAdminDisclosuresRoute: typeof AppAdminDisclosuresRoute
   AppAdminKseiRoute: typeof AppAdminKseiRoute
   AppAdminShareholdingRoute: typeof AppAdminShareholdingRoute
   AppAdminUsersRoute: typeof AppAdminUsersRoute
@@ -482,6 +502,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppMarketLiveRoute: AppMarketLiveRoute,
   AppOrderBookRadarRoute: AppOrderBookRadarRoute,
   AppIndexRoute: AppIndexRoute,
+  AppAdminDisclosuresRoute: AppAdminDisclosuresRoute,
   AppAdminKseiRoute: AppAdminKseiRoute,
   AppAdminShareholdingRoute: AppAdminShareholdingRoute,
   AppAdminUsersRoute: AppAdminUsersRoute,

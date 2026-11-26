@@ -130,7 +130,10 @@ export function RunArchiveButton({
   )
 }
 
-function Schedule({ times, nextRun }: ArchiveSchedule) {
+// Says nothing for an archive with no cron yet.
+function Schedule({ schedule }: { schedule: ArchiveSchedule | undefined }) {
+  if (schedule === undefined) return null
+  const { times, nextRun } = schedule
   return (
     <p className="text-secondary-text flex items-center gap-2 text-[13px] leading-5">
       <IconClock aria-hidden className="size-4 shrink-0" stroke={1.75} />
@@ -255,7 +258,8 @@ function RunMeta({
  * An archive's last run, or the empty state before any, with its actions.
  * `stats` and `details` describe the last run: `details` shows below the
  * counts, after the error of a run that failed. `frame` sets whether it is
- * its own card or a row of an ArchiveLedger.
+ * its own card or a row of an ArchiveLedger. Without `schedule`, it says
+ * nothing of a cron.
  */
 export function ArchiveLastRunCard({
   title,
@@ -276,7 +280,8 @@ export function ArchiveLastRunCard({
   stats: ReadonlyArray<RunStat>
   details: ReactNode
   actions: ReactNode
-  schedule: ArchiveSchedule
+  // When Production's cron runs; none for an archive with no cron yet.
+  schedule?: ArchiveSchedule
   frame?: RunFrame
 }) {
   const result = lastRun?.result
@@ -317,7 +322,7 @@ export function ArchiveLastRunCard({
             ) : (
               <RunMeta run={lastRun} now={now} />
             )}
-            <Schedule {...schedule} />
+            <Schedule schedule={schedule} />
           </>
         }
         stats={lastRun === undefined ? null : statList(archiveRowStats)}
@@ -332,7 +337,7 @@ export function ArchiveLastRunCard({
         <p className="text-secondary-text border-strong rounded-sm border border-dashed px-4 py-6 text-center text-sm leading-5 text-pretty">
           {emptyMessage}
         </p>
-        <Schedule {...schedule} />
+        <Schedule schedule={schedule} />
       </ArchiveCard>
     )
   return (
@@ -345,7 +350,7 @@ export function ArchiveLastRunCard({
         "grid grid-cols-2 gap-4 border-y border-border py-4 sm:auto-cols-fr sm:grid-flow-col sm:grid-cols-none sm:gap-x-0 sm:divide-x sm:divide-border sm:[&>div]:px-4 sm:[&>div:first-child]:pl-0"
       )}
       {notes}
-      <Schedule {...schedule} />
+      <Schedule schedule={schedule} />
     </ArchiveCard>
   )
 }
