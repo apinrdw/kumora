@@ -23,25 +23,35 @@ export class WorkerEnv extends Context.Service<WorkerEnv, WorkerEnvShape>()(
   "@workspace/server/WorkerEnv"
 ) {}
 
+type WaitUntilShape = {
+  readonly waitUntil: (promise: Promise<unknown>) => void
+}
+
+// The explicit return type works around tsrs 7.1.0-beta's false TS5115 on an
+// inferred import("cloudflare:workers"); drop it once tsrs ships the fix:
+// https://github.com/oxc-project/tsrs/issues/1113
 // Decision: only the bridge and workflow.ts import cloudflare:workers
 // (packages/server/docs/adr/0001-only-the-bridge-and-the-workflow-runner-import-cloudflare-workers.md)
+const cloudflareWorkers = (): Promise<
+  { readonly env: unknown } & WaitUntilShape
+> => import("cloudflare:workers")
+
 const workerEnvLive = Layer.effect(
   WorkerEnv,
-  Effect.promise(() => import("cloudflare:workers")).pipe(
+  Effect.promise(cloudflareWorkers).pipe(
     Effect.map(({ env }) => env as WorkerEnvShape)
   )
 )
 
 // Keeps the isolate alive for a promise the response doesn't wait on, such as
 // a mail send.
-export class WaitUntil extends Context.Service<
-  WaitUntil,
-  { readonly waitUntil: (promise: Promise<unknown>) => void }
->()("@workspace/server/WaitUntil") {}
+export class WaitUntil extends Context.Service<WaitUntil, WaitUntilShape>()(
+  "@workspace/server/WaitUntil"
+) {}
 
 export const waitUntilLive = Layer.effect(
   WaitUntil,
-  Effect.promise(() => import("cloudflare:workers")).pipe(
+  Effect.promise(cloudflareWorkers).pipe(
     Effect.map(({ waitUntil }) => WaitUntil.of({ waitUntil }))
   )
 )
