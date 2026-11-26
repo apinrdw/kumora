@@ -59,6 +59,7 @@ export {
   TradeNumberOrder,
   TradeNumberValue,
   tradeNumberValue,
+  ALERT_LEVEL,
   STANDOUT_LEVELS,
   VIEWER_MESSAGE_LIMIT,
   ViewerCloseCode,

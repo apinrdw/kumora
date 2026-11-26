@@ -443,6 +443,10 @@ export const STANDOUT_LEVELS = [1, 5, 10] as const
 const StandoutLevel = Schema.Literals(STANDOUT_LEVELS)
 export type StandoutLevel = typeof StandoutLevel.Type
 
+// The level whose standout sweeps alert: a sweep alert is a standout sweep
+// at it.
+export const ALERT_LEVEL: StandoutLevel = 1
+
 // A sweep that reached its stock code's top-1%, 5% or 10% cutoff for its
 // side (the rule is in the dashboard's sweep-alerts.ts), as the sweep was
 // when decided: a later regroup that grows it doesn't send it again. Its
@@ -531,7 +535,7 @@ const Delta = Schema.TaggedStruct("Delta", {
   // once its second closed. Absent when none did.
   sweepAlerts: Schema.optionalKey(Schema.Array(SweepAlert)),
   // The sweeps of any code that stood out since the last delta, in the order
-  // decided, each once. A sweep alert is one at level 1. Absent when none
+  // decided, each once. A sweep alert is one at ALERT_LEVEL. Absent when none
   // did.
   standoutSweeps: Schema.optionalKey(Schema.Array(StandoutSweep)),
   // Every changed Day state of a code some viewer selected or watches, each

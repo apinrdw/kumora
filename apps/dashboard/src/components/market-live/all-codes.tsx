@@ -1,5 +1,6 @@
 import { clientRuntime, type StockCode } from "@workspace/client"
 import {
+  ALERT_LEVEL,
   STANDOUT_LEVELS,
   standoutKey,
   type StandoutLevel,
@@ -20,13 +21,17 @@ import { makeStandoutStore, type StandoutStore } from "./standout-store"
 // (apps/dashboard/docs/adr/0021-each-browser-keeps-its-own-settings-in-localstorage.md)
 const KEY = "kumora:market-live:standout-level"
 
-// Anything but a stored 5 or 10 reads as 1%, which lists the sweeps that
-// alert.
+// Anything but a stored level reads as ALERT_LEVEL, which lists the sweeps
+// that alert.
 const levelSetting = Effect.runSync(
   makeStoredValue<StandoutLevel>({
     key: KEY,
-    parse: (raw) => Effect.succeed(raw === "5" ? 5 : raw === "10" ? 10 : 1),
-    serialize: (level) => Effect.succeed(level === 1 ? null : String(level)),
+    parse: (raw) =>
+      Effect.succeed(
+        STANDOUT_LEVELS.find((level) => String(level) === raw) ?? ALERT_LEVEL
+      ),
+    serialize: (level) =>
+      Effect.succeed(level === ALERT_LEVEL ? null : String(level)),
   })
 )
 
@@ -92,7 +97,7 @@ function AllCodes({
   const level = useSyncExternalStore(
     levelSetting.subscribe,
     levelSetting.snapshot,
-    () => 1 as const
+    () => ALERT_LEVEL
   )
   const all = useSyncExternalStore(store.subscribe, store.rows, store.rows)
   const rows = useMemo(

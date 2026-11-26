@@ -7,10 +7,10 @@
 // so a regroup replaces the minute's entries rather than adding them again,
 // and it decides the minutes in trade order.
 import {
+  ALERT_LEVEL,
   STANDOUT_LEVELS,
   type AlertSide,
   type SidedSweep,
-  type StandoutLevel,
   type StandoutSweep,
   type StockCode,
   type Sweep,
@@ -24,7 +24,6 @@ import { DateTime, Effect } from "effect"
 // apps/e2e/tests/market-live-sweep-alerts.spec.ts and
 // market-live-all-codes.spec.ts repeat the 100 (`WARM_UP`).
 const WARM_UP = 100
-const ALERT_LEVEL: StandoutLevel = 1
 
 // Decision: a sweep closed over 10 s before the decision ranks but stays silent
 // (apps/dashboard/docs/adr/0098-a-sweep-closed-over-10-s-ago-ranks-but-stays-silent.md)
