@@ -237,7 +237,7 @@ function TapePanel({
 }
 
 // What the page keeps in its URL, so a shared link opens it: the selected
-// code, the phone's panel tab, the sweep log's Big only toggle, and the book
+// code, the panel tab, the sweep log's Big only toggle, and the book
 // event a link lands on. Picking a code adds a history entry and leaves the
 // event; switching a view replaces it and keeps the scroll.
 function useMarketLiveSearch() {
@@ -423,6 +423,7 @@ function MarketLiveDay({
     <>
       <h1 className="text-2xl font-bold">Market Live</h1>
       <LayoutB
+        code={selected}
         charts={
           <DayCharts
             code={selected}

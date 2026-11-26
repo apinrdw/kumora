@@ -1,3 +1,4 @@
+import type { StockCode } from "@workspace/client"
 import { cn } from "@workspace/ui/lib/utils"
 import { useEffect, useId, useRef, type ReactNode } from "react"
 
@@ -30,20 +31,77 @@ function useFillViewport<E extends HTMLElement>() {
 // Each panel's tab name on a phone.
 const TAB_NAMES: Record<Panel, string> = {
   sweeps: "Sweeps",
+  tape: "Tape",
   watchlist: "Watchlist",
   book: "Order book",
-  tape: "Tape",
+}
+
+// The panels the middle column holds from `lg`, as its tabs. The others
+// stack in the right column.
+const MIDDLE: ReadonlyArray<Panel> = ["sweeps", "tape"]
+
+// A bar of tabs, one per panel in `panels`, `shown` selected. Each tab
+// controls its panel's element, `${id}-${name}`.
+function PanelTabs({
+  label,
+  panels,
+  shown,
+  names,
+  id,
+  onPanel,
+  className,
+}: {
+  label: string
+  panels: ReadonlyArray<Panel>
+  shown: Panel | undefined
+  names: Record<Panel, string>
+  id: string
+  onPanel: (panel: Panel) => void
+  className: string
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label={label}
+      className={cn(
+        "flex gap-0.5 rounded-md border border-border bg-sidebar p-0.5 text-[13px]",
+        className
+      )}
+    >
+      {panels.map((name) => (
+        <button
+          key={name}
+          type="button"
+          role="tab"
+          aria-selected={name === shown}
+          aria-controls={`${id}-${name}`}
+          onClick={() => onPanel(name)}
+          className={cn(
+            "min-w-0 flex-1 truncate rounded-sm px-2 py-1",
+            name === shown
+              ? "bg-elevated text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {names[name]}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 /**
  * Layout B (spec apinrdw/kumora#263, "Layout, settings, indices and
- * phone"). From `lg`: the chart column, the sweep log and the 400 px
- * right column of `watchlist`, `book` and `tape`, at least as tall as the
- * window below them. The tape scrolls sideways in it (tape-list.tsx). Below `lg`: the charts stacked full width, then tabs
- * showing one panel at a time: `panel`, kept by the page in its URL, else
- * the first. No `log` (an index): no log column or tab.
+ * phone"). From `lg`: the chart column; the middle column, whose tabs show
+ * the sweep log or the tape (apinrdw/kumora#702); and the 400 px right
+ * column of `watchlist` and `book`; at least as tall as the window below
+ * them. The tape scrolls sideways in its column (tape-list.tsx). Below `lg`:
+ * the charts stacked full width, then tabs showing one panel at a time. A
+ * bar shows `panel`, kept by the page in its URL, when it has that tab, else
+ * its first. No `log` (an index): no sweep log or tab for it.
  */
 export function LayoutB({
+  code,
   charts,
   log,
   withBrokers,
@@ -53,6 +111,8 @@ export function LayoutB({
   panel: picked,
   onPanel,
 }: {
+  // The selected code, which the sweep log's tab names.
+  code: StockCode
   charts: ReactNode
   log: ReactNode | undefined
   // Whether the log has its broker columns: a recorded day's.
@@ -67,13 +127,21 @@ export function LayoutB({
   const id = useId()
   const content: Record<Panel, ReactNode> = {
     sweeps: log,
+    tape,
     watchlist,
     book,
-    tape,
   }
   const panels = PANELS.filter((name) => content[name] !== undefined)
-  const shown =
-    picked !== undefined && panels.includes(picked) ? picked : panels[0]
+  const middle = panels.filter((name) => MIDDLE.includes(name))
+  const pick = (among: ReadonlyArray<Panel>) =>
+    picked !== undefined && among.includes(picked) ? picked : among[0]
+  const shown = pick(panels)
+  const middleShown = pick(middle)
+  const middleNames: Record<Panel, string> = {
+    ...TAB_NAMES,
+    sweeps: `Buy/Sell sweeps · ${code}`,
+    tape: "Running trades",
+  }
   // A hidden tab's panel stays mounted (hidden by CSS), so the
   // tape keeps its socket and every panel its state across tab switches.
   const panel = (name: Panel, className?: string) =>
@@ -82,6 +150,7 @@ export function LayoutB({
         id={`${id}-${name}`}
         className={cn("flex min-w-0 flex-col", className, {
           "max-lg:hidden": name !== shown,
+          "lg:hidden": MIDDLE.includes(name) && name !== middleShown,
         })}
       >
         {content[name]}
@@ -92,49 +161,44 @@ export function LayoutB({
       ref={layout}
       className={cn(
         "grid gap-4 lg:min-h-(--fill)",
-        // The log is 340 px live. On a recorded day it flexes from
+        // The middle column is 340 px live. On a recorded day it flexes from
         // 340 to 530 px and gives way first: the charts keep 480 px, or what
         // a 340 px log, the 400 px column and two 16 px gaps (772 px) leave.
         // A narrower log scrolls its broker columns. See spec
         // apinrdw/kumora#343, "Log layout A", and PR apinrdw/kumora#349.
-        log === undefined
-          ? "lg:grid-cols-[minmax(0,1fr)_400px]"
-          : withBrokers
-            ? "lg:grid-cols-[minmax(min(480px,calc(100%-772px)),1fr)_minmax(340px,530px)_400px]"
-            : "lg:grid-cols-[minmax(0,1fr)_340px_400px]"
+        withBrokers && log !== undefined
+          ? "lg:grid-cols-[minmax(min(480px,calc(100%-772px)),1fr)_minmax(340px,530px)_400px]"
+          : "lg:grid-cols-[minmax(0,1fr)_340px_400px]"
       )}
     >
       <div className="flex min-w-0 flex-col gap-4">{charts}</div>
-      <div
-        role="tablist"
-        aria-label="Panels"
-        className="flex gap-0.5 rounded-md border border-border bg-sidebar p-0.5 text-[13px] lg:hidden"
-      >
-        {panels.map((name) => (
-          <button
-            key={name}
-            type="button"
-            role="tab"
-            aria-selected={name === shown}
-            aria-controls={`${id}-${name}`}
-            onClick={() => onPanel(name)}
-            className={cn(
-              "flex-1 rounded-sm px-2 py-1",
-              name === shown
-                ? "bg-elevated text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {TAB_NAMES[name]}
-          </button>
-        ))}
+      <PanelTabs
+        label="Panels"
+        panels={panels}
+        shown={shown}
+        names={TAB_NAMES}
+        id={id}
+        onPanel={onPanel}
+        className="lg:hidden"
+      />
+      {/* Below `lg` the columns' panels are the grid's own rows, under the
+          phone's tabs. */}
+      <div className="min-w-0 max-lg:contents lg:flex lg:flex-col lg:gap-2">
+        <PanelTabs
+          label="Trades"
+          panels={middle}
+          shown={middleShown}
+          names={middleNames}
+          id={id}
+          onPanel={onPanel}
+          className="max-lg:hidden"
+        />
+        {panel("sweeps", "lg:flex-1 *:flex-1")}
+        {panel("tape")}
       </div>
-      {panel("sweeps", "*:flex-1")}
-      {/* Below `lg` its panels are the grid's own rows, under the tabs. */}
       <div className="min-w-0 max-lg:contents lg:flex lg:flex-col lg:gap-4">
         {panel("watchlist")}
         {panel("book")}
-        {panel("tape")}
       </div>
     </div>
   )

@@ -153,9 +153,9 @@ test.describe("on a phone", () => {
     const tabs = page.getByRole("tablist", { name: "Panels" })
     await expect(tabs.getByRole("tab")).toHaveText([
       "Sweeps",
+      "Tape",
       "Watchlist",
       "Order book",
-      "Tape",
     ])
     expect((await tabs.boundingBox())!.y).toBeGreaterThan(box2.y + box2.height)
     const panels = {
@@ -174,6 +174,8 @@ test.describe("on a phone", () => {
         else await expect(panel).toBeHidden()
     }
     await shows("Sweeps")
+    // The desktop's middle-column tabs are not shown on a phone.
+    await expect(page.getByRole("tablist", { name: "Trades" })).toBeHidden()
     for (const name of ["Watchlist", "Order book", "Tape"] as const) {
       await tabs.getByRole("tab", { name }).click()
       await shows(name)

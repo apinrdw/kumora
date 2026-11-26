@@ -161,7 +161,7 @@ const CELL = "h-[22px] overflow-hidden py-0 leading-[22px] whitespace-nowrap"
 // Each column's width in px, in order.
 // A bold 45,000 price, 123,456 lots and Rp555.55 B each fit
 // whole, so no figure is clipped. The tape is never narrower than their sum:
-// layout B's 400 px column (layout-b.tsx) and a phone scroll it sideways,
+// layout B's middle column (layout-b.tsx) and a phone scroll it sideways,
 // because a column wide enough for the tape would narrow both charts below
 // the footprint chart's 76 px a minute at 1280 px (spec apinrdw/kumora#263).
 const COLUMN_PX = {
