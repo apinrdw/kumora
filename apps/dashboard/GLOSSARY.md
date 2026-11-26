@@ -379,6 +379,32 @@ _Avoid_: Ownership archive, IDX archive
 One pass that compares IDX's list of shareholding reports with the shareholding archive and stores any report, or new version of one, that the archive lacks. The schedule starts one twice a day, and an admin can start one when none is in progress. It ends **complete**, **partial** (some reports could not be stored, and wait for the next run) or **failed** (IDX's list could not be read).
 _Avoid_: Sync, scrape, job
 
+### Disclosures
+
+**Disclosure**:
+One announcement IDX publishes on its Keterbukaan Informasi page, for a listed company, fund, bond, broker or IDX itself, identified by when it was published and its number. It is kept exactly as published and never changes once stored; a correction is a disclosure of its own.
+_Avoid_: Announcement, pengumuman, filing, news
+
+**Disclosure version**:
+The Indonesian or the English text of a disclosure, with the attachments IDX lists for that language. A disclosure may have only one of the two for a while.
+_Avoid_: Translation, listing, edition
+
+**Disclosure archive**:
+Every disclosure the dashboard has kept, both versions and every attachment of each. Nothing in it is ever overwritten or removed. It is separate from the shareholding and KSEI archives.
+_Avoid_: Announcement archive, IDX archive
+
+**Disclosure run**:
+One pass that compares IDX's Keterbukaan Informasi list with the disclosure archive and stores any disclosure, version or attachment the archive lacks: new ones first, then the oldest days not yet complete. The schedule starts one every 15 minutes, and an admin can start one when none is in progress. It ends **complete**, **partial** or **failed** (IDX's list could not be read).
+_Avoid_: Archive run, which is the shareholding archive's; backfill run; sync, scrape
+
+**Disclosure day**:
+The disclosures IDX published on one Jakarta date. A day more than 7 days old is **complete** once every disclosure, version and attachment IDX listed for it is stored or unavailable; runs never list it again.
+_Avoid_: Complete, which is a day's broker codes; covered day
+
+**Unavailable attachment**:
+An attachment IDX lists that no run could download for 7 days. It is recorded as such and no longer retried.
+_Avoid_: Missing file, dead link
+
 ### KSEI
 
 **KSEI report**:
@@ -410,7 +436,7 @@ A KSEI archive run an admin starts that also looks for KSEI reports older than K
 _Avoid_: History run, full sync
 
 **Run**:
-One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run, an investor-type parse run, an above-1% parse run, an above-5% parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run. Every run is recorded in ArchiveDb, and starting one claims it there: of two starts of one kind at once, one starts the run and the other is refused.
+One pass of an archive (an archive run, a KSEI archive run or a disclosure run) or one parse run (a classification parse run, an investor-type parse run, an above-1% parse run, an above-5% parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run. Every run is recorded in ArchiveDb, and starting one claims it there: of two starts of one kind at once, one starts the run and the other is refused.
 _Avoid_: Archive run for both, which is IDX's; job
 
 ### Holdings
