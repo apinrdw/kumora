@@ -238,6 +238,9 @@ importers:
 
   apps/extension:
     dependencies:
+      '@workspace/deploy':
+        specifier: workspace:*
+        version: link:../../packages/deploy
       '@workspace/relay':
         specifier: workspace:*
         version: link:../../packages/relay
@@ -275,9 +278,6 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^6
         version: 6.1.2(vite@8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))
-      '@workspace/deploy':
-        specifier: workspace:*
-        version: link:../../packages/deploy
       typescript:
         specifier: 7.0.2
         version: 7.0.2

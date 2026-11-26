@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import { StageUrl } from "@workspace/deploy/stage-url"
 import {
   BrokerCode,
   BrokerCodesProtocolVersion,
@@ -25,20 +26,19 @@ import type {
   WalkResult,
 } from "../../src/worker/broker-codes/run-queue.ts"
 import { makeTargetHold } from "../../src/worker/broker-codes/target-hold.ts"
-import { DashboardUrl } from "../../src/worker/settings.ts"
 
 const DAY = WibDate.make("2026-11-12")
 
 const PRODUCTION: BrokerCodesTarget = {
-  url: DashboardUrl.make("https://dashboard.example"),
+  url: StageUrl.make("https://dashboard.example"),
   token: "production-token",
 }
 const STAGING: BrokerCodesTarget = {
-  url: DashboardUrl.make("https://staging.example"),
+  url: StageUrl.make("https://staging.example"),
   token: "staging-token",
 }
 const PREVIEW: BrokerCodesTarget = {
-  url: DashboardUrl.make("https://preview.example"),
+  url: StageUrl.make("https://preview.example"),
   token: "preview-token",
 }
 
@@ -64,7 +64,7 @@ const fakeDashboard = (
   return {
     posts,
     written,
-    send: (request: { url: string; token: string; body: string }) =>
+    send: (request: { url: string; body: string }) =>
       Effect.gen(function* () {
         posts.push(request.url)
         const status = options.statuses?.[posts.length - 1] ?? 200
@@ -74,7 +74,7 @@ const fakeDashboard = (
         if (batch.end !== undefined) written.push(`end ${batch.end.n}`)
         return status
       }),
-    get: (_request: { url: string; token: string }) =>
+    get: (_request: { url: string }) =>
       options.refusal !== undefined
         ? Effect.succeed(options.refusal)
         : options.status === undefined
@@ -204,7 +204,7 @@ const ordersDashboard = () => {
     posts,
     written,
     held: () => [...orders].sort(([a], [b]) => Number(a) - Number(b)),
-    send: (request: { url: string; token: string; body: string }) =>
+    send: (request: { url: string; body: string }) =>
       Effect.gen(function* () {
         posts.push(request.url)
         const sent = yield* Effect.orDie(decodeBrokerCodesBatch(request.body))
@@ -219,7 +219,7 @@ const ordersDashboard = () => {
         }
         return 200
       }),
-    get: (_request: { url: string; token: string }) =>
+    get: (_request: { url: string }) =>
       Effect.map(
         Effect.orDie(
           encodeBrokerCodesStatus({
@@ -369,7 +369,7 @@ describe("the extra target", () => {
           extra,
           settings: Option.some({
             ...STAGING,
-            url: DashboardUrl.make("https://staging.example/dashboard"),
+            url: StageUrl.make("https://staging.example/dashboard"),
           }),
         })
         yield* fakeWalk(target.post).walk(DAY)
@@ -522,6 +522,40 @@ describe("the extra target", () => {
         assert.include(dashboard.written, "end 5")
       }
     })
+  )
+
+  it.effect(
+    "an answer to a request under A's path, once on B at its host with the same token, leaves B's state alone",
+    () =>
+      Effect.gen(function* () {
+        const dashboard = fakeDashboard({ statuses: [503] })
+        const underPath = {
+          ...STAGING,
+          url: StageUrl.make("https://staging.example/dashboard"),
+        }
+        let inFlight: Effect.Effect<void> = Effect.void
+        const target = yield* harness({
+          settings: Option.some(underPath),
+          extra: {
+            ...dashboard,
+            send: (request) =>
+              Effect.andThen(
+                Effect.suspend(() => {
+                  const now = inFlight
+                  inFlight = Effect.void
+                  return now
+                }),
+                dashboard.send(request)
+              ),
+          },
+        })
+        inFlight = target.switchTo(STAGING)
+        yield* fakeWalk(target.post).walk(DAY)
+        yield* TestClock.adjust("1 minute")
+        yield* settle
+        assert.deepStrictEqual(target.reported, [])
+        assert.isTrue(dashboard.posts[0]?.startsWith(`${underPath.url}/`))
+      })
   )
 
   it.effect("a status read refused on A leaves B reading again", () =>

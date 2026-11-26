@@ -3,6 +3,7 @@
 // walks: each batch a walk builds goes to Production and is handed to the
 // extra target without waiting on it. Whatever the extra target misses, it
 // catches up from its own status once Production's queue is empty.
+import type { StageUrl } from "@workspace/deploy/stage-url"
 import type {
   BrokerCodesBatch,
   BrokerCodesStatus,
@@ -20,7 +21,6 @@ import {
   type Send,
 } from "./poster.ts"
 import type { CatchUpResult, CatchUpWalk, WalkResult } from "./run-queue.ts"
-import type { DashboardUrl } from "../settings.ts"
 import { askStatus, statusOnce, type Get } from "./status.ts"
 import type { TargetHold } from "./target-hold.ts"
 
@@ -96,26 +96,16 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
   // or 426 or by none (0: a network or CORS failure), shows it as retrying
   // until one goes through, so a target the browser can't reach is never
   // retried unseen. See apinrdw/kumora#244, "Retries".
-  // A request counts for the held settings when it went under their URL
-  // with their token; one on other settings changes nothing.
-  const answered = (request: { url: string; token: string }, status: number) =>
-    Effect.flatMap(hold.settings, (held) =>
-      Option.match(
-        Option.filter(
-          held,
-          ({ url, token }) =>
-            token === request.token && request.url.startsWith(`${url}/`)
-        ),
-        {
-          onNone: () => Effect.void,
-          onSome: (own) => hold.answered(own, status),
-        }
-      )
-    )
+  // The answer is judged by the settings the request went out on, which
+  // the hold ignores once they no longer hold.
   const send: Send = (request) =>
-    Effect.tap(options.send(request), (status) => answered(request, status))
+    Effect.tap(options.send(request), (status) =>
+      hold.answered(request.target, status)
+    )
   const get: Get = (request) =>
-    Effect.tap(options.get(request), ({ status }) => answered(request, status))
+    Effect.tap(options.get(request), ({ status }) =>
+      hold.answered(request.target, status)
+    )
   const lane = yield* Queue.dropping<BrokerCodesBatch>(LANE)
 
   // Decision: 401 refuses the token, 426 means reload the extension
@@ -159,7 +149,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
   // The URL of `target` while the hold lets it go on.
   const urlWhile = (target: Option.Option<BrokerCodesTarget>) =>
     Option.match(target, {
-      onNone: () => Effect.succeed(Option.none<DashboardUrl>()),
+      onNone: () => Effect.succeed(Option.none<StageUrl>()),
       onSome: (own) =>
         Effect.map(hold.haltOf(own), (halt) =>
           Option.isSome(halt) ? Option.none() : Option.some(own.url)
@@ -266,7 +256,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
           day: WibDate,
           after?: TradeNumber
         ) => Effect.Effect<Option.Option<BrokerCodesStatus>>
-        readonly url: Effect.Effect<Option.Option<DashboardUrl>>
+        readonly url: Effect.Effect<Option.Option<StageUrl>>
       }) => Effect.Effect<
         { readonly walk: (day: WibDate) => Effect.Effect<WalkResult> },
         E,

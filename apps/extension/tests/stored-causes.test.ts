@@ -1,10 +1,10 @@
 import { afterEach, assert, describe, it, vi } from "@effect/vitest"
+import { StageUrl } from "@workspace/deploy/stage-url"
 import { Cause, Effect, Logger, Option } from "effect"
 
 import { REDACTED, makeErrorLog } from "../src/worker/error-log.ts"
 import {
   AjaibPin,
-  DashboardUrl,
   errorLogStore,
   loadRelayStopped,
   saveRelayStopped,
@@ -43,7 +43,7 @@ const storeCredentials = Effect.gen(function* () {
   yield* saveSettings({
     productionToken: PRODUCTION_TOKEN,
     extra: {
-      url: DashboardUrl.make("https://staging.example"),
+      url: StageUrl.make("https://staging.example"),
       token: EXTRA_TOKEN,
     },
   })
