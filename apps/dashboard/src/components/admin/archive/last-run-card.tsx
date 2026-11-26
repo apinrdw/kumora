@@ -130,15 +130,14 @@ export function RunArchiveButton({
   )
 }
 
-// Says nothing for an archive with no cron yet.
-function Schedule({ schedule }: { schedule: ArchiveSchedule | undefined }) {
-  if (schedule === undefined) return null
-  const { times, nextRun } = schedule
+function Schedule({ schedule }: { schedule: ArchiveSchedule }) {
   return (
     <p className="text-secondary-text flex items-center gap-2 text-[13px] leading-5">
       <IconClock aria-hidden className="size-4 shrink-0" stroke={1.75} />
       <span>
-        Production runs at {times}. Next: {Effect.runSync(dateTime(nextRun))}.
+        Production runs{" "}
+        {"every" in schedule ? schedule.every : `at ${schedule.times}`}. Next:{" "}
+        {Effect.runSync(dateTime(schedule.nextRun))}.
       </span>
     </p>
   )
@@ -209,12 +208,11 @@ export interface RunStat {
   readonly tone?: "warning" | "down"
 }
 
-export interface ArchiveSchedule {
-  // When Production's cron runs, as "13:00 and 20:00 WIB".
-  readonly times: string
-  // An ISO instant.
-  readonly nextRun: string
-}
+// When Production's cron runs: at set times, as "13:00 and 20:00 WIB", or
+// every so often, as "every 15 minutes". `nextRun` is an ISO instant.
+export type ArchiveSchedule =
+  | { readonly times: string; readonly nextRun: string }
+  | { readonly every: string; readonly nextRun: string }
 
 /** How an archive's last run is framed: its own card, or a ledger row. */
 export type RunFrame = "card" | "row"
@@ -258,8 +256,7 @@ function RunMeta({
  * An archive's last run, or the empty state before any, with its actions.
  * `stats` and `details` describe the last run: `details` shows below the
  * counts, after the error of a run that failed. `frame` sets whether it is
- * its own card or a row of an ArchiveLedger. Without `schedule`, it says
- * nothing of a cron.
+ * its own card or a row of an ArchiveLedger.
  */
 export function ArchiveLastRunCard({
   title,
@@ -280,8 +277,7 @@ export function ArchiveLastRunCard({
   stats: ReadonlyArray<RunStat>
   details: ReactNode
   actions: ReactNode
-  // When Production's cron runs; none for an archive with no cron yet.
-  schedule?: ArchiveSchedule
+  schedule: ArchiveSchedule
   frame?: RunFrame
 }) {
   const result = lastRun?.result

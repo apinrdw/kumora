@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_app/admin/disclosures")({
 })
 
 function DisclosuresPage() {
-  const { lastRun, now, recentRuns } = Route.useLoaderData()
+  const { lastRun, nextRun, now, recentRuns } = Route.useLoaderData()
   return (
     <div className="flex flex-col gap-6 py-6">
       <header className="flex flex-col gap-1">
@@ -31,7 +31,7 @@ function DisclosuresPage() {
           now stores what the last 7 days added on this stage.
         </p>
       </header>
-      <DisclosureLastRunCard lastRun={lastRun} now={now} />
+      <DisclosureLastRunCard lastRun={lastRun} nextRun={nextRun} now={now} />
       <DisclosureRecentRunsCard runs={recentRuns} />
     </div>
   )

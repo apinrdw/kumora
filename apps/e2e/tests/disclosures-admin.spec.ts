@@ -115,6 +115,9 @@ test.describe.serial("an admin's Disclosures page", () => {
     await expect(stat(card, "Versions added")).toHaveText("380")
     await expect(stat(card, "Attachments stored")).toHaveText("612")
     await expect(stat(card, "Attachments waiting")).toHaveText("0")
+    await expect(card).toContainText(
+      /Production runs every 15 minutes\. Next: \w{3} \d{2}, \d{2}:(00|15|30|45) WIB\./
+    )
     await expect(card.getByRole("button", { name: "Run now" })).toBeEnabled()
   })
 

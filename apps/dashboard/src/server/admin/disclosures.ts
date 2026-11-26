@@ -17,6 +17,7 @@ import {
   recentDisclosureRuns,
   startDisclosureRun,
 } from "@/server/disclosures/runs"
+import { nextDisclosureRun } from "@/server/disclosures/schedule"
 
 const DISCLOSURES_PATH =
   "/admin/disclosures" satisfies keyof FileRoutesByFullPath
@@ -40,6 +41,9 @@ export const disclosureArchivePage = Effect.fn("disclosureArchivePage")(
     ).pipe(timed("reads"), importingAsConflict)
     return {
       lastRun: read.lastRun,
+      nextRun: (yield* nextDisclosureRun(
+        DateTime.toDateUtc(now)
+      )).toISOString(),
       now: DateTime.formatIso(now),
       recentRuns: read.recentRuns,
     }
