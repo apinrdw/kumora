@@ -9,7 +9,7 @@ import {
 } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { DateTime, Effect } from "effect"
-import { memo, useMemo, useState, useSyncExternalStore } from "react"
+import { memo, useCallback, useState, useSyncExternalStore } from "react"
 
 import { compact, lots, plain, tapeTime } from "@/lib/format"
 import { pricePath } from "@/lib/sweeps"
@@ -99,11 +99,8 @@ function AllCodes({
     levelSetting.snapshot,
     () => ALERT_LEVEL
   )
-  const all = useSyncExternalStore(store.subscribe, store.rows, store.rows)
-  const rows = useMemo(
-    () => all.filter((row) => row.level <= level),
-    [all, level]
-  )
+  const shown = useCallback(() => store.shown(level), [store, level])
+  const rows = useSyncExternalStore(store.subscribe, shown, shown)
   // `contain: size`, as the sweep log: the list scrolls inside its
   // column rather than stretching the charts beside it.
   return (

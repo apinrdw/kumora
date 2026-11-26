@@ -1,6 +1,8 @@
 import {
   keptStandouts,
+  shownStandouts,
   wibDateAt,
+  type StandoutLevel,
   type StandoutSweep,
   type ViewerDown,
   type WibDate,
@@ -9,8 +11,9 @@ import type { DateTime } from "effect"
 import { Effect } from "effect"
 
 export interface StandoutStore {
-  // The kept standout sweeps of every code, newest first.
-  readonly rows: () => ReadonlyArray<StandoutSweep>
+  // The standout sweeps of every code shown at `level`, newest first: the
+  // same list until the rows change.
+  readonly shown: (level: StandoutLevel) => ReadonlyArray<StandoutSweep>
   readonly apply: (message: ViewerDown) => void
   readonly subscribe: (listener: () => void) => () => void
 }
@@ -22,12 +25,15 @@ export interface StandoutStore {
 // socket, outside React. A snapshot's and each delta's join the list, each
 // sweep once by `standoutKey`, the row already held kept: a reconnect drops
 // none, even to an object restarted with an empty backlog. A snapshot of
-// another WIB day starts the list again.
+// another WIB day starts the list again. The list holds what every level
+// shows, so the page asks for one level's rows, never the list.
 // Decision: each standout level keeps its newest 500 sweeps
 // (packages/relay/docs/adr/0027-each-standout-level-keeps-its-newest-500-sweeps.md)
 export const makeStandoutStore = Effect.sync((): StandoutStore => {
   let rows: ReadonlyArray<StandoutSweep> = []
   let day: WibDate | undefined
+  // `shown`'s answer per level for the current `rows`.
+  let shown = new Map<StandoutLevel, ReadonlyArray<StandoutSweep>>()
   const listeners = new Set<() => void>()
   const changed = () => {
     for (const listener of listeners) listener()
@@ -38,16 +44,24 @@ export const makeStandoutStore = Effect.sync((): StandoutStore => {
     day = today
     if (!another) return
     rows = []
+    shown = new Map()
     changed()
   }
   const add = (arriving: ReadonlyArray<StandoutSweep>) => {
     const next = Effect.runSync(keptStandouts(rows, arriving))
     if (next === rows) return
     rows = next
+    shown = new Map()
     changed()
   }
   return {
-    rows: () => rows,
+    shown: (level) => {
+      const held = shown.get(level)
+      if (held !== undefined) return held
+      const rowsAt = Effect.runSync(shownStandouts(rows, level))
+      shown.set(level, rowsAt)
+      return rowsAt
+    },
     apply: (message) => {
       if (message._tag === "Snapshot") startDay(message.at)
       add(message.standoutSweeps ?? [])

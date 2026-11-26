@@ -232,6 +232,7 @@ export type {
 export {
   STANDOUTS_PER_LEVEL,
   keptStandouts,
+  shownStandouts,
   standoutKey,
 } from "./standout-sweeps.ts"
 export type { RecordedSweeps } from "./sweeps.ts"

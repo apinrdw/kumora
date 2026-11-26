@@ -26,10 +26,19 @@ const NewestFirst = Order.flip(
   )
 )
 
+// The rows a list shows at `level`: the newest STANDOUTS_PER_LEVEL of `rows`
+// (newest first) at or under it.
+export const shownStandouts = (
+  rows: ReadonlyArray<StandoutSweep>,
+  level: StandoutLevel
+) =>
+  Effect.succeed(
+    rows.filter((row) => row.level <= level).slice(0, STANDOUTS_PER_LEVEL)
+  )
+
 // `held` with `arriving` joined, newest first, each sweep once by
-// `standoutKey` (the one in `held` kept), and only the rows among the newest
-// STANDOUTS_PER_LEVEL at or under their own level: every level's list holds
-// its newest STANDOUTS_PER_LEVEL. `held` is a list this returned.
+// `standoutKey` (the one in `held` kept), and only the rows some level shows
+// (`shownStandouts`). `held` is a list this returned.
 export const keptStandouts = Effect.fnUntraced(function* (
   held: ReadonlyArray<StandoutSweep>,
   arriving: ReadonlyArray<StandoutSweep>
@@ -45,13 +54,9 @@ export const keptStandouts = Effect.fnUntraced(function* (
     fresh.push(row)
   }
   if (fresh.length === 0) return held
-  const seen = new Map<StandoutLevel, number>(
-    STANDOUT_LEVELS.map((level) => [level, 0])
-  )
-  return [...fresh, ...held].sort(NewestFirst).filter((row) => {
-    const kept = seen.get(row.level)! < STANDOUTS_PER_LEVEL
-    for (const level of STANDOUT_LEVELS)
-      if (level >= row.level) seen.set(level, seen.get(level)! + 1)
-    return kept
-  })
+  const joined = [...fresh, ...held].sort(NewestFirst)
+  const shown = new Set<StandoutSweep>()
+  for (const level of STANDOUT_LEVELS)
+    for (const row of yield* shownStandouts(joined, level)) shown.add(row)
+  return joined.filter((row) => shown.has(row))
 })
