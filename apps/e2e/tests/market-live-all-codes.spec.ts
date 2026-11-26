@@ -1,6 +1,7 @@
 // Market Live's All codes tab (apinrdw/kumora#703): the standout sweeps of
 // every stock code, decided live by today's trading-day object, at or under
-// the level the picker keeps for the browser.
+// the level the picker keeps for the browser, and refilled from the
+// object's backlog on open and reconnect (apinrdw/kumora#704).
 import type { Page } from "@playwright/test"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
@@ -148,5 +149,73 @@ test("the All codes tab fills live with a code's standout sweeps at the picked l
   // A reload keeps the picker's level.
   await page.reload()
   await expect(picker.getByRole("radio", { checked: true })).toHaveText("10%")
+  relay.close()
+})
+
+test("a reload refills the All codes list from the object's backlog, and a reconnect neither duplicates nor drops its rows", async ({
+  page,
+}) => {
+  // The page's socket goes through Playwright: the test counts its
+  // snapshots, drops it, and can strip a snapshot's standout sweeps, as an
+  // object restarted with an empty backlog sends.
+  let snapshots = 0
+  let emptyBacklog = false
+  let dropPage: (() => void) | undefined
+  await page.routeWebSocket(/\/market-live\/live$/, (socket) => {
+    const server = socket.connectToServer()
+    server.onMessage((message) => {
+      if (typeof message !== "string") return socket.send(message)
+      const parsed = JSON.parse(message) as {
+        _tag: string
+        standoutSweeps?: unknown
+      }
+      if (parsed._tag !== "Snapshot") return socket.send(message)
+      snapshots += 1
+      if (emptyBacklog) delete parsed.standoutSweeps
+      socket.send(JSON.stringify(parsed))
+    })
+    dropPage = () => void socket.close({ code: 1012, reason: "Restart" })
+  })
+
+  const relay = await openIngest()
+  const base = freshTradeNumbers()
+  const code = freshCode("AB")
+  const { trades } = standingOut(code, base)
+  await relay.sendAjaib(trades)
+  await page.goto(`${DASHBOARD}${PAGE}?code=${code}&panel=all`)
+  const rows = rowsOf(page, code)
+  // The 1% sweep listed: the page is live before the picker is clicked.
+  await expect(rows).toHaveCount(1)
+  await page
+    .getByRole("region", { name: "All codes" })
+    .getByRole("radiogroup", { name: "Standout level" })
+    .getByRole("radio", { name: "10%" })
+    .click()
+  const held = async () => {
+    await expect(rows).toHaveCount(3)
+    await expect(rows.nth(0)).toContainText("99 @ 500")
+    await expect(rows.nth(1)).toContainText("97 @ 500")
+    await expect(rows.nth(2)).toContainText("95 @ 500")
+  }
+  await held()
+
+  // No delta brings them again: the reload's snapshot does.
+  await page.reload()
+  await held()
+
+  // A reconnect's snapshot carries the rows the page holds: each once.
+  const reconnected = async () => {
+    const before = snapshots
+    await expect.poll(() => dropPage !== undefined).toBe(true)
+    dropPage!()
+    await expect.poll(() => snapshots, { timeout: 15_000 }).toBe(before + 1)
+  }
+  await reconnected()
+  await held()
+
+  // A restarted object's snapshot carries none of them: the page keeps them.
+  emptyBacklog = true
+  await reconnected()
+  await held()
   relay.close()
 })
