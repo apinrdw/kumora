@@ -11,6 +11,7 @@ import type { BrokerCodesTarget } from "../worker/broker-codes/poster.ts"
 import type {
   BrokerCodesProgress,
   PauseCause,
+  StallCause,
   WalkPhase,
 } from "../worker/broker-codes/run-queue.ts"
 import { fetchGet, statusOnce } from "../worker/broker-codes/status.ts"
@@ -180,15 +181,31 @@ const leftLabel = Effect.fnUntraced(function* (
   return `${yield* count(Math.max(1, Math.ceil(remaining / perSecond / 60)))} min left`
 })
 
+const stallKinds: Record<StallCause["kind"], string> = {
+  "refused-token": "Ajaib refused the walk token",
+  "no-answer": "the Ajaib tab got no answer",
+  timeout: "the Ajaib tab didn't answer in time",
+}
+
+// Why a call is retrying in place, after its phase; blank while none is.
+const stallLabel = Effect.fnUntraced(function* (stall: StallCause | undefined) {
+  if (stall === undefined) return ""
+  const calls = stall.failures === 1 ? "call" : "calls"
+  const token = stall.tokenChanged
+    ? "walk token changed since the first"
+    : "walk token unchanged"
+  return `, retrying: ${stallKinds[stall.kind]}, ${yield* count(stall.failures)} ${calls} failed in a row, ${token}`
+})
+
 // What the walk is doing and since when, in WIB; blank until it says.
 const phaseLabel = Effect.fnUntraced(function* (phase: WalkPhase | undefined) {
   if (phase === undefined) return ""
   const since = yield* wibClock(phase.since)
   switch (phase.step) {
     case "awaiting-close":
-      return `waiting for Ajaib's close since ${since}`
+      return `waiting for Ajaib's close since ${since}${yield* stallLabel(phase.stall)}`
     case "fetching":
-      return `fetching since ${since}`
+      return `fetching since ${since}${yield* stallLabel(phase.stall)}`
     case "awaiting-token":
       return phase.reloads === 0
         ? `waiting for a fresh Ajaib token since ${since}`

@@ -95,6 +95,30 @@ describe("the broker codes progress", () => {
       })
   )
 
+  it.effect(
+    "writes a retrying call's stall cause at once, and clears it with the next phase",
+    () =>
+      Effect.gen(function* () {
+        const { saved, progress } = yield* harness()
+        yield* progress.report(WALKING)
+        const stall = {
+          kind: "no-answer",
+          failures: 2,
+          tokenChanged: true,
+        } as const
+        yield* progress.phase({ step: "fetching", since: 1, stall })
+        assert.deepStrictEqual(saved.at(-1), {
+          ...WALKING,
+          phase: { step: "fetching", since: 1, stall },
+        })
+        yield* progress.phase({ step: "fetching", since: 1 })
+        assert.deepStrictEqual(saved.at(-1), {
+          ...WALKING,
+          phase: { step: "fetching", since: 1 },
+        })
+      })
+  )
+
   it.effect("writes a walk's trades at most once a second", () =>
     Effect.gen(function* () {
       const { saved, progress } = yield* harness()

@@ -1223,14 +1223,19 @@ describe("Ajaib's walk: its walk token", () => {
         const start = wib("2026-11-12", "17:30:00")
         yield* TestClock.setTime(start)
         const cookie = jwt("cookie")
+        const page = jwt("page")
         const { tab } = signedTab({
           cookie: () => cookie,
-          token: () => jwt("page"),
+          token: () => page,
           answer: (bearer) =>
             bearer === cookie ? Effect.succeed(STATUS(401)) : undefined,
         })
         const { walk, phases } = yield* phasedWalk(tab)
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        // What the options page and its copied diagnostics show of it.
+        const shown = JSON.stringify(phases)
+        assert.notInclude(shown, cookie)
+        assert.notInclude(shown, page)
         assert.deepStrictEqual(phases.slice(0, 3), [
           { step: "awaiting-close", since: start },
           {

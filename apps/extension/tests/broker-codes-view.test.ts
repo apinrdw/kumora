@@ -308,4 +308,47 @@ describe("the walk's phase", () => {
       )
     })
   )
+
+  it.effect(
+    "while a call retries, says its stall cause, failed calls in a row and whether the walk token changed",
+    () =>
+      Effect.gen(function* () {
+        const since = Date.parse("2026-11-20T17:05:00+07:00")
+        const phaseOf = (phase: WalkPhase) =>
+          Effect.map(
+            walkView({
+              state: "walking",
+              walk: "newest",
+              day: DAY,
+              feed: "Ajaib",
+              phase,
+            }),
+            (view) => view.phase
+          )
+        assert.strictEqual(
+          yield* phaseOf({
+            step: "fetching",
+            since,
+            stall: { kind: "refused-token", failures: 1, tokenChanged: false },
+          }),
+          "fetching since 17:05, retrying: Ajaib refused the walk token, 1 call failed in a row, walk token unchanged"
+        )
+        assert.strictEqual(
+          yield* phaseOf({
+            step: "fetching",
+            since,
+            stall: { kind: "no-answer", failures: 2, tokenChanged: true },
+          }),
+          "fetching since 17:05, retrying: the Ajaib tab got no answer, 2 calls failed in a row, walk token changed since the first"
+        )
+        assert.strictEqual(
+          yield* phaseOf({
+            step: "awaiting-close",
+            since,
+            stall: { kind: "timeout", failures: 12, tokenChanged: false },
+          }),
+          "waiting for Ajaib's close since 17:05, retrying: the Ajaib tab didn't answer in time, 12 calls failed in a row, walk token unchanged"
+        )
+      })
+  )
 })
