@@ -57,6 +57,8 @@ const world = () => {
   return { idx, bucket, db, run }
 }
 
+const SEVEN_DAYS = 7 * 24 * 60 * 60_000
+
 const NAV: Published = {
   stamp: "20261124230949",
   number: "02894/FMS/OPS-BTIM/XI/26",
@@ -317,6 +319,83 @@ describe("a disclosure run", () => {
         assert.include(
           keysOf(bucket, NAV),
           `${encoded(NAV)}/files${pathOf("nav_lamp1.pdf")}`
+        )
+      })
+  )
+
+  it.effect(
+    "retries a failing file each run while its failures span less than 7 days",
+    () =>
+      Effect.gen(function* () {
+        const { idx, run } = world()
+        publish(idx, FIRST)
+        idx.files.set(pathOf("a.pdf"), { body: "", status: 404 })
+
+        const first = yield* run()
+        idx.requests.length = 0
+        const later = yield* run(new Date(NOW.getTime() + SEVEN_DAYS - 1000))
+
+        for (const result of [first, later])
+          assert.deepInclude(result, {
+            outcome: "partial",
+            attachmentsWaiting: 1,
+          })
+        assert.strictEqual(later.backfillDays[0], FIRST_DISCLOSURE_DAY)
+        assert.deepStrictEqual(fileRequests(idx), [pathOf("a.pdf")])
+      })
+  )
+
+  it.effect(
+    "stops retrying a file once its failures span 7 days, and completes its day",
+    () =>
+      Effect.gen(function* () {
+        const { idx, run } = world()
+        publish(idx, FIRST)
+        idx.files.set(pathOf("a.pdf"), { body: "", status: 404 })
+
+        yield* run()
+        const marking = yield* run(new Date(NOW.getTime() + SEVEN_DAYS))
+        assert.deepInclude(marking, { attachmentsWaiting: 0 })
+        idx.requests.length = 0
+
+        const after = yield* run(
+          new Date(NOW.getTime() + SEVEN_DAYS + 15 * 60_000)
+        )
+
+        assert.deepStrictEqual(fileRequests(idx), [])
+        assert.notInclude(after.backfillDays, FIRST_DISCLOSURE_DAY)
+        assert.notInclude(listedDates(idx), "20230703")
+      })
+  )
+
+  it.effect(
+    "leaves no failure recorded against a file that downloads before 7 days",
+    () =>
+      Effect.gen(function* () {
+        const { idx, db, run } = world()
+        publish(idx, FIRST)
+        idx.files.set(pathOf("a.pdf"), { body: "", status: 503 })
+        yield* run()
+
+        idx.files.set(pathOf("a.pdf"), { body: bodyOf(pathOf("a.pdf")) })
+        const later = yield* run(new Date(NOW.getTime() + SEVEN_DAYS - 1000))
+
+        assert.deepInclude(later, { attachmentsWaiting: 0 })
+        assert.deepStrictEqual(
+          db.database
+            .prepare(
+              "SELECT stored_at IS NOT NULL AS stored, first_failed_at, " +
+                "last_error, unavailable_at FROM disclosure_attachment"
+            )
+            .all(),
+          [
+            {
+              stored: 1,
+              first_failed_at: null,
+              last_error: null,
+              unavailable_at: null,
+            },
+          ]
         )
       })
   )

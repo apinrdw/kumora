@@ -4,7 +4,7 @@
 // disclosure and path, and when a run last listed each disclosure day and
 // when the day became complete. A run decides from it what the archive
 // lacks, and never lists the bucket.
-import { Effect, Schema } from "effect"
+import { DateTime, Duration, Effect, Schema } from "effect"
 
 import { ArchiveDb } from "../archive/archive-db.ts"
 import type { PageRead } from "../archive/page-read.ts"
@@ -117,7 +117,10 @@ export const recordDayListed = Effect.fnUntraced(function* (
 
 // An attachment row that waits to be stored: what keeps its day from being
 // complete. The one place that says so, for the runs and the coverage alike.
-const WAITING = "stored_at IS NULL"
+// An unavailable attachment no longer waits.
+// Decision: an attachment whose failures span 7 days is unavailable
+// (apps/dashboard/docs/adr/0139-an-attachment-failing-for-7-days-is-unavailable.md)
+const WAITING = "stored_at IS NULL AND unavailable_at IS NULL"
 
 // Rows of the days in a bound JSON array.
 const IN_DAYS = "day IN (SELECT value FROM json_each(?))"
@@ -260,25 +263,45 @@ export const markAttachmentStored = Effect.fnUntraced(function* (
     {
       sql:
         "UPDATE disclosure_attachment SET stored_at = ?, bytes = ?, " +
-        "last_error = NULL WHERE disclosure_key = ? AND path = ?",
+        "first_failed_at = NULL, last_error = NULL " +
+        "WHERE disclosure_key = ? AND path = ?",
       params: [storedAt, bytes, attachment.disclosure, attachment.path],
     },
   ])
 })
 
+// How long an attachment's failures span before it is unavailable.
+const UNAVAILABLE_AFTER = Duration.days(7)
+
 // Records a failed download: when the first was, and the last's message.
+// A failure UNAVAILABLE_AFTER or more after the first makes it unavailable.
+// Decision: an attachment whose failures span 7 days is unavailable
+// (apps/dashboard/docs/adr/0139-an-attachment-failing-for-7-days-is-unavailable.md)
 export const markAttachmentFailed = Effect.fnUntraced(function* (
   attachment: WaitingAttachment,
   failedAt: string,
   message: string
 ) {
+  // Both instants are formatIso's, so they compare as strings. The CASE
+  // reads first_failed_at as it was before this failure.
+  const since = DateTime.formatIso(
+    DateTime.subtractDuration(DateTime.makeUnsafe(failedAt), UNAVAILABLE_AFTER)
+  )
   yield* (yield* ArchiveDb).batch([
     {
       sql:
         "UPDATE disclosure_attachment SET " +
-        "first_failed_at = COALESCE(first_failed_at, ?), last_error = ? " +
+        "first_failed_at = COALESCE(first_failed_at, ?), last_error = ?, " +
+        "unavailable_at = CASE WHEN first_failed_at <= ? THEN ? END " +
         "WHERE disclosure_key = ? AND path = ? AND stored_at IS NULL",
-      params: [failedAt, message, attachment.disclosure, attachment.path],
+      params: [
+        failedAt,
+        message,
+        since,
+        failedAt,
+        attachment.disclosure,
+        attachment.path,
+      ],
     },
   ])
 })
