@@ -1,6 +1,7 @@
+import { StageUrl } from "@workspace/deploy/stage-url"
 import { Effect, Option, Schema } from "effect"
 
-import { DashboardUrl, type Settings } from "../worker/settings.ts"
+import { type Settings } from "../worker/settings.ts"
 
 class InvalidDashboardUrl extends Schema.TaggedError<InvalidDashboardUrl>()(
   "InvalidDashboardUrl",
@@ -22,7 +23,7 @@ export const settingsFromForm = Effect.fnUntraced(function* (form: {
   const url = Option.flatMap(
     Option.liftThrowable(() => new URL(extraUrl))(),
     ({ origin, pathname }) =>
-      Schema.decodeUnknownOption(DashboardUrl)(
+      Schema.decodeUnknownOption(StageUrl)(
         `${origin}${pathname.replace(/\/+$/, "")}`
       )
   )

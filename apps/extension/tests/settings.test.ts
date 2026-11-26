@@ -1,11 +1,8 @@
 import { afterEach, assert, describe, it, vi } from "@effect/vitest"
+import { StageUrl } from "@workspace/deploy/stage-url"
 import { Effect } from "effect"
 
-import {
-  DashboardUrl,
-  loadSettings,
-  saveSettings,
-} from "../src/worker/settings.ts"
+import { loadSettings, saveSettings } from "../src/worker/settings.ts"
 import { memorySession } from "./memory-session.ts"
 
 afterEach(() => {
@@ -19,7 +16,7 @@ describe("the stored settings", () => {
       const settings = {
         productionToken: "production-token",
         extra: {
-          url: DashboardUrl.make("https://staging.example/dashboard"),
+          url: StageUrl.make("https://staging.example/dashboard"),
           token: "extra-token",
         },
       }
@@ -42,7 +39,7 @@ describe("the stored settings", () => {
       assert.deepStrictEqual(yield* loadSettings, {
         productionToken: "production-token",
         extra: {
-          url: DashboardUrl.make("https://staging.example"),
+          url: StageUrl.make("https://staging.example"),
           token: "extra-token",
         },
       })

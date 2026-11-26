@@ -6,7 +6,7 @@ import type { Mail } from "@/server/auth/mailer"
 
 import {
   ADMIN_EMAIL,
-  BASE_URL,
+  DASHBOARD_URL,
   cookiesFrom,
   linkIn,
   post,
@@ -57,7 +57,7 @@ describe("delete account", () => {
       assert.strictEqual(mails.at(-1)?.to, EMAIL)
       assert.match(
         mails.at(-1)?.text ?? "",
-        new RegExp(`^${BASE_URL}/delete-account\\?token=\\w+$`, "m")
+        new RegExp(`^${DASHBOARD_URL}/delete-account\\?token=\\w+$`, "m")
       )
       assert.isNotNull(yield* sessionOf(first))
     }).pipe(Effect.provide(layer))

@@ -77,19 +77,17 @@ describe("runServerEffect", () => {
     })
   )
 
-  it.effect(
-    "redirects Unauthorized to its target, under the router's basepath",
-    () =>
+  it.effect.each([
+    "/sign-in?redirect=%2Fstocks%2FA",
+    // The router writes a typed search value as JSON, so it reads back typed.
+    "/market-live?big=true&top=25",
+  ])(
+    "redirects Unauthorized to %s, under the router's basepath",
+    (redirectTo) =>
       Effect.gen(function* () {
         const { run } = capturingBridge()
         const thrownRedirect = yield* thrown(
-          run(
-            Effect.fail(
-              new Unauthorized({
-                redirectTo: "/sign-in?redirect=%2Fstocks%2FA",
-              })
-            )
-          )
+          run(Effect.fail(new Unauthorized({ redirectTo })))
         )
         assert.isTrue(isRedirect(thrownRedirect))
         if (!isRedirect(thrownRedirect)) return
@@ -102,7 +100,7 @@ describe("runServerEffect", () => {
         assert.strictEqual(resolved.status, 307)
         assert.strictEqual(
           resolved.headers.get("location"),
-          "/app/sign-in?redirect=%2Fstocks%2FA"
+          `/app${redirectTo}`
         )
       })
   )

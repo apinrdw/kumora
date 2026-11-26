@@ -8,7 +8,7 @@ import type { Mail } from "@/server/auth/mailer"
 
 import {
   ADMIN_EMAIL,
-  BASE_URL,
+  DASHBOARD_URL,
   cookiesFrom,
   linkIn,
   post,
@@ -62,7 +62,7 @@ describe("Google sign-in", () => {
       )
       assert.strictEqual(
         authorize.searchParams.get("redirect_uri"),
-        `${BASE_URL}/api/auth/callback/google`
+        `${DASHBOARD_URL}/api/auth/callback/google`
       )
     }).pipe(Effect.provide(layer))
   })
@@ -187,7 +187,10 @@ describe("Google sign-in of a banned account", () => {
       assert.strictEqual(banned.status, 200)
       const response = yield* googleReturns("ayu@example.com")
       assert.strictEqual(response.status, 302)
-      const location = new URL(response.headers.get("location") ?? "", BASE_URL)
+      const location = new URL(
+        response.headers.get("location") ?? "",
+        DASHBOARD_URL
+      )
       assert.strictEqual(
         `${location.pathname}${location.search}`.split("&error=")[0],
         ERROR_URL

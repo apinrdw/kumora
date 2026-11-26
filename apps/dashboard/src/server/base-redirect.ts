@@ -11,6 +11,8 @@ import { Effect, Option } from "effect"
 // (vite.config.ts) passes them through too.
 export const CLOUDFLARE_PATH = "/cdn-cgi/"
 
+// Decision: the dashboard is served under /dashboard on every Stage
+// (docs/adr/0020-the-dashboard-is-served-under-dashboard-on-every-stage.md)
 export const redirectIntoBase = Effect.fnUntraced(function* (request: Request) {
   const url = new URL(request.url)
   if (url.pathname.startsWith(CLOUDFLARE_PATH)) return Option.none()
