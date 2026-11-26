@@ -1,4 +1,5 @@
 #!/bin/sh
 # The fast, offline part of `vp run check`, which CI (.github/workflows/ci.yml) runs in full.
+# KUMORA_LINT_UNTYPED leaves type checking to `vp check` (vite.config.ts reads it).
 cd "$(git rev-parse --show-toplevel)" || exit 1
-vp lint --deny-warnings && vp fmt --check
+KUMORA_LINT_UNTYPED=1 vp lint --deny-warnings && vp fmt --check

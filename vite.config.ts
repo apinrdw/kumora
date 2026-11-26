@@ -76,6 +76,11 @@ const globalThisProcess = {
 
 const plugin = "./scripts/oxlint-plugin.mts"
 
+// The pre-commit hook (.githooks/pre-commit) sets KUMORA_LINT_UNTYPED to lint
+// without types, and so without the type-aware rules, since tsrs won't
+// type-check without them. `vp check` and CI never set it.
+const typed = process.env["KUMORA_LINT_UNTYPED"] === undefined
+
 export default defineConfig({
   lint: {
     plugins: [
@@ -91,7 +96,7 @@ export default defineConfig({
     categories: { correctness: "error" },
     // Decision: tsrs checks types through vp check, with type-aware lint on
     // (docs/adr/0023-types-are-checked-by-tsrs-through-vp-check-with-type-aware-lint-on.md)
-    options: { typeAware: true, typeCheck: true },
+    options: { typeAware: typed, typeCheck: typed },
     rules: {
       "no-unused-vars": [
         "error",
