@@ -380,6 +380,17 @@ describe("checkDecisionDocs", () => {
   )
 
   it.effect(
+    "passes a Sites list set off by a blank line, as vp fmt writes it",
+    () =>
+      passes({
+        [one]:
+          "# One\n\nWhy.\n\nSites:\n\n- `a.ts`\n- `b.ts`\n\nSource: apinrdw/kumora#1",
+        "a.ts": comment(2).join("\n"),
+        "b.ts": comment(2).join("\n"),
+      })
+  )
+
+  it.effect(
     "fails an ADR with no Source line, or a Sites list off its pointers",
     () =>
       Effect.gen(function* () {

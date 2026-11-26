@@ -75,11 +75,12 @@ Oxlint and Oxfmt through `vp lint` and `vp fmt`, configured once in the `lint` a
 
 - After making code changes, run `vp lint --fix`, then `vp fmt`. `--fix` applies only safe fixes; do not add `--fix-suggestions` or `--fix-dangerously`.
 - Before finishing, run `vp lint --deny-warnings --format=agent` and `vp fmt --check`. Both must exit 0; warnings count as failures. The pre-commit hook runs `vp lint --deny-warnings && vp fmt --check`.
-- `vp` applies only the root config, never the vendored configs under `repos/`, which both tools ignore, as they do generated files (`routeTree.gen.ts`). `vp fmt` formats code and `package.json` files only. Do not add inline ignore comments to silence a rule; fix the code or raise it.
+- `vp` applies only the root config, never the vendored configs under `repos/`, which both tools ignore, as they do generated files (`routeTree.gen.ts`). `vp fmt` formats every file type it supports, Markdown, JSON and YAML included; `fmt.ignorePatterns` keeps machine-written files out, and a `prettier-ignore` range keeps fallow's managed block below as fallow writes it. Do not add inline ignore comments to silence a rule; fix the code or raise it.
 - `scripts/check-skill-links.mts` fails on a relative link in `AGENTS.md` or any `SKILL.md` under `.claude/skills/` whose target is missing. CI runs it.
 
 ---
 
+<!-- prettier-ignore-start -->
 <!-- fallow:setup-hooks:start -->
 ## Fallow checks
 
@@ -111,3 +112,5 @@ For non-skill agents, treat the task map below as the local onboarding source: r
 | understand a finding | `fallow explain <issue-type>` |
 | scope a monorepo | `--workspace <glob> / --changed-workspaces <ref>` (global flags, prefix any command) |
 <!-- fallow:setup-hooks:end -->
+
+<!-- prettier-ignore-end -->

@@ -366,6 +366,11 @@ export default defineConfig({
       stylesheet: "packages/ui/src/styles/globals.css",
       functions: ["cn", "cva"],
     },
+    // A doc's code fence quotes code as it stands: a `yield*` line lifted out
+    // of its generator would reformat as multiplication.
+    overrides: [
+      { files: ["**/*.md"], options: { embeddedLanguageFormatting: "off" } },
+    ],
     ignorePatterns: [
       "**/routeTree.gen.ts",
       "dist/",
@@ -376,17 +381,14 @@ export default defineConfig({
       "coverage/",
       "repos/",
       ".alchemy/",
-      // Only code and package.json files are formatted for now; the
-      // formatter has never run on the rest.
-      "**/*.md",
-      "**/*.json",
-      "!**/package.json",
-      "**/*.jsonc",
-      "**/*.yml",
-      "**/*.yaml",
-      "**/*.toml",
-      "**/*.css",
-      "**/*.html",
+      // Machine-written: recorded feeds and reports, research results and
+      // pages, the impeccable tool's design files and fallow's CLAUDE.md. A
+      // re-record or reinstall must not fail format.
+      "CLAUDE.md",
+      "**/fixtures/**/*.json",
+      "docs/research/**/*.json",
+      "docs/research/**/*.html",
+      "**/.impeccable/",
     ],
   },
 })
