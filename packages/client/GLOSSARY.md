@@ -19,7 +19,7 @@ Where the dashboard Worker serves its pages, sockets, GETs and files on its host
 _Avoid_: prefix, mount point, basepath (TanStack's option name, set from it)
 
 **Router path**:
-A path as the dashboard's router reads it, with its search: without the dashboard base path, as in `/market-live?day=2026-11-06`. A page's `redirect` search param and an `Unauthorized` error's `redirectTo` are router paths; the router adds the base path when it navigates.
+A path as the dashboard's router reads it, with its search and fragment: without the dashboard base path, as in `/market-live?day=2026-11-06` or `/stocks/BBCA#daily-holders`. A page's `redirect` search param and an `Unauthorized` error's `redirectTo` are router paths; the router adds the base path when it navigates.
 _Avoid_: route, href
 
 **Path on the host**:
