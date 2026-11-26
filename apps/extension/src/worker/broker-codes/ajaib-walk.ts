@@ -25,12 +25,7 @@ import type { DateTime } from "effect"
 import { Clock, Effect, Option, Schema } from "effect"
 
 import type { Answer } from "../broker.ts"
-import {
-  RETRY,
-  START_POLL,
-  makeAjaibCalls,
-  type AjaibWalkTab,
-} from "./ajaib-calls.ts"
+import { START_POLL, makeAjaibCalls, type AjaibWalkTab } from "./ajaib-calls.ts"
 import { keptTrade, type TapeTrade } from "./done-details-walk.ts"
 import { ajaibWindowEnd } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
@@ -202,25 +197,13 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   const keep = options.keep ?? (() => Effect.void)
   const trades = options.trades ?? (() => Effect.void)
   const report = options.phase ?? (() => Effect.void)
-  const { enter, guard, call } = yield* makeAjaibCalls(tab, report)
+  const { enter, guard, call, readPage } = yield* makeAjaibCalls(tab, report)
   let fetched = 0
   let dayN = Option.none<number>()
 
   // One tape page, retried in place until it answers one.
-  const tapePage = Effect.fnUntraced(function* (
-    windowEnd: DateTime.Utc,
-    path: string
-  ) {
-    while (true) {
-      yield* guard(windowEnd)
-      const answer = yield* call(windowEnd, path)
-      if (Option.isSome(answer) && answer.value.status === 200) {
-        const rows = yield* pageRows(answer.value)
-        if (Option.isSome(rows)) return rows.value
-      }
-      yield* Effect.sleep(RETRY)
-    }
-  })
+  const tapePage = (windowEnd: DateTime.Utc, path: string) =>
+    readPage(windowEnd, path, pageRows)
 
   const post = Effect.fnUntraced(function* (
     batch: Omit<BrokerCodesBatch, "version" | "feed">
@@ -235,13 +218,11 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
 
   const isClosed = (windowEnd: DateTime.Utc) =>
     Effect.map(call(windowEnd, STATUS_PATH), (answer) =>
-      Option.exists(answer, (status) =>
-        Option.exists(
-          decodeStatus(status.body),
-          (decoded) =>
-            ("result" in decoded ? decoded.result.status : decoded.status) ===
-            "CLOSED"
-        )
+      Option.exists(
+        decodeStatus(answer.body),
+        (decoded) =>
+          ("result" in decoded ? decoded.result.status : decoded.status) ===
+          "CLOSED"
       )
     )
 
@@ -253,11 +234,8 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   ) {
     const now = yield* Clock.currentTimeMillis
     const head = yield* call(windowEnd, yield* tapePath(now, 1, HEAD_PAGE_SIZE))
-    if (Option.isNone(head)) return Option.none<TradeNumber>()
     const page =
-      head.value.status === 200
-        ? yield* pageRows(head.value)
-        : Option.none<never>()
+      head.status === 200 ? yield* pageRows(head) : Option.none<never>()
     // An empty page, a page of another date, or rows without codes are
     // polled again until the window ends (ajaibWindowEnd in hours.ts).
     const rows = Option.match(page, {
