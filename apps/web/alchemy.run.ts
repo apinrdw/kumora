@@ -49,9 +49,9 @@ export const Website = Cloudflare.Website.Vite(
 )
 
 // Production's host, proxied to Cloudflare, where both apps' zone routes
-// (websiteProps) pick it up. 100:: is the address-less target for a host
-// only Workers answer. The record beats the zone's *.pusat.ai wildcard, so
-// the host doesn't hang on it.
+// (websiteProps) pick it up.
+// Decision: Production is served through zone routes on a proxied AAAA record
+// (packages/deploy/docs/adr/0005-production-is-served-through-zone-routes-on-a-proxied-aaaa-record.md)
 const ProductionHost = (stage: Stage) =>
   Effect.gen(function* () {
     return yield* Cloudflare.DNS.Record("ProductionHost", {

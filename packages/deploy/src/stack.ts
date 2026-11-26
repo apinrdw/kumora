@@ -72,9 +72,13 @@ export const stackOptions = Effect.fnUntraced(function* (app: App) {
 
 // Production's zone routes: each app takes its path on its Stage URL's host,
 // the dashboard its bare base path and everything under it, so a web path
-// such as /dashboards-guide stays with web. No Custom Domain: one wins over
-// routes and would take /dashboard from the dashboard. workers.dev stays on,
-// and every other Stage has only it.
+// such as /dashboards-guide stays with web. A route matches the whole URL,
+// query included, so /dashboard?x reaches web, which 301s it to /dashboard/
+// (apps/web/src/server/dashboard-redirect.ts). workers.dev stays on, and
+// every other Stage has only it.
+// Decision: Production is served through zone routes on a proxied AAAA record
+// (packages/deploy/docs/adr/0005-production-is-served-through-zone-routes-on-a-proxied-aaaa-record.md)
+//
 // Decision: the dashboard is served under /dashboard on every Stage
 // (docs/adr/0020-the-dashboard-is-served-under-dashboard-on-every-stage.md)
 const productionRoutes = Effect.fnUntraced(function* (app: App, stage: Stage) {
