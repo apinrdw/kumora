@@ -59,3 +59,7 @@ _Avoid_: expired token (expiry is one way of three)
 **Stall cause**:
 Why an Ajaib walk's last call failed while it retries in place: a refused token, no answer, or a timeout, with how many calls in a row have failed and whether the walk token changed meanwhile. The Broker codes card shows it until a call answers.
 _Avoid_: error, stuck reason
+
+**Static headers**:
+The Ajaib page's REST request headers other than its token (`Authorization`) and `X-Device-Signature`, with the page's API base. The extension keeps the page's latest in `chrome.storage.session` until Chrome closes, and a reloaded tab's walk calls send them with the walk token until the page makes a call of its own.
+_Avoid_: page headers (those include the token)

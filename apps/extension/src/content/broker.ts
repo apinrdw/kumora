@@ -13,6 +13,7 @@ import type {
   BrokerCommand,
   BrokerEvent,
   PageEvent,
+  PageRequest,
   Payload,
   SiteName,
   TabCommand,
@@ -36,9 +37,15 @@ const feed: Feed = location.hostname === "stockbit.com" ? "Stockbit" : "Ajaib"
 
 // The page's latest REST request, from the MAIN-world wrapper (page.ts): its
 // API base and its exact headers. Ajaib answers 403 without them.
-let pageRequest:
-  | { readonly base: string; readonly headers: Record<string, string> }
-  | undefined
+type Request = {
+  readonly base: string
+  readonly headers: Readonly<Record<string, string>>
+}
+let pageRequest: Request | undefined
+// The worker's kept request from an earlier page of this tab, its static
+// headers alone, which stands in until this page makes a call.
+let kept: Request | undefined
+const ownRequest = () => pageRequest ?? kept
 window.addEventListener("message", (event) => {
   const data: unknown = event.data
   if (
@@ -52,11 +59,13 @@ window.addEventListener("message", (event) => {
     "headers" in data &&
     typeof data.headers === "object" &&
     data.headers !== null
-  )
+  ) {
     pageRequest = {
       base: data.base,
       headers: data.headers as Record<string, string>,
     }
+    forward({ _tag: "page-request", ...pageRequest })
+  }
 })
 
 window.postMessage({ kumoraRelay: "ask-page-request" }, location.origin)
@@ -64,7 +73,7 @@ window.postMessage({ kumoraRelay: "ask-page-request" }, location.origin)
 // Ajaib's lock screen (spec apinrdw/kumora#244, "The extension: Ajaib
 // keep-alive and the PIN lock"): page.ts reports it and the page's PIN check,
 // which go to the worker over the current port, and answers `type-pin`.
-let forward: (event: PageEvent) => void = () => {}
+let forward: (event: PageEvent | PageRequest) => void = () => {}
 const typing = new Map<number, (typed: boolean) => void>()
 let nextTyping = 0
 
@@ -157,8 +166,8 @@ const authorization = () =>
   )?.groups
 
 // A page-fetch's headers: the page's own with `bearer` in place of their
-// token; before the page made a call, `bearer` or `token` alone; none
-// without any.
+// token; before the page made a call, the kept static headers with `bearer`
+// or `token`; none without either.
 const pageHeaders = (
   bearer: string | undefined,
   token: string | undefined
@@ -167,7 +176,7 @@ const pageHeaders = (
     return pageRequest.headers
   const sent = bearer ?? token
   if (sent === undefined) return undefined
-  const own = Object.entries(pageRequest?.headers ?? {}).filter(
+  const own = Object.entries(ownRequest()?.headers ?? {}).filter(
     ([name]) => name.toLowerCase() !== "authorization"
   )
   const scheme = authorization()?.scheme ?? "jwt"
@@ -192,7 +201,7 @@ const answer = async (
       // bearer token in the headers is the session.
       return read(
         await fetch(
-          new URL(request.path, pageRequest?.base ?? AJAIB_API_BASE),
+          new URL(request.path, ownRequest()?.base ?? AJAIB_API_BASE),
           { headers }
         )
       )
@@ -238,7 +247,7 @@ const relay = () => {
     // the tab reloads.
     return
   }
-  const post = (event: BrokerEvent | PageEvent | Answer) => {
+  const post = (event: BrokerEvent | PageEvent | PageRequest | Answer) => {
     try {
       port.postMessage(event)
     } catch {
@@ -293,6 +302,9 @@ const relay = () => {
         sockets.delete(keyOf(command))
         return socket?.close()
       }
+      case "kept-page-request":
+        kept = { base: command.base, headers: command.headers }
+        return
       case "request":
         return void reply(command.request).then(
           ([status, body, challenge]) =>

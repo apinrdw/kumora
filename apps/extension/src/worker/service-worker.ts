@@ -79,6 +79,8 @@ import {
   loadSettings,
   loadTargetStates,
   saveAjaibLock,
+  loadPageRequest,
+  savePageRequest,
   saveBrokerCodesProgress,
   saveBrokerCodesRun,
   saveCodeListRelay,
@@ -332,6 +334,7 @@ const main = Effect.gen(function* () {
     hooks: onDemand.hooks,
     page: (event): Effect.Effect<void> =>
       Effect.suspend(() => ajaibLock.page(event)),
+    pageRequests: { load: loadPageRequest, save: savePageRequest },
   })
   const tabs = [stockbitTab, ajaibTab]
   const ajaibLock = yield* makeAjaibLock({
