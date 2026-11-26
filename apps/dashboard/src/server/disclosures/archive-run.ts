@@ -85,8 +85,8 @@ const MAX_BACKFILL_DAYS = 31
 const FILES_PER_STEP = 25
 const FILE_CONCURRENCY = 2
 
-// How long one attachment's body may take to stream into the bucket once
-// IDX has answered: ~300 MB at 1 MB/s, against IDX's average ~220 KB (spec
+// How long one attachment's download may take, from its request until its
+// body has streamed into the bucket: ~300 MB at 1 MB/s, against IDX's average ~220 KB (spec
 // apinrdw/kumora#715). One that takes longer fails as a download does. Its
 // size alone never does: the body streams in, PUT_PART_BYTES at a time
 // (../archive/bucket.ts), so a step holds FILE_CONCURRENCY parts at most.
@@ -114,15 +114,14 @@ const MAX_NOT_STORED_SHOWN = 50
 const VERSION_CONCURRENCY = 10
 
 // A `files:` step's timeout: its rounds of FILE_CONCURRENCY downloads in
-// turn, each a request of at most IDX_REQUEST_TIMEOUT, its body streamed
-// into the bucket within DOWNLOAD_TIMEOUT, and its three other calls to the
-// stores (stored already, the object there, the index). ~85 minutes.
+// turn, each its request and body within DOWNLOAD_TIMEOUT, and its three
+// other calls to the stores (stored already, the object there, the index).
+// ~66 minutes.
 // `plan`, `backfill`, `waiting` and `summary` keep the runtime's 10 minutes.
 const filesStep = Effect.sync((): StepConfig => ({
   timeout:
     Math.ceil(FILES_PER_STEP / FILE_CONCURRENCY) *
-    (Duration.toMillis(IDX_REQUEST_TIMEOUT) +
-      Duration.toMillis(DOWNLOAD_TIMEOUT) +
+    (Duration.toMillis(DOWNLOAD_TIMEOUT) +
       3 * Duration.toMillis(STORE_SLOWEST_ANSWER)),
 }))
 
