@@ -5,6 +5,7 @@ import { WibDate } from "@workspace/relay"
 import { DateTime, Effect, Schema, Struct } from "effect"
 
 import { type Run, RunId, type RunParams, RunOutcome } from "../archive/run.ts"
+import { DisclosureKey } from "./key.ts"
 
 export const DisclosureTrigger = Schema.Literals(["cron", "admin"])
 export type DisclosureTrigger = typeof DisclosureTrigger.Type
@@ -30,7 +31,7 @@ export type DisclosureParams = RunParams<DisclosureTrigger>
 
 // An attachment the run couldn't store; the next run tries it again.
 const NotStoredAttachment = Schema.Struct({
-  disclosure: Schema.String,
+  disclosure: DisclosureKey,
   path: Schema.String,
   // At most MAX_RUN_ERROR_LENGTH characters.
   message: Schema.String,

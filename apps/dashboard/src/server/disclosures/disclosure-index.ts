@@ -26,6 +26,15 @@ const INSERT_VERSIONS =
   "SELECT value->>0, value->>1, value->>2, value->>3, value->>4 " +
   "FROM json_each(?)"
 
+// The rows `statement` answers, decoded with `row`.
+const queryRows = Effect.fnUntraced(function* <A, I>(
+  row: Schema.Codec<A, I>,
+  statement: Statement
+) {
+  const [rows = []] = yield* (yield* ArchiveDb).batch([statement])
+  return yield* decodeRows(row)(rows)
+})
+
 const INSERT_ATTACHMENTS =
   "INSERT OR IGNORE INTO disclosure_attachment " +
   "(disclosure_key, path, day, object_key) " +
@@ -37,17 +46,14 @@ export const heldVersions = Effect.fnUntraced(function* (
   day: WibDate,
   language: DisclosureLanguage
 ) {
-  const [rows = []] = yield* (yield* ArchiveDb).batch([
+  const rows = yield* queryRows(
+    Schema.Struct({ disclosure_key: DisclosureKey }),
     {
       sql: "SELECT disclosure_key FROM disclosure_version WHERE day = ? AND language = ?",
       params: [day, language],
-    },
-  ])
-  return new Set(
-    (yield* decodeRows(Schema.Struct({ disclosure_key: Schema.String }))(
-      rows
-    )).map(({ disclosure_key }) => disclosure_key)
+    }
   )
+  return new Set(rows.map(({ disclosure_key }) => disclosure_key))
 })
 
 // A version just stored in the bucket, and the paths of its attachments.
@@ -149,12 +155,8 @@ const listedDaysStatement = (from: WibDate): Statement => ({
 
 const decodeListedDays = decodeRows(ListedDay)
 
-export const listedDays = Effect.fnUntraced(function* (from: WibDate) {
-  const [rows = []] = yield* (yield* ArchiveDb).batch([
-    listedDaysStatement(from),
-  ])
-  return yield* decodeListedDays(rows)
-})
+export const listedDays = (from: WibDate) =>
+  queryRows(ListedDay, listedDaysStatement(from))
 
 // listedDays as a part of an admin page's read.
 export const listedDaysRead = (from: WibDate) =>
@@ -164,8 +166,9 @@ export const listedDaysRead = (from: WibDate) =>
     read: ([rows = []]) => decodeListedDays(rows),
   }) satisfies PageRead<ReadonlyArray<ListedDay>>
 
-// The oldest disclosure day the archive holds a version of, or null: the
-// first entry of disclosure_version_day.
+// The oldest disclosure day the archive holds a version of, or null. MIN
+// reads the first entry of the index disclosure_version_day
+// (archive-migrations/0005_disclosure_index.sql), not the table.
 export const earliestDayRead = {
   kinds: [],
   statements: [
@@ -208,35 +211,27 @@ export const waitingAttachments = Effect.fnUntraced(function* (
   days: ReadonlyArray<WibDate>,
   limit: number
 ) {
-  const [rows = []] = yield* (yield* ArchiveDb).batch([
-    {
-      sql:
-        // json_each has a `path` column of its own.
-        "SELECT a.disclosure_key AS disclosure, a.path " +
-        "FROM json_each(?) AS listed JOIN disclosure_attachment AS a " +
-        `ON a.day = listed.value WHERE ${WAITING} ` +
-        "ORDER BY listed.key, a.disclosure_key, a.path LIMIT ?",
-      params: [JSON.stringify(days), limit],
-    },
-  ])
-  return yield* decodeRows(WaitingAttachment)(rows)
+  return yield* queryRows(WaitingAttachment, {
+    sql:
+      // json_each has a `path` column of its own.
+      "SELECT a.disclosure_key AS disclosure, a.path " +
+      "FROM json_each(?) AS listed JOIN disclosure_attachment AS a " +
+      `ON a.day = listed.value WHERE ${WAITING} ` +
+      "ORDER BY listed.key, a.disclosure_key, a.path LIMIT ?",
+    params: [JSON.stringify(days), limit],
+  })
 })
 
 // How many attachments of `days` wait to be stored.
 export const waitingCount = Effect.fnUntraced(function* (
   days: ReadonlyArray<WibDate>
 ) {
-  const [rows = []] = yield* (yield* ArchiveDb).batch([
-    {
-      sql:
-        "SELECT COUNT(*) AS waiting FROM disclosure_attachment " +
-        `WHERE ${WAITING} AND ${IN_DAYS}`,
-      params: [JSON.stringify(days)],
-    },
-  ])
-  const [row] = yield* decodeRows(Schema.Struct({ waiting: Schema.Number }))(
-    rows
-  )
+  const [row] = yield* queryRows(Schema.Struct({ waiting: Schema.Number }), {
+    sql:
+      "SELECT COUNT(*) AS waiting FROM disclosure_attachment " +
+      `WHERE ${WAITING} AND ${IN_DAYS}`,
+    params: [JSON.stringify(days)],
+  })
   return row?.waiting ?? 0
 })
 
@@ -244,14 +239,12 @@ export const waitingCount = Effect.fnUntraced(function* (
 export const isAttachmentStored = Effect.fnUntraced(function* (
   attachment: WaitingAttachment
 ) {
-  const [rows = []] = yield* (yield* ArchiveDb).batch([
-    {
-      sql:
-        "SELECT 1 AS stored FROM disclosure_attachment WHERE disclosure_key = ? " +
-        "AND path = ? AND stored_at IS NOT NULL",
-      params: [attachment.disclosure, attachment.path],
-    },
-  ])
+  const rows = yield* queryRows(Schema.Struct({ stored: Schema.Number }), {
+    sql:
+      "SELECT 1 AS stored FROM disclosure_attachment WHERE disclosure_key = ? " +
+      "AND path = ? AND stored_at IS NOT NULL",
+    params: [attachment.disclosure, attachment.path],
+  })
   return rows.length > 0
 })
 
@@ -291,10 +284,12 @@ const UnavailableAttachment = Schema.Struct({
   lastError: Schema.String,
 })
 
-export interface UnavailableAttachments {
-  readonly total: number
-  readonly attachments: ReadonlyArray<typeof UnavailableAttachment.Type>
-}
+const UnavailableAttachments = Schema.Struct({
+  total: Schema.Number,
+  // The newest MAX_UNAVAILABLE_SHOWN.
+  attachments: Schema.Array(UnavailableAttachment),
+})
+export type UnavailableAttachments = typeof UnavailableAttachments.Type
 
 // The unavailable attachments as a part of an admin page's read: how many,
 // and the newest MAX_UNAVAILABLE_SHOWN. Both read the partial index of
@@ -323,10 +318,10 @@ export const unavailableAttachmentsRead = {
       const [row] = yield* decodeRows(Schema.Struct({ total: Schema.Number }))(
         totals
       )
-      return {
+      return UnavailableAttachments.make({
         total: row?.total ?? 0,
         attachments: yield* decodeRows(UnavailableAttachment)(rows),
-      }
+      })
     }),
 } satisfies PageRead<UnavailableAttachments>
 

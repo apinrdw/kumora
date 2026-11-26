@@ -6,6 +6,7 @@ import { TestClock } from "effect/testing"
 import { RunId } from "@/server/archive/run"
 import { FIRST_DISCLOSURE_DAY } from "@/server/disclosures/disclosure-day"
 import { disclosureRun, FILES_PER_RUN } from "@/server/disclosures/archive-run"
+import { DisclosureKey } from "@/server/disclosures/key"
 import {
   MAX_KEY_LENGTH,
   MAX_PATH_LENGTH,
@@ -294,7 +295,7 @@ describe("a disclosure run", () => {
         })
         assert.deepStrictEqual(first.notStored, [
           {
-            disclosure: keyOf(NAV),
+            disclosure: DisclosureKey.make(keyOf(NAV)),
             path: pathOf("nav_lamp1.pdf"),
             message: "IDX answered 503",
           },

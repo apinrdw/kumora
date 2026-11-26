@@ -69,7 +69,7 @@ const PARTIAL: DisclosureRunResult = {
   attachmentsWaiting: 1,
   notStored: [
     {
-      disclosure: "20261126090000-B/3",
+      disclosure: DisclosureKey.make("20261126090000-B/3"),
       path: "/StaticData/x.pdf",
       message: "IDX answered 503",
     },
