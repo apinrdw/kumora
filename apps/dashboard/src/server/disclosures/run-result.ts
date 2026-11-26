@@ -18,11 +18,12 @@ export const disclosureRunIdAt = Effect.fnUntraced(function* (
   trigger: DisclosureTrigger,
   epochMs: number
 ) {
-  const iso = new Date(epochMs).toISOString()
+  if (trigger === "admin") return RunId.make(`admin-${epochMs}`)
+  const at = DateTime.makeUnsafe(epochMs)
+  const { hour, minute } = DateTime.toPartsUtc(at)
+  const twoDigits = (value: number) => String(value).padStart(2, "0")
   return RunId.make(
-    trigger === "cron"
-      ? `cron-${iso.slice(0, 13)}${iso.slice(14, 16)}`
-      : `admin-${epochMs}`
+    `cron-${DateTime.formatIsoDate(at)}T${twoDigits(hour)}${twoDigits(minute)}`
   )
 })
 
