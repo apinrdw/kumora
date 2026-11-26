@@ -300,7 +300,7 @@ describe("a KSEI archive run", () => {
       const records = recordsOf(bucket, STATIS_OCT)
       assert.strictEqual(records.length, 2)
       assert.deepStrictEqual(
-        records.map((key) => json(bucket, key).etag).sort(),
+        records.map((key): string => json(bucket, key).etag).sort(),
         [etagOf(original), etagOf(corrected)].sort()
       )
       assert.deepInclude(result, {
@@ -620,8 +620,15 @@ describe("a KSEI archive run at the largest size it accepts", () => {
           reportsAdded: 2 * MAX_LISTED_REPORTS,
         })
         // `head` lists every held file as changed.
-        for (const [url, file] of ksei.files)
-          ksei.files.set(url, fileOf(`${file.body} corrected`))
+        for (const [url, { body }] of ksei.files)
+          ksei.files.set(
+            url,
+            fileOf(
+              typeof body === "string"
+                ? `${body} corrected`
+                : new Uint8Array([...body, 0])
+            )
+          )
         const second = yield* run(ksei, bucket, "cron-2026-11-15")
         assert.deepInclude(second, {
           outcome: "complete",
