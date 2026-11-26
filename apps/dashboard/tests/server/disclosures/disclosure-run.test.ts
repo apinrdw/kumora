@@ -525,6 +525,51 @@ describe("a disclosure run", () => {
     })
   )
 
+  it.effect(
+    "stores the 7 days' files and the next older days when an older day's listing can't be read, and lists that day on a later run",
+    () =>
+      Effect.gen(function* () {
+        const { idx, run } = world()
+        const second: Published = {
+          stamp: "20230704090000",
+          number: "093/KIC",
+          files: ["b.pdf"],
+        }
+        for (const published of [FIRST, second, NAV]) publish(idx, published)
+        idx.listingResponse = (url) =>
+          url.searchParams.get("dateFrom") === "20230703"
+            ? new Response("busy", { status: 500 })
+            : undefined
+
+        const first = yield* run()
+
+        assert.deepInclude(first, { outcome: "partial", error: null })
+        assert.deepStrictEqual(fileRequests(idx), [
+          pathOf("nav.pdf"),
+          pathOf("nav_lamp1.pdf"),
+          pathOf("b.pdf"),
+        ])
+        assert.notInclude(first.backfillDays, FIRST_DISCLOSURE_DAY)
+        assert.strictEqual(first.backfillDays[0], "2023-07-04")
+        assert.deepStrictEqual(
+          first.unlistedDays.map(({ day }) => day),
+          [FIRST_DISCLOSURE_DAY]
+        )
+        assert.match(
+          first.unlistedDays[0]?.message ?? "",
+          /^IDX's disclosures of 2023-07-03 \(id\) answered 500/
+        )
+
+        idx.listingResponse = undefined
+        idx.requests.length = 0
+        const later = yield* run()
+
+        assert.strictEqual(later.backfillDays[0], FIRST_DISCLOSURE_DAY)
+        assert.deepStrictEqual(later.unlistedDays, [])
+        assert.deepStrictEqual(fileRequests(idx), [pathOf("a.pdf")])
+      })
+  )
+
   it.effect("fails when IDX's listing changes shape", () =>
     Effect.gen(function* () {
       const { idx, db, run } = world()

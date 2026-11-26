@@ -33,8 +33,9 @@ interface FakeFile {
 
 export interface FakeIdx {
   readonly versions: Record<DisclosureLanguage, Array<Reply>>
-  // Answered instead of a listing page, when set.
-  listingResponse: (() => Response) | undefined
+  // Answered instead of a listing page, when set and it answers one for
+  // the page's URL.
+  listingResponse: ((url: URL) => Response | undefined) | undefined
   // Keyed by path, as /StaticData/…/x.pdf.
   readonly files: Map<string, FakeFile>
   // Every URL requested, in order.
@@ -99,7 +100,8 @@ const compactDay = (at: string) => at.slice(0, 10).replaceAll("-", "")
 export const fakeIdx = (): FakeIdx => {
   const answer = (url: URL): Response => {
     if (`${url.origin}${url.pathname}` === ANNOUNCEMENTS) {
-      if (idx.listingResponse !== undefined) return idx.listingResponse()
+      const instead = idx.listingResponse?.(url)
+      if (instead !== undefined) return instead
       const language = url.searchParams.get("lang") as DisclosureLanguage
       const from = url.searchParams.get("dateFrom") ?? ""
       const to = url.searchParams.get("dateTo") ?? ""
