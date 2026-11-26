@@ -60,6 +60,7 @@ const PARTIAL: DisclosureRunResult = {
   outcome: "partial",
   days: [WibDate.make("2026-11-26")],
   backfillDays: [WibDate.make("2023-07-03")],
+  unlistedDays: [],
   versionsAdded: 380,
   entriesSkipped: 1,
   skipped: [

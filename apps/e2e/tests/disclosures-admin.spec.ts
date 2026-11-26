@@ -20,6 +20,7 @@ const COMPLETE: SeededDisclosureRun = {
   finishedAt: "2026-11-26T03:04:30.000Z",
   outcome: "complete",
   days: ["2026-11-26", "2026-11-25"],
+  unlistedDays: [],
   versionsAdded: 380,
   attachmentsStored: 612,
   attachmentsWaiting: 0,

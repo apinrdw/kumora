@@ -66,6 +66,7 @@ import {
   type DisclosureTrigger,
   type NotStoredAttachment,
   runningDisclosureResult,
+  type UnlistedDay,
 } from "./run-result.ts"
 import { writeDisclosureRun } from "./runs.ts"
 
@@ -367,6 +368,44 @@ const storeFiles = Effect.fnUntraced(function* (
   })
 })
 
+// Stores `waiting` in `files:` steps of FILES_PER_STEP, and answers how
+// many it stored; each it couldn't goes to `notStored`.
+const storeWaiting = Effect.fnUntraced(function* (
+  steps: WorkflowSteps<StepServices>,
+  waiting: ReadonlyArray<WaitingAttachment>,
+  notStored: Array<NotStoredAttachment>
+) {
+  const config = yield* filesStep
+  let stored = 0
+  for (let start = 0; start < waiting.length; start += FILES_PER_STEP) {
+    const batch = waiting.slice(start, start + FILES_PER_STEP)
+    const outcomes = yield* steps
+      .do(`files:${start / FILES_PER_STEP}`, storeFiles(batch), config)
+      .pipe(
+        // Its stores failed past their retries: none of its attachments
+        // counts as stored by this run, and each waits for the next.
+        Effect.catchTag("StepFailed", ({ message }) =>
+          Effect.succeed(
+            batch.map((attachment): FileOutcome => ({
+              stored: false,
+              attachment,
+              message,
+            }))
+          )
+        )
+      )
+    for (const outcome of outcomes)
+      if (outcome.stored) stored += 1
+      else
+        notStored.push({
+          disclosure: outcome.attachment.disclosure,
+          path: outcome.attachment.path,
+          message: outcome.message,
+        })
+  }
+  return stored
+})
+
 const finishedResult = Effect.fnUntraced(function* (run: DisclosureRun) {
   return { ...(yield* runningDisclosureResult(run)), finishedAt: yield* nowIso }
 })
@@ -376,6 +415,7 @@ type RunProgress = Pick<
   DisclosureRunResult,
   | "days"
   | "backfillDays"
+  | "unlistedDays"
   | "versionsAdded"
   | "entriesSkipped"
   | "skipped"
@@ -388,7 +428,8 @@ const summary = Effect.fnUntraced(function* (
   run: DisclosureRun,
   progress: RunProgress
 ) {
-  const { days, backfillDays, entriesSkipped, notStored } = progress
+  const { days, backfillDays, unlistedDays, entriesSkipped, notStored } =
+    progress
   yield* recordDaysComplete(yield* completeDays(backfillDays), yield* nowIso)
   const attachmentsWaiting = yield* waitingCount([...days, ...backfillDays])
   const result = DisclosureRunResult.make({
@@ -396,11 +437,15 @@ const summary = Effect.fnUntraced(function* (
     ...progress,
     // Anything of the days it took up left waiting makes the run partial: a
     // download that failed, or one past the run's budget, which the next
-    // run takes up first. So does a listing entry it skipped.
+    // run takes up first. So does a listing entry it skipped, and an older
+    // day whose listing it couldn't read.
     // Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
     // (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
     outcome:
-      notStored.length === 0 && attachmentsWaiting === 0 && entriesSkipped === 0
+      notStored.length === 0 &&
+      attachmentsWaiting === 0 &&
+      entriesSkipped === 0 &&
+      unlistedDays.length === 0
         ? "complete"
         : "partial",
     attachmentsWaiting,
@@ -411,7 +456,8 @@ const summary = Effect.fnUntraced(function* (
   return result
 })
 
-// A listing couldn't be read: the run is failed with its message.
+// A recent day's listing couldn't be read: the run is failed with its
+// message.
 const recordFailure = Effect.fnUntraced(function* (
   run: DisclosureRun,
   progress: RunProgress,
@@ -435,11 +481,13 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
 ): Effect.fn.Return<DisclosureRunResult, StepFailed> {
   const days = yield* steps.do("plan", plan(run))
   const backfillDays: Array<WibDate> = []
+  const unlistedDays: Array<UnlistedDay> = []
   const skipped: Array<string> = []
   const notStored: Array<NotStoredAttachment> = []
   const progress = {
     days,
     backfillDays,
+    unlistedDays,
     versionsAdded: 0,
     entriesSkipped: 0,
     skipped,
@@ -447,58 +495,53 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
     notStored,
   }
   const listConfig = yield* listStep
-  const list = Effect.fnUntraced(function* (day: WibDate) {
-    const listed = yield* failingRun(
-      steps,
-      steps.do(`list:${day}`, listDay(day, run.id), listConfig),
-      (message) => recordFailure(run, progress, message)
-    )
+  const listing = (day: WibDate) =>
+    steps.do(`list:${day}`, listDay(day, run.id), listConfig)
+  const count = (listed: Effect.Success<ReturnType<typeof listing>>) => {
     progress.versionsAdded += listed.versionsAdded
     progress.entriesSkipped += listed.entriesSkipped
     skipped.push(...listed.skipped)
     return listed.waiting
-  })
-  for (const day of days) yield* list(day)
+  }
+  // A recent day's listing that can't be read fails the run.
+  for (const day of days)
+    count(
+      yield* failingRun(steps, listing(day), (message) =>
+        recordFailure(run, progress, message)
+      )
+    )
   // What the recent days leave of the run's budget goes to the oldest days
   // not complete: each listed whole already is taken up as it stands, each
-  // other listed first, until their waiting attachments fill the budget.
+  // other listed first, until their waiting attachments fill the budget. An
+  // older day whose listing can't be read is left for the next run, named
+  // on the run's record, and the run takes up the day after it.
+  // Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
+  // (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
+  // The waiting attachments of an older day it lists, or undefined when
+  // its listing can't be read.
+  const listOlder = (day: WibDate) =>
+    listing(day).pipe(
+      Effect.map(count),
+      Effect.catchTag("StepFailed", ({ message }) =>
+        Effect.map(runError(message), (error) => {
+          unlistedDays.push({ day, message: error })
+          return undefined
+        })
+      )
+    )
   const older = yield* steps.do("backfill", backfill(days))
   let budget = FILES_PER_RUN - older.recentWaiting
   for (const { day, listed, waiting } of older.days) {
     if (budget <= 0) break
-    budget -= listed ? waiting : yield* list(day)
+    const taken = listed ? waiting : yield* listOlder(day)
+    if (taken === undefined) continue
+    budget -= taken
     backfillDays.push(day)
   }
   const waiting = yield* steps.do(
     "waiting",
     waitingAttachments([...days, ...backfillDays], FILES_PER_RUN)
   )
-  const config = yield* filesStep
-  for (let start = 0; start < waiting.length; start += FILES_PER_STEP) {
-    const batch = waiting.slice(start, start + FILES_PER_STEP)
-    const outcomes = yield* steps
-      .do(`files:${start / FILES_PER_STEP}`, storeFiles(batch), config)
-      .pipe(
-        // Its stores failed past their retries: none of its attachments
-        // counts as stored by this run, and each waits for the next.
-        Effect.catchTag("StepFailed", ({ message }) =>
-          Effect.succeed(
-            batch.map((attachment): FileOutcome => ({
-              stored: false,
-              attachment,
-              message,
-            }))
-          )
-        )
-      )
-    for (const outcome of outcomes)
-      if (outcome.stored) progress.attachmentsStored += 1
-      else
-        notStored.push({
-          disclosure: outcome.attachment.disclosure,
-          path: outcome.attachment.path,
-          message: outcome.message,
-        })
-  }
+  progress.attachmentsStored = yield* storeWaiting(steps, waiting, notStored)
   return yield* steps.do("summary", summary(run, progress))
 })

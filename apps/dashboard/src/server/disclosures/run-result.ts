@@ -39,6 +39,17 @@ const NotStoredAttachment = Schema.Struct({
 })
 export type NotStoredAttachment = typeof NotStoredAttachment.Type
 
+// A day older than the recent ones whose listing couldn't be read: the run
+// went on without it, and the next run lists it again.
+// Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
+// (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
+const UnlistedDay = Schema.Struct({
+  day: WibDate,
+  // At most MAX_RUN_ERROR_LENGTH characters.
+  message: Schema.String,
+})
+export type UnlistedDay = typeof UnlistedDay.Type
+
 export const DisclosureRunResult = Schema.Struct({
   id: RunId,
   trigger: DisclosureTrigger,
@@ -54,6 +65,9 @@ export const DisclosureRunResult = Schema.Struct({
   backfillDays: Schema.Array(WibDate).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([]))
   ),
+  // The older days it couldn't list, at most MAX_BACKFILL_DAYS, oldest
+  // first; none is among backfillDays.
+  unlistedDays: Schema.Array(UnlistedDay),
   // Disclosure versions the archive didn't hold, stored.
   versionsAdded: Schema.Number,
   // Listing entries it skipped: a reply with no disclosure key, or an
@@ -103,6 +117,7 @@ export const runningDisclosureResult = Effect.fnUntraced(function* (
     outcome: "running",
     days: [],
     backfillDays: [],
+    unlistedDays: [],
     versionsAdded: 0,
     entriesSkipped: 0,
     skipped: [],
