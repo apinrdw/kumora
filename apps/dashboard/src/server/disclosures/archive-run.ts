@@ -23,7 +23,12 @@ import { HttpClient, type HttpClientError } from "effect/http"
 import type { ArchiveDb } from "../archive/archive-db.ts"
 import { ArchiveBucket } from "../archive/bucket.ts"
 import { failingRun } from "../archive/failing-run.ts"
-import { type Run, runError, STORE_SLOWEST_ANSWER } from "../archive/run.ts"
+import {
+  type Run,
+  runError,
+  type RunId,
+  STORE_SLOWEST_ANSWER,
+} from "../archive/run.ts"
 import {
   dayAfter,
   disclosureDayOf,
@@ -40,6 +45,7 @@ import {
   recordDayListed,
   recordDaysComplete,
   heldVersions,
+  versionsIndexedBy,
   type WaitingAttachment,
   waitingAttachments,
   waitingCount,
@@ -179,14 +185,15 @@ const storeVersion = Effect.fnUntraced(function* (
 })
 
 // Lists `day` in both languages, and stores each version the index lacks,
-// indexing its attachments to be stored. What it stores comes from the
-// index, so a retry that finds its first attempt's versions stores none
-// again. It counts the entries the listing skipped, and keeps why for the
-// first MAX_NOT_STORED_SHOWN; none of them waits, or fails the run.
+// indexing it as `run`'s and its attachments to be stored. What it stores
+// comes from the index, so a retry that finds its first attempt's versions
+// stores none again, and the versions it counts as added are those the index
+// holds as `run`'s, so the retry counts them still. It counts the entries
+// the listing skipped, and keeps why for the first MAX_NOT_STORED_SHOWN;
+// none of them waits, or fails the run.
 // Decision: a malformed disclosure entry is skipped, not failed
 // (apps/dashboard/docs/adr/0140-a-malformed-disclosure-entry-is-skipped-not-failed.md)
-const listDay = Effect.fnUntraced(function* (day: WibDate) {
-  let versionsAdded = 0
+const listDay = Effect.fnUntraced(function* (day: WibDate, run: RunId) {
   let entriesSkipped = 0
   const skipped: Array<string> = []
   for (const language of DisclosureLanguage.literals) {
@@ -207,15 +214,14 @@ const listDay = Effect.fnUntraced(function* (day: WibDate) {
           (version) => storeVersion(language, version),
           { concurrency: VERSION_CONCURRENCY }
         )
-        yield* indexVersions(stored, yield* nowIso)
+        yield* indexVersions(stored, yield* nowIso, run)
         for (const { key } of fresh) held.add(key)
-        versionsAdded += fresh.length
       })
     )
   }
   yield* recordDayListed(day, yield* nowIso)
   return {
-    versionsAdded,
+    versionsAdded: yield* versionsIndexedBy(day, run),
     entriesSkipped,
     skipped,
     waiting: yield* waitingCount([day]),
@@ -444,7 +450,7 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
   const list = Effect.fnUntraced(function* (day: WibDate) {
     const listed = yield* failingRun(
       steps,
-      steps.do(`list:${day}`, listDay(day), listConfig),
+      steps.do(`list:${day}`, listDay(day, run.id), listConfig),
       (message) => recordFailure(run, progress, message)
     )
     progress.versionsAdded += listed.versionsAdded

@@ -9,6 +9,7 @@ import { DateTime, Effect, Schema } from "effect"
 
 import { ArchiveDb } from "../archive/archive-db.ts"
 import type { PageRead } from "../archive/page-read.ts"
+import type { RunId } from "../archive/run.ts"
 import { decodeRows, jsonChunks, type SqlValue, type Statement } from "../d1.ts"
 import {
   attachmentKey,
@@ -23,9 +24,9 @@ const STATEMENTS_A_BATCH = 10
 
 const INSERT_VERSIONS =
   "INSERT OR IGNORE INTO disclosure_version " +
-  "(disclosure_key, language, day, object_key, stored_at) " +
-  "SELECT value->>0, value->>1, value->>2, value->>3, value->>4 " +
-  "FROM json_each(?)"
+  "(disclosure_key, language, day, object_key, stored_at, run_id) " +
+  "SELECT value->>0, value->>1, value->>2, value->>3, value->>4, " +
+  "value->>5 FROM json_each(?)"
 
 // The rows `statement` answers, decoded with `row`.
 const queryRows = Effect.fnUntraced(function* <A, I>(
@@ -65,13 +66,14 @@ export interface StoredVersion {
   readonly paths: ReadonlyArray<string>
 }
 
-// Indexes each version, and each of its attachments the index lacks, to be
-// stored. A row already there stays as it is.
+// Indexes each version as `run`'s, and each of its attachments the index
+// lacks, to be stored. A row already there stays as it is.
 // Decision: D1 inserts go in json_each chunks under D1's statement limits
 // (apps/dashboard/docs/adr/0018-d1-inserts-go-in-json-each-chunks-under-statement-limits.md)
 export const indexVersions = Effect.fnUntraced(function* (
   versions: ReadonlyArray<StoredVersion>,
-  storedAt: string
+  storedAt: string,
+  run: RunId
 ) {
   const versionRows: Array<ReadonlyArray<SqlValue>> = []
   const attachmentRows: Array<ReadonlyArray<SqlValue>> = []
@@ -82,6 +84,7 @@ export const indexVersions = Effect.fnUntraced(function* (
       version.day,
       yield* versionKey(version.key, version.language),
       storedAt,
+      run,
     ])
     for (const path of version.paths)
       attachmentRows.push([
@@ -106,6 +109,19 @@ export const indexVersions = Effect.fnUntraced(function* (
   const db = yield* ArchiveDb
   for (let start = 0; start < statements.length; start += STATEMENTS_A_BATCH)
     yield* db.batch(statements.slice(start, start + STATEMENTS_A_BATCH))
+})
+
+// How many versions of `day` `run` indexed, in either language: read from
+// the index, so a retried step counts what its first attempt indexed.
+export const versionsIndexedBy = Effect.fnUntraced(function* (
+  day: WibDate,
+  run: RunId
+) {
+  const [row] = yield* queryRows(Schema.Struct({ added: Schema.Number }), {
+    sql: "SELECT COUNT(*) AS added FROM disclosure_version WHERE day = ? AND run_id = ?",
+    params: [day, run],
+  })
+  return row?.added ?? 0
 })
 
 // Records that a run has listed `day` in both languages.
