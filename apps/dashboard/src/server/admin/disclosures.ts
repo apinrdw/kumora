@@ -11,7 +11,7 @@ import {
 } from "@/server/admin/archive-access"
 import { timePart } from "@/server/admin/part-timing"
 import { readPage } from "@/server/archive/page-read"
-import { dailyRunIdAt } from "@/server/archive/run"
+import { disclosureRunIdAt } from "@/server/disclosures/run-result"
 import {
   lastDisclosureRun,
   recentDisclosureRuns,
@@ -55,7 +55,7 @@ export const runDisclosuresNow = Effect.fn("runDisclosuresNow")(function* (
     "admin.run-disclosure-archive",
     DISCLOSURES_PATH
   )
-  const id = yield* dailyRunIdAt(
+  const id = yield* disclosureRunIdAt(
     "admin",
     DateTime.toEpochMillis(yield* DateTime.now)
   )

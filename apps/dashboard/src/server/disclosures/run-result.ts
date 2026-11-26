@@ -5,8 +5,24 @@ import { DateTime, Effect, Schema, Struct } from "effect"
 
 import { type Run, RunId, type RunParams, RunOutcome } from "../archive/run.ts"
 
-export const DisclosureTrigger = Schema.Literals(["admin"])
+export const DisclosureTrigger = Schema.Literals(["cron", "admin"])
 export type DisclosureTrigger = typeof DisclosureTrigger.Type
+
+// The id of a run `trigger` starts at `epochMs`: `cron-<YYYY-MM-DDTHHMM>`
+// from the cron's scheduled time, one per 15-minute firing (a daily id would
+// name every firing of a day the same), or `admin-<epoch ms>`. A Workflow
+// instance id takes no colon. Ids of one trigger sort as their starts do.
+export const disclosureRunIdAt = Effect.fnUntraced(function* (
+  trigger: DisclosureTrigger,
+  epochMs: number
+) {
+  const iso = new Date(epochMs).toISOString()
+  return RunId.make(
+    trigger === "cron"
+      ? `cron-${iso.slice(0, 13)}${iso.slice(14, 16)}`
+      : `admin-${epochMs}`
+  )
+})
 
 // What `create` passes the Workflow (DISCLOSURE_ARCHIVE in alchemy.run.ts).
 export type DisclosureParams = RunParams<DisclosureTrigger>
