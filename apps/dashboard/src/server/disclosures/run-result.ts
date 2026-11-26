@@ -60,27 +60,19 @@ export const DisclosureRunResult = Schema.Struct({
   // The disclosure days listed, newest first.
   days: Schema.Array(WibDate),
   // The older disclosure days it took up, oldest first: listed, or resumed
-  // where an earlier run's budget ran out. A record from before backfill
-  // (ticket #718) has none.
-  backfillDays: Schema.Array(WibDate).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed([]))
-  ),
+  // where an earlier run's budget ran out.
+  backfillDays: Schema.Array(WibDate),
   // The older days it couldn't list, at most MAX_BACKFILL_DAYS, oldest
   // first; none is among backfillDays.
   unlistedDays: Schema.Array(UnlistedDay),
   // Disclosure versions the archive didn't hold, stored.
   versionsAdded: Schema.Number,
   // Listing entries it skipped: a reply with no disclosure key, or an
-  // attachment with no path (ADR 0140). A record from before runs skipped
-  // entries has none.
-  entriesSkipped: Schema.Number.pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(0))
-  ),
+  // attachment with no path (ADR 0140).
+  entriesSkipped: Schema.Number,
   // Why the first MAX_NOT_STORED_SHOWN of them were skipped, each at most
   // MAX_RUN_ERROR_LENGTH characters.
-  skipped: Schema.Array(Schema.String).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed([]))
-  ),
+  skipped: Schema.Array(Schema.String),
   // Attachments stored.
   attachmentsStored: Schema.Number,
   // Attachments of its days and backfill days that wait for a later run
