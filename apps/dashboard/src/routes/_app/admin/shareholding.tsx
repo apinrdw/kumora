@@ -121,32 +121,32 @@ function ShareholdingPage() {
         />
         <SectorsCard {...sectors} />
       </ArchiveLedger>
-      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-2">
-        {/* The whole row: the above-5% grid's 31 days need its width. */}
-        <div className="min-w-0 xl:col-span-2">
-          <ParseCoverageCard
-            grids={[
-              {
-                title: KIND_LABEL["investor-classification"],
-                layout: "month",
-                parseCoverage: classificationParseCoverage,
-              },
-              {
-                title: KIND_LABEL["investor-type"],
-                layout: "month",
-                parseCoverage: investorTypeParseCoverage,
-              },
-              {
-                title: KIND_LABEL["above-5"],
-                layout: "day",
-                parseCoverage: above5ParseCoverage,
-              },
-            ]}
-          />
-        </div>
+      {/* The whole width: the above-5% grid's 31 days need it. */}
+      <ParseCoverageCard
+        grids={[
+          {
+            title: KIND_LABEL["investor-classification"],
+            layout: "month",
+            parseCoverage: classificationParseCoverage,
+          },
+          {
+            title: KIND_LABEL["investor-type"],
+            layout: "month",
+            parseCoverage: investorTypeParseCoverage,
+          },
+          {
+            title: KIND_LABEL["above-5"],
+            layout: "day",
+            parseCoverage: above5ParseCoverage,
+          },
+        ]}
+      />
+      {/* Side by side only from 2xl: narrower, half the width clips the
+          totals' key prefixes. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 2xl:grid-cols-2">
         <ArchiveTotalsCard totals={totals} />
+        <RecentRunsCard runs={recentRuns} />
       </div>
-      <RecentRunsCard runs={recentRuns} />
     </div>
   )
 }
