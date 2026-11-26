@@ -9,6 +9,7 @@
 // `<key>` is the disclosure key, URI-encoded (it holds slashes), and
 // `<path>` the attachment's path on IDX's site without its leading slash.
 // Nothing under disclosures/ is ever overwritten or deleted.
+import { WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
 // The language of a disclosure version, as IDX's `lang` parameter takes it.
@@ -21,16 +22,24 @@ const ID2_SUFFIX: Record<DisclosureLanguage, string> = {
   en: "_en-us",
 }
 
+// The WIB date, YYYY-MM-DD, of a key's first eight digits.
+// Decision: a disclosure is keyed by IDX's Id2 without its language
+// (apps/dashboard/docs/adr/0136-a-disclosure-is-keyed-by-id2-without-its-language.md)
+export const publishDateOf = (key: string) =>
+  `${key.slice(0, 4)}-${key.slice(4, 6)}-${key.slice(6, 8)}`
+
 // IDX's `Id2` without its language suffix: when the disclosure was
-// published (YYYYMMDDHHmmss, in WIB), a dash, and its number, such as
-// `20261124230949-02894/FMS/OPS-BTIM/XI/26`.
+// published (YYYYMMDDHHmmss, in WIB, on a day the calendar has), a dash, and
+// its number, such as `20261124230949-02894/FMS/OPS-BTIM/XI/26`.
 export const DisclosureKey = Schema.String.check(
-  Schema.isPattern(/^\d{14}-.+$/)
+  Schema.isPattern(/^\d{14}-.+$/),
+  Schema.makeFilter((key) => Schema.is(WibDate)(publishDateOf(key)))
 ).pipe(Schema.brand("DisclosureKey"))
 export type DisclosureKey = typeof DisclosureKey.Type
 
 // The disclosure key of a version IDX lists in `language`; undefined when
-// its `Id2` doesn't end in that language's suffix or has no publish time.
+// its `Id2` doesn't end in that language's suffix or has no publish time
+// on a day the calendar has.
 // Decision: a disclosure is keyed by IDX's Id2 without its language
 // (apps/dashboard/docs/adr/0136-a-disclosure-is-keyed-by-id2-without-its-language.md)
 export const disclosureKeyOf = Effect.fnUntraced(function* (

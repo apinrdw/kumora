@@ -3,7 +3,7 @@
 import { WibDate, wibDateAt } from "@workspace/relay"
 import { DateTime, Duration, Effect } from "effect"
 
-import type { DisclosureKey } from "./key.ts"
+import { type DisclosureKey, publishDateOf } from "./key.ts"
 
 // IDX's first disclosure day: GetAnnouncement listed nothing before 3 July
 // 2023 when probed on 2026-11-26. The oldest day a run backfills
@@ -30,13 +30,14 @@ export const dayAfter = Effect.fnUntraced(function* (day: WibDate) {
   )
 })
 
-// The disclosure day a key was published on: its first eight digits.
+// The disclosure day a key was published on: its first eight digits, a
+// day the calendar has, as DisclosureKey checks.
+// Decision: a disclosure is keyed by IDX's Id2 without its language
+// (apps/dashboard/docs/adr/0136-a-disclosure-is-keyed-by-id2-without-its-language.md)
 export const disclosureDayOf = Effect.fnUntraced(function* (
   key: DisclosureKey
 ) {
-  return WibDate.make(
-    `${key.slice(0, 4)}-${key.slice(4, 6)}-${key.slice(6, 8)}`
-  )
+  return WibDate.make(publishDateOf(key))
 })
 
 // Whether a listing at `listedAt`, an ISO instant, came after `day` ended
