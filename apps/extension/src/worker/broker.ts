@@ -63,9 +63,10 @@ export type TabRequest =
       readonly headers: Readonly<Record<string, string>>
     }
   // A GET of `path` on the page's own REST API with the page's own headers,
-  // as the MAIN-world wrapper last saw them. Before it saw any, `token` (the
-  // PIN sign-in's) stands in on Ajaib's API host; status 0 without either.
-  // `bearer` replaces the headers' token when given.
+  // as the MAIN-world wrapper last saw them. Before it saw any, the kept
+  // static headers and base go with `token` (the PIN sign-in's); with no
+  // kept request, `token` alone on Ajaib's API host; status 0 without a
+  // token. `bearer` replaces the headers' token when given.
   | {
       readonly _tag: "page-fetch"
       readonly path: string
@@ -99,6 +100,13 @@ export type TabCommand =
       readonly id: number
       readonly request: TabRequest
     }
+  // The page request kept from an earlier page of the tab (settings.ts),
+  // for its page-fetches until the page makes a call of its own.
+  | {
+      readonly _tag: "kept-page-request"
+      readonly base: string
+      readonly headers: Readonly<Record<string, string>>
+    }
 
 // Status 0: the request failed before any answer. `challenge` is set when
 // the answer carried Cloudflare's `cf-mitigated: challenge` header.
@@ -127,6 +135,14 @@ export const PageEvent = Schema.Union([
   Schema.TaggedStruct("pin-validated", { status: Schema.Int }),
 ])
 export type PageEvent = typeof PageEvent.Type
+
+// The Ajaib page's latest signed REST request, by way of the content
+// script: its API base and its exact headers, token included.
+export const PageRequest = Schema.TaggedStruct("page-request", {
+  base: Schema.String,
+  headers: Schema.Record(Schema.String, Schema.String),
+})
+export type PageRequest = typeof PageRequest.Type
 
 // How the relay talks to one broker socket.
 export interface BrokerSite {

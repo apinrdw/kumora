@@ -15,6 +15,7 @@ import {
   Answer,
   BrokerEvent,
   PageEvent,
+  PageRequest,
   detached,
   step,
   type BrokerInput,
@@ -31,6 +32,7 @@ import {
 const decodeBrokerEvent = Schema.decodeUnknownOption(BrokerEvent)
 const decodeAnswer = Schema.decodeUnknownOption(Answer)
 const decodePageEvent = Schema.decodeUnknownOption(PageEvent)
+const decodePageRequest = Schema.decodeUnknownOption(PageRequest)
 const decodeFeed = Schema.decodeUnknownOption(Feed)
 
 // How long a caller waits for the tab's answer. The pacer (pacer.ts) gives
@@ -66,6 +68,12 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
   // What the page script sees of the page (Ajaib's lock screen). A tab that
   // goes reports its lock gone, or the lock of the tab that takes over.
   readonly page?: (event: PageEvent) => Effect.Effect<void>
+  // Where the page's latest request is kept for a tab that loads later
+  // (settings.ts); each tab of the feed that connects is sent it.
+  readonly pageRequests?: {
+    readonly load: Effect.Effect<Option.Option<Omit<PageRequest, "_tag">>>
+    readonly save: (request: Omit<PageRequest, "_tag">) => Effect.Effect<void>
+  }
 }) {
   const { feed, sites, batcher, publish, hooks } = options
   const page = options.page ?? (() => Effect.void)
@@ -145,6 +153,18 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     // Ports of other feeds belong to the other tab.
     const named = decodeFeed(port.name)
     if (Option.isNone(named) || named.value !== feed) return
+    if (options.pageRequests !== undefined) {
+      const kept = yield* options.pageRequests.load
+      if (Option.isSome(kept))
+        yield* Effect.ignore(
+          Effect.try(() =>
+            port.postMessage({
+              _tag: "kept-page-request",
+              ...kept.value,
+            } satisfies TabCommand)
+          )
+        )
+    }
     if (active === undefined) yield* attach(port)
     else waiting.push(port)
   })
@@ -161,6 +181,9 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     port: chrome.runtime.Port,
     raw: unknown
   ) {
+    const request = decodePageRequest(raw)
+    if (Option.isSome(request) && Option.contains(decodeFeed(port.name), feed))
+      return yield* options.pageRequests?.save(request.value) ?? Effect.void
     if (port !== active) {
       const seen = decodePageEvent(raw)
       if (Option.isSome(seen) && seen.value._tag === "lock")
