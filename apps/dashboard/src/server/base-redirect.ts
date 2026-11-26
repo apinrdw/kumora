@@ -10,15 +10,20 @@
 //   URL among them, gets a 301 to the Stage URL's host, the path joined under
 //   the base path and the query kept.
 import { DashboardBasePath, pathUnderBase } from "@workspace/client/base-path"
-import { WorkerEnv } from "@workspace/server"
-import { Effect, Option } from "effect"
-
-import { dashboardStageUrl } from "./dashboard-url.ts"
+import { StageUrl } from "@workspace/deploy/stage-url"
+import { Effect, Option, Schema } from "effect"
 
 // Cloudflare's own paths on every host, such as `alchemy dev`'s local R2
 // endpoint (apps/e2e/support/archive-bucket.ts). The dev server
 // (vite.config.ts) passes them through too.
 export const CLOUDFLARE_PATH = "/cdn-cgi/"
+
+// The bindings the entry's redirects read, as Cloudflare hands them to
+// `fetch`.
+export interface RedirectEnv {
+  readonly DASHBOARD_URL: string
+  readonly REDIRECT_TO_STAGE_URL?: "on"
+}
 
 const underBase = Effect.fnUntraced(function* (pathname: string) {
   return Option.isSome(yield* pathUnderBase(pathname))
@@ -38,11 +43,19 @@ export const redirectIntoBase = Effect.fnUntraced(function* (request: Request) {
 
 // Decision: Production alone redirects other hosts to its Stage URL
 // (apps/dashboard/docs/adr/0135-production-alone-redirects-other-hosts-to-its-stage-url.md)
-const redirectToStageUrl = Effect.fnUntraced(function* (request: Request) {
-  if ((yield* WorkerEnv).REDIRECT_TO_STAGE_URL === undefined)
-    return Option.none()
+//
+// A DASHBOARD_URL that isn't a Stage URL is a broken deploy, so a defect.
+const redirectToStageUrl = Effect.fnUntraced(function* (
+  request: Request,
+  env: RedirectEnv
+) {
+  if (env.REDIRECT_TO_STAGE_URL === undefined) return Option.none()
   const url = new URL(request.url)
-  const stage = new URL(yield* dashboardStageUrl)
+  const stage = new URL(
+    yield* Schema.decodeUnknownEffect(StageUrl)(env.DASHBOARD_URL).pipe(
+      Effect.orDie
+    )
+  )
   if (url.host === stage.host) return Option.none()
   const path = yield* underBase(url.pathname)
   return Option.some(
@@ -50,7 +63,10 @@ const redirectToStageUrl = Effect.fnUntraced(function* (request: Request) {
   )
 })
 
-export const entryRedirect = Effect.fnUntraced(function* (request: Request) {
-  const toStage = yield* redirectToStageUrl(request)
+export const entryRedirect = Effect.fnUntraced(function* (
+  request: Request,
+  env: RedirectEnv
+) {
+  const toStage = yield* redirectToStageUrl(request, env)
   return Option.isSome(toStage) ? toStage : yield* redirectIntoBase(request)
 })
