@@ -9,7 +9,7 @@ This repo is multi-context. Each pnpm workspace owns its own `GLOSSARY.md`, and 
 | Web       | `apps/web`       | Public site: the landing page and its waitlist.                                                   | `apps/web/GLOSSARY.md`       | `apps/web/docs/adr/` |
 | Extension | `apps/extension` | The relay: an unpacked MV3 extension that sends broker tabs' raw frames to the dashboard's ingest socket. Never deployed. | `apps/extension/GLOSSARY.md` | `apps/extension/docs/adr/` |
 | E2E       | `apps/e2e`       | Playwright smoke tests for both apps. No domain terms of its own.                                 | none                         | `apps/e2e/docs/adr/` |
-| Deploy    | `packages/deploy` | Branch to Stage, Worker names, the stack options and the deploy and teardown scripts. Deploy-time only. | `packages/deploy/GLOSSARY.md` | `packages/deploy/docs/adr/` |
+| Deploy    | `packages/deploy` | Branch to Stage, Worker names, the stack options and the deploy and teardown scripts. Deploy-time only, apart from the `StageUrl` type its `stage-url` subpath exports. | `packages/deploy/GLOSSARY.md` | `packages/deploy/docs/adr/` |
 | Client    | `packages/client` | The client runtime and the Day state store live rows read. Browser-side.                          | `packages/client/GLOSSARY.md` | `packages/client/docs/adr/` |
 | Relay | `packages/relay` | What the relay extension and the dashboard Worker share: the IDX schedule and market phase, the ingest envelope, the viewer protocol version. | `packages/relay/GLOSSARY.md` | `packages/relay/docs/adr/` |
 | Server    | `packages/server` | The Effect bridge for server functions: `runServerEffect`, `WorkerEnv`, the HTTP errors. Server-only. | `packages/server/GLOSSARY.md` | `packages/server/docs/adr/` |
