@@ -12,7 +12,7 @@ _Avoid_: Environment (Infisical's word for `prod` and `staging`)
 The Stage `production`, deployed from `main`. Its Workers are `kumora-web` and `kumora-dashboard`, and it alone reads Infisical `prod`.
 
 **Staging**:
-The Stage `staging`, deployed from the `staging` branch, GitHub's default branch, where every PR but a Hotfix lands. A published Release takes one of its Candidates to Production.
+The Stage `staging`, deployed from the `staging` branch, GitHub's default branch, where every PR but a Hotfix lands. A published Release takes one of its commits to Production.
 
 **Release stage**:
 Production or Staging: the two Stages with a fixed URL that outside services, such as the Google OAuth client and a Turnstile widget, are set up for.
@@ -28,12 +28,15 @@ A developer's local Stage, `dev_$USER`, run by `bun alchemy dev` with local emul
 An app's Workers Builds connection, on its anchor Worker (`kumora-web-builds`, `kumora-dashboard-builds`) that Alchemy never deploys. It runs this package's deploy script for every push whose changes touch its watch paths: its own app's directory (`apps/web/**` or `apps/dashboard/**`), `packages/**`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json` and `.bun-version`. A connection watching the other app's directory deploys nothing when only its own app changes: on 2026-11-11 `kumora-dashboard-builds` watched `apps/web/**`, so three merges to `main` (#161, #162, #172) never reached Production.
 _Avoid_: Build trigger, pipeline
 
-**Candidate**:
-A tag `v<version>-<YYYYMMDD>-<N>` on a `staging` commit tried on Staging. The date is the day it is pushed in WIB, and N counts every Candidate from 1, whatever its date or version: it never resets. Its version is above Production's. `scripts/release-tag.mts` holds these rules; `.github/workflows/release.yml` deletes a tag that breaks one.
-_Avoid_: RC, staging tag
+**Release version**:
+The product's version, `version` in the root, `apps/dashboard` and `apps/web` `package.json`, always equal to each other. A Release tag names it, so it is bumped on `staging` before the tag is pushed.
+
+**Release tag**:
+A tag `v<version>-<YYYYMMDD>` pushed on a `staging` commit, waiting for its Release. Its version equals the Release version at that commit and is above Production's; its date is the day it is pushed in WIB. One never released stays and deploys nothing.
+_Avoid_: Candidate, RC, Production tag
 
 **Release**:
-A published GitHub Release, not a pre-release, whose tag, the Production tag `v<version>-<YYYYMMDD>`, sits on a commit carrying a Candidate of the same version. Publishing it makes `.github/workflows/release.yml` fast-forward `main` to that commit, which deploys Production. A Production tag pushed without a Release is deleted. Production is never reached through a PR from `staging`: a merge commit on `main` would stop the next fast-forward.
+A published GitHub Release, not a pre-release, on an existing Release tag. Publishing it makes `.github/workflows/release.yml` fast-forward `main` to the tag's commit, which deploys Production. Production is never reached through a PR from `staging`: a merge commit on `main` would stop the next fast-forward.
 _Avoid_: Promotion PR, release PR, deploy
 
 **Hotfix**:
