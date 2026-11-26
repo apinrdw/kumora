@@ -427,6 +427,48 @@ describe("a disclosure run", () => {
       })
   )
 
+  it.effect(
+    "indexes a file its bucket holds without asking IDX again, when indexing it failed",
+    () =>
+      Effect.gen(function* () {
+        const { idx, bucket, db, run } = world()
+        publish(idx, FIRST)
+        // The file is in the bucket, then its index row fails to say so,
+        // and IDX no longer serves it when the step is retried.
+        db.failBatch = (sql) => {
+          if (!sql.some((each) => each.includes("SET stored_at"))) return false
+          db.failBatch = undefined
+          idx.files.set(pathOf("a.pdf"), { body: "", status: 404 })
+          return true
+        }
+
+        const result = yield* run()
+
+        assert.deepInclude(result, {
+          outcome: "complete",
+          attachmentsStored: 1,
+          attachmentsWaiting: 0,
+          notStored: [],
+        })
+        assert.deepStrictEqual(fileRequests(idx), [pathOf("a.pdf")])
+        assert.deepStrictEqual(
+          db.database
+            .prepare("SELECT bytes, first_failed_at FROM disclosure_attachment")
+            .all(),
+          [
+            {
+              bytes: bodyOf(pathOf("a.pdf")).length,
+              first_failed_at: null,
+            },
+          ]
+        )
+        assert.strictEqual(
+          bucket.objects.get(`${encoded(FIRST)}/files${pathOf("a.pdf")}`)?.body,
+          bodyOf(pathOf("a.pdf"))
+        )
+      })
+  )
+
   it.effect("fails with IDX's answer when a listing can't be read", () =>
     Effect.gen(function* () {
       const { idx, db, run } = world()
