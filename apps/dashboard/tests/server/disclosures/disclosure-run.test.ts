@@ -469,6 +469,40 @@ describe("a disclosure run", () => {
       })
   )
 
+  it.effect(
+    "indexes a stored version's files from the bucket when indexing it failed and IDX then lists it differently",
+    () =>
+      Effect.gen(function* () {
+        const { idx, bucket, db, run } = world()
+        publish(idx, NAV, ["id"])
+        const edited = { ...NAV, files: ["nav_new.pdf"] }
+        db.failBatch = (sql) => {
+          if (!sql.some((each) => each.includes("INTO disclosure_version")))
+            return false
+          db.failBatch = undefined
+          idx.versions.id.splice(0, 1, replyOf(edited, "id"))
+          publish(idx, edited, [])
+          return true
+        }
+
+        const result = yield* run()
+
+        assert.deepStrictEqual(
+          json(bucket, `${encoded(NAV)}/id.json`),
+          replyOf(NAV, "id")
+        )
+        assert.deepStrictEqual(filesOf(idx), [
+          pathOf("nav.pdf"),
+          pathOf("nav_lamp1.pdf"),
+        ])
+        assert.deepInclude(result, {
+          outcome: "complete",
+          versionsAdded: 1,
+          attachmentsStored: 2,
+        })
+      })
+  )
+
   it.effect("fails with IDX's answer when a listing can't be read", () =>
     Effect.gen(function* () {
       const { idx, db, run } = world()
