@@ -15,11 +15,18 @@ export interface StandoutStore {
   readonly subscribe: (listener: () => void) => () => void
 }
 
+// Decision: sweep alerts live only in object memory; the page keeps its marks
+// (apps/dashboard/docs/adr/0087-sweep-alerts-live-only-in-the-object-s-memory.md)
+//
 // The day's standout sweeps of every code from the live page's viewer
 // socket, outside React. A snapshot's and each delta's join the list, each
 // sweep once by `standoutKey`, the row already held kept: a reconnect drops
 // none, even to an object restarted with an empty backlog. A snapshot of
 // another WIB day starts the list again.
+// The list is capped as the object's snapshot backlog is, at
+// STANDOUTS_PER_LEVEL per level (`keptStandouts`), so a page left open all
+// day drops its oldest rows: its memory stays bounded however many sweeps
+// stand out.
 export const makeStandoutStore = Effect.sync((): StandoutStore => {
   let rows: ReadonlyArray<StandoutSweep> = []
   let day: WibDate | undefined
@@ -36,7 +43,7 @@ export const makeStandoutStore = Effect.sync((): StandoutStore => {
     changed()
   }
   const add = (arriving: ReadonlyArray<StandoutSweep>) => {
-    const next = keptStandouts(rows, arriving)
+    const next = Effect.runSync(keptStandouts(rows, arriving))
     if (next === rows) return
     rows = next
     changed()

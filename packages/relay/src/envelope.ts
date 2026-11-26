@@ -425,8 +425,12 @@ const SweepAlert = Schema.Struct({
 })
 export type SweepAlert = typeof SweepAlert.Type
 
+// The top-N% cutoffs a sweep can stand out at, smallest first: a standout
+// sweep's level is the first it reaches.
+export const STANDOUT_LEVELS = [1, 5, 10] as const
+
 // The smallest top-N% of its side's sweeps a standout sweep reached.
-const StandoutLevel = Schema.Literals([1, 5, 10])
+const StandoutLevel = Schema.Literals(STANDOUT_LEVELS)
 export type StandoutLevel = typeof StandoutLevel.Type
 
 // A sweep that reached its stock code's top-1%, 5% or 10% cutoff for its

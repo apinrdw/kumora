@@ -1,5 +1,6 @@
 import { clientRuntime, type StockCode } from "@workspace/client"
 import {
+  STANDOUT_LEVELS,
   standoutKey,
   type StandoutLevel,
   type StandoutSweep,
@@ -7,15 +8,13 @@ import {
 } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { DateTime, Effect } from "effect"
-import { memo, useMemo, useSyncExternalStore } from "react"
+import { memo, useMemo, useState, useSyncExternalStore } from "react"
 
 import { compact, lots, plain, tapeTime } from "@/lib/format"
 import { pricePath } from "@/lib/sweeps"
 import { makeStoredValue } from "@/lib/stored-value"
 
-import type { StandoutStore } from "./standout-store"
-
-const LEVELS: ReadonlyArray<StandoutLevel> = [1, 5, 10]
+import { makeStandoutStore, type StandoutStore } from "./standout-store"
 
 // Decision: each browser keeps its own settings in localStorage
 // (apps/dashboard/docs/adr/0021-each-browser-keeps-its-own-settings-in-localstorage.md)
@@ -116,7 +115,7 @@ function AllCodes({
             aria-label="Standout level"
             className="ml-auto flex gap-0.5 text-[11px] font-normal"
           >
-            {LEVELS.map((option) => (
+            {STANDOUT_LEVELS.map((option) => (
               <button
                 key={option}
                 type="button"
@@ -167,7 +166,7 @@ function AllCodes({
           <ol aria-label="Standout sweeps, newest first">
             {rows.map((row) => (
               <StandoutRow
-                key={standoutKey(row)}
+                key={Effect.runSync(standoutKey(row))}
                 row={row}
                 onSelect={onSelect}
               />
@@ -179,19 +178,25 @@ function AllCodes({
   )
 }
 
-// The All codes tab over the page's standout store: none on a recorded
-// day (`day`) or for an index, which have no live standout sweeps to list.
-export const allCodesTab = ({
-  store,
+/**
+ * The live page's standout sweeps, every code's, in one store that every
+ * code picked shares and that keeps its rows across reconnects, and the All
+ * codes tab over it: none on a recorded day (`day`) or for an index, which
+ * have no live standout sweeps to list.
+ */
+export function useAllCodes({
   day,
   index,
   onSelect,
 }: {
-  store: StandoutStore
   day: WibDate | undefined
   index: boolean
   onSelect: (code: StockCode) => void
-}) =>
-  day === undefined && !index ? (
-    <AllCodes store={store} onSelect={onSelect} />
-  ) : undefined
+}) {
+  const [store] = useState(() => Effect.runSync(makeStandoutStore))
+  const tab =
+    day === undefined && !index ? (
+      <AllCodes store={store} onSelect={onSelect} />
+    ) : undefined
+  return { store, tab }
+}

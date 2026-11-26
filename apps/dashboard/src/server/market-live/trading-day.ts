@@ -981,7 +981,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const changed = yield* candles.takeChanged(selected)
     // Kept before they are sent: a snapshot between the two then carries
     // them, and the page joins the delta's copy once.
-    standouts = keptStandouts(standouts, changed.standoutSweeps)
+    standouts = yield* keptStandouts(standouts, changed.standoutSweeps)
     const live = yield* stockbitLive
     const changedBooks = yield* books.takeChanged(live)
     for (const book of changedBooks)
