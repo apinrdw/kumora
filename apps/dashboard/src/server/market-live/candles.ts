@@ -719,18 +719,18 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     }
     const alerts: Array<SweepAlert> = []
     const standouts: Array<StandoutSweep> = []
-    for (const standout of yield* alertRule.decide({ latest, now })) {
-      standouts.push({
-        code: standout.code,
-        level: standout.level,
-        sweep: standout.sweep,
-      })
-      if (standout.alerts)
+    for (const {
+      standout,
+      minute,
+      alerts: alerting,
+    } of yield* alertRule.decide({ latest, now })) {
+      standouts.push(standout)
+      if (alerting)
         alerts.push({
           code: standout.code,
           side: standout.sweep.side,
           lots: standout.sweep.lots,
-          tradeNumbers: yield* tradeNumbersOf(standout),
+          tradeNumbers: yield* tradeNumbersOf({ ...standout, minute }),
         })
     }
     return { sweeps, alerts, standouts }

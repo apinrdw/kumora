@@ -230,11 +230,11 @@ describe("the alert rule at the worst day", () => {
           }
           const latest = FIRST + minute * MINUTE + 59_000
           const decided = yield* rule.decide({ latest, now: latest })
-          for (const standout of decided) if (standout.alerts) alerts += 1
+          for (const { alerts: alerting } of decided) if (alerting) alerts += 1
           standouts += decided.length
-          backlog = keptStandouts(
+          backlog = yield* keptStandouts(
             backlog,
-            decided.map(({ code, level, sweep }) => ({ code, level, sweep }))
+            decided.map(({ standout }) => standout)
           )
           for (const code of codes) yield* rule.release(code, minute)
         }

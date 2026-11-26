@@ -76,9 +76,9 @@ const book = Effect.gen(function* () {
   const decide = (latest: number, now = latest) =>
     Effect.map(
       rule.decide({ latest: OPEN + latest * 1000, now: OPEN + now * 1000 }),
-      (standouts) =>
-        standouts.flatMap((standout) =>
-          standout.alerts ? [[standout.sweep.side, standout.sweep.lots]] : []
+      (decided) =>
+        decided.flatMap(({ standout, alerts }) =>
+          alerts ? [[standout.sweep.side, standout.sweep.lots]] : []
         )
     )
   // One minute regrouped and decided, as a delta with one changed minute.
