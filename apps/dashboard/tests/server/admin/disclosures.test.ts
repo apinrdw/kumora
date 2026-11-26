@@ -8,8 +8,13 @@ import {
   runDisclosuresNow,
 } from "@/server/admin/disclosures"
 import type { Mail } from "@/server/auth/mailer"
-import { RunId } from "@/server/archive/run"
+import { MAX_RUN_ERROR_LENGTH, RunId } from "@/server/archive/run"
 import { MAX_COVERAGE_BYTES } from "@/server/disclosures/coverage"
+import {
+  MAX_UNAVAILABLE_BYTES,
+  MAX_UNAVAILABLE_SHOWN,
+} from "@/server/disclosures/disclosure-index"
+import { MAX_KEY_LENGTH, MAX_PATH_LENGTH } from "@/server/disclosures/listing"
 import type { DisclosureRunResult } from "@/server/disclosures/run-result"
 
 import {
@@ -130,6 +135,30 @@ const seedAttachment = (
     )
 }
 
+// An attachment of `disclosure` a run recorded unavailable on `day` at
+// 10:00 WIB, a week after its first failure.
+const seedUnavailable = (
+  db: MemoryArchiveDb,
+  disclosure: string,
+  path: string,
+  day: string
+) => {
+  seedAttachment(db, disclosure, path, { stored: false })
+  const at = Date.parse(`${day}T03:00:00.000Z`)
+  db.database
+    .prepare(
+      "UPDATE disclosure_attachment SET first_failed_at = ?, " +
+        "last_error = 'IDX answered 404', unavailable_at = ? " +
+        "WHERE disclosure_key = ? AND path = ?"
+    )
+    .run(
+      new Date(at - 7 * 24 * 60 * 60_000).toISOString(),
+      new Date(at).toISOString(),
+      disclosure,
+      path
+    )
+}
+
 describe("the Disclosures admin page", () => {
   it.effect("sends a visitor with no session to sign-in", () => {
     const { layer } = archive()
@@ -246,6 +275,77 @@ describe("the Disclosures admin page", () => {
           notListed: 1,
         })
         assert.isAtMost(yield* jsonBytes(coverage), MAX_COVERAGE_BYTES)
+      }).pipe(Effect.provide(layer))
+    },
+    { timeout: 60_000 }
+  )
+
+  it.effect(
+    "lists unavailable attachments newest first, with their disclosure and last failure",
+    () => {
+      const { layer, mails, db } = archive()
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-26T04:00:00.000Z"))
+        seedAttachment(db, "20261101090000-A/1", "/a.pdf", { stored: true })
+        seedAttachment(db, "20261101090000-A/1", "/b.pdf", { stored: false })
+        seedUnavailable(db, "20261101090000-A/1", "/c.pdf", "2026-11-10")
+        seedUnavailable(db, "20261102090000-B/2", "/d.pdf", "2026-11-12")
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+
+        const { unavailable } = yield* disclosureArchivePage(headers(cookie))
+
+        assert.deepStrictEqual(unavailable, {
+          total: 2,
+          attachments: [
+            {
+              disclosure: "20261102090000-B/2",
+              path: "/d.pdf",
+              day: "2026-11-02",
+              firstFailedAt: "2026-11-05T03:00:00.000Z",
+              unavailableAt: "2026-11-12T03:00:00.000Z",
+              lastError: "IDX answered 404",
+            },
+            {
+              disclosure: "20261101090000-A/1",
+              path: "/c.pdf",
+              day: "2026-11-01",
+              firstFailedAt: "2026-11-03T03:00:00.000Z",
+              unavailableAt: "2026-11-10T03:00:00.000Z",
+              lastError: "IDX answered 404",
+            },
+          ],
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect(
+    "keeps the unavailable list within its stated cap and size over the whole history",
+    () => {
+      const { layer, mails, db } = archive()
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-26T04:00:00.000Z"))
+        seedHistory(db, "2026-11-25")
+        // 6,000 unavailable, 1% of the history's files, each with its key,
+        // path and error at their longest.
+        db.database
+          .prepare(
+            "WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 5999) " +
+              "INSERT INTO disclosure_attachment (disclosure_key, path, day, object_key, " +
+              "first_failed_at, last_error, unavailable_at) " +
+              "SELECT '20261101090000-' || printf('%.*c', ?, 'k') || i, " +
+              "'/' || printf('%.*c', ?, 'p') || i, " +
+              "'2026-11-01', 'x/' || i, '2026-11-03T03:00:00.000Z', printf('%.*c', ?, 'e'), " +
+              "'2026-11-10T03:00:00.000Z' FROM n"
+          )
+          .run(MAX_KEY_LENGTH - 19, MAX_PATH_LENGTH - 5, MAX_RUN_ERROR_LENGTH)
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+
+        const { unavailable } = yield* disclosureArchivePage(headers(cookie))
+
+        assert.strictEqual(unavailable.total, 6000)
+        assert.lengthOf(unavailable.attachments, MAX_UNAVAILABLE_SHOWN)
+        assert.isAtMost(yield* jsonBytes(unavailable), MAX_UNAVAILABLE_BYTES)
       }).pipe(Effect.provide(layer))
     },
     { timeout: 60_000 }

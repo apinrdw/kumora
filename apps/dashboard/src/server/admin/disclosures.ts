@@ -1,6 +1,7 @@
 // The disclosure archive's admin page, /admin/disclosures: the last
-// disclosure run, Run now, the recent runs and the coverage by disclosure
-// day (spec apinrdw/kumora#715, tickets #716 and #718).
+// disclosure run, Run now, the recent runs, the coverage by disclosure day
+// and the unavailable attachments (spec apinrdw/kumora#715, tickets #716,
+// #718 and #719).
 import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 
@@ -12,6 +13,7 @@ import {
 import { timePart } from "@/server/admin/part-timing"
 import { readPage } from "@/server/archive/page-read"
 import { disclosureCoverage } from "@/server/disclosures/coverage"
+import { unavailableAttachmentsRead } from "@/server/disclosures/disclosure-index"
 import { disclosureRunIdAt } from "@/server/disclosures/run-result"
 import {
   lastDisclosureRun,
@@ -38,6 +40,7 @@ export const disclosureArchivePage = Effect.fn("disclosureArchivePage")(
         lastRun: lastDisclosureRun,
         recentRuns: recentDisclosureRuns(now),
         coverage: disclosureCoverage(now),
+        unavailable: unavailableAttachmentsRead,
       },
       timed
     ).pipe(timed("reads"), importingAsConflict)
@@ -49,6 +52,7 @@ export const disclosureArchivePage = Effect.fn("disclosureArchivePage")(
       )).toISOString(),
       now: DateTime.formatIso(now),
       recentRuns: read.recentRuns,
+      unavailable: read.unavailable,
     }
   }
 )

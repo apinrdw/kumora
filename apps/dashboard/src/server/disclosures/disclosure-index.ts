@@ -270,6 +270,65 @@ export const markAttachmentStored = Effect.fnUntraced(function* (
   ])
 })
 
+// The most unavailable attachments the admin page lists, newest first; it
+// counts them all.
+export const MAX_UNAVAILABLE_SHOWN = 100
+
+// The most bytes the list may take as JSON in the admin page's load: each
+// attachment's key, path and last error at their longest (MAX_KEY_LENGTH,
+// MAX_PATH_LENGTH, MAX_RUN_ERROR_LENGTH), ~1,750 bytes, ~175 KB in all.
+export const MAX_UNAVAILABLE_BYTES = 256 * 1024
+
+const UnavailableAttachment = Schema.Struct({
+  disclosure: DisclosureKey,
+  path: Schema.String,
+  day: Schema.String,
+  // ISO instants: its first failed download, and the one that made it
+  // unavailable.
+  firstFailedAt: Schema.String,
+  unavailableAt: Schema.String,
+  lastError: Schema.String,
+})
+
+export interface UnavailableAttachments {
+  readonly total: number
+  readonly attachments: ReadonlyArray<typeof UnavailableAttachment.Type>
+}
+
+// The unavailable attachments as a part of an admin page's read: how many,
+// and the newest MAX_UNAVAILABLE_SHOWN. Both read the partial index of
+// unavailable attachments, never the ~600k others.
+export const unavailableAttachmentsRead = {
+  kinds: [],
+  statements: [
+    {
+      sql:
+        "SELECT COUNT(*) AS total FROM disclosure_attachment " +
+        "WHERE unavailable_at IS NOT NULL",
+      params: [],
+    },
+    {
+      sql:
+        "SELECT disclosure_key AS disclosure, path, day, " +
+        "first_failed_at AS firstFailedAt, unavailable_at AS unavailableAt, " +
+        "last_error AS lastError FROM disclosure_attachment " +
+        "WHERE unavailable_at IS NOT NULL " +
+        "ORDER BY unavailable_at DESC, disclosure_key, path LIMIT ?",
+      params: [MAX_UNAVAILABLE_SHOWN],
+    },
+  ],
+  read: ([totals = [], rows = []]) =>
+    Effect.gen(function* () {
+      const [row] = yield* decodeRows(Schema.Struct({ total: Schema.Number }))(
+        totals
+      )
+      return {
+        total: row?.total ?? 0,
+        attachments: yield* decodeRows(UnavailableAttachment)(rows),
+      }
+    }),
+} satisfies PageRead<UnavailableAttachments>
+
 // How long an attachment's failures span before it is unavailable.
 const UNAVAILABLE_AFTER = Duration.days(7)
 

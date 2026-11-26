@@ -8,6 +8,7 @@ import {
   seedDisclosureRun,
   seedLatestDisclosureRun,
   type SeededDisclosureRun,
+  seedUnavailableAttachment,
 } from "../support/disclosures"
 
 const DISCLOSURES = `${DASHBOARD}/admin/disclosures`
@@ -235,5 +236,29 @@ test.describe("an admin's disclosure run history", () => {
     await expect(
       table.getByRole("row").filter({ hasText: old.id })
     ).toHaveCount(0)
+  })
+
+  test("lists the attachments no run could download for 7 days", async ({
+    page,
+  }) => {
+    seedUnavailableAttachment(
+      "20261101090000-E2E/UNAVAILABLE",
+      "/StaticData/e2e/gone.pdf",
+      "2026-11-10T03:00:00.000Z"
+    )
+
+    await page.goto(DISCLOSURES)
+
+    const card = page.getByRole("region", {
+      name: "Unavailable attachments",
+      exact: true,
+    })
+    const row = card
+      .getByRole("table", { name: "Unavailable attachments" })
+      .getByRole("row")
+      .filter({ hasText: "/StaticData/e2e/gone.pdf" })
+    await expect(row).toContainText("20261101090000-E2E/UNAVAILABLE")
+    await expect(row).toContainText("IDX answered 404")
+    await expect(card).toContainText("No run tries them again.")
   })
 })

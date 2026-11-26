@@ -5,6 +5,7 @@ import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { DisclosureCoverageCard } from "@/components/admin/disclosures/coverage-card"
 import { DisclosureLastRunCard } from "@/components/admin/disclosures/last-run-card"
 import { DisclosureRecentRunsCard } from "@/components/admin/disclosures/recent-runs-card"
+import { DisclosureUnavailableCard } from "@/components/admin/disclosures/unavailable-card"
 import { disclosureArchiveFn } from "@/server/admin/disclosures.functions"
 
 export const Route = createFileRoute("/_app/admin/disclosures")({
@@ -19,7 +20,8 @@ export const Route = createFileRoute("/_app/admin/disclosures")({
 })
 
 function DisclosuresPage() {
-  const { coverage, lastRun, nextRun, now, recentRuns } = Route.useLoaderData()
+  const { coverage, lastRun, nextRun, now, recentRuns, unavailable } =
+    Route.useLoaderData()
   return (
     <div className="flex flex-col gap-6 py-6">
       <header className="flex flex-col gap-1">
@@ -35,6 +37,7 @@ function DisclosuresPage() {
       </header>
       <DisclosureLastRunCard lastRun={lastRun} nextRun={nextRun} now={now} />
       <DisclosureCoverageCard coverage={coverage} />
+      <DisclosureUnavailableCard unavailable={unavailable} />
       <DisclosureRecentRunsCard runs={recentRuns} />
     </div>
   )

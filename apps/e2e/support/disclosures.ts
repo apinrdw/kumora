@@ -59,6 +59,35 @@ export function seedDisclosureDay(
   })
 }
 
+/**
+ * An attachment of `disclosure` a run recorded unavailable at
+ * `unavailableAt`, a week after its first failure.
+ */
+export function seedUnavailableAttachment(
+  disclosure: string,
+  path: string,
+  unavailableAt: string
+) {
+  const day = `${disclosure.slice(0, 4)}-${disclosure.slice(4, 6)}-${disclosure.slice(6, 8)}`
+  const firstFailedAt = new Date(
+    Date.parse(unavailableAt) - 7 * 86_400_000
+  ).toISOString()
+  writeTo("ArchiveDb", (db) => {
+    db.prepare(
+      "INSERT OR REPLACE INTO disclosure_attachment " +
+        "(disclosure_key, path, day, object_key, first_failed_at, last_error, unavailable_at) " +
+        "VALUES (?, ?, ?, ?, ?, 'IDX answered 404', ?)"
+    ).run(
+      disclosure,
+      path,
+      day,
+      `disclosures/${encodeURIComponent(disclosure)}/files${path}`,
+      firstFailedAt,
+      unavailableAt
+    )
+  })
+}
+
 /** Writes the run's row as the last run. */
 export async function seedLatestDisclosureRun(run: SeededDisclosureRun) {
   seedRunRow("disclosure", "archive", run, { latest: true })
