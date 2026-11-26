@@ -35,7 +35,7 @@ import {
 import { DayStrip } from "@/components/market-live/day-strip"
 import { LayoutB } from "@/components/market-live/layout-b"
 import { LiveChart } from "@/components/market-live/live-chart"
-import { LiveTape } from "@/components/market-live/live-tape"
+import { LiveTape, useNewVersion } from "@/components/market-live/live-tape"
 import {
   MarketConditionsBar,
   useRelayGaps,
@@ -195,8 +195,8 @@ function BookPanel({
 }
 
 // The running trades: live, whose socket feeds the page through
-// `onMessage` and the browser's book event alerts, or as of the cursor. A
-// recorded day never alerts.
+// `onMessage` and the browser's book event alerts and tells it of a new
+// version, or as of the cursor. A recorded day never alerts.
 function TapePanel({
   selected,
   watchlist,
@@ -204,6 +204,7 @@ function TapePanel({
   gaps,
   onSelect,
   onMessage,
+  onNewVersion,
 }: {
   selected: StockCode
   watchlist: ReadonlyArray<StockCode>
@@ -211,6 +212,7 @@ function TapePanel({
   gaps: ReadonlyArray<RelayGap>
   onSelect: (code: StockCode) => void
   onMessage: (message: ViewerDown) => void
+  onNewVersion: () => void
 }) {
   const tellAlerts = useBookAlerts(cursor === undefined)
   const heard = useCallback(
@@ -226,6 +228,7 @@ function TapePanel({
       watchlist={watchlist}
       onSelect={onSelect}
       onMessage={heard}
+      onNewVersion={onNewVersion}
     />
   ) : (
     <RecordedTape
@@ -289,7 +292,6 @@ function DayCharts({
   pair,
   cursor,
   gaps,
-  shownGaps,
 }: {
   code: StockCode
   today: WibDate
@@ -313,9 +315,11 @@ function DayCharts({
     | undefined
   pair: ReturnType<typeof useChartPair>
   cursor: ReplayCursor | undefined
+  // The recorded day's gaps; the live page shows the relay's.
   gaps: ReadonlyArray<RelayGap>
-  shownGaps: ReadonlyArray<RelayGap>
 }) {
+  const liveGaps = useRelayGaps()
+  const shownGaps = cursor === undefined ? liveGaps : gaps
   return (
     <>
       <LiveChart
@@ -412,9 +416,10 @@ function MarketLiveDay({
     book,
     dayStates,
   })
-  const liveGaps = useRelayGaps()
-  const shownGaps = cursor === undefined ? liveGaps : gaps
   const player = useSweepAlertPlayer(day)
+  // The viewer socket feeds the whole page, so its reload alert sits above
+  // the tabs, never inside the tape's, which may be hidden.
+  const newVersion = useNewVersion()
   const apply = useCallback(
     (message: ViewerDown) => {
       candles.apply(message)
@@ -442,6 +447,7 @@ function MarketLiveDay({
   return (
     <>
       <h1 className="text-2xl font-bold">Market Live</h1>
+      {newVersion.alert}
       <LayoutB
         code={selected}
         charts={
@@ -457,7 +463,6 @@ function MarketLiveDay({
             pair={pair}
             cursor={cursor}
             gaps={gaps}
-            shownGaps={shownGaps}
           />
         }
         log={
@@ -501,6 +506,7 @@ function MarketLiveDay({
             gaps={gaps}
             onSelect={select}
             onMessage={apply}
+            onNewVersion={newVersion.outdated}
           />
         }
       />
