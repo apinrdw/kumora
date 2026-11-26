@@ -88,7 +88,9 @@ const tagged = (
 // newest closed day the last run walked.
 const memoryDays = (days: ReadonlyArray<string> = [], lastNewest?: string) => {
   let kept = days.map((day) => WibDate.make(day))
-  let newest = Option.map(Option.fromUndefinedOr(lastNewest), WibDate.make)
+  let newest = Option.map(Option.fromUndefinedOr(lastNewest), (day) =>
+    WibDate.make(day)
+  )
   return {
     days: () => kept,
     store: {

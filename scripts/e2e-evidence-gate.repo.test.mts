@@ -7,6 +7,7 @@ import { data, Evaluator, Lexer, Parser } from "@actions/expressions"
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
+import { compileFunction } from "node:vm"
 import { parse } from "yaml"
 
 const Workflow = Schema.Struct({
@@ -128,10 +129,9 @@ const runGate = (pr: Pr) =>
       },
     }
     // github-script wraps the script as `(async () => { <script> })()`.
-    const runScript = new Function(
-      "github",
-      "context",
-      `return (async () => {\n${script}\n})()`
+    const runScript = compileFunction(
+      `return (async () => {\n${script}\n})()`,
+      ["github", "context"]
     ) as (github: unknown, context: unknown) => Promise<unknown>
     yield* Effect.promise(() => runScript(github, context))
     return written

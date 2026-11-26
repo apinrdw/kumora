@@ -49,7 +49,7 @@ const browser = (status: number, body: string) => {
     Effect.runPromise(
       Effect.sync(() => {
         asked.push({
-          url: String(input),
+          url: input instanceof Request ? input.url : String(input),
           ...(init?.cache === undefined ? {} : { cache: init.cache }),
         })
         return new Response(body, { status })

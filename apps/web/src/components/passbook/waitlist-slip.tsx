@@ -82,7 +82,9 @@ function SlipForm({
   const busy = state._tag === "Sending"
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    onSubmit(String(new FormData(event.currentTarget).get("email") ?? ""), id)
+    // A text field, so never a File.
+    const email = new FormData(event.currentTarget).get("email")
+    onSubmit(typeof email === "string" ? email : "", id)
   }
   return (
     <form

@@ -49,7 +49,9 @@ const peerGroups = (key: string): string[] => {
   const groups: string[] = []
   let depth = 0
   let start = 0
-  for (const [i, ch] of [...key].entries()) {
+  // By UTF-16 index, the unit `slice` counts in.
+  for (let i = 0; i < key.length; i++) {
+    const ch = key[i]
     if (ch === "(" && depth++ === 0) start = i
     if (ch === ")" && --depth === 0) groups.push(key.slice(start, i + 1))
   }
