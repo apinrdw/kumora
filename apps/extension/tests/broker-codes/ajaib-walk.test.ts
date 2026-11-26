@@ -73,6 +73,11 @@ const STATUS = (status: number): Answer => ({
 
 const STATUS_PATH = "v1/stock/data/trading-day/time/"
 
+// A JWT naming `sub` that expires at `exp` (epoch seconds), by default a day
+// after the tests' evening.
+const jwt = (sub: string, exp = wib("2026-11-13", "17:30:00") / 1000) =>
+  `eyJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({ sub, exp })).replaceAll("=", "")}.c2lnbmF0dXJl`
+
 // The fields but the time the fake tape gives each trade, its own for each
 // number: every 50th on the negotiated board, an odd lot; a buy, a sell, or
 // neither in turn.
@@ -588,46 +593,19 @@ describe("Ajaib's walk: when it starts", { timeout: WALK_TIMEOUT }, () => {
       })
   )
 
-  it.effect("on a 401 takes the cookie's token and walks the day with it", () =>
-    Effect.gen(function* () {
-      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
-      const production = fakeProduction()
-      const fresh = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"
-      const bearers: Array<string | undefined> = []
-      const tab = fakeAjaib({
-        cookie: () => encodeURIComponent(`"${fresh}"`),
-        answer: (request) => {
-          if (request._tag !== "page-fetch") return undefined
-          bearers.push(request.bearer)
-          return request.bearer === fresh
-            ? undefined
-            : Effect.succeed(STATUS(401))
-        },
-      })
-      const walk = yield* walkWith(tab, production)
-      assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
-      assert.deepStrictEqual(missingOf(production.held()), [])
-      assert.strictEqual(bearers[0], undefined)
-      assert.isTrue(bearers.slice(1).every((bearer) => bearer === fresh))
-      assert.strictEqual(tab.reloads(), 0)
-    })
-  )
-
   it.effect(
-    "never sends an expired token, whose 401 the browser hides as a CORS error, and walks with the cookie's",
+    "never sends an expired page token, whose 401 the browser hides as a CORS error, and walks once the cookie holds a fresh one",
     () =>
       Effect.gen(function* () {
         const start = wib("2026-11-12", "17:30:00")
         yield* TestClock.setTime(start)
         const production = fakeProduction()
-        const jwt = (exp: number) =>
-          `eyJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({ exp })).replaceAll("=", "")}.c2lnbmF0dXJl`
-        const stale = jwt(start / 1000 - 3600)
-        const fresh = jwt(start / 1000 + 86_400)
+        const stale = jwt("stale", start / 1000 - 3600)
+        const fresh = jwt("fresh")
         const bearers: Array<string | undefined> = []
         const tab = fakeAjaib({
           token: () => stale,
-          cookie: () => fresh,
+          cookie: (now) => (now >= start + 30_000 ? fresh : ""),
           answer: (request) => {
             if (request._tag !== "page-fetch") return undefined
             bearers.push(request.bearer)
@@ -994,3 +972,179 @@ describe(
     )
   }
 )
+
+// The page-fetches' bearers, in order, of a fake tab whose calls answer as
+// `answer` says, by the bearer and the call's 1-based index.
+const signedTab = (
+  options: Omit<NonNullable<Parameters<typeof fakeAjaib>[0]>, "answer"> & {
+    readonly answer?: (
+      bearer: string | undefined,
+      call: number
+    ) => Effect.Effect<Answer | undefined> | undefined
+  }
+) => {
+  const bearers: Array<string | undefined> = []
+  const tab = fakeAjaib({
+    ...options,
+    answer: (request, call) => {
+      if (request._tag !== "page-fetch") return undefined
+      bearers.push(request.bearer)
+      return options.answer?.(request.bearer, call)
+    },
+  })
+  return { tab, bearers }
+}
+
+describe("Ajaib's walk: its walk token", { timeout: WALK_TIMEOUT }, () => {
+  it.effect(
+    "signs each call with the cookie's token read at that call, a new one on the very next call",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const first = jwt("first")
+        const second = jwt("second")
+        let calls = 0
+        const { tab, bearers } = signedTab({
+          token: () => jwt("page"),
+          cookie: () => (calls >= 3 ? second : first),
+          answer: () => {
+            calls++
+            return undefined
+          },
+        })
+        const walk = yield* walkWith(tab)
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        assert.deepStrictEqual(bearers.slice(0, 3), [first, first, first])
+        assert.isTrue(bearers.slice(3).every((bearer) => bearer === second))
+      })
+  )
+
+  it.effect("with no token in the cookie, signs with the page's own", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+      const page = jwt("page")
+      const { tab, bearers } = signedTab({ token: () => page })
+      const walk = yield* walkWith(tab)
+      assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+      assert.isTrue(bearers.every((bearer) => bearer === page))
+    })
+  )
+
+  it.effect(
+    "never sends again a token Ajaib answered with a 401, and walks the day with the next",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const production = fakeProduction()
+        const cookie = jwt("cookie")
+        const page = jwt("page")
+        const { tab, bearers } = signedTab({
+          // URL-encoded and wrapped in quotes, as Ajaib sets it.
+          cookie: () => encodeURIComponent(`"${cookie}"`),
+          token: () => page,
+          answer: (bearer) =>
+            bearer === cookie ? Effect.succeed(STATUS(401)) : undefined,
+        })
+        const walk = yield* walkWith(tab, production)
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        assert.deepStrictEqual(missingOf(production.held()), [])
+        assert.strictEqual(bearers[0], cookie)
+        assert.isTrue(bearers.slice(1).every((bearer) => bearer === page))
+        assert.strictEqual(tab.reloads(), 0)
+      })
+  )
+
+  it.effect(
+    "refuses a token whose calls got no answer twice in a row, and never sends it again",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const production = fakeProduction()
+        const cookie = jwt("cookie")
+        const page = jwt("page")
+        const { tab, bearers } = signedTab({
+          cookie: () => cookie,
+          token: () => page,
+          answer: (bearer) =>
+            bearer === cookie ? Effect.succeed(undefined) : undefined,
+        })
+        const walk = yield* walkWith(tab, production)
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("0 millis")
+        assert.deepStrictEqual(bearers, [cookie])
+        yield* TestClock.adjust("10 seconds")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.deepStrictEqual(missingOf(production.held()), [])
+        assert.deepStrictEqual(bearers.slice(0, 2), [cookie, cookie])
+        assert.isTrue(bearers.slice(2).every((bearer) => bearer === page))
+      })
+  )
+
+  it.effect(
+    "retries one unanswered call in 10 s with the same token, and keeps it",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const cookie = jwt("cookie")
+        const { tab, bearers } = signedTab({
+          cookie: () => cookie,
+          token: () => jwt("page"),
+          answer: (_, call) =>
+            call === 5 ? Effect.succeed(undefined) : undefined,
+        })
+        const walk = yield* walkWith(tab)
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* settle(tab, 5)
+        assert.lengthOf(tab.paths, 5)
+        yield* TestClock.adjust("10 seconds")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.strictEqual(tab.paths[5], tab.paths[4])
+        assert.isTrue(bearers.every((bearer) => bearer === cookie))
+      })
+  )
+
+  it.effect(
+    "retries a call the tab didn't answer in time with the same token, and never refuses it",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const cookie = jwt("cookie")
+        const { tab, bearers } = signedTab({
+          cookie: () => cookie,
+          token: () => jwt("page"),
+          answer: (_, call) =>
+            call <= 3
+              ? Effect.as(Effect.sleep("15 seconds"), undefined)
+              : undefined,
+        })
+        const walk = yield* walkWith(tab)
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("0 millis")
+        yield* TestClock.adjust("2 minutes")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.deepStrictEqual(tab.paths.slice(0, 4), [
+          STATUS_PATH,
+          STATUS_PATH,
+          STATUS_PATH,
+          STATUS_PATH,
+        ])
+        assert.isTrue(bearers.every((bearer) => bearer === cookie))
+      })
+  )
+
+  it.effect("never sends a cookie token past its expiry", () =>
+    Effect.gen(function* () {
+      const start = wib("2026-11-12", "17:30:00")
+      yield* TestClock.setTime(start)
+      const stale = jwt("stale", start / 1000 - 60)
+      const page = jwt("page")
+      const { tab, bearers } = signedTab({
+        cookie: () => stale,
+        token: () => page,
+      })
+      const walk = yield* walkWith(tab)
+      assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+      assert.isTrue(bearers.every((bearer) => bearer === page))
+    })
+  )
+})

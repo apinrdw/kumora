@@ -104,23 +104,33 @@ const paramOf = (path: string, name: string) =>
 const fakeAjaib = (
   options: {
     readonly details?: Readonly<Record<string, ReadonlyArray<unknown>>>
-    // Overrides the answer to a call, by its 1-based index.
-    readonly answer?: (call: number) => Option.Option<Answer> | undefined
+    // The `trade_access_token` cookie's raw value; none without one.
+    readonly cookie?: () => string
+    // Overrides the answer to a call, by its 1-based index and its bearer.
+    readonly answer?: (
+      call: number,
+      bearer: string | undefined
+    ) => Option.Option<Answer> | undefined
   } = {}
 ) => {
   const details = options.details ?? { HOPE: HOPE_DETAILS }
   const paths: Array<string> = []
+  const bearers: Array<string | undefined> = []
   return {
     paths,
+    bearers,
     attached: Effect.succeed(true),
     reload: Effect.void,
     request: (request: TabRequest) =>
       Effect.sync(() => {
         if (request._tag === "page-token")
           return Option.some<Answer>({ ...OK(""), body: "token" })
+        if (request._tag === "cookie" && options.cookie !== undefined)
+          return Option.some<Answer>({ ...OK(""), body: options.cookie() })
         if (request._tag !== "page-fetch") return Option.none<Answer>()
         paths.push(request.path)
-        const override = options.answer?.(paths.length)
+        bearers.push(request.bearer)
+        const override = options.answer?.(paths.length, request.bearer)
         if (override !== undefined) return override
         const rows = details[paramOf(request.path, "code") ?? ""] ?? []
         const page = Number(paramOf(request.path, "page"))
@@ -858,5 +868,97 @@ describe("the Done Details walk", () => {
       assert.strictEqual(production.orders().size, 1_230)
       assert.isAtLeast(yield* Clock.currentTimeMillis, wib("17:30:10"))
     })
+  )
+})
+
+// A JWT naming `sub` that expires the day after the walk.
+const jwt = (sub: string) =>
+  `eyJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({ sub, exp: Date.parse("2026-11-21T17:30:00+07:00") / 1000 })).replaceAll("=", "")}.c2lnbmF0dXJl`
+
+describe("the Done Details walk's walk token", () => {
+  it.effect(
+    "signs each call with the cookie's token read at that call, a new one on the very next call",
+    () =>
+      Effect.gen(function* () {
+        yield* evening
+        const { store } = yield* keptStore()
+        const first = jwt("first")
+        const second = jwt("second")
+        let cookie = first
+        const tab = fakeAjaib({
+          cookie: () => cookie,
+          answer: () => {
+            cookie = second
+            return undefined
+          },
+        })
+        const walk = yield* walkWith(tab, store, fakeProduction())
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        assert.deepStrictEqual(tab.bearers, [first, second])
+      })
+  )
+
+  it.effect("with no token in the cookie, signs with the page's own", () =>
+    Effect.gen(function* () {
+      yield* evening
+      const { store } = yield* keptStore()
+      const tab = fakeAjaib({ cookie: () => "" })
+      const walk = yield* walkWith(tab, store, fakeProduction())
+      assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+      assert.deepStrictEqual(tab.bearers, ["token", "token"])
+    })
+  )
+
+  it.effect("never sends again a token Ajaib answered with a 401", () =>
+    Effect.gen(function* () {
+      yield* evening
+      const { store } = yield* keptStore()
+      const production = fakeProduction()
+      const cookie = jwt("cookie")
+      const tab = fakeAjaib({
+        cookie: () => cookie,
+        answer: (_, bearer) =>
+          bearer === cookie
+            ? Option.some({ ...OK(""), status: 401 })
+            : undefined,
+      })
+      const walk = yield* walkWith(tab, store, production)
+      assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+      assert.deepStrictEqual(tab.bearers, [cookie, "token", "token"])
+      assert.strictEqual(production.orders().size, 1_230)
+    })
+  )
+
+  it.effect(
+    "refuses a token whose calls got no answer twice in a row, not once",
+    () =>
+      Effect.gen(function* () {
+        yield* evening
+        const { store } = yield* keptStore()
+        const production = fakeProduction()
+        const cookie = jwt("cookie")
+        // The first page gets no answer once; the second, every time.
+        const tab = fakeAjaib({
+          cookie: () => cookie,
+          answer: (call, bearer) =>
+            call === 1 || (call >= 3 && bearer === cookie)
+              ? Option.none()
+              : undefined,
+        })
+        const walk = yield* walkWith(tab, store, production)
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("0 millis")
+        yield* TestClock.adjust("10 seconds")
+        yield* TestClock.adjust("10 seconds")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.deepStrictEqual(tab.bearers, [
+          cookie,
+          cookie,
+          cookie,
+          cookie,
+          "token",
+        ])
+        assert.strictEqual(production.orders().size, 1_230)
+      })
   )
 })

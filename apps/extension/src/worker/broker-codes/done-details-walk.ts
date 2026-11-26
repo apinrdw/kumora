@@ -24,7 +24,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect, Option, Schema } from "effect"
 
-import { RETRY, makeAjaibCalls, type AjaibWalkTab } from "./ajaib-calls.ts"
+import { makeAjaibCalls, type AjaibWalkTab } from "./ajaib-calls.ts"
 import { ajaibWindowEnd } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
 import {
@@ -415,26 +415,16 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
 }) {
   const { store } = options
   const codesDone = options.codes ?? (() => Effect.void)
-  const { enter, guard, call } = yield* makeAjaibCalls(
+  const { enter, guard, readPage } = yield* makeAjaibCalls(
     options.tab,
     options.phase ?? (() => Effect.void)
   )
 
   // One page, retried in place until it answers one.
-  const detailsPage = Effect.fnUntraced(function* (
-    windowEnd: DateTime.Utc,
-    path: string
-  ) {
-    while (true) {
-      yield* guard(windowEnd)
-      const answer = yield* call(windowEnd, path)
-      if (Option.isSome(answer) && answer.value.status === 200) {
-        const page = decodePage(answer.value.body)
-        if (Option.isSome(page)) return page.value.result
-      }
-      yield* Effect.sleep(RETRY)
-    }
-  })
+  const detailsPage = (windowEnd: DateTime.Utc, path: string) =>
+    readPage(windowEnd, path, (answer) =>
+      Effect.succeed(Option.map(decodePage(answer.body), (page) => page.result))
+    )
 
   // Decision: matched trades post after the last code, in trade order
   // (apps/extension/docs/adr/0005-matched-trades-post-after-the-last-code-in-trade-order.md)
