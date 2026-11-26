@@ -30,11 +30,13 @@ const WARM_UP = 100
 // later and each after a one-lot sell, buy sweeps of 95, 97 and 99 lots,
 // which reach its top 10%, 5% and 1%; and a trade the second after, which
 // closes theirs. No sell stands out: the one-lot sells are under the two
-// lots of every earlier sell. Returns the trades and the big sweeps' numbers
-// by lots.
+// lots of every earlier sell. Returns the trades and the standout sweeps'
+// numbers by lots.
 const standingOut = (code: string, base: number) => {
   const now = marketNow()
-  const [warmAt, bigAt, laterAt] = [now - 2_000, now - 1_000, now].map(wibTime)
+  const [warmAt, standoutAt, laterAt] = [now - 2_000, now - 1_000, now].map(
+    wibTime
+  )
   const trade = (
     seq: number,
     time: string,
@@ -53,13 +55,13 @@ const standingOut = (code: string, base: number) => {
     trade(index * 2 + 1, warmAt!, index + 1, "BUY"),
     trade(index * 2 + 2, warmAt!, 2, "SELL"),
   ]).flat()
-  const bigLots = [95, 97, 99] as const
-  const big = bigLots.flatMap((lot, index) => [
-    trade(1_000 + index * 2, bigAt!, 1, "SELL"),
-    trade(1_001 + index * 2, bigAt!, lot, "BUY"),
+  const standoutLots = [95, 97, 99] as const
+  const standouts = standoutLots.flatMap((lot, index) => [
+    trade(1_000 + index * 2, standoutAt!, 1, "SELL"),
+    trade(1_001 + index * 2, standoutAt!, lot, "BUY"),
   ])
   return {
-    trades: [...warm, ...big, trade(1_100, laterAt!, 1, "SELL")],
+    trades: [...warm, ...standouts, trade(1_100, laterAt!, 1, "SELL")],
     seqOf: { 95: 1_001, 97: 1_003, 99: 1_005 } as const,
   }
 }
