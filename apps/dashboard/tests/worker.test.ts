@@ -69,6 +69,16 @@ describe("the dashboard Worker on Production", () => {
     })
   )
 
+  // A binding that is not a Stage URL is a broken deploy.
+  it("dies on a DASHBOARD_URL that is not a Stage URL", () => {
+    assert.throws(() =>
+      worker.fetch(new Request(`${OLD_HOST}/stocks/BBCA`), {
+        ...PRODUCTION,
+        DASHBOARD_URL: "https://kumora.pusat.ai/dashboard/",
+      })
+    )
+  })
+
   it.effect("serves a request on the Stage URL's own host", () =>
     Effect.gen(function* () {
       const response = yield* fetchEntry(
