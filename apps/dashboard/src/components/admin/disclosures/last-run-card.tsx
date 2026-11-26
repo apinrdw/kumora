@@ -18,12 +18,14 @@ import {
 } from "@/components/admin/archive/notes"
 
 // What a partial run left behind: the attachments it couldn't store and
-// those past its budget, which wait for the next run, and the listing
-// entries it skipped, which no run takes up again.
+// those past its budget, which wait for the next run, the older days it
+// couldn't list, which the next run lists again, and the listing entries it
+// skipped, which no run takes up again.
 function Detail({ result }: { result: DisclosureRunResult }) {
   const { notStored, attachmentsWaiting, entriesSkipped, skipped } = result
+  const { unlistedDays } = result
   const waits = attachmentsWaiting > 0 || notStored.length > 0
-  if (!waits && entriesSkipped === 0) return null
+  if (!waits && entriesSkipped === 0 && unlistedDays.length === 0) return null
   return (
     <Callout>
       {waits && (
@@ -48,6 +50,28 @@ function Detail({ result }: { result: DisclosureRunResult }) {
               ))}
             </NoteList>
           )}
+        </Note>
+      )}
+      {unlistedDays.length > 0 && (
+        <Note
+          lead={Effect.runSync(
+            count(
+              unlistedDays.length,
+              "older day couldn't be listed.",
+              "older days couldn't be listed."
+            )
+          )}
+        >
+          {unlistedDays.length === 1
+            ? "The next run lists it again:"
+            : "The next run lists them again:"}
+          <NoteList label="Not listed" data>
+            {unlistedDays.map(({ day, message }) => (
+              <NoteItem key={day}>
+                {day}: {message}
+              </NoteItem>
+            ))}
+          </NoteList>
         </Note>
       )}
       {entriesSkipped > 0 && (
