@@ -42,6 +42,16 @@ const PARTIAL: SeededDisclosureRun = {
   ],
 }
 
+const SKIPPED: SeededDisclosureRun = {
+  ...COMPLETE,
+  id: "admin-1795662090000",
+  outcome: "partial",
+  entriesSkipped: 1,
+  skipped: [
+    "IDX listed disclosure 20261126090000-B/4 (id) with an attachment at not a url, not a URL of at most 400 characters",
+  ],
+}
+
 const LISTING_ERROR =
   "IDX's disclosures of 2026-11-26 (id) answered 500 (https://www.idx.id/primary/ListedCompany/GetAnnouncement?pageSize=500)"
 
@@ -139,6 +149,22 @@ test.describe.serial("an admin's Disclosures page", () => {
     ).toHaveText([
       `${PARTIAL.notStored[0]?.path} (20261126090000-B/3): IDX answered 503`,
     ])
+  })
+
+  test("a partial run names the listing entries it skipped", async ({
+    page,
+  }) => {
+    await seedLatestDisclosureRun(SKIPPED)
+    await page.goto(DISCLOSURES)
+    const card = lastRunCard(page)
+    await expect(card).toContainText("Partial")
+    await expect(card).toContainText(
+      "1 listing entry was skipped. IDX listed them in a shape the archive can't key or download:"
+    )
+    await expect(card).not.toContainText("waits for the next run")
+    await expect(
+      card.getByRole("list", { name: "Skipped" }).getByRole("listitem")
+    ).toHaveText(SKIPPED.skipped ?? [])
   })
 
   test("a failed run shows IDX's answer", async ({ page }) => {

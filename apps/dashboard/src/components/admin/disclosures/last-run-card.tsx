@@ -17,35 +17,57 @@ import {
   NoteList,
 } from "@/components/admin/archive/notes"
 
-// What a partial run left waiting: the attachments it couldn't store, and
-// those past its budget.
+// What a partial run left behind: the attachments it couldn't store and
+// those past its budget, which wait for the next run, and the listing
+// entries it skipped, which no run takes up again.
 function Detail({ result }: { result: DisclosureRunResult }) {
-  const { notStored, attachmentsWaiting } = result
-  if (attachmentsWaiting === 0 && notStored.length === 0) return null
+  const { notStored, attachmentsWaiting, entriesSkipped, skipped } = result
+  const waits = attachmentsWaiting > 0 || notStored.length > 0
+  if (!waits && entriesSkipped === 0) return null
   return (
     <Callout>
-      <Note
-        lead={Effect.runSync(
-          count(
-            attachmentsWaiting,
-            "attachment waits for the next run.",
-            "attachments wait for the next run."
-          )
-        )}
-      >
-        {notStored.length > 0
-          ? "Some could not be downloaded:"
-          : "The run stored as many as one run stores."}
-        {notStored.length > 0 && (
-          <NoteList label="Not stored" data>
-            {notStored.map(({ disclosure, path, message }) => (
-              <NoteItem key={`${disclosure}${path}`}>
-                {path} ({disclosure}): {message}
-              </NoteItem>
+      {waits && (
+        <Note
+          lead={Effect.runSync(
+            count(
+              attachmentsWaiting,
+              "attachment waits for the next run.",
+              "attachments wait for the next run."
+            )
+          )}
+        >
+          {notStored.length > 0
+            ? "Some could not be downloaded:"
+            : "The run stored as many as one run stores."}
+          {notStored.length > 0 && (
+            <NoteList label="Not stored" data>
+              {notStored.map(({ disclosure, path, message }) => (
+                <NoteItem key={`${disclosure}${path}`}>
+                  {path} ({disclosure}): {message}
+                </NoteItem>
+              ))}
+            </NoteList>
+          )}
+        </Note>
+      )}
+      {entriesSkipped > 0 && (
+        <Note
+          lead={Effect.runSync(
+            count(
+              entriesSkipped,
+              "listing entry was skipped.",
+              "listing entries were skipped."
+            )
+          )}
+        >
+          IDX listed them in a shape the archive can't key or download:
+          <NoteList label="Skipped" data>
+            {skipped.map((message) => (
+              <NoteItem key={message}>{message}</NoteItem>
             ))}
           </NoteList>
-        )}
-      </Note>
+        </Note>
+      )}
     </Callout>
   )
 }

@@ -439,6 +439,94 @@ describe("a disclosure run", () => {
     })
   )
 
+  it.effect(
+    "skips a malformed entry, records it on the run, and stores the rest of its day",
+    () =>
+      Effect.gen(function* () {
+        const { idx, bucket, run } = world()
+        publish(idx, NAV)
+        // An Id2 without its language suffix.
+        const unkeyed = replyOf(
+          { stamp: "20261125100000", number: "U/1", files: [] },
+          "id"
+        )
+        idx.versions.id.push({
+          ...unkeyed,
+          pengumuman: { ...unkeyed.pengumuman, Id2: "20261125100000-U/1" },
+        })
+        // An attachment whose FullSavePath isn't a URL, beside one that is.
+        const badPath: Published = {
+          stamp: "20261125110000",
+          number: "B/1",
+          files: ["ok.pdf"],
+        }
+        publish(idx, badPath, ["id"])
+        const [listed] = idx.versions.id.slice(-1)
+        if (listed === undefined) return assert.fail("no reply")
+        idx.versions.id[idx.versions.id.length - 1] = {
+          ...listed,
+          attachments: [...listed.attachments, { FullSavePath: "not a url" }],
+        }
+        // A reply far larger than IDX's usual ~3.5 KB.
+        const long: Published = {
+          stamp: "20261125120000",
+          number: "L/1",
+          files: [],
+          title: "x".repeat(64 * 1024),
+        }
+        publish(idx, long, ["id"])
+
+        const result = yield* run()
+
+        assert.deepInclude(result, {
+          outcome: "partial",
+          versionsAdded: 4,
+          attachmentsStored: 3,
+          attachmentsWaiting: 0,
+          entriesSkipped: 2,
+        })
+        assert.deepStrictEqual(result.skipped, [
+          "IDX listed a disclosure on 2026-11-25 (id) whose Id2 isn't a publish time and number: 20261125100000-U/1",
+          `IDX listed disclosure ${keyOf(badPath)} (id) with an attachment at not a url, not a URL of at most ${MAX_PATH_LENGTH} characters`,
+        ])
+        assert.deepStrictEqual(keysOf(bucket, badPath), [
+          `${encoded(badPath)}/files${pathOf("ok.pdf")}`,
+          `${encoded(badPath)}/id.json`,
+        ])
+        assert.deepStrictEqual(
+          json(bucket, `${encoded(long)}/id.json`),
+          replyOf(long, "id")
+        )
+        assert.isNotEmpty(keysOf(bucket, NAV))
+      })
+  )
+
+  it.effect(
+    "completes a backfilled day despite a malformed entry, and never lists it again",
+    () =>
+      Effect.gen(function* () {
+        const { idx, run } = world()
+        publish(idx, FIRST)
+        const unkeyed = replyOf(
+          { stamp: "20230703100000", number: "U/1", files: [] },
+          "en"
+        )
+        idx.versions.en.push({
+          ...unkeyed,
+          pengumuman: { ...unkeyed.pengumuman, Id2: "not an id" },
+        })
+
+        const first = yield* run()
+        assert.deepInclude(first, { outcome: "partial", entriesSkipped: 1 })
+        idx.requests.length = 0
+
+        const second = yield* run()
+
+        assert.notInclude(second.backfillDays, FIRST_DISCLOSURE_DAY)
+        assert.notInclude(listedDates(idx), "20230703")
+      })
+  )
+
   it.effect("reads a day IDX lists on more than one page", () =>
     Effect.gen(function* () {
       const { idx, run } = world()

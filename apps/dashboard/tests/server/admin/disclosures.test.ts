@@ -60,6 +60,10 @@ const PARTIAL: DisclosureRunResult = {
   days: ["2026-11-26"],
   backfillDays: ["2023-07-03"],
   versionsAdded: 380,
+  entriesSkipped: 1,
+  skipped: [
+    "IDX listed a disclosure on 2026-11-26 (en) whose Id2 isn't a publish time and number: 20261126090000-C/1",
+  ],
   attachmentsStored: 610,
   attachmentsWaiting: 1,
   notStored: [

@@ -53,6 +53,17 @@ export const DisclosureRunResult = Schema.Struct({
   ),
   // Disclosure versions the archive didn't hold, stored.
   versionsAdded: Schema.Number,
+  // Listing entries it skipped: a reply with no disclosure key, or an
+  // attachment with no path (ADR 0140). A record from before runs skipped
+  // entries has none.
+  entriesSkipped: Schema.Number.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(0))
+  ),
+  // Why the first MAX_NOT_STORED_SHOWN of them were skipped, each at most
+  // MAX_RUN_ERROR_LENGTH characters.
+  skipped: Schema.Array(Schema.String).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([]))
+  ),
   // Attachments stored.
   attachmentsStored: Schema.Number,
   // Attachments of its days and backfill days that wait for a later run
@@ -90,6 +101,8 @@ export const runningDisclosureResult = Effect.fnUntraced(function* (
     days: [],
     backfillDays: [],
     versionsAdded: 0,
+    entriesSkipped: 0,
+    skipped: [],
     attachmentsStored: 0,
     attachmentsWaiting: 0,
     notStored: [],

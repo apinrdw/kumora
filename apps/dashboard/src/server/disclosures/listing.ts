@@ -3,7 +3,7 @@
 // Worker with (as ../shareholding/listing.ts reads its own list). It answers
 // `{ResultCount, Replies: [{pengumuman, attachments}]}`, newest first, for a
 // span of days in one language. Spec apinrdw/kumora#715, "Source".
-import { jsonBytes, NonRetryable } from "@workspace/server"
+import { NonRetryable } from "@workspace/server"
 import { Effect, Schema } from "effect"
 import { HttpClient } from "effect/http"
 
@@ -19,13 +19,12 @@ const ANNOUNCEMENTS = "https://www.idx.id/primary/ListedCompany/GetAnnouncement"
 // Replies a page asks for: IDX answers up to 500.
 export const PAGE_SIZE = 500
 
-// The most bytes one reply may take as JSON. A reply with six attachments
-// took ~3.5 KB on 2026-11-26.
-const MAX_REPLY_BYTES = 16 * 1024
-
 // The most bytes a page's response may take; past it, the listing fails
-// before decoding it.
-const MAX_PAGE_BYTES = PAGE_SIZE * MAX_REPLY_BYTES
+// before decoding it. A reply with six attachments took ~3.5 KB on
+// 2026-11-26, so a full page takes ~1.75 MB, and a step holds one page at a
+// time. One reply may take any part of it: a reply goes to the bucket, never
+// into a step result.
+const MAX_PAGE_BYTES = 8 * 1024 * 1024
 
 // The most pages one day's listing in one language reads: 5,000 disclosures,
 // against ~200 on a usual day and 1,773 on 2024-04-30, an annual-report
@@ -58,6 +57,16 @@ export interface ListedVersion {
   readonly paths: ReadonlyArray<string>
 }
 
+// One listing page: its versions, and why each entry it skipped was
+// skipped. A reply with no disclosure key is skipped whole; an attachment
+// with no path is skipped, and its version kept.
+// Decision: a malformed disclosure entry is skipped, not failed
+// (apps/dashboard/docs/adr/0140-a-malformed-disclosure-entry-is-skipped-not-failed.md)
+export interface ListedPage {
+  readonly versions: ReadonlyArray<ListedVersion>
+  readonly skipped: ReadonlyArray<string>
+}
+
 // The listing couldn't be read: the run fails with this message, which the
 // admin page shows.
 class ListingUnreadable extends Schema.TaggedError<ListingUnreadable>()(
@@ -87,44 +96,49 @@ const listingUrl = Effect.fnUntraced(function* (
 })
 
 // The attachment's path on IDX's site, which www.idx.id serves as
-// www.idx.co.id lists it.
+// www.idx.co.id lists it; undefined when FullSavePath isn't a URL or its
+// path is over MAX_PATH_LENGTH.
 const pathOf = Effect.fnUntraced(function* (fullSavePath: string) {
-  const path = URL.canParse(fullSavePath)
-    ? new URL(fullSavePath).pathname
-    : undefined
-  if (path === undefined || path.length > MAX_PATH_LENGTH)
-    return yield* new NonRetryable({
-      message: `IDX listed an attachment at ${fullSavePath.slice(0, 200)}, not a URL of at most ${MAX_PATH_LENGTH} characters`,
-    })
-  return path
+  if (!URL.canParse(fullSavePath)) return undefined
+  const path = new URL(fullSavePath).pathname
+  return path.length > MAX_PATH_LENGTH ? undefined : path
 })
 
+// A reply as a version, and what of it is skipped.
 const versionOf = Effect.fnUntraced(function* (
+  day: string,
   language: DisclosureLanguage,
   raw: unknown,
   reply: (typeof Page.Type)["Replies"][number]
 ) {
   const key = yield* disclosureKeyOf(reply.pengumuman.Id2, language)
   if (key === undefined || key.length > MAX_KEY_LENGTH)
-    return yield* new NonRetryable({
-      message: `IDX listed a disclosure whose Id2 isn't a publish time and number in ${language}: ${reply.pengumuman.Id2.slice(0, 200)}`,
-    })
-  if ((yield* jsonBytes(raw)) > MAX_REPLY_BYTES)
-    return yield* new NonRetryable({
-      message: `IDX listed disclosure ${key} in over ${MAX_REPLY_BYTES} bytes`,
-    })
-  const paths = yield* Effect.forEach(reply.attachments, ({ FullSavePath }) =>
-    pathOf(FullSavePath)
-  )
-  return {
+    return {
+      version: undefined,
+      skipped: [
+        `IDX listed a disclosure on ${day} (${language}) whose Id2 isn't a publish time and number: ${reply.pengumuman.Id2.slice(0, 200)}`,
+      ],
+    }
+  const paths = new Set<string>()
+  const skipped: Array<string> = []
+  for (const { FullSavePath } of reply.attachments) {
+    const path = yield* pathOf(FullSavePath)
+    if (path === undefined)
+      skipped.push(
+        `IDX listed disclosure ${key} (${language}) with an attachment at ${FullSavePath.slice(0, 200)}, not a URL of at most ${MAX_PATH_LENGTH} characters`
+      )
+    else paths.add(path)
+  }
+  const version: ListedVersion = {
     key,
     reply: JSON.stringify(raw),
-    paths: [...new Set(paths)],
-  } satisfies ListedVersion
+    paths: [...paths],
+  }
+  return { version, skipped }
 })
 
-// One page of `day`'s listing in `language`, from `indexFrom`, and how many
-// the whole listing holds.
+// One page of `day`'s listing in `language`, from `indexFrom`, how many
+// replies it held, and how many the whole listing holds.
 const readPage = Effect.fnUntraced(function* (
   day: string,
   language: DisclosureLanguage,
@@ -159,21 +173,25 @@ const readPage = Effect.fnUntraced(function* (
   )
   const rawReplies = (raw as { readonly Replies: ReadonlyArray<unknown> })
     .Replies
-  return {
-    total: page.ResultCount,
-    versions: yield* Effect.forEach(page.Replies, (reply, index) =>
-      versionOf(language, rawReplies[index], reply)
+  const listed = yield* Effect.forEach(page.Replies, (reply, index) =>
+    versionOf(day, language, rawReplies[index], reply)
+  )
+  const read: ListedPage = {
+    versions: listed.flatMap(({ version }) =>
+      version === undefined ? [] : [version]
     ),
+    skipped: listed.flatMap(({ skipped }) => skipped),
   }
+  return { total: page.ResultCount, replies: listed.length, read }
 })
 
 // Every version IDX lists for `day` in `language`, a page at a time: `each`
-// takes each page's versions before the next page is read, so a step holds
-// one page at most.
+// takes each page before the next page is read, so a step holds one page at
+// most.
 export const forEachListedPage = Effect.fnUntraced(function* <E, R>(
   day: string,
   language: DisclosureLanguage,
-  each: (versions: ReadonlyArray<ListedVersion>) => Effect.Effect<void, E, R>
+  each: (page: ListedPage) => Effect.Effect<void, E, R>
 ) {
   let read = 0
   for (let page = 0; ; page++) {
@@ -181,9 +199,9 @@ export const forEachListedPage = Effect.fnUntraced(function* <E, R>(
       return yield* new NonRetryable({
         message: `IDX lists more than ${MAX_DAY_PAGES * PAGE_SIZE} disclosures on ${day} (${language}), more than a disclosure run reads`,
       })
-    const { total, versions } = yield* readPage(day, language, read)
-    yield* each(versions)
-    read += versions.length
-    if (versions.length === 0 || read >= total) return read
+    const listed = yield* readPage(day, language, read)
+    yield* each(listed.read)
+    read += listed.replies
+    if (listed.replies === 0 || read >= listed.total) return read
   }
 })

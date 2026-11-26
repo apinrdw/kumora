@@ -176,15 +176,26 @@ const storeVersion = Effect.fnUntraced(function* (
 // Lists `day` in both languages, and stores each version the index lacks,
 // indexing its attachments to be stored. What it stores comes from the
 // index, so a retry that finds its first attempt's versions stores none
-// again.
+// again. It counts the entries the listing skipped, and keeps why for the
+// first MAX_NOT_STORED_SHOWN; none of them waits, or fails the run.
+// Decision: a malformed disclosure entry is skipped, not failed
+// (apps/dashboard/docs/adr/0140-a-malformed-disclosure-entry-is-skipped-not-failed.md)
 const listDay = Effect.fnUntraced(function* (day: string) {
   let versionsAdded = 0
+  let entriesSkipped = 0
+  const skipped: Array<string> = []
   for (const language of DisclosureLanguage.literals) {
     const held = yield* heldVersions(day, language)
     yield* forEachListedPage(
       day,
       language,
-      Effect.fnUntraced(function* (versions) {
+      Effect.fnUntraced(function* ({ versions, skipped: skippedHere }) {
+        entriesSkipped += skippedHere.length
+        for (const message of skippedHere.slice(
+          0,
+          MAX_NOT_STORED_SHOWN - skipped.length
+        ))
+          skipped.push(yield* runError(message))
         const fresh = versions.filter(({ key }) => !held.has(key))
         const stored = yield* Effect.forEach(
           fresh,
@@ -198,7 +209,12 @@ const listDay = Effect.fnUntraced(function* (day: string) {
     )
   }
   yield* recordDayListed(day, yield* nowIso)
-  return { versionsAdded, waiting: yield* waitingCount([day]) }
+  return {
+    versionsAdded,
+    entriesSkipped,
+    skipped,
+    waiting: yield* waitingCount([day]),
+  }
 })
 
 // Whether a run listed `day` after it ended in WIB: a listing while IDX
@@ -333,33 +349,40 @@ const finishedResult = Effect.fnUntraced(function* (run: DisclosureRun) {
   return { ...(yield* runningDisclosureResult(run)), finishedAt: yield* nowIso }
 })
 
+// What a run has done so far, which its record carries.
+type RunProgress = Pick<
+  DisclosureRunResult,
+  | "days"
+  | "backfillDays"
+  | "versionsAdded"
+  | "entriesSkipped"
+  | "skipped"
+  | "attachmentsStored"
+  | "notStored"
+>
+
 // Records the backfilled days now complete, and the run's result.
 const summary = Effect.fnUntraced(function* (
   run: DisclosureRun,
-  days: ReadonlyArray<string>,
-  backfillDays: ReadonlyArray<string>,
-  versionsAdded: number,
-  attachmentsStored: number,
-  notStored: ReadonlyArray<NotStoredAttachment>
+  progress: RunProgress
 ) {
+  const { days, backfillDays, entriesSkipped, notStored } = progress
   yield* recordDaysComplete(yield* completeDays(backfillDays), yield* nowIso)
   const attachmentsWaiting = yield* waitingCount([...days, ...backfillDays])
   const result = DisclosureRunResult.make({
     ...(yield* finishedResult(run)),
+    ...progress,
     // Anything of the days it took up left waiting makes the run partial: a
     // download that failed, or one past the run's budget, which the next
-    // run takes up first.
+    // run takes up first. So does a listing entry it skipped.
     // Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
     // (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
     outcome:
-      notStored.length === 0 && attachmentsWaiting === 0
+      notStored.length === 0 && attachmentsWaiting === 0 && entriesSkipped === 0
         ? "complete"
         : "partial",
-    days,
-    backfillDays,
-    versionsAdded,
-    attachmentsStored,
     attachmentsWaiting,
+    skipped: progress.skipped.slice(0, MAX_NOT_STORED_SHOWN),
     notStored: notStored.slice(0, MAX_NOT_STORED_SHOWN),
   })
   yield* writeDisclosureRun(result)
@@ -369,15 +392,15 @@ const summary = Effect.fnUntraced(function* (
 // A listing couldn't be read: the run is failed with its message.
 const recordFailure = Effect.fnUntraced(function* (
   run: DisclosureRun,
-  days: ReadonlyArray<string>,
-  backfillDays: ReadonlyArray<string>,
+  progress: RunProgress,
   error: string
 ) {
   const result = DisclosureRunResult.make({
     ...(yield* finishedResult(run)),
+    ...progress,
     outcome: "failed",
-    days,
-    backfillDays,
+    skipped: progress.skipped.slice(0, MAX_NOT_STORED_SHOWN),
+    notStored: progress.notStored.slice(0, MAX_NOT_STORED_SHOWN),
     error: yield* runError(error),
   })
   yield* writeDisclosureRun(result)
@@ -390,15 +413,27 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
 ): Effect.fn.Return<DisclosureRunResult, StepFailed> {
   const days = yield* steps.do("plan", plan(run))
   const backfillDays: Array<string> = []
-  let versionsAdded = 0
+  const skipped: Array<string> = []
+  const notStored: Array<NotStoredAttachment> = []
+  const progress = {
+    days,
+    backfillDays,
+    versionsAdded: 0,
+    entriesSkipped: 0,
+    skipped,
+    attachmentsStored: 0,
+    notStored,
+  }
   const listConfig = yield* listStep
   const list = Effect.fnUntraced(function* (day: string) {
     const listed = yield* failingRun(
       steps,
       steps.do(`list:${day}`, listDay(day), listConfig),
-      (message) => recordFailure(run, days, backfillDays, message)
+      (message) => recordFailure(run, progress, message)
     )
-    versionsAdded += listed.versionsAdded
+    progress.versionsAdded += listed.versionsAdded
+    progress.entriesSkipped += listed.entriesSkipped
+    skipped.push(...listed.skipped)
     return listed.waiting
   })
   for (const day of days) yield* list(day)
@@ -417,8 +452,6 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
     waitingAttachments([...days, ...backfillDays], FILES_PER_RUN)
   )
   const config = yield* filesStep
-  let attachmentsStored = 0
-  const notStored: Array<NotStoredAttachment> = []
   for (let start = 0; start < waiting.length; start += FILES_PER_STEP) {
     const batch = waiting.slice(start, start + FILES_PER_STEP)
     const outcomes = yield* steps
@@ -437,7 +470,7 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
         )
       )
     for (const outcome of outcomes)
-      if (outcome.stored) attachmentsStored += 1
+      if (outcome.stored) progress.attachmentsStored += 1
       else
         notStored.push({
           disclosure: outcome.attachment.disclosure,
@@ -445,15 +478,5 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
           message: outcome.message,
         })
   }
-  return yield* steps.do(
-    "summary",
-    summary(
-      run,
-      days,
-      backfillDays,
-      versionsAdded,
-      attachmentsStored,
-      notStored
-    )
-  )
+  return yield* steps.do("summary", summary(run, progress))
 })
