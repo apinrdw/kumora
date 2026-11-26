@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import type { IngestUp } from "@workspace/relay"
-import { Effect } from "effect"
+import { Effect, Fiber, Option } from "effect"
 
 import { makeBatcher } from "../src/worker/batch.ts"
 import {
@@ -226,5 +226,47 @@ describe("the Ajaib page's kept static headers", () => {
         "static-headers"
       )
     })
+  )
+})
+
+describe("a broker tab's REST answers", () => {
+  // The Ajaib walk's calls (ajaib-calls.ts) read a failed request as an
+  // unanswered one, so the tab's status 0 must reach them as none.
+  it.effect(
+    "a request the tab reports as failed, with no status, reaches its caller as no answer",
+    () =>
+      Effect.gen(function* () {
+        const posted: Array<{ _tag: string; id?: number }> = []
+        const recorder = {
+          name: "Ajaib",
+          postMessage: (command: { _tag: string; id?: number }) =>
+            void posted.push(command),
+        } as unknown as chrome.runtime.Port
+        const tab = yield* makeBrokerTab({
+          feed: "Ajaib",
+          sites: [ajaib, ...ajaibOnDemand],
+          batcher: yield* makeBatcher(),
+          publish: () => Effect.void,
+          hooks,
+        })
+        yield* tab.connect(recorder)
+        const call = yield* Effect.forkChild(
+          tab.awaitAnswer({
+            _tag: "page-fetch",
+            path: "v1/stock/running_trades/",
+            bearer: "token",
+          })
+        )
+        yield* Effect.yieldNow
+        const sent = posted.find((command) => command._tag === "request")
+        assert.isDefined(sent?.id)
+        yield* tab.message(recorder, {
+          _tag: "answer",
+          id: sent?.id,
+          status: 0,
+          body: "",
+        })
+        assert.deepStrictEqual(yield* Fiber.join(call), Option.none())
+      })
   )
 })
