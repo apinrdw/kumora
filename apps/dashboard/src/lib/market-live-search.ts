@@ -8,7 +8,13 @@ import { Effect, Option, Schema } from "effect"
 
 // The panels layout B shows beside the charts, in the phone's tab order.
 // From `lg`, the middle column's tabs are the ones it holds (layout-b.tsx).
-export const PANELS = ["sweeps", "all", "tape", "watchlist", "book"] as const
+export const PANELS = [
+  "sweeps",
+  "allCodes",
+  "tape",
+  "watchlist",
+  "book",
+] as const
 const Panel = Schema.Literals(PANELS)
 export type Panel = typeof Panel.Type
 

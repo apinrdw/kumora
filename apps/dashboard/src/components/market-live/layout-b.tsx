@@ -31,7 +31,7 @@ function useFillViewport<E extends HTMLElement>() {
 // Each panel's tab name on a phone.
 const TAB_NAMES: Record<Panel, string> = {
   sweeps: "Sweeps",
-  all: "All codes",
+  allCodes: "All codes",
   tape: "Tape",
   watchlist: "Watchlist",
   book: "Order book",
@@ -39,7 +39,7 @@ const TAB_NAMES: Record<Panel, string> = {
 
 // The panels the middle column holds from `lg`, as its tabs. The others
 // stack in the right column.
-const MIDDLE: ReadonlyArray<Panel> = ["sweeps", "all", "tape"]
+const MIDDLE: ReadonlyArray<Panel> = ["sweeps", "allCodes", "tape"]
 
 // A bar of tabs, one per panel in `panels`, `shown` selected. Each tab
 // controls its panel's element, `${id}-${name}`.
@@ -132,7 +132,7 @@ export function LayoutB({
   const id = useId()
   const content: Record<Panel, ReactNode> = {
     sweeps: log,
-    all: allCodes,
+    allCodes,
     tape,
     watchlist,
     book,
@@ -200,7 +200,7 @@ export function LayoutB({
           className="max-lg:hidden"
         />
         {panel("sweeps", "lg:flex-1 *:flex-1")}
-        {panel("all", "lg:flex-1 *:flex-1")}
+        {panel("allCodes", "lg:flex-1 *:flex-1")}
         {panel("tape")}
       </div>
       <div className="min-w-0 max-lg:contents lg:flex lg:flex-col lg:gap-4">

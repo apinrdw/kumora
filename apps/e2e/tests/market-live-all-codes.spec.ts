@@ -101,7 +101,7 @@ test("the All codes tab fills live with a code's standout sweeps at the picked l
     "Running trades",
   ])
   await tabs.getByRole("tab", { name: "All codes" }).click()
-  await expect(page).toHaveURL(/[?&]panel=all(&|$)/)
+  await expect(page).toHaveURL(/[?&]panel=allCodes(&|$)/)
   const list = page.getByRole("region", { name: "All codes" })
   await expect(list).toBeVisible()
   const picker = list.getByRole("radiogroup", { name: "Standout level" })
@@ -182,7 +182,7 @@ test("a reload refills the All codes list from the object's backlog, and a recon
   const code = freshCode("AB")
   const { trades } = standingOut(code, base)
   await relay.sendAjaib(trades)
-  await page.goto(`${DASHBOARD}${PAGE}?code=${code}&panel=all`)
+  await page.goto(`${DASHBOARD}${PAGE}?code=${code}&panel=allCodes`)
   const rows = rowsOf(page, code)
   // The 1% sweep listed: the page is live before the picker is clicked.
   await expect(rows).toHaveCount(1)
