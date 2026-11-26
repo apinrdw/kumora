@@ -585,6 +585,43 @@ describe("viewer protocol, down", () => {
   )
 
   it.effect(
+    "a standout sweep round trips with its side, and one without a side is refused",
+    () =>
+      Effect.gen(function* () {
+        const delta: ViewerDown = {
+          _tag: "Delta",
+          at: DateTime.makeUnsafe("2026-11-26T02:00:00.250Z"),
+          tape: [],
+          candles: [],
+          standoutSweeps: [
+            {
+              code: StockCode.make("BBCA"),
+              level: 5,
+              sweep: {
+                side: "sell",
+                firstTrade: TradeNumber.make("4100"),
+                time: DateTime.makeUnsafe("2026-11-26T02:00:00.000Z"),
+                first: 7_550,
+                last: 7_525,
+                lots: 1_200,
+                value: 906_000_000,
+                trades: 4,
+              },
+            },
+          ],
+        }
+        const wire = yield* encodeViewerDown(delta)
+        assert.deepStrictEqual(yield* decodeViewerDown(wire), delta)
+        const sideless = JSON.parse(wire)
+        sideless.standoutSweeps[0].sweep[0] = "none"
+        const refused = yield* Effect.exit(
+          decodeViewerDown(JSON.stringify(sideless))
+        )
+        assert.isTrue(refused._tag === "Failure")
+      })
+  )
+
+  it.effect(
     "a snapshot's scanner figures round trip, an unknown one as none",
     () =>
       Effect.gen(function* () {
