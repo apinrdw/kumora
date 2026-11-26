@@ -917,6 +917,59 @@ describe("Ajaib's walk: stopping and carrying on", () => {
     BUSY_TIMEOUT
   )
 
+  // The busy day's walk pages, in order: the first pass's two, then the
+  // second's. Call k is where a worker stopped before page k answered.
+  const BUSY_WALK_PAGES = [
+    [50_000, 1],
+    [50_000, 2],
+    [49_999, 1],
+    [49_999, 2],
+  ] as const
+  for (const [stopAt, [stopSize, stopPage]] of BUSY_WALK_PAGES.entries())
+    it.effect(
+      `posts a row the first pass couldn't read when the worker restarts before walk page ${stopAt + 1} (${stopSize} rows, page ${stopPage})`,
+      () =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+          const production = fakeProduction()
+          const kept = memoryStore()
+          let stopped = false
+          // The first worker reads the first pass's first page with its
+          // newest row lacking a trade number; the restarted worker's tape
+          // sends that row whole.
+          const first = fakeAjaib({
+            rows: busyRows(),
+            malformed: (path) => sizeOf(path) === 50_000 && pageOf(path) === 1,
+            answer: (request) => {
+              if (
+                request._tag !== "page-fetch" ||
+                sizeOf(request.path) !== stopSize ||
+                pageOf(request.path) !== stopPage
+              )
+                return undefined
+              stopped = true
+              return Effect.never
+            },
+          })
+          const before = yield* walkWith(first, production, kept.store)
+          const fiber = yield* Effect.forkChild(before.walk(DAY))
+          for (let turn = 0; turn < 100_000 && !stopped; turn++)
+            yield* Effect.yieldNow
+          yield* Fiber.interrupt(fiber)
+          assert.isTrue(stopped)
+
+          yield* TestClock.adjust("10 minutes")
+          const after = yield* walkWith(
+            fakeAjaib({ rows: busyRows() }),
+            production,
+            kept.store
+          )
+          assert.deepStrictEqual(yield* after.walk(DAY), { _tag: "walked" })
+          assert.deepStrictEqual(missingOf(production.held(), BUSY_N), [])
+        }),
+      BUSY_TIMEOUT
+    )
+
   it.effect(
     "a worker restarted in the second pass doesn't walk the first again",
     () =>
