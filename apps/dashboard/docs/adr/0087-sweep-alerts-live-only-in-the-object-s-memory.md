@@ -9,4 +9,4 @@ Sites:
 - `apps/dashboard/src/server/market-live/kept-alerts.ts`
 - `apps/dashboard/src/server/market-live/trading-day.ts`
 
-Source: apinrdw/kumora#513
+Source: apinrdw/kumora#513, apinrdw/kumora#704, apinrdw/kumora#705
