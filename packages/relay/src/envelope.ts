@@ -35,7 +35,8 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 8: book readings drop near depth, empty ticks and the spread (spec
 // apinrdw/kumora#605).
 // 9: snapshots and deltas carry order flow events (spec apinrdw/kumora#605).
-export const ViewerProtocolVersion = 9
+// 10: deltas carry standout sweeps (spec apinrdw/kumora#705).
+export const ViewerProtocolVersion = 10
 
 // Decision: 4403 refuses the token, 4426 a protocol; both stop ingest retries
 // (packages/relay/docs/adr/0003-ingest-socket-closes-4403-and-4426-stop-retries.md)
@@ -423,6 +424,21 @@ const SweepAlert = Schema.Struct({
 })
 export type SweepAlert = typeof SweepAlert.Type
 
+// The smallest top-N% of its side's sweeps a standout sweep reached.
+const StandoutLevel = Schema.Literals([1, 5, 10])
+export type StandoutLevel = typeof StandoutLevel.Type
+
+// A sweep that reached its stock code's top-1%, 5% or 10% cutoff for its
+// side (the rule is in the dashboard's sweep-alerts.ts), as the sweep was
+// when decided: a later regroup that grows it doesn't send it again. Its
+// code and first trade's number name it for the day.
+const StandoutSweep = Schema.Struct({
+  code: StockCode,
+  level: StandoutLevel,
+  sweep: Sweep,
+})
+export type StandoutSweep = typeof StandoutSweep.Type
+
 // When the trading-day object sent a message, on its clock: what the
 // message holds came from the trades that reached it before then. Market
 // Bubbles takes a backfill settled past it as holding them too
@@ -495,6 +511,10 @@ const Delta = Schema.TaggedStruct("Delta", {
   // The sweeps of any code that alerted since the last delta, each decided
   // once its second closed. Absent when none did.
   sweepAlerts: Schema.optionalKey(Schema.Array(SweepAlert)),
+  // The sweeps of any code that stood out since the last delta, in the order
+  // decided, each once. A sweep alert is one at level 1. Absent when none
+  // did.
+  standoutSweeps: Schema.optionalKey(Schema.Array(StandoutSweep)),
   // Every changed Day state of a code some viewer selected or watches, each
   // whole. Absent when none changed.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),

@@ -1271,11 +1271,11 @@ describe("candles", () => {
 // decides each code's sweep alerts once a sweep's second closes, whatever
 // viewers selected, sends them in the next delta and keeps them for
 // snapshots, and a restarted one ranks the stored sweeps before it alerts.
-describe("sweep alerts", () => {
-  // 09:00:00 WIB and `second` seconds, to the millisecond.
-  const secondWib = (second: number, ms = "000") =>
-    `09:0${Math.floor(second / 60)}:${String(second % 60).padStart(2, "0")}.${ms}`
+// 09:00:00 WIB and `second` seconds, to the millisecond.
+const secondWib = (second: number, ms = "000") =>
+  `09:0${Math.floor(second / 60)}:${String(second % 60).padStart(2, "0")}.${ms}`
 
+describe("sweep alerts", () => {
   // 100 one-lot buy sweeps of UNTR, one a second from 09:00:00 WIB, numbered
   // from `first`: its buy side's warm-up.
   const warmUntr = (first: number) =>
@@ -1523,6 +1523,174 @@ describe("sweep alerts", () => {
         // stays silent and the 1,000-lot one ties the cutoff.
         assert.deepStrictEqual(yield* alertedLots(page), [1000])
       })
+  )
+})
+
+describe("standout sweeps", () => {
+  // `count` UNTR buy sweeps, one a second from 09:00:00 WIB, numbered from
+  // 41000; the one at `index` has `lots(index)` lots.
+  const warmUntr = (count: number, lots: (index: number) => number) =>
+    Array.from({ length: count }, (_, index) =>
+      untr(41000 + index, secondWib(index), 23300, lots(index) * 100)
+    )
+
+  // A BBCA trade at `wib`: its later second closes UNTR's sweeps before it.
+  const closer = (tradeNumber: number, wib: string) => ({
+    ...untr(tradeNumber, wib, 8000, 100),
+    code: "BBCA",
+  })
+
+  // What the deltas `page` received carried: the standout sweeps, each by
+  // code, side, lots and level, and the alerts' lots.
+  const heard = (page: FakeSocket) =>
+    Effect.map(page.received, (received) => {
+      const deltas = received.flatMap((message) =>
+        message._tag === "Delta" ? [message] : []
+      )
+      return {
+        standouts: deltas.flatMap((delta) =>
+          (delta.standoutSweeps ?? []).map(({ code, level, sweep }) => ({
+            code,
+            side: sweep.side,
+            lots: sweep.lots,
+            level,
+          }))
+        ),
+        alerts: deltas.flatMap((delta) =>
+          (delta.sweepAlerts ?? []).map((alert) => alert.lots)
+        ),
+      }
+    })
+
+  // A page that selected BBCA, never UNTR, on a fresh object, with `rows`
+  // ingested at `nowWib` and the next delta sent.
+  const ingested = (nowWib: string, rows: ReadonlyArray<StockbitRow>) =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(wibAt(nowWib)))
+      const { ingest, viewer, select } = yield* tradingDay()
+      const socket = yield* relay(ingest)
+      const page = yield* viewer()
+      yield* select(page, "BBCA")
+      yield* ingest(socket, yield* stockbit(rows, "A"))
+      yield* TestClock.adjust("250 millis")
+      return yield* heard(page)
+    })
+
+  it.effect(
+    "a side with 99 earlier sweeps lists none, at any level, however big",
+    () =>
+      Effect.gen(function* () {
+        const { standouts, alerts } = yield* ingested("09:01:40.500", [
+          ...warmUntr(99, () => 1),
+          untr(41200, "09:01:39.100", 23300, 90_000),
+          closer(41201, "09:01:40.000"),
+        ])
+        assert.deepStrictEqual(
+          { standouts, alerts },
+          { standouts: [], alerts: [] }
+        )
+      })
+  )
+
+  it.effect(
+    "each sweep's level is the smallest of 1%, 5% and 10% it reached, and only 1% alerts",
+    () =>
+      Effect.gen(function* () {
+        // 100 buy sweeps of 1 to 100 lots, then four more, each ranked
+        // against every sweep before it.
+        const { standouts, alerts } = yield* ingested("09:01:44.500", [
+          ...warmUntr(100, (index) => index + 1),
+          // n = 100: the 1st, 5th and 10th largest are 100, 96 and 91.
+          untr(41200, "09:01:40.100", 23300, 9500),
+          // n = 101: the 2nd, 6th and 11th largest are 99, 95 and 91.
+          untr(41201, "09:01:41.100", 23300, 9700),
+          // n = 102: the 2nd largest is 99, which the sweep ties.
+          untr(41202, "09:01:42.100", 23300, 9900),
+          // Under the 10% cutoff.
+          untr(41203, "09:01:43.100", 23300, 5000),
+          closer(41204, "09:01:44.000"),
+        ])
+        const untrBuy = { code: StockCode.make("UNTR"), side: "buy" }
+        assert.deepStrictEqual(
+          { standouts, alerts },
+          {
+            standouts: [
+              { ...untrBuy, lots: 95, level: 10 },
+              { ...untrBuy, lots: 97, level: 5 },
+              { ...untrBuy, lots: 99, level: 1 },
+            ],
+            alerts: [99],
+          }
+        )
+      })
+  )
+
+  it.effect(
+    "a sweep closed over 10 s before its decision is listed but doesn't alert",
+    () =>
+      Effect.gen(function* () {
+        const { standouts, alerts } = yield* ingested("09:02:00.500", [
+          ...warmUntr(100, () => 1),
+          untr(41200, "09:01:45.100", 23300, 4000),
+          closer(41201, "09:02:00.000"),
+        ])
+        assert.deepStrictEqual(
+          { standouts, alerts },
+          {
+            standouts: [
+              {
+                code: StockCode.make("UNTR"),
+                side: "buy",
+                lots: 40,
+                level: 1,
+              },
+            ],
+            alerts: [],
+          }
+        )
+      })
+  )
+
+  it.effect("a delta's standout sweep carries the whole sweep", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:01:42.500")))
+      const { ingest, viewer, select } = yield* tradingDay()
+      const socket = yield* relay(ingest)
+      const page = yield* viewer()
+      yield* select(page, "BBCA")
+      yield* ingest(
+        socket,
+        yield* stockbit(
+          [
+            ...warmUntr(100, () => 1),
+            untr(41101, "09:01:41.100", 23300, 4000),
+            untr(41102, "09:01:41.200", 23325, 6000),
+            closer(41103, "09:01:42.000"),
+          ],
+          "A"
+        )
+      )
+      yield* TestClock.adjust("250 millis")
+      const standouts = (yield* page.received).flatMap((message) =>
+        message._tag === "Delta" ? (message.standoutSweeps ?? []) : []
+      )
+      assert.deepStrictEqual(standouts, [
+        {
+          code: StockCode.make("UNTR"),
+          level: 1,
+          sweep: {
+            side: "buy",
+            firstTrade: TradeNumber.make("41101"),
+            time: wibAt("09:01:41.100"),
+            first: 23300,
+            last: 23325,
+            lots: 100,
+            value: 23300 * 4000 + 23325 * 6000,
+            trades: 2,
+          },
+        },
+      ])
+    })
   )
 })
 

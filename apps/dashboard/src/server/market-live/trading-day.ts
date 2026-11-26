@@ -999,6 +999,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       footprints: changed.footprints,
       sweeps: changed.sweeps,
       sweepAlerts: changed.sweepAlerts,
+      standoutSweeps: changed.standoutSweeps,
       orderBooks,
       bookReadings,
       scannerFigures: yield* changedFigures,

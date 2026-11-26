@@ -17,6 +17,7 @@ import type {
   MinuteSweeps,
   RunningTrade,
   StockCode,
+  StandoutSweep,
   Sweep,
   SweepAlert,
   TradeNumber,
@@ -693,7 +694,8 @@ export const makeCandleBook = Effect.fnUntraced(function* (
 
   // Each minute's sweeps grouped again, every code's, and the alert rule's
   // decisions since: on these and on the sweeps that waited for their second
-  // to close.
+  // to close. Only an alert looks up its trades' numbers, which may read the
+  // store.
   // Every code's changed minutes are grouped on every delta, with
   // no once-a-second cap, so an alert goes out ~250 ms after its second
   // closes. The 09:00 WIB peak measured 2.2–2.6 ms a delta at p50, 12.7 ms
@@ -716,20 +718,29 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       })
     }
     const alerts: Array<SweepAlert> = []
-    for (const alert of yield* alertRule.decide({ latest, now }))
-      alerts.push({
-        code: alert.code,
-        side: alert.sweep.side,
-        lots: alert.sweep.lots,
-        tradeNumbers: yield* tradeNumbersOf(alert),
+    const standouts: Array<StandoutSweep> = []
+    for (const standout of yield* alertRule.decide({ latest, now })) {
+      standouts.push({
+        code: standout.code,
+        level: standout.level,
+        sweep: standout.sweep,
       })
-    return { sweeps, alerts }
+      if (standout.alerts)
+        alerts.push({
+          code: standout.code,
+          side: standout.sweep.side,
+          lots: standout.sweep.lots,
+          tradeNumbers: yield* tradeNumbersOf(standout),
+        })
+    }
+    return { sweeps, alerts, standouts }
   })
 
   // Every candle changed since the last call, of any code; of `selected`
   // each minute a trade changed: its footprint and its sweeps; and of any
   // code each minute its last regular-board trade left: a footprint with
-  // no cells; and of any code the sweep alerts decided since (`regroupAll`).
+  // no cells; and of any code the standout sweeps and sweep alerts decided
+  // since (`regroupAll`).
   // Only the alert rule sees every code's sweeps.
   //
   // Decision: an emptied minute goes out as a footprint with no cells, no candle
@@ -764,7 +775,13 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       })
     }
     for (const slot of slots) yield* release(slot)
-    return { candles, footprints, sweeps, sweepAlerts: grouped.alerts }
+    return {
+      candles,
+      footprints,
+      sweeps,
+      sweepAlerts: grouped.alerts,
+      standoutSweeps: grouped.standouts,
+    }
   })
 
   const hasChanges = Effect.sync(() => changed.size > 0)

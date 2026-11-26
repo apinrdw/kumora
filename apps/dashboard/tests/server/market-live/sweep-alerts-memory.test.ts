@@ -224,7 +224,8 @@ describe("the alert rule at the worst day", () => {
               })
           }
           const latest = FIRST + minute * MINUTE + 59_000
-          alerts += (yield* rule.decide({ latest, now: latest })).length
+          for (const standout of yield* rule.decide({ latest, now: latest }))
+            if (standout.alerts) alerts += 1
           for (const code of codes) yield* rule.release(code, minute)
         }
         const held = (yield* retainedHeap) - before

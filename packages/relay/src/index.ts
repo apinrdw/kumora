@@ -83,6 +83,8 @@ export type {
   MinuteSweeps,
   Sweep,
   AlertSide,
+  StandoutLevel,
+  StandoutSweep,
   SweepAlert,
   ViewerDown,
   ViewerUp,
