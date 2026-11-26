@@ -768,6 +768,7 @@ describe("Stockbit's walk: when it starts and gives up", () => {
           tab: {
             attached: Effect.succeed(false),
             reload: Effect.void,
+            signInToken: Effect.succeedNone,
             request: () => Effect.succeed(Option.none<Answer>()),
           },
           post: production.post,

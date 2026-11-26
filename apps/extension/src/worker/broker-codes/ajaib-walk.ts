@@ -3,7 +3,7 @@
 // under one fixed `last_timestamp`, in two passes of large pages. Each
 // page's rows with valid codes are posted to Production in batches of at
 // most BATCH_ROWS, each with its fields when they are valid; `end` follows
-// the second pass. Production's walk keeps each trade it reads with a stock
+// the second pass. Production's walk keeps each trade it posts with a stock
 // code for the Done Details walk (done-details-walk.ts).
 import {
   AjaibTradeNum,
@@ -39,11 +39,6 @@ import {
 const STATUS_PATH = "v1/stock/data/trading-day/time/"
 const TAPE_PATH = "v1/stock/detail/running_trades/"
 
-// Under one fixed `last_timestamp` the tape answers the day newest first,
-// paged by offset: page k starts at (k - 1) × (P + 1) and holds P rows, so
-// each page boundary skips one trade. The second pass's boundaries fall at
-// other offsets and fill them. Probed on 2026-11-26 at 200,000 / 199,999:
-// 12 calls, 130 s, every trade but the 22 IDX never printed.
 // Decision: the tape walk pages the whole day at 50,000 then 49,999 rows
 // (apps/extension/docs/adr/0024-the-ajaib-tape-walk-pages-the-whole-day.md)
 const PASS_SIZES = { first: 50_000, second: 49_999 } as const
@@ -57,19 +52,33 @@ const MAX_PAGES = 100
 const HEAD_PAGE_SIZE = 40
 
 // Where a day's walk stands, kept after each page so a restarted worker
-// carries on: the pass, the page it asks next, and the walk's fixed
+// carries on: the pass, the page it asks next, the walk's fixed
 // `last_timestamp` (epoch ms), which a resumed walk keeps so its pages line
-// up with those before the restart. A position kept in an older shape
-// doesn't decode, so the day is walked afresh.
+// up with those before the restart, and the trades posted so far, for the
+// options page. The second pass also keeps what it needs to post only the
+// trades the first pass didn't: the tape offset the first pass reached,
+// and its pages that held a row it couldn't read. A position kept in an
+// older shape doesn't decode, so the day is walked afresh.
 // Decision: the tape walk pages the whole day at 50,000 then 49,999 rows
 // (apps/extension/docs/adr/0024-the-ajaib-tape-walk-pages-the-whole-day.md)
-export const AjaibWalkPosition = Schema.Struct({
+const Walking = {
   day: WibDate,
-  pass: Schema.Literals(["first", "second", "done"]),
   page: Schema.Finite,
   lastTimestamp: Schema.Finite,
-})
+  fetched: Schema.Finite,
+}
+export const AjaibWalkPosition = Schema.Union([
+  Schema.Struct({ ...Walking, pass: Schema.Literal("first") }),
+  Schema.Struct({
+    ...Walking,
+    pass: Schema.Literal("second"),
+    reached: Schema.Finite,
+    unread: Schema.Array(Schema.Finite),
+  }),
+  Schema.Struct({ day: WibDate, pass: Schema.Literal("done") }),
+])
 export type AjaibWalkPosition = typeof AjaibWalkPosition.Type
+type Walking = Exclude<AjaibWalkPosition, { readonly pass: "done" }>
 
 export interface AjaibWalkStore {
   readonly load: Effect.Effect<Option.Option<AjaibWalkPosition>>
@@ -112,6 +121,8 @@ const tapePath = (lastTimestamp: number, page: number, size: number) =>
   )
 
 interface PageRow {
+  // Its place on its page, from 0.
+  readonly at: number
   readonly date: WibDate
   readonly timestamp: number
   readonly number: TradeNumber
@@ -134,10 +145,11 @@ const pageRows = Effect.fnUntraced(function* (answer: Answer) {
   const page = decodePage(answer.body)
   if (Option.isNone(page)) return Option.none<TapeAnswer>()
   const rows: Array<PageRow> = []
-  for (const raw of page.value.results) {
+  for (const [at, raw] of page.value.results.entries()) {
     const row = decodeRow(raw)
     if (Option.isNone(row)) continue
     rows.push({
+      at,
       date: row.value.date,
       timestamp: row.value.timestamp,
       number: yield* ajaibSequence(row.value.trade_num),
@@ -178,16 +190,16 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   readonly tab: AjaibWalkTab
   readonly post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
   readonly store: AjaibWalkStore
-  // For the options page (progress.ts): the trades the first pass fetched
-  // since the walk started, of the day's N.
+  // For the options page (progress.ts): the trades the walk has posted of
+  // the day's N.
   readonly trades?: (
     fetched: number,
     of: Option.Option<number>
   ) => Effect.Effect<void>
   // For the options page too: what the walk is doing, and since when.
   readonly phase?: (phase: WalkPhase) => Effect.Effect<void>
-  // Keeps each page's trades for the Done Details walk, before the page's
-  // batches go up (done-details-walk.ts).
+  // Keeps each page's trades for the Done Details walk, once the page's
+  // batches went up (done-details-walk.ts).
   readonly keep?: (
     day: WibDate,
     trades: ReadonlyArray<TapeTrade>
@@ -198,8 +210,6 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   const trades = options.trades ?? (() => Effect.void)
   const report = options.phase ?? (() => Effect.void)
   const { enter, guard, call, readPage } = yield* makeAjaibCalls(tab, report)
-  let fetched = 0
-  let dayN = Option.none<number>()
 
   // One tape page, retried in place until it answers one.
   const tapePage = (windowEnd: DateTime.Utc, path: string) =>
@@ -275,33 +285,51 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   // from the kept page on. Each page's rows go up in batches of at most
   // BATCH_ROWS, Production's batch limit, and its next page is kept. A pass
   // ends at a page that answers fewer rows than asked, or that the tape
-  // says none follows.
+  // says none follows. It answers the trades posted so far, the tape offset
+  // it reached, and its pages that held a row it couldn't read.
   // Decision: the tape walk pages the whole day at 50,000 then 49,999 rows
   // (apps/extension/docs/adr/0024-the-ajaib-tape-walk-pages-the-whole-day.md)
   const walkPass = Effect.fnUntraced(function* (
     windowEnd: DateTime.Utc,
-    from: AjaibWalkPosition & { readonly pass: "first" | "second" }
+    n: number,
+    from: Walking
   ) {
     const { day, pass, lastTimestamp } = from
     const size = PASS_SIZES[pass]
+    let { fetched } = from
+    let reached = 0
+    const unread: Array<number> = []
+    // Whether the first pass missed the tape's row at `offset`: one its page
+    // boundaries skipped, one past where it reached, or one on a first-pass
+    // page that held a row it couldn't read.
+    const span = PASS_SIZES.first + 1
+    const firstMissed = (offset: number) =>
+      from.pass === "first" ||
+      (offset + 1) % span === 0 ||
+      offset >= from.reached ||
+      from.unread.includes(Math.floor(offset / span) + 1)
     for (let page = from.page; page <= MAX_PAGES; page++) {
       const answer = yield* tapePage(
         windowEnd,
         yield* tapePath(lastTimestamp, page, size)
       )
-      const { batch, kept } = yield* dayRows(day, answer.rows)
-      if (kept.length > 0) yield* keep(day, kept)
+      const start = (page - 1) * (size + 1)
+      if (answer.rows.length < answer.size) unread.push(page)
+      const rows = answer.rows.filter((row) => firstMissed(start + row.at))
+      const { batch, kept } = yield* dayRows(day, rows)
       // Decision: a batch holds at most 5,000 rows, read up to BROKER_CODES_BATCH_LIMIT
       // (packages/relay/docs/adr/0012-a-broker-codes-batch-fits-one-byte-limit-on-both-sides.md)
       for (let at = 0; at < batch.length; at += BATCH_ROWS)
         yield* post({ day, rows: batch.slice(at, at + BATCH_ROWS) })
-      if (pass === "first") {
-        fetched += batch.length
-        yield* trades(fetched, dayN)
-      }
+      // Kept once posted, so a restart between the two posts the page again.
+      if (kept.length > 0) yield* keep(day, kept)
+      fetched += batch.length
+      yield* trades(fetched, Option.some(n))
+      reached = start + answer.size
       if (answer.size < size || !answer.hasNext) break
-      yield* store.save({ ...from, page: page + 1 })
+      yield* store.save({ ...from, page: page + 1, fetched })
     }
+    return { fetched, reached, unread }
   })
 
   const walkDay = Effect.fnUntraced(function* (day: WibDate) {
@@ -312,29 +340,31 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
       return { _tag: "walked" } satisfies WalkResult
     const n = yield* awaitClose(day, windowEnd)
     yield* enter("fetching")
-    fetched = 0
-    dayN = Option.some(Number(n))
-    const position: AjaibWalkPosition = Option.isSome(held)
-      ? held.value
-      : {
-          day,
-          pass: "first",
-          page: 1,
-          lastTimestamp: (yield* Clock.currentTimeMillis) + AHEAD,
-        }
-    const { lastTimestamp } = position
+    let position: Walking =
+      Option.isSome(held) && held.value.pass !== "done"
+        ? held.value
+        : {
+            day,
+            pass: "first",
+            page: 1,
+            lastTimestamp: (yield* Clock.currentTimeMillis) + AHEAD,
+            fetched: 0,
+          }
+    yield* trades(position.fetched, Option.some(Number(n)))
     if (position.pass === "first") {
-      yield* walkPass(windowEnd, { ...position, pass: "first" })
-      yield* store.save({ day, pass: "second", page: 1, lastTimestamp })
+      const first = yield* walkPass(windowEnd, Number(n), position)
+      position = {
+        day,
+        pass: "second",
+        page: 1,
+        lastTimestamp: position.lastTimestamp,
+        ...first,
+      }
+      yield* store.save(position)
     }
-    yield* walkPass(windowEnd, {
-      day,
-      pass: "second",
-      page: position.pass === "second" ? position.page : 1,
-      lastTimestamp,
-    })
+    yield* walkPass(windowEnd, Number(n), position)
     yield* post({ day, rows: [], end: { n } })
-    yield* store.save({ day, pass: "done", page: 1, lastTimestamp })
+    yield* store.save({ day, pass: "done" })
     return { _tag: "walked" } satisfies WalkResult
   })
 

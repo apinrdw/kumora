@@ -111,6 +111,8 @@ const fakeAjaib = (
     readonly token?: (now: number) => string
     // The `trade_access_token` cookie's raw value at a time; "" without one.
     readonly cookie?: (now: number) => string
+    // The PIN sign-in's access token at a time; none without one.
+    readonly signIn?: (now: number) => string | undefined
     // Whether a page's first row comes without a trade number.
     readonly malformed?: (path: string) => boolean
     // Whether the tape says no page follows a page that it would page past.
@@ -182,6 +184,9 @@ const fakeAjaib = (
     reload: Effect.sync(() => {
       reloads++
     }),
+    signInToken: Effect.map(Clock.currentTimeMillis, (now) =>
+      Option.fromNullishOr(options.signIn?.(now))
+    ),
     reloads: () => reloads,
     tapeCalls: () => paths.filter((path) => path !== STATUS_PATH),
     walkPages: () => paths.filter(isWalkPage),
@@ -319,7 +324,13 @@ describe("Ajaib's walk of the day", () => {
         // boundary; the second pass filled it.
         assert.deepStrictEqual(missingOf(firstPass, BUSY_N), [10_000])
         assert.deepStrictEqual(missingOf(production.held(), BUSY_N), [])
-        assert.deepStrictEqual(trades.at(-1), [BUSY_N - 1, Option.some(BUSY_N)])
+        // Each trade goes up once: the second pass posts only those the
+        // first pass's page boundaries skipped.
+        const posted = production.batches.flatMap((batch) =>
+          batch.rows.map(([number]) => number)
+        )
+        assert.strictEqual(posted.length, BUSY_N)
+        assert.deepStrictEqual(trades.at(-1), [BUSY_N, Option.some(BUSY_N)])
         assert.deepStrictEqual(production.ends(), [{ n: String(BUSY_N) }])
         assert.deepStrictEqual(production.batches.at(-1)?.end, {
           n: String(BUSY_N),
@@ -458,34 +469,31 @@ describe("Ajaib's walk of the day", () => {
   )
 
   it.effect(
-    "keeps each page's trades with a stock code for the Done Details walk before posting them, unkeyed without valid fields",
+    "keeps each page's trades with a stock code for the Done Details walk once they are posted, unkeyed without valid fields",
     () =>
       Effect.gen(function* () {
         yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
         const production = fakeProduction()
         const kept = new Map<string, TapeTrade>()
-        // How many trades were kept when each batch went up.
-        const keptAtPost: Array<number> = []
+        // How many trades were posted when each page was kept.
+        const postedAtKeep: Array<number> = []
         const walk = yield* makeAjaibWalk({
           tab: fakeAjaib({
             badLots: new Set([7]),
             noStockCode: new Set([9]),
           }),
-          post: (batch) =>
-            Effect.andThen(
-              Effect.sync(() => keptAtPost.push(kept.size)),
-              production.post(batch)
-            ),
+          post: production.post,
           store: memoryStore().store,
           keep: (day, trades) =>
             Effect.sync(() => {
               assert.strictEqual(day, DAY)
+              postedAtKeep.push(production.held().size)
               for (const trade of trades) kept.set(trade.number, trade)
             }),
         })
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
         assert.strictEqual(kept.size, N - 1)
-        assert.strictEqual(keptAtPost[0], N - 1)
+        assert.strictEqual(postedAtKeep[0], N)
         assert.deepStrictEqual(kept.get("7"), {
           _tag: "Unkeyed",
           number: TradeNumber.make("7"),
@@ -710,11 +718,22 @@ describe("Ajaib's walk: when it starts", () => {
           since: start,
           stall: { kind: "refused-token", failures: 1, tokenChanged: false },
         } as const
+        // The token wait carries the stall cause that refused the last.
         assert.deepStrictEqual(phases, [
           { step: "awaiting-close", since: start },
           refused,
-          { step: "awaiting-token", since: start, reloads: 0 },
-          { step: "awaiting-token", since: start, reloads: 1 },
+          {
+            step: "awaiting-token",
+            since: start,
+            reloads: 0,
+            stall: refused.stall,
+          },
+          {
+            step: "awaiting-token",
+            since: start,
+            reloads: 1,
+            stall: refused.stall,
+          },
           // Back from the token wait, its call still retrying, then answered.
           refused,
           { step: "awaiting-close", since: start },
@@ -763,6 +782,7 @@ describe("Ajaib's walk: when it starts", () => {
         tab: {
           attached: Effect.sync(() => open),
           reload: Effect.void,
+          signInToken: Effect.succeed(Option.none()),
           request: (request) =>
             Effect.suspend(() =>
               open ? fake.request(request) : Effect.succeed(Option.none())
@@ -792,6 +812,7 @@ describe("Ajaib's walk: when it starts", () => {
           tab: {
             attached: Effect.succeed(false),
             reload: Effect.void,
+            signInToken: Effect.succeed(Option.none()),
             request: () => Effect.succeed(Option.none<Answer>()),
           },
           post: production.post,
@@ -851,13 +872,30 @@ describe("Ajaib's walk: stopping and carrying on", () => {
             pass: "first" as const,
             page: 2,
             lastTimestamp: start + HOUR,
+            fetched: 50_000,
           })
         )
 
         yield* TestClock.adjust("10 minutes")
         const second = fakeAjaib({ rows: busyRows() })
-        const after = yield* walkWith(second, production, kept.store)
+        const trades: Array<number> = []
+        const after = yield* makeAjaibWalk({
+          tab: second,
+          post: production.post,
+          store: kept.store,
+          trades: (fetched) =>
+            Effect.sync(() => {
+              trades.push(fetched)
+            }),
+        })
         assert.deepStrictEqual(yield* after.walk(DAY), { _tag: "walked" })
+        // The resumed walk counts on from the trades fetched before.
+        assert.strictEqual(trades[0], 50_000)
+        assert.strictEqual(trades.at(-1), BUSY_N)
+        assert.deepStrictEqual(
+          kept.held(),
+          Option.some({ day: DAY, pass: "done" as const })
+        )
         assert.deepStrictEqual(
           second.walkPages().map((path) => [sizeOf(path), pageOf(path)]),
           [
@@ -891,11 +929,27 @@ describe("Ajaib's walk: stopping and carrying on", () => {
           pass: "second",
           page: 1,
           lastTimestamp: start - 10 * MINUTE,
+          fetched: N - 1,
+          reached: N - 1,
+          unread: [],
         })
         const production = fakeProduction()
         const tab = fakeAjaib()
-        const walk = yield* walkWith(tab, production, kept.store)
+        const trades: Array<number> = []
+        const walk = yield* makeAjaibWalk({
+          tab,
+          post: production.post,
+          store: kept.store,
+          trades: (fetched) =>
+            Effect.sync(() => {
+              trades.push(fetched)
+            }),
+        })
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        // The second pass posts the trade past the first pass's reach, and
+        // counts it.
+        assert.deepStrictEqual([...production.held()], [1])
+        assert.deepStrictEqual(trades, [N - 1, N])
         assert.deepStrictEqual(
           tab.walkPages().map((path) => [sizeOf(path), lastTimestampOf(path)]),
           [[49_999, start - 10 * MINUTE]]
@@ -1320,6 +1374,47 @@ describe("Ajaib's walk: its walk token", () => {
           { step: "awaiting-close", since: start },
         ])
       })
+  )
+
+  it.effect(
+    "with no token in the cookie or the page, signs with the PIN sign-in's",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const signIn = jwt("sign-in")
+        const { tab, bearers } = signedTab({
+          token: () => "",
+          signIn: () => signIn,
+        })
+        const walk = yield* walkWith(tab)
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        assert.isNotEmpty(bearers)
+        assert.isTrue(bearers.every((bearer) => bearer === signIn))
+      })
+  )
+
+  it.effect("keeps a token whose unanswered calls a timeout came between", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+      const cookie = jwt("cookie")
+      const { tab, bearers } = signedTab({
+        cookie: () => cookie,
+        token: () => jwt("page"),
+        // No answer, a timeout, then no answer again.
+        answer: (_, call) =>
+          call === 1 || call === 3
+            ? Effect.succeed(undefined)
+            : call === 2
+              ? Effect.as(Effect.sleep("15 seconds"), undefined)
+              : undefined,
+      })
+      const walk = yield* walkWith(tab)
+      const fiber = yield* Effect.forkChild(walk.walk(DAY))
+      yield* TestClock.adjust("0 millis")
+      yield* TestClock.adjust("1 minute")
+      assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+      assert.isTrue(bearers.every((bearer) => bearer === cookie))
+    })
   )
 
   it.effect("never sends a cookie token past its expiry", () =>

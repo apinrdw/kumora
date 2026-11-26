@@ -201,15 +201,16 @@ const stallLabel = Effect.fnUntraced(function* (stall: StallCause | undefined) {
 const phaseLabel = Effect.fnUntraced(function* (phase: WalkPhase | undefined) {
   if (phase === undefined) return ""
   const since = yield* wibClock(phase.since)
+  const stall = yield* stallLabel(phase.stall)
   switch (phase.step) {
     case "awaiting-close":
-      return `waiting for Ajaib's close since ${since}${yield* stallLabel(phase.stall)}`
+      return `waiting for Ajaib's close since ${since}${stall}`
     case "fetching":
-      return `fetching since ${since}${yield* stallLabel(phase.stall)}`
+      return `fetching since ${since}${stall}`
     case "awaiting-token":
       return phase.reloads === 0
-        ? `waiting for a fresh Ajaib token since ${since}`
-        : `waiting for a fresh Ajaib token since ${since}, tab reloaded ${yield* count(phase.reloads)}×`
+        ? `waiting for a fresh Ajaib token since ${since}${stall}`
+        : `waiting for a fresh Ajaib token since ${since}, tab reloaded ${yield* count(phase.reloads)}×${stall}`
   }
 })
 

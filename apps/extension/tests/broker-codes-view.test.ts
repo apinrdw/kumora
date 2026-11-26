@@ -349,6 +349,15 @@ describe("the walk's phase", () => {
           }),
           "waiting for Ajaib's close since 17:05, retrying: the Ajaib tab didn't answer in time, 12 calls failed in a row, walk token unchanged"
         )
+        assert.strictEqual(
+          yield* phaseOf({
+            step: "awaiting-token",
+            since,
+            reloads: 2,
+            stall: { kind: "refused-token", failures: 3, tokenChanged: true },
+          }),
+          "waiting for a fresh Ajaib token since 17:05, tab reloaded 2×, retrying: Ajaib refused the walk token, 3 calls failed in a row, walk token changed since the first"
+        )
       })
   )
 })

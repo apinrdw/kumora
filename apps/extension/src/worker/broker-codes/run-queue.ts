@@ -87,16 +87,16 @@ export interface CatchUpWalk {
 // a site, catching the extra target up, or paused. A walk is of the newest
 // closed day, an older day's gaps, or a History day (history.ts). A walk
 // that has fetched trades says how many, of the day's N once known, and its
-// pace (progress.ts). Ajaib's Done Details walk (route `done-details`) says how many of the day's stock
-// codes it has walked. A catch-up's
-// end reports idle, which has the options page ask the days again, so a day
-// it caught up no longer shows Behind.
+// pace (progress.ts). Ajaib's Done Details walk (route `done-details`) says
+// how many of the day's stock codes it has walked. A catch-up's end reports
+// idle, which has the options page ask the days again, so a day it caught up
+// no longer shows Behind.
 // Ajaib's walk also says what it is doing and since when (epoch ms):
 // waiting for Ajaib's close, waiting for a usable token with the tab
 // reloads so far, or fetching since its first page.
-// While a call retries in place, the first two carry its stall cause: what
-// the last call met, how many calls in a row failed, and whether the walk
-// token changed since the first of them. Never the token itself.
+// While a call retries in place, each carries its stall cause: what the
+// last call met, how many calls in a row failed, and whether the walk token
+// changed since the first of them. Never the token itself.
 const StallCause = Schema.Struct({
   kind: Schema.Literals(["refused-token", "no-answer", "timeout"]),
   failures: Schema.Finite,
@@ -114,6 +114,7 @@ const WalkPhase = Schema.Union([
     step: Schema.Literal("awaiting-token"),
     since: Schema.Finite,
     reloads: Schema.Finite,
+    stall: Schema.optionalKey(StallCause),
   }),
 ])
 export type WalkPhase = typeof WalkPhase.Type

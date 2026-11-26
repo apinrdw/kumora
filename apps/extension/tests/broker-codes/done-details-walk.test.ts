@@ -122,6 +122,7 @@ const fakeAjaib = (
     bearers,
     attached: Effect.succeed(true),
     reload: Effect.void,
+    signInToken: Effect.succeed(Option.none<string>()),
     request: (request: TabRequest) =>
       Effect.sync(() => {
         if (request._tag === "page-token")

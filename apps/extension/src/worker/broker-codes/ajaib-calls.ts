@@ -23,7 +23,10 @@ const RETRY_MS = 10_000
 const RELOAD_MS = 60_000
 // A call that comes back empty this long after it was sent timed out (the
 // pacer gives it up at REQUEST_TIMEOUT); sooner, the tab answered that the
-// request failed.
+// request failed. The pacer's timeout starts when the call joins its queue,
+// not when the tab is asked, so a no-answer after a long queue wait reads as
+// a timeout: the pacer drops the tab's late answer, and a timeout refuses no
+// token, so the walk only waits a call longer to refuse it.
 const TIMEOUT_MS = Duration.toMillis(REQUEST_TIMEOUT)
 // Ajaib's 401 carries no CORS headers, so the tab often reads it as a failed
 // request: a token whose calls fail this many times in a row is refused.
@@ -33,6 +36,14 @@ const UNANSWERED_REFUSAL = 2
 const TOKEN_COOKIE = "trade_access_token"
 const JWT = /eyJ[\w-]+\.[\w-]+\.[\w-]+/
 
+// A token a walk call may be signed with (the glossary's Walk token): read
+// from the cookie, the page or the PIN sign-in, never empty.
+const WalkToken = Schema.String.check(Schema.isMinLength(1)).pipe(
+  Schema.brand("WalkToken")
+)
+type WalkToken = typeof WalkToken.Type
+const decodeWalkToken = Schema.decodeUnknownOption(WalkToken)
+
 const Expiry = Schema.fromJsonString(Schema.Struct({ exp: Schema.Finite }))
 const decodeExpiry = Schema.decodeUnknownOption(Expiry)
 
@@ -40,11 +51,9 @@ export interface AjaibWalkTab extends RequestingTab {
   readonly attached: Effect.Effect<boolean>
   // Reloads the Ajaib tab, so its page signs its calls with a fresh token.
   readonly reload: Effect.Effect<void>
+  // The PIN sign-in's access token, the walk token's last fallback.
+  readonly signInToken: Effect.Effect<Option.Option<string>>
 }
-
-// Why a call failed: Ajaib refused its token with a 401, the tab answered
-// that the request failed (no status), or the tab didn't answer in time.
-type Failure = StallCause["kind"]
 
 type Step = Extract<WalkPhase, { step: "awaiting-close" | "fetching" }>
 
@@ -56,17 +65,17 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
   let phase = Option.none<Step>()
   // The stall cause of the call retrying in place, none once a call answers.
   let stall = Option.none<StallCause>()
+  // `step` with the stall cause, if any.
+  const stalled = (step: WalkPhase): WalkPhase =>
+    Option.match(stall, {
+      onNone: () => step,
+      onSome: (cause) => ({ ...step, stall: cause }),
+    })
   // Reports the phase with its stall cause, if any.
   const show = Effect.suspend(() =>
     Option.match(phase, {
       onNone: () => Effect.void,
-      onSome: (step) =>
-        report(
-          Option.match(stall, {
-            onNone: () => step,
-            onSome: (cause) => ({ ...step, stall: cause }),
-          })
-        ),
+      onSome: (step) => report(stalled(step)),
     })
   )
   const enter = Effect.fnUntraced(function* (
@@ -96,9 +105,9 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
   const pageToken = Effect.map(
     Effect.suspend(() => tab.request({ _tag: "page-token" })),
     (answer) =>
-      Option.map(
+      Option.flatMap(
         Option.filter(answer, (token) => token.status === 200),
-        (token) => token.body
+        (token) => decodeWalkToken(token.body)
       )
   )
 
@@ -116,18 +125,23 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
           } catch {
             // Not URL-encoded: matched as it is.
           }
-          return Option.fromNullishOr(JWT.exec(text)?.[0])
+          return decodeWalkToken(JWT.exec(text)?.[0])
         }
       )
   )
 
+  const signInToken = Effect.map(
+    Effect.suspend(() => tab.signInToken),
+    Option.flatMap(decodeWalkToken)
+  )
+
   // Every refused token of this walk, so none is sent again.
-  const refused = new Set<string>()
+  const refused = new Set<WalkToken>()
 
   // A token past its JWT `exp` is refused before it is sent.
   // 2026-11-20: an expired page token stalled the walk, retried every 10 s,
   // with 122,400 trades missing.
-  const usable = Effect.fnUntraced(function* (token: string) {
+  const usable = Effect.fnUntraced(function* (token: WalkToken) {
     if (refused.has(token)) return false
     const expiry = Option.flatMap(yield* jwtPayloadText(token), decodeExpiry)
     const now = yield* Clock.currentTimeMillis
@@ -135,14 +149,15 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
   })
 
   // The walk token, read afresh for each call: the cookie's, else the
-  // page's own, the first of them not refused. Ajaib rotates the cookie's
-  // token, so reading it only after a 401 kept sending a stale one.
+  // page's own, else the PIN sign-in's, the first of them not refused. Ajaib
+  // rotates the cookie's token, so reading it only after a 401 kept sending
+  // a stale one. A reloaded page holds no token until it makes a call.
   const walkToken = Effect.fnUntraced(function* () {
-    for (const read of [cookieToken, pageToken]) {
+    for (const read of [cookieToken, pageToken, signInToken]) {
       const token = yield* read
       if (Option.isSome(token) && (yield* usable(token.value))) return token
     }
-    return Option.none<string>()
+    return Option.none<WalkToken>()
   })
 
   // With no token it may send, the walk reloads the idle Ajaib tab every
@@ -153,7 +168,7 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
     const now = yield* walkToken()
     if (Option.isSome(now)) return now.value
     const since = yield* Clock.currentTimeMillis
-    yield* report({ step: "awaiting-token", since, reloads: 0 })
+    yield* report(stalled({ step: "awaiting-token", since, reloads: 0 }))
     let waited = 0
     let reloads = 0
     while (true) {
@@ -163,7 +178,7 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
         yield* tab.reload
         waited = 0
         reloads++
-        yield* report({ step: "awaiting-token", since, reloads })
+        yield* report(stalled({ step: "awaiting-token", since, reloads }))
       }
       yield* guard(windowEnd)
       const token = yield* walkToken()
@@ -173,21 +188,25 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
     }
   })
 
-  // One call sent with `token`: Ajaib's answer, or why it failed.
-  const attempt = Effect.fnUntraced(function* (path: string, token: string) {
-    const sent = yield* Clock.currentTimeMillis
-    const answer = yield* tab.request({
-      _tag: "page-fetch",
-      path,
-      bearer: token,
+  // One call sent with `token`: Ajaib's answer, or why it failed: Ajaib
+  // refused its token with a 401, the tab answered that the request failed
+  // (no status), or the tab didn't answer in time.
+  const attempt = (
+    path: string,
+    token: WalkToken
+  ): Effect.Effect<Answer | StallCause["kind"]> =>
+    Effect.gen(function* () {
+      const sent = yield* Clock.currentTimeMillis
+      const answer = yield* tab.request({
+        _tag: "page-fetch",
+        path,
+        bearer: token,
+      })
+      if (Option.isSome(answer))
+        return answer.value.status === 401 ? "refused-token" : answer.value
+      const took = (yield* Clock.currentTimeMillis) - sent
+      return took >= TIMEOUT_MS ? "timeout" : "no-answer"
     })
-    if (Option.isSome(answer))
-      return answer.value.status === 401
-        ? ("refused-token" satisfies Failure as Failure)
-        : answer.value
-    const took = (yield* Clock.currentTimeMillis) - sent
-    return took >= TIMEOUT_MS ? "timeout" : "no-answer"
-  })
 
   // One call on Ajaib's API, signed with the walk token and retried in place
   // until the tab answers it. A refused token is retried at once with the
@@ -197,15 +216,15 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
     path: string
   ) {
     // The token sent last, and how many calls in a row with it got no answer.
-    let last = ""
+    let last = Option.none<WalkToken>()
     let unanswered = 0
     // The token of the first call in a row that failed, and how many have.
-    let first = ""
+    let first = Option.none<WalkToken>()
     let failures = 0
     while (true) {
       const token = yield* awaitToken(windowEnd)
-      if (token !== last) unanswered = 0
-      last = token
+      if (!Option.contains(last, token)) unanswered = 0
+      last = Option.some(token)
       const outcome = yield* attempt(path, token)
       if (typeof outcome !== "string") {
         if (Option.isSome(stall)) {
@@ -214,15 +233,16 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
         }
         return outcome
       }
-      if (failures === 0) first = token
+      if (Option.isNone(first)) first = Option.some(token)
       failures++
       stall = Option.some({
         kind: outcome,
         failures,
-        tokenChanged: token !== first,
+        tokenChanged: !Option.contains(first, token),
       })
       yield* show
-      if (outcome === "no-answer") unanswered++
+      // Only calls in a row that got no answer refuse a token.
+      unanswered = outcome === "no-answer" ? unanswered + 1 : 0
       if (outcome === "refused-token" || unanswered >= UNANSWERED_REFUSAL) {
         refused.add(token)
         continue

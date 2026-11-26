@@ -426,6 +426,7 @@ const main = Effect.gen(function* () {
     ...ajaibPacer.tab("walk"),
     attached: ajaibTab.attached,
     reload: ajaibTab.reload,
+    signInToken: ajaibSession.fallbackToken,
   }
   // The trades Ajaib's walk keeps for its Done Details walk, which then
   // gives them their order numbers before Stockbit's walk.

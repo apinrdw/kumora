@@ -49,8 +49,8 @@ Ajaib's idle PIN lock showing on the relayed tab with no way for the extension t
 _Avoid_: PIN lock (the screen itself), signed out
 
 **Walk token**:
-The Ajaib access token a post-close walk's call sends: the one in the Ajaib tab's `trade_access_token` cookie at the moment of the call, else the page's own. Ajaib rotates it, so it is never reused from an earlier call.
-_Avoid_: page token (that is only the fallback), session
+The Ajaib access token a post-close walk's call sends: the one in the Ajaib tab's `trade_access_token` cookie at the moment of the call, else the page's own, else the PIN sign-in's, the first of them not a refused token. Ajaib rotates it, so it is never reused from an earlier call.
+_Avoid_: page token (that is only a fallback), session
 
 **Refused token**:
 A walk token the walks never send again: Ajaib answered a call made with it with a 401, two calls in a row with it got no answer, or it is past its expiry.

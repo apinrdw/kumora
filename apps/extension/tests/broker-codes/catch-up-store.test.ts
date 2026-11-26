@@ -43,8 +43,6 @@ describe("the Ajaib catch-up position", () => {
       const done: AjaibWalkPosition = {
         day: DAY,
         pass: "done",
-        page: 1,
-        lastTimestamp: 0,
       }
       yield* store.load
       yield* store.save(done)
@@ -73,8 +71,6 @@ describe("the Ajaib catch-up position", () => {
       yield* store.save({
         day: DAY,
         pass: "done",
-        page: 1,
-        lastTimestamp: 0,
       })
       assert.isTrue(Option.isNone(yield* store.load))
     })
