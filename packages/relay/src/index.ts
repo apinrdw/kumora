@@ -226,6 +226,11 @@ export type {
   OrderNumbers,
   TradeFields,
 } from "./broker-codes.ts"
+export {
+  STANDOUTS_PER_LEVEL,
+  keptStandouts,
+  standoutKey,
+} from "./standout-sweeps.ts"
 export type { RecordedSweeps } from "./sweeps.ts"
 export {
   decodeRecordedSweeps,

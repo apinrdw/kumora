@@ -14,6 +14,7 @@ import {
   decodeBookChunk,
   decodeViewerUp,
   bookAt,
+  keptStandouts,
   encodeRecordedGaps,
   encodeViewerDown,
   MarketConditions,
@@ -33,6 +34,7 @@ import {
   type RecordedDay,
   type RecordedResource,
   type RunningTrade,
+  type StandoutSweep,
   type TradeNumber,
   type WibDate,
   BUBBLE_MINUTES,
@@ -627,6 +629,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
   )
   const keptAlerts = yield* makeKeptAlerts
+  // Decision: sweep alerts live only in object memory; the page keeps its marks
+  // (apps/dashboard/docs/adr/0087-sweep-alerts-live-only-in-the-object-s-memory.md)
+  //
+  // The day's standout sweeps for a snapshot, newest first, capped per level
+  // by `keptStandouts`: a restarted object starts it empty.
+  let standouts: ReadonlyArray<StandoutSweep> = []
   const ingests = options.ingests ?? Effect.succeed([])
   const books = yield* makeOrderBooks(options.date)
   const readings = yield* makeReadingsBook({ date: options.date })
@@ -971,6 +979,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     pending = new Map()
     const selected = yield* onDemand.selected
     const changed = yield* candles.takeChanged(selected)
+    // Kept before they are sent: a snapshot between the two then carries
+    // them, and the page joins the delta's copy once.
+    standouts = keptStandouts(standouts, changed.standoutSweeps)
     const live = yield* stockbitLive
     const changedBooks = yield* books.takeChanged(live)
     for (const book of changedBooks)
@@ -1803,6 +1814,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         ...(indicative.length === 0 ? {} : { indicative }),
         ...(yield* nonEmpty({
           sweepAlerts: yield* keptAlerts.on(snapshotTape),
+          standoutSweeps: standouts,
           bookEvents: newestEvents,
           selectedBookEvents: selectedEvents,
           orderFlowEvents: newestOrderFlow,

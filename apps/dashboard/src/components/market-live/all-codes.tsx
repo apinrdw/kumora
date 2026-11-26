@@ -1,5 +1,10 @@
 import { clientRuntime, type StockCode } from "@workspace/client"
-import type { StandoutLevel, StandoutSweep, WibDate } from "@workspace/relay"
+import {
+  standoutKey,
+  type StandoutLevel,
+  type StandoutSweep,
+  type WibDate,
+} from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { DateTime, Effect } from "effect"
 import { memo, useMemo, useSyncExternalStore } from "react"
@@ -8,7 +13,7 @@ import { compact, lots, plain, tapeTime } from "@/lib/format"
 import { pricePath } from "@/lib/sweeps"
 import { makeStoredValue } from "@/lib/stored-value"
 
-import { standoutKey, type StandoutStore } from "./standout-store"
+import type { StandoutStore } from "./standout-store"
 
 const LEVELS: ReadonlyArray<StandoutLevel> = [1, 5, 10]
 

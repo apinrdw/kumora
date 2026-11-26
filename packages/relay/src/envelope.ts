@@ -36,7 +36,8 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // apinrdw/kumora#605).
 // 9: snapshots and deltas carry order flow events (spec apinrdw/kumora#605).
 // 10: deltas carry standout sweeps (spec apinrdw/kumora#705).
-export const ViewerProtocolVersion = 10
+// 11: snapshots carry the day's standout sweeps (spec apinrdw/kumora#705).
+export const ViewerProtocolVersion = 11
 
 // Decision: 4403 refuses the token, 4426 a protocol; both stop ingest retries
 // (packages/relay/docs/adr/0003-ingest-socket-closes-4403-and-4426-stop-retries.md)
@@ -469,6 +470,10 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   // The day's sweep alerts with a trade on this tape, which the page marks
   // and never plays. Absent when none has.
   sweepAlerts: Schema.optionalKey(Schema.Array(SweepAlert)),
+  // The day's standout sweeps of every code the object decided since it
+  // started, newest first, the newest STANDOUTS_PER_LEVEL
+  // (standout-sweeps.ts) at or under each level. Absent when there are none.
+  standoutSweeps: Schema.optionalKey(Schema.Array(StandoutSweep)),
   // Every code's latest book readings. Absent when no code has any yet.
   bookReadings: Schema.optionalKey(Schema.Array(BookReadings)),
   // The scanner's figures of every code with readings: its last price,

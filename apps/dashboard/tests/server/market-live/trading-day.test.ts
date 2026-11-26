@@ -9,6 +9,7 @@ import {
   IngestProtocolVersion,
   StockCode,
   TradeNumber,
+  STANDOUTS_PER_LEVEL,
   VIEWER_MESSAGE_LIMIT,
   ViewerCloseCode,
   ViewerProtocolVersion,
@@ -1691,6 +1692,138 @@ describe("standout sweeps", () => {
         },
       ])
     })
+  )
+
+  // The standout sweeps the snapshot of a page newly opened on `day` carries,
+  // each by its first trade's number and level.
+  const snapshotted = (day: Effect.Success<ReturnType<typeof tradingDay>>) =>
+    Effect.gen(function* () {
+      const page = yield* day.viewer()
+      yield* day.select(page, "BBCA")
+      const [snapshot] = yield* page.received
+      assert.strictEqual(snapshot?._tag, "Snapshot")
+      return snapshot?._tag === "Snapshot"
+        ? (snapshot.standoutSweeps ?? []).map(({ level, sweep }) => ({
+            firstTrade: Number(sweep.firstTrade),
+            level,
+          }))
+        : []
+    })
+
+  it.effect(
+    "a new page's snapshot carries the day's standout sweeps, newest first",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:01:44.500")))
+        const day = yield* tradingDay()
+        yield* day.ingest(
+          yield* relay(day.ingest),
+          yield* stockbit(
+            [
+              ...warmUntr(100, (index) => index + 1),
+              untr(41200, "09:01:40.100", 23300, 9500),
+              untr(41201, "09:01:41.100", 23300, 9700),
+              untr(41202, "09:01:42.100", 23300, 9900),
+              closer(41203, "09:01:44.000"),
+            ],
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        assert.deepStrictEqual(yield* snapshotted(day), [
+          { firstTrade: 41202, level: 1 },
+          { firstTrade: 41201, level: 5 },
+          { firstTrade: 41200, level: 10 },
+        ])
+      })
+  )
+
+  it.effect(
+    "the snapshot keeps the newest 500 at each level, so 10% sweeps never push out an older 1% one",
+    () =>
+      Effect.gen(function* () {
+        // UNTR buy sweep `index`, numbered 50000 + index, one a second from
+        // 09:00:00 WIB.
+        const sweepAt = (index: number, lots: number) =>
+          untr(
+            50_000 + index,
+            `09:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.100`,
+            23300,
+            lots * 100
+          )
+        // 1,000 sweeps of 1,000 down to 1 lots, each under every earlier
+        // one, so none stands out. Then one of 2,000 lots, at 1%. Then 510
+        // of 920 lots: the 10% cutoff stays at 901 or below and the 5%
+        // cutoff above 920 while fewer than 620 of them ranked, so each is
+        // at 10%.
+        const rows = [
+          ...Array.from({ length: 1000 }, (_, index) =>
+            sweepAt(index, 1000 - index)
+          ),
+          sweepAt(1000, 2000),
+          ...Array.from({ length: 510 }, (_, index) =>
+            sweepAt(1001 + index, 920)
+          ),
+          closer(51511, "09:25:12.000"),
+        ]
+        yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:25:12.500")))
+        const day = yield* tradingDay()
+        yield* day.ingest(yield* relay(day.ingest), yield* stockbit(rows, "A"))
+        yield* TestClock.adjust("250 millis")
+        assert.deepStrictEqual(yield* snapshotted(day), [
+          ...Array.from({ length: STANDOUTS_PER_LEVEL }, (_, index) => ({
+            firstTrade: 51510 - index,
+            level: 10,
+          })),
+          { firstTrade: 51000, level: 1 },
+        ])
+      }),
+    { timeout: 10_000 }
+  )
+
+  it.effect(
+    "a restarted object snapshots none of the standout sweeps before it, only those it decides",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:01:42.500")))
+        const sql = memorySql()
+        const before = yield* tradingDay(undefined, sql)
+        yield* before.ingest(
+          yield* relay(before.ingest),
+          yield* stockbit(
+            [
+              ...warmUntr(100, (index) => index + 1),
+              untr(41200, "09:01:40.100", 23300, 20_000),
+              closer(41201, "09:01:42.000"),
+            ],
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        assert.deepStrictEqual(yield* snapshotted(before), [
+          { firstTrade: 41200, level: 1 },
+        ])
+        // Past the merge window, the flush stores the day's sweeps.
+        yield* TestClock.adjust("30 seconds")
+        yield* before.alarm
+
+        const after = yield* tradingDay(undefined, sql)
+        assert.deepStrictEqual(yield* snapshotted(after), [])
+        yield* after.ingest(
+          yield* relay(after.ingest),
+          yield* stockbit(
+            [
+              untr(41300, "09:02:12.100", 23300, 20_000),
+              closer(41301, "09:02:13.000"),
+            ],
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        assert.deepStrictEqual(yield* snapshotted(after), [
+          { firstTrade: 41300, level: 1 },
+        ])
+      })
   )
 })
 
