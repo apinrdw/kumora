@@ -528,6 +528,32 @@ describe("a disclosure run", () => {
       })
   )
 
+  it.effect("skips a disclosure whose Id2 names a day the calendar lacks", () =>
+    Effect.gen(function* () {
+      const { idx, run } = world()
+      publish(idx, NAV)
+      const reply = replyOf(
+        { stamp: "20261125100000", number: "F/30", files: [] },
+        "id"
+      )
+      idx.versions.id.push({
+        ...reply,
+        pengumuman: { ...reply.pengumuman, Id2: "20260230100000-F/30_id-id" },
+      })
+
+      const result = yield* run()
+
+      assert.deepInclude(result, {
+        outcome: "partial",
+        versionsAdded: 2,
+        entriesSkipped: 1,
+      })
+      assert.deepStrictEqual(result.skipped, [
+        "IDX listed a disclosure on 2026-11-25 (id) whose Id2 isn't a publish time and number: 20260230100000-F/30_id-id",
+      ])
+    })
+  )
+
   it.effect(
     "completes a backfilled day despite a malformed entry, and never lists it again",
     () =>
