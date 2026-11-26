@@ -13,6 +13,7 @@ import { WebSocket } from "ws"
 
 import { DASHBOARD } from "./accounts"
 import { WIB_OFFSET, marketNow, wibDate, wibTime } from "./clock"
+import { wsFrame } from "./ws-frame"
 
 /** The Test stage's INGEST_TOKEN (playwright.config.ts sets it). */
 export const TEST_INGEST_TOKEN = "e2e-ingest-token-not-a-secret"
@@ -227,11 +228,10 @@ export async function storeRecordedCodeList(request: APIRequestContext) {
 export async function openIngest(token = TEST_INGEST_TOKEN) {
   const { socket, closed } = await dial()
   // Every message the object sent down, as text; none comes before the
-  // token. With ws's default `nodebuffer` binary type, a text frame arrives
-  // as a string and a binary one as a Buffer.
+  // token.
   const received: Array<string> = []
   socket.addEventListener("message", (event) =>
-    received.push((event.data as string | Buffer).toString())
+    received.push(wsFrame(event.data).toString())
   )
   await send(socket, {
     _tag: "Token",

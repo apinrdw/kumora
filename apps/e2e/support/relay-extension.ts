@@ -32,6 +32,7 @@ import { WebSocketServer, type WebSocket } from "ws"
 import { wibInstant } from "./clock"
 import { closeWhenTestEnds } from "./test"
 import { recordVideo } from "./video"
+import { wsFrame } from "./ws-frame"
 
 /** The built extension (`vp run --filter extension build`, run by `vp run e2e`). */
 const EXTENSION = fileURLToPath(
@@ -382,10 +383,11 @@ export async function startFakeBrokers() {
     }
     sockets.push(entry)
     socket.on("message", (data, binary) => {
-      // ws's default `nodebuffer` binary type hands every frame over as a
-      // Buffer.
-      const buffer = data as Buffer
-      const message = binary ? new Uint8Array(buffer) : buffer.toString()
+      const frame = wsFrame(data)
+      const message =
+        binary && typeof frame !== "string"
+          ? new Uint8Array(frame)
+          : frame.toString()
       entry.received.push(message)
       if (typeof message === "string" && message.includes("PING-WEB"))
         socket.send(
@@ -435,9 +437,8 @@ export async function startFakeIngest() {
   const decoded: Array<{ message: IngestUp; at: number }> = []
   new WebSocketServer({ server }).on("connection", (socket) => {
     sockets.push(socket)
-    // A Buffer, under ws's default `nodebuffer` binary type.
     socket.on("message", (data) =>
-      received.push({ text: (data as Buffer).toString(), at: Date.now() })
+      received.push({ text: wsFrame(data).toString(), at: Date.now() })
     )
   })
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
