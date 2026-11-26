@@ -31,6 +31,7 @@ function useFillViewport<E extends HTMLElement>() {
 // Each panel's tab name on a phone.
 const TAB_NAMES: Record<Panel, string> = {
   sweeps: "Sweeps",
+  all: "All codes",
   tape: "Tape",
   watchlist: "Watchlist",
   book: "Order book",
@@ -38,7 +39,7 @@ const TAB_NAMES: Record<Panel, string> = {
 
 // The panels the middle column holds from `lg`, as its tabs. The others
 // stack in the right column.
-const MIDDLE: ReadonlyArray<Panel> = ["sweeps", "tape"]
+const MIDDLE: ReadonlyArray<Panel> = ["sweeps", "all", "tape"]
 
 // A bar of tabs, one per panel in `panels`, `shown` selected. Each tab
 // controls its panel's element, `${id}-${name}`.
@@ -93,17 +94,20 @@ function PanelTabs({
 /**
  * Layout B (spec apinrdw/kumora#263, "Layout, settings, indices and
  * phone"). From `lg`: the chart column; the middle column, whose tabs show
- * the sweep log or the tape (apinrdw/kumora#702); and the 400 px right
+ * the sweep log, All codes or the tape (apinrdw/kumora#702,
+ * apinrdw/kumora#705); and the 400 px right
  * column of `watchlist` and `book`; at least as tall as the window below
  * them. The tape scrolls sideways in its column (tape-list.tsx). Below `lg`:
  * the charts stacked full width, then tabs showing one panel at a time. A
  * bar shows `panel`, kept by the page in its URL, when it has that tab, else
- * its first. No `log` (an index): no sweep log or tab for it.
+ * its first. No `log` (an index): no sweep log or tab for it; no
+ * `allCodes` (a recorded day or an index): no All codes tab.
  */
 export function LayoutB({
   code,
   charts,
   log,
+  allCodes,
   withBrokers,
   watchlist,
   book,
@@ -115,6 +119,7 @@ export function LayoutB({
   code: StockCode
   charts: ReactNode
   log: ReactNode | undefined
+  allCodes: ReactNode | undefined
   // Whether the log has its broker columns: a recorded day's.
   withBrokers: boolean
   watchlist: ReactNode
@@ -127,6 +132,7 @@ export function LayoutB({
   const id = useId()
   const content: Record<Panel, ReactNode> = {
     sweeps: log,
+    all: allCodes,
     tape,
     watchlist,
     book,
@@ -194,6 +200,7 @@ export function LayoutB({
           className="max-lg:hidden"
         />
         {panel("sweeps", "lg:flex-1 *:flex-1")}
+        {panel("all", "lg:flex-1 *:flex-1")}
         {panel("tape")}
       </div>
       <div className="min-w-0 max-lg:contents lg:flex lg:flex-col lg:gap-4">

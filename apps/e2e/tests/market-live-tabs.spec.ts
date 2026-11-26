@@ -49,6 +49,7 @@ test("the sweep log and the running trades share the middle column as tabs, and 
   const tabs = page.getByRole("tablist", { name: "Trades" })
   await expect(tabs.getByRole("tab")).toHaveText([
     `Buy/Sell sweeps · ${code}`,
+    "All codes",
     "Running trades",
   ])
   const log = page.getByRole("region", { name: "Sweep log" })

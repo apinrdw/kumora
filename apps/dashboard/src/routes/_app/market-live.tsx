@@ -11,6 +11,7 @@ import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { useBookAlerts } from "@/components/book-alerts/use-book-alerts"
+import { allCodesTab } from "@/components/market-live/all-codes"
 import type { BookEventStore } from "@/components/market-live/book-event-store"
 import {
   BookEventList,
@@ -54,6 +55,7 @@ import {
   useReplayCursor,
 } from "@/components/market-live/recorded-day"
 import type { ReplayCursor } from "@/components/market-live/replay-cursor"
+import { makeStandoutStore } from "@/components/market-live/standout-store"
 import { StockCodePalette } from "@/components/market-live/stock-code-palette"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
 import { useSweepAlertPlayer } from "@/components/market-live/sweep-alert-player"
@@ -388,10 +390,14 @@ function MarketLiveDay({
   // browser's localStorage (use-watchlist.ts), so the server can't know which
   // codes' Day states to load. The server render shows no codes, and the
   // rows fill once the page hydrates and the viewer socket's snapshot arrives.
-  const [dayStates] = useState(() => clientRuntime.runSync(makeDayStateStore()))
   // Every code's book readings: a snapshot carries them all, whichever code
-  // it selected, so one store serves every code picked.
-  const [readings] = useState(() => Effect.runSync(makeBookReadingsStore))
+  // it selected, so one store serves every code picked. The live page's
+  // standout sweeps, every code's, likewise.
+  const [{ dayStates, readings, standouts }] = useState(() => ({
+    dayStates: clientRuntime.runSync(makeDayStateStore()),
+    readings: Effect.runSync(makeBookReadingsStore),
+    standouts: Effect.runSync(makeStandoutStore),
+  }))
   const watchlist = useWatchlist()
   const cursor = useReplayCursor(day)
   const gaps = useRecordedDay({
@@ -415,9 +421,20 @@ function MarketLiveDay({
       dayStates.apply(message)
       readings.apply(message)
       bookEvents.apply(message)
+      standouts.apply(message)
       clientRuntime.runFork(player.hear(message))
     },
-    [candles, sweeps, book, heatmap, dayStates, readings, bookEvents, player]
+    [
+      candles,
+      sweeps,
+      book,
+      heatmap,
+      dayStates,
+      readings,
+      bookEvents,
+      standouts,
+      player,
+    ]
   )
   return (
     <>
@@ -450,6 +467,12 @@ function MarketLiveDay({
             />
           )
         }
+        allCodes={allCodesTab({
+          store: standouts,
+          day,
+          index: flow === undefined,
+          onSelect: select,
+        })}
         withBrokers={withBrokers}
         panel={view.panel}
         onPanel={view.pickPanel}

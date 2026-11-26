@@ -153,6 +153,7 @@ test.describe("on a phone", () => {
     const tabs = page.getByRole("tablist", { name: "Panels" })
     await expect(tabs.getByRole("tab")).toHaveText([
       "Sweeps",
+      "All codes",
       "Tape",
       "Watchlist",
       "Order book",
@@ -160,6 +161,7 @@ test.describe("on a phone", () => {
     expect((await tabs.boundingBox())!.y).toBeGreaterThan(box2.y + box2.height)
     const panels = {
       Sweeps: page.getByRole("region", { name: "Sweep log" }),
+      "All codes": page.getByRole("region", { name: "All codes" }),
       Watchlist: page.getByRole("region", { name: "Watchlist" }),
       "Order book": page.getByRole("region", { name: "Order book" }),
       Tape: page.getByRole("region", { name: "Running trades" }),
@@ -176,7 +178,12 @@ test.describe("on a phone", () => {
     await shows("Sweeps")
     // The desktop's middle-column tabs are not shown on a phone.
     await expect(page.getByRole("tablist", { name: "Trades" })).toBeHidden()
-    for (const name of ["Watchlist", "Order book", "Tape"] as const) {
+    for (const name of [
+      "All codes",
+      "Watchlist",
+      "Order book",
+      "Tape",
+    ] as const) {
       await tabs.getByRole("tab", { name }).click()
       await shows(name)
     }

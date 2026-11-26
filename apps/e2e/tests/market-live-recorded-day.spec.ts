@@ -311,7 +311,8 @@ test("a recorded day's tape shows each trade's Buyer and Seller as the extension
   await expect(
     page.getByRole("group", { name: "Market conditions" })
   ).toContainText("RECORDED")
-  // A recorded day's middle column has the live page's tabs, on the tape.
+  // A recorded day's middle column has the live page's tabs but All codes,
+  // which is live only, on the tape.
   const tabs = page.getByRole("tablist", { name: "Trades" })
   await expect(tabs.getByRole("tab")).toHaveText([
     `Buy/Sell sweeps · ${code}`,
