@@ -324,6 +324,31 @@ describe("a disclosure run", () => {
   )
 
   it.effect(
+    "stores a file however large IDX serves it",
+    () =>
+      Effect.gen(function* () {
+        const { idx, bucket, run } = world()
+        publish(idx, NAV)
+        const large = "%PDF-1.4 ".padEnd(48 * 1024 * 1024, "x")
+        idx.files.set(pathOf("nav_lamp1.pdf"), { body: large })
+
+        const result = yield* run()
+
+        assert.deepInclude(result, {
+          outcome: "complete",
+          attachmentsStored: 2,
+          notStored: [],
+        })
+        assert.strictEqual(
+          bucket.objects.get(`${encoded(NAV)}/files${pathOf("nav_lamp1.pdf")}`)
+            ?.bytes?.length,
+          large.length
+        )
+      }),
+    { timeout: 30_000 }
+  )
+
+  it.effect(
     "retries a failing file each run while its failures span less than 7 days",
     () =>
       Effect.gen(function* () {

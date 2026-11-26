@@ -11,19 +11,17 @@
 // older days' oldest first. An attachment that isn't stored stays waiting in
 // the index, so the next run takes it up without listing its day again.
 import {
-  type NonRetryable,
   STEP_RESULT_BYTES,
   type StepConfig,
   type StepFailed,
   type WorkflowSteps,
 } from "@workspace/server"
 import { wibDateAt } from "@workspace/relay"
-import { DateTime, Duration, Effect } from "effect"
+import { DateTime, Duration, Effect, Stream } from "effect"
 import { HttpClient, type HttpClientError } from "effect/http"
 
 import type { ArchiveDb } from "../archive/archive-db.ts"
 import { ArchiveBucket } from "../archive/bucket.ts"
-import { readCapped } from "../archive/capped-body.ts"
 import { failingRun } from "../archive/failing-run.ts"
 import { type Run, runError, STORE_SLOWEST_ANSWER } from "../archive/run.ts"
 import { dayAfter, FIRST_DISCLOSURE_DAY } from "./coverage.ts"
@@ -83,10 +81,12 @@ const MAX_BACKFILL_DAYS = 31
 const FILES_PER_STEP = 25
 const FILE_CONCURRENCY = 2
 
-// The most bytes one attachment may take; past it, it isn't stored and
-// waits for a later run. IDX's average ~220 KB (spec apinrdw/kumora#715); a
-// step holds FILE_CONCURRENCY at once in a Worker's 128 MB.
-const MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024
+// How long one attachment's body may take to stream into the bucket once
+// IDX has answered: ~300 MB at 1 MB/s, against IDX's average ~220 KB (spec
+// apinrdw/kumora#715). One that takes longer fails as a download does. Its
+// size alone never does: the body streams in, PUT_PART_BYTES at a time
+// (../archive/bucket.ts), so a step holds FILE_CONCURRENCY parts at most.
+const DOWNLOAD_TIMEOUT = "5 minutes"
 
 // The bytes a waiting attachment takes in the `waiting` step's result at
 // most: its key and path at their longest, and JSON's quotes and names.
@@ -110,14 +110,16 @@ const MAX_NOT_STORED_SHOWN = 50
 const VERSION_CONCURRENCY = 10
 
 // A `files:` step's timeout: its rounds of FILE_CONCURRENCY downloads in
-// turn, each a request of at most IDX_REQUEST_TIMEOUT and its four calls to
-// the stores (stored already, the object there, the put, the index).
+// turn, each a request of at most IDX_REQUEST_TIMEOUT, its body streamed
+// into the bucket within DOWNLOAD_TIMEOUT, and its three other calls to the
+// stores (stored already, the object there, the index). ~85 minutes.
 // `plan`, `backfill`, `waiting` and `summary` keep the runtime's 10 minutes.
 const filesStep = Effect.sync((): StepConfig => ({
   timeout:
     Math.ceil(FILES_PER_STEP / FILE_CONCURRENCY) *
     (Duration.toMillis(IDX_REQUEST_TIMEOUT) +
-      4 * Duration.toMillis(STORE_SLOWEST_ANSWER)),
+      Duration.toMillis(DOWNLOAD_TIMEOUT) +
+      3 * Duration.toMillis(STORE_SLOWEST_ANSWER)),
 }))
 
 // A `list:` step's timeout: both languages' MAX_DAY_PAGES pages in turn,
@@ -276,14 +278,12 @@ const completeDays = Effect.fnUntraced(function* (days: ReadonlyArray<string>) {
 
 // Why an attachment couldn't be downloaded; the next run tries it again.
 const downloadFailure = Effect.fnUntraced(function* (
-  error: HttpClientError.HttpClientError | NonRetryable
+  error: HttpClientError.HttpClientError
 ) {
   return yield* runError(
-    error._tag === "NonRetryable"
-      ? error.message
-      : error.reason._tag === "StatusCodeError"
-        ? `IDX answered ${error.reason.response.status}`
-        : `IDX couldn't be read: ${error.reason.message}`
+    error.reason._tag === "StatusCodeError"
+      ? `IDX answered ${error.reason.response.status}`
+      : `IDX couldn't be read: ${error.reason.message}`
   )
 })
 
@@ -298,42 +298,64 @@ type FileOutcome =
 
 const STORED: FileOutcome = { stored: true }
 
-// Downloads one attachment from www.idx.id and stores it, unless the index
-// says it is stored: a retry of its step finds what its first attempt
-// stored. A download that fails is recorded in the index and left waiting;
-// a store that fails fails the step, which the runtime retries.
+// Downloads one attachment from www.idx.id and streams it into the bucket,
+// unless the index says it is stored: a retry of its step finds what its
+// first attempt stored. A download that fails, or outlasts
+// DOWNLOAD_TIMEOUT, is recorded in the index and left waiting; a store that
+// fails fails the step, which the runtime retries.
 // Decision: a stored disclosure version or attachment is never fetched again
 // (apps/dashboard/docs/adr/0137-a-stored-disclosure-is-never-fetched-again.md)
 const storeAttachment = Effect.fnUntraced(function* (
   attachment: WaitingAttachment
 ) {
   if (yield* isAttachmentStored(attachment)) return STORED
-  const url = `https://www.idx.id${attachment.path}`
-  const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
-  const downloaded = yield* client.get(url).pipe(
-    Effect.flatMap((response) =>
-      readCapped(response, MAX_ATTACHMENT_BYTES, `IDX's file at ${url}`).pipe(
-        Effect.map((bytes) => ({
-          bytes,
-          contentType:
-            response.headers["content-type"] ?? "application/octet-stream",
-        }))
-      )
-    ),
-    Effect.result
-  )
-  if (downloaded._tag === "Failure") {
-    const message = yield* downloadFailure(downloaded.failure)
-    yield* markAttachmentFailed(attachment, yield* nowIso, message)
-    const failed: FileOutcome = { stored: false, attachment, message }
-    return failed
-  }
-  const { bytes, contentType } = downloaded.success
   const bucket = yield* ArchiveBucket
   const key = yield* attachmentKey(attachment.disclosure, attachment.path)
-  if (!(yield* bucket.exists(key)))
-    yield* bucket.put(key, bytes, { contentType })
-  yield* markAttachmentStored(attachment, yield* nowIso, bytes.length)
+  const url = `https://www.idx.id${attachment.path}`
+  const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
+  const stored = yield* client.get(url).pipe(
+    Effect.flatMap(
+      Effect.fnUntraced(function* (response) {
+        // The object a retry's first attempt wrote is never written again;
+        // its body is only counted.
+        if (yield* bucket.exists(key))
+          return yield* Stream.runFold(
+            response.stream,
+            () => 0,
+            (size, chunk) => size + chunk.length
+          )
+        return yield* bucket.putStream(key, response.stream, {
+          contentType:
+            response.headers["content-type"] ?? "application/octet-stream",
+        })
+      })
+    ),
+    Effect.map((bytes) => ({ bytes, message: undefined })),
+    Effect.catchTag("HttpClientError", (error) =>
+      Effect.map(downloadFailure(error), (message) => ({
+        bytes: 0,
+        message,
+      }))
+    ),
+    Effect.timeoutOrElse({
+      duration: DOWNLOAD_TIMEOUT,
+      orElse: () =>
+        Effect.succeed({
+          bytes: 0,
+          message: `IDX's file didn't download in ${DOWNLOAD_TIMEOUT}`,
+        }),
+    })
+  )
+  if (stored.message !== undefined) {
+    yield* markAttachmentFailed(attachment, yield* nowIso, stored.message)
+    const failed: FileOutcome = {
+      stored: false,
+      attachment,
+      message: stored.message,
+    }
+    return failed
+  }
+  yield* markAttachmentStored(attachment, yield* nowIso, stored.bytes)
   return STORED
 })
 

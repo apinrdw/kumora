@@ -1,7 +1,7 @@
 // An archive's R2 bucket, as its runs and its admin page use it. Each archive
 // has its own bucket, which it provides as this service: bucket-r2.ts adapts
 // an R2 binding; tests provide an in-memory one.
-import { Context, Effect, Schema } from "effect"
+import { Context, Effect, Schema, Stream } from "effect"
 
 export class BucketError extends Schema.TaggedError<BucketError>()(
   "BucketError",
@@ -80,5 +80,55 @@ export class ArchiveBucket extends Context.Service<
       body: Uint8Array | string,
       options: PutOptions
     ) => Effect.Effect<void, BucketError>
+    // Writes `body` as it streams in, holding PUT_PART_BYTES of it at most,
+    // whatever its size, and answers how many bytes it wrote. A body that
+    // fails, or a write that does, leaves no object at `key`.
+    readonly putStream: <E>(
+      key: string,
+      body: Stream.Stream<Uint8Array, E>,
+      options: PutOptions
+    ) => Effect.Effect<number, BucketError | E>
   }
 >()("dashboard/archive/ArchiveBucket") {}
+
+// The bytes of a body putStream holds at once: a body up to this size is
+// one put; a longer one a multipart upload of parts this size, the last
+// shorter. R2 takes parts of 5 MiB to 5 GiB, all but the last the same
+// size, and 10,000 parts at most: up to ~78 GiB an object.
+export const PUT_PART_BYTES = 8 * 1024 * 1024
+
+// Fills parts of `partBytes` from `body` as it streams in, and hands each
+// full one but the last to `part`, numbered from 1, before reading on.
+// Answers the last part, at most `partBytes` and empty only for an empty
+// body, and the body's size.
+export const forEachPart = Effect.fnUntraced(function* <E, E2, R>(
+  body: Stream.Stream<Uint8Array, E>,
+  partBytes: number,
+  part: (bytes: Uint8Array, partNumber: number) => Effect.Effect<void, E2, R>
+) {
+  let buffer = new Uint8Array(partBytes)
+  let filled = 0
+  let parts = 0
+  let size = 0
+  yield* Stream.runForEach(
+    body,
+    Effect.fnUntraced(function* (chunk) {
+      size += chunk.length
+      for (let offset = 0; offset < chunk.length;) {
+        // A full part is handed on only once more follows it, so a body of
+        // exactly one part is still one put.
+        if (filled === partBytes) {
+          parts += 1
+          yield* part(buffer, parts)
+          buffer = new Uint8Array(partBytes)
+          filled = 0
+        }
+        const take = Math.min(partBytes - filled, chunk.length - offset)
+        buffer.set(chunk.subarray(offset, offset + take), filled)
+        filled += take
+        offset += take
+      }
+    })
+  )
+  return { rest: buffer.subarray(0, filled), size }
+})

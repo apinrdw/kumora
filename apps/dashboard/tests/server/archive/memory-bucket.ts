@@ -2,7 +2,7 @@
 // so a test can tell a rewrite from an untouched object. `failPut`, when
 // set, fails the next `put` of a key it matches, once, as a transient R2
 // error. `listed` logs every key a listing returned, `gets` every key read.
-import { Clock, Effect, Layer } from "effect"
+import { Clock, Effect, Layer, Stream } from "effect"
 
 import {
   ArchiveBucket,
@@ -115,6 +115,29 @@ export const memoryBucket = (): MemoryBucket => {
             }
             write(key, body, options, now)
             return Effect.void
+          }),
+        // The whole body, in one write once it has all streamed in.
+        putStream: (key, body, options) =>
+          Effect.gen(function* () {
+            const chunks = yield* Stream.runCollect(body)
+            const bytes = new Uint8Array(
+              chunks.reduce((size, chunk) => size + chunk.length, 0)
+            )
+            let offset = 0
+            for (const chunk of chunks) {
+              bytes.set(chunk, offset)
+              offset += chunk.length
+            }
+            if (bucket.failPut?.(key) === true) {
+              bucket.failPut = undefined
+              return yield* new BucketError({
+                operation: "put",
+                key,
+                cause: new Error("R2 is unavailable"),
+              })
+            }
+            write(key, bytes, options, yield* Clock.currentTimeMillis)
+            return bytes.length
           }),
       })
     ),
