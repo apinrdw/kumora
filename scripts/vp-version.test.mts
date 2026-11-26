@@ -81,7 +81,11 @@ describe("checkVpVersion", () => {
 
   it.effect("fails when the root pins no exact vite-plus version", () =>
     Effect.gen(function* () {
-      for (const devDependencies of [{}, { "vite-plus": "^1.8.0" }]) {
+      const pins: ReadonlyArray<Record<string, string>> = [
+        {},
+        { "vite-plus": "^1.8.0" },
+      ]
+      for (const devDependencies of pins) {
         const error = yield* Effect.flip(
           checkVpVersion("/repo").pipe(
             Effect.provide(
