@@ -184,11 +184,8 @@ const typeSearch = (value: string) =>
     const input = container.querySelector(
       'input[aria-label="Search stock, holder or broker"]'
     ) as HTMLInputElement
-    const setter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value"
-    )?.set
-    setter?.call(input, value)
+    // The prototype's setter, so React sees the value change.
+    Reflect.set(HTMLInputElement.prototype, "value", value, input)
     input.dispatchEvent(new Event("input", { bubbles: true }))
   })
 
