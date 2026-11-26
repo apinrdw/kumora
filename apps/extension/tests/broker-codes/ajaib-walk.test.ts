@@ -121,6 +121,8 @@ const fakeAjaib = (
     readonly badLots?: ReadonlySet<number>
     // Trades the tape sends with codes but no stock code.
     readonly noStockCode?: ReadonlySet<number>
+    // Whether a page sends a trade without its broker codes.
+    readonly codeless?: (path: string, number: number) => boolean
     // Overrides the tape's answer to a call, by its 1-based index.
     readonly answer?: (
       request: TabRequest,
@@ -145,6 +147,8 @@ const fakeAjaib = (
     const before = rows.filter((row) => row.timestamp < at)
     const offset = (number - 1) * (size + 1)
     const malformed = options.malformed?.(path) ?? false
+    const coded = (row: TapeRow) =>
+      valid && !(options.codeless?.(path, row.number) ?? false)
     return OK({
       page: number,
       page_size: size,
@@ -166,8 +170,8 @@ const fakeAjaib = (
             : `${row.date.replaceAll("-", "")}${String(row.number).padStart(10, "0")}`,
         date: row.date,
         timestamp: row.timestamp,
-        buyer: valid ? "YP" : "",
-        buyer_type: valid ? "D" : "",
+        buyer: coded(row) ? "YP" : "",
+        buyer_type: coded(row) ? "D" : "",
         seller: "PD",
         seller_type: "F",
       })),
@@ -519,6 +523,33 @@ describe("Ajaib's walk of the day", () => {
         })
         // Trade 300: 16:00:00.990, in its second.
         assert.include(kept.get("300"), { second: "16:00:00" })
+      })
+  )
+
+  it.effect(
+    "posts and keys a trade the first pass read without its broker codes, once the second pass reads them",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const production = fakeProduction()
+        const kept = new Map<string, TapeTrade>()
+        const walk = yield* makeAjaibWalk({
+          tab: fakeAjaib({
+            codeless: (path, number) =>
+              sizeOf(path) === 50_000 && number === 150,
+          }),
+          post: production.post,
+          store: memoryStore().store,
+          keep: (_, trades) =>
+            Effect.sync(() => {
+              for (const trade of trades)
+                if (trade._tag === "Kept" || !kept.has(trade.number))
+                  kept.set(trade.number, trade)
+            }),
+        })
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        assert.deepStrictEqual(missingOf(production.held()), [])
+        assert.strictEqual(kept.get("150")?._tag, "Kept")
       })
   )
 })
