@@ -53,16 +53,16 @@ new MutationObserver(() => {
 
 // Each box gets its digit through the native value setter and an
 // `input` event, so React's own change tracking sees it, as typing would.
-const setValue = Object.getOwnPropertyDescriptor(
+const inputValue = Object.getOwnPropertyDescriptor(
   HTMLInputElement.prototype,
   "value"
-)?.set
+)
 const typePin = (pin: string) => {
   const boxes = pinBoxes()
-  if (boxes === undefined || setValue === undefined) return false
+  if (boxes === undefined || inputValue?.set === undefined) return false
   boxes.forEach((box, at) => {
     box.focus()
-    setValue.call(box, pin[at] ?? "")
+    inputValue.set?.call(box, pin[at] ?? "")
     box.dispatchEvent(new Event("input", { bubbles: true }))
   })
   return true
@@ -118,7 +118,7 @@ window.fetch = function (input, init) {
   let url = ""
   try {
     const request = input instanceof Request ? input : undefined
-    url = request?.url ?? String(input)
+    url = input instanceof Request ? input.url : String(input)
     report(url, new Headers(init?.headers ?? request?.headers))
   } catch {
     // Never break the page's request.
@@ -134,7 +134,24 @@ window.fetch = function (input, init) {
 
 const opened = new WeakMap<XMLHttpRequest, { url: string; headers: Headers }>()
 const pageXhr = XMLHttpRequest.prototype
-const { open: pageOpen, setRequestHeader, send } = pageXhr
+// The page's own methods, kept as functions each wrapper calls with its
+// request as `this`.
+const pageMethods: {
+  open: (
+    this: XMLHttpRequest,
+    method: string,
+    url: string | URL,
+    async: boolean,
+    username?: string | null,
+    password?: string | null
+  ) => void
+  setRequestHeader: (this: XMLHttpRequest, name: string, value: string) => void
+  send: (
+    this: XMLHttpRequest,
+    body?: Document | XMLHttpRequestBodyInit | null
+  ) => void
+} = pageXhr
+const { open: pageOpen, setRequestHeader, send } = pageMethods
 pageXhr.open = function (
   this: XMLHttpRequest,
   method: string,
