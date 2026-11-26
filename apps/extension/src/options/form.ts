@@ -1,7 +1,6 @@
-import { StageUrl } from "@workspace/deploy/stage-url"
 import { Effect, Option, Schema } from "effect"
 
-import { type Settings } from "../worker/settings.ts"
+import { TargetUrl, type Settings } from "../worker/settings.ts"
 
 class InvalidDashboardUrl extends Schema.TaggedError<InvalidDashboardUrl>()(
   "InvalidDashboardUrl",
@@ -9,9 +8,10 @@ class InvalidDashboardUrl extends Schema.TaggedError<InvalidDashboardUrl>()(
 ) {}
 
 // The options form as Settings. An empty extra URL means no extra target; any
-// other keeps its origin and path, without a trailing slash, query or
-// fragment, so a dashboard served under a path such as `/dashboard` is
-// reached there.
+// other is a TargetUrl of its origin and path, without a trailing slash, query
+// or fragment, so a dashboard's root is read as its base path.
+// Decision: a target's URL is stored under the key `origin`
+// (apps/extension/docs/adr/0024-a-target-s-url-is-stored-under-the-key-origin.md)
 export const settingsFromForm = Effect.fnUntraced(function* (form: {
   readonly productionToken: string
   readonly extraUrl: string
@@ -23,7 +23,7 @@ export const settingsFromForm = Effect.fnUntraced(function* (form: {
   const url = Option.flatMap(
     Option.liftThrowable(() => new URL(extraUrl))(),
     ({ origin, pathname }) =>
-      Schema.decodeUnknownOption(StageUrl)(
+      Schema.decodeUnknownOption(TargetUrl)(
         `${origin}${pathname.replace(/\/+$/, "")}`
       )
   )

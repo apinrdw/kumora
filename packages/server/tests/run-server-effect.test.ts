@@ -81,6 +81,8 @@ describe("runServerEffect", () => {
     "/sign-in?redirect=%2Fstocks%2FA",
     // The router writes a typed search value as JSON, so it reads back typed.
     "/market-live?big=true&top=25",
+    // A section link, such as the stock page's holders, keeps its fragment.
+    "/stocks/BBCA?tab=holders#daily-holders",
   ])(
     "redirects Unauthorized to %s, under the router's basepath",
     (redirectTo) =>

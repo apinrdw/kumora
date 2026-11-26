@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@workspace/client": "workspace:*",
     "@workspace/deploy": "workspace:*",
     "@workspace/relay": "workspace:*",
     "@workspace/ui": "workspace:*",
