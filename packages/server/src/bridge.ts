@@ -60,13 +60,18 @@ const respond: {
   Unauthorized: (e) => Effect.map(routerRedirect(e.redirectTo), redirect),
 }
 
-// An `href` would reach the Location header as is. The search is read with
-// the router's own parser, so a typed value is written back as it was.
+// An `href` would reach the Location header as is, so the path is handed over
+// whole as the router's three parts. The search is read with the router's own
+// parser, so a typed value is written back as it was.
 // Decision: `redirectTo` is a router path, so the router adds its basepath
 // (docs/adr/0020-the-dashboard-is-served-under-dashboard-on-every-stage.md)
 const routerRedirect = Effect.fnUntraced(function* (path: string) {
   const url = new URL(path, "http://router.invalid")
-  return { to: url.pathname, search: defaultParseSearch(url.search) }
+  return {
+    to: url.pathname,
+    search: defaultParseSearch(url.search),
+    hash: url.hash.slice(1),
+  }
 })
 
 const json = Effect.fnUntraced(function* (
