@@ -394,7 +394,7 @@ Every disclosure the dashboard has kept, both versions and every attachment of e
 _Avoid_: Announcement archive, IDX archive
 
 **Disclosure run**:
-One pass that compares IDX's Keterbukaan Informasi list with the disclosure archive and stores any disclosure, version or attachment the archive lacks: new ones first, then the oldest days not yet complete. The schedule starts one every 15 minutes, and an admin can start one when none is in progress. It ends **complete**, **partial** or **failed** (IDX's list could not be read).
+One pass that compares IDX's Keterbukaan Informasi list with the disclosure archive and stores any disclosure, version or attachment the archive lacks: new ones first, then the oldest days not yet complete. The schedule starts one every 15 minutes, and an admin can start one when none is in progress. It ends **complete**, **partial** or **failed** (IDX's list of a recent day could not be read; an older day's is left for the next run, and the run ends partial).
 _Avoid_: Archive run, which is the shareholding archive's; backfill run; sync, scrape
 
 **Disclosure day**:
