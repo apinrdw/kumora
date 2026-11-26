@@ -632,8 +632,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // Decision: sweep alerts live only in object memory; the page keeps its marks
   // (apps/dashboard/docs/adr/0087-sweep-alerts-live-only-in-the-object-s-memory.md)
   //
-  // The day's standout sweeps for a snapshot, newest first, capped per level
-  // by `keptStandouts`: a restarted object starts it empty.
+  // Decision: each standout level keeps its newest 500 sweeps
+  // (apps/dashboard/docs/adr/0136-each-standout-level-keeps-its-newest-500-sweeps.md)
+  //
+  // The day's standout sweeps for a snapshot, newest first, kept by
+  // `keptStandouts`: a restarted object starts it empty.
   let standouts: ReadonlyArray<StandoutSweep> = []
   const ingests = options.ingests ?? Effect.succeed([])
   const books = yield* makeOrderBooks(options.date)

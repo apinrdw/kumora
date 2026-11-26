@@ -6,11 +6,8 @@ import { DateTime, Effect, Order } from "effect"
 import type { StandoutLevel, StandoutSweep } from "./envelope.ts"
 import { STANDOUT_LEVELS, TradeNumberOrder } from "./envelope.ts"
 
-// The rows each picker level shows at most: the newest of the standout
-// sweeps at or under it. At 10% a busy day across ~900 codes can decide tens
-// of thousands, and the 10% rows would crowd the rarer 1% ones out of a list
-// capped as one. A list kept this way holds at most 3 × 500 rows, ~90 bytes
-// each encoded: a snapshot carries ~135 KB of them at most.
+// The rows each level keeps at most: the newest standout sweeps at or under
+// it.
 export const STANDOUTS_PER_LEVEL = 500
 
 // A standout sweep's name for the day: its code and first trade's number.

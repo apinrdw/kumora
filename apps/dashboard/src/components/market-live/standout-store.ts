@@ -23,10 +23,8 @@ export interface StandoutStore {
 // sweep once by `standoutKey`, the row already held kept: a reconnect drops
 // none, even to an object restarted with an empty backlog. A snapshot of
 // another WIB day starts the list again.
-// The list is capped as the object's snapshot backlog is, at
-// STANDOUTS_PER_LEVEL per level (`keptStandouts`), so a page left open all
-// day drops its oldest rows: its memory stays bounded however many sweeps
-// stand out.
+// Decision: each standout level keeps its newest 500 sweeps
+// (apps/dashboard/docs/adr/0136-each-standout-level-keeps-its-newest-500-sweeps.md)
 export const makeStandoutStore = Effect.sync((): StandoutStore => {
   let rows: ReadonlyArray<StandoutSweep> = []
   let day: WibDate | undefined
