@@ -1,8 +1,9 @@
 // What the options page sets and what the service worker reports back, both
 // kept in chrome.storage (spec apinrdw/kumora#138, "Batching and targets").
+import { DashboardBasePath } from "@workspace/client/base-path"
 import { StageUrl } from "@workspace/deploy/stage-url"
 import { Feed, WibDate } from "@workspace/relay"
-import { Effect, Option, Schema } from "effect"
+import { Effect, Option, Schema, SchemaGetter } from "effect"
 
 import { AjaibLock } from "./ajaib-lock.ts"
 import { SignIn, type PinEntry, type PinStore } from "./ajaib-session.ts"
@@ -27,6 +28,23 @@ import { ErrorLogEntry, redact, type ErrorLogStore } from "./error-log.ts"
 const TargetName = Schema.Literals(["production", "extra"])
 export type TargetName = typeof TargetName.Type
 
+// A target's URL as stored or typed. Every dashboard is served under the
+// dashboard base path, so one with no path names that dashboard there; one
+// with a path is kept as is.
+// Decision: the dashboard is served under /dashboard on every Stage
+// (docs/adr/0020-the-dashboard-is-served-under-dashboard-on-every-stage.md)
+//
+// Decision: a target's URL is stored under the key `origin`
+// (apps/extension/docs/adr/0024-a-target-s-url-is-stored-under-the-key-origin.md)
+export const TargetUrl = StageUrl.pipe(
+  Schema.decodeTo(StageUrl, {
+    decode: SchemaGetter.transform((url) =>
+      new URL(url).pathname === "/" ? `${url}${DashboardBasePath}` : url
+    ),
+    encode: SchemaGetter.passthroughSupertype(),
+  })
+)
+
 // Decision: ingest tokens live in chrome.storage.local, pasted once per target
 // (apps/extension/docs/adr/0014-ingest-tokens-are-pasted-once-per-target.md)
 const Settings = Schema.Struct({
@@ -34,7 +52,7 @@ const Settings = Schema.Struct({
   extra: Schema.NullOr(
     // Decision: a target's URL is stored under the key `origin`
     // (apps/extension/docs/adr/0024-a-target-s-url-is-stored-under-the-key-origin.md)
-    Schema.Struct({ url: StageUrl, token: Schema.String }).pipe(
+    Schema.Struct({ url: TargetUrl, token: Schema.String }).pipe(
       Schema.encodeKeys({ url: "origin" })
     )
   ),
@@ -356,7 +374,7 @@ const keptForUrl = <A, I>(
   Effect.sync(() => {
     // Decision: a target's URL is stored under the key `origin`
     // (apps/extension/docs/adr/0024-a-target-s-url-is-stored-under-the-key-origin.md)
-    const Kept = Schema.Struct({ url: StageUrl, value }).pipe(
+    const Kept = Schema.Struct({ url: TargetUrl, value }).pipe(
       Schema.encodeKeys({ url: "origin" })
     )
     let loaded = Option.none<StageUrl>()

@@ -1,6 +1,6 @@
 {
   "name": "extension",
-  "version": "0.0.58",
+  "version": "0.0.59",
   "type": "module",
   "private": true,
   "scripts": {
@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@workspace/client": "workspace:*",
     "@workspace/deploy": "workspace:*",
     "@workspace/relay": "workspace:*",
     "@workspace/ui": "workspace:*",

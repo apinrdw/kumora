@@ -21,6 +21,7 @@ import { execFileSync } from "node:child_process"
 import { appendFileSync, mkdtempSync, readFileSync } from "node:fs"
 import {
   createServer as createHttpServer,
+  type IncomingMessage,
   type ServerResponse,
 } from "node:http"
 import { createServer, type Server } from "node:https"
@@ -423,7 +424,7 @@ export async function startFakeIngest() {
   const decoded: Array<{ message: IngestUp; at: number }> = []
   new WebSocketServer({
     server,
-    verifyClient: ({ req }) => underBase(req.url),
+    verifyClient: ({ req }: { req: IncomingMessage }) => underBase(req.url),
   }).on("connection", (socket) => {
     sockets.push(socket)
     socket.on("message", (data) =>

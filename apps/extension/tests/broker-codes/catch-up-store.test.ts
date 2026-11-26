@@ -9,8 +9,8 @@ import type { AjaibWalkPosition } from "../../src/worker/broker-codes/ajaib-walk
 import { ajaibCatchUpStore } from "../../src/worker/settings.ts"
 
 const DAY = WibDate.make("2026-11-12")
-const STAGING = "https://staging.example.com" as StageUrl
-const PREVIEW = "https://preview.example.com" as StageUrl
+const STAGING = "https://staging.example.com/dashboard" as StageUrl
+const PREVIEW = "https://preview.example.com/dashboard" as StageUrl
 
 const memoryLocal = () => {
   const memory: Record<string, unknown> = {}
