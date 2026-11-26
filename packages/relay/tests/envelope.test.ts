@@ -233,7 +233,7 @@ describe("viewer protocol", () => {
         // As the socket carries it: the object reads a message only up to
         // the limit.
         const wire = yield* encodeViewerUp(message)
-        assert.strictEqual(wire.length, 190_081)
+        assert.strictEqual(wire.length, 190_082)
         assert.isAtMost(wire.length, VIEWER_MESSAGE_LIMIT)
         // As the trading-day object stores a viewer's codes: one value, of
         // ASCII, so a character is a byte. Its storage holds 8 MB.
@@ -338,7 +338,7 @@ describe("viewer protocol, down", () => {
 
   it.effect("book readings round trip in a delta and a snapshot", () =>
     Effect.gen(function* () {
-      assert.strictEqual(ViewerProtocolVersion, 9)
+      assert.strictEqual(ViewerProtocolVersion, 10)
       const readings: BookReadings = {
         code: StockCode.make("ERAA"),
         at: DateTime.makeUnsafe("2026-11-18T03:00:00.125Z"),
