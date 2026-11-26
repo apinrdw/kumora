@@ -6,8 +6,8 @@ import { DateTime, Effect, Order } from "effect"
 import type { StandoutLevel, StandoutSweep } from "./envelope.ts"
 import { STANDOUT_LEVELS, TradeNumberOrder } from "./envelope.ts"
 
-// The rows each level keeps at most: the newest standout sweeps at or under
-// it.
+// Decision: each standout level keeps its newest 500 sweeps
+// (packages/relay/docs/adr/0027-each-standout-level-keeps-its-newest-500-sweeps.md)
 export const STANDOUTS_PER_LEVEL = 500
 
 // A standout sweep's name for the day: its code and first trade's number.

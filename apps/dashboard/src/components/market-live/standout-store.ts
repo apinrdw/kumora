@@ -24,7 +24,7 @@ export interface StandoutStore {
 // none, even to an object restarted with an empty backlog. A snapshot of
 // another WIB day starts the list again.
 // Decision: each standout level keeps its newest 500 sweeps
-// (apps/dashboard/docs/adr/0136-each-standout-level-keeps-its-newest-500-sweeps.md)
+// (packages/relay/docs/adr/0027-each-standout-level-keeps-its-newest-500-sweeps.md)
 export const makeStandoutStore = Effect.sync((): StandoutStore => {
   let rows: ReadonlyArray<StandoutSweep> = []
   let day: WibDate | undefined

@@ -633,7 +633,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // (apps/dashboard/docs/adr/0087-sweep-alerts-live-only-in-the-object-s-memory.md)
   //
   // Decision: each standout level keeps its newest 500 sweeps
-  // (apps/dashboard/docs/adr/0136-each-standout-level-keeps-its-newest-500-sweeps.md)
+  // (packages/relay/docs/adr/0027-each-standout-level-keeps-its-newest-500-sweeps.md)
   //
   // The day's standout sweeps for a snapshot, newest first, kept by
   // `keptStandouts`: a restarted object starts it empty.
