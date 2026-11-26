@@ -16,13 +16,13 @@ Source: [Durable Objects pricing](https://developers.cloudflare.com/durable-obje
 
 ### Pricing (Workers Paid, $5/month minimum per account)
 
-| Item | Included per month | Over that |
-| --- | --- | --- |
-| Requests (HTTP, RPC sessions, WebSocket messages, alarms) | 1M | $0.15 per million |
-| Duration | 400,000 GB-s | $12.50 per million GB-s |
-| SQLite rows read | 25 billion | $0.001 per million |
-| SQLite rows written | 50M | $1.00 per million |
-| SQLite stored data | 5 GB-month | $0.20 per GB-month |
+| Item                                                      | Included per month | Over that               |
+| --------------------------------------------------------- | ------------------ | ----------------------- |
+| Requests (HTTP, RPC sessions, WebSocket messages, alarms) | 1M                 | $0.15 per million       |
+| Duration                                                  | 400,000 GB-s       | $12.50 per million GB-s |
+| SQLite rows read                                          | 25 billion         | $0.001 per million      |
+| SQLite rows written                                       | 50M                | $1.00 per million       |
+| SQLite stored data                                        | 5 GB-month         | $0.20 per GB-month      |
 
 - **WebSocket messages:** incoming messages are billed at **20:1** ("100 WebSocket incoming messages would be charged as 5 requests"). **Outgoing WebSocket messages are free**, and so are protocol pings. Opening the socket costs one request.
 - **Duration** is wall-clock time while the object is active and not eligible to hibernate, billed at 128 MB. With `acceptWebSocket()` (the Hibernation API), an idle object is not billed for duration. `ws.accept()` bills for the whole connected time. Messages answered by `setWebSocketAutoResponse()` add no duration.
@@ -34,17 +34,17 @@ Source: [Durable Objects pricing](https://developers.cloudflare.com/durable-obje
 
 Source: [Durable Objects limits](https://developers.cloudflare.com/durable-objects/platform/limits/) (last updated Oct 29, 2026).
 
-| Limit | Value |
-| --- | --- |
-| Storage per SQLite Durable Object | 10 GB |
-| Storage per account (Paid) | Unlimited |
-| String, BLOB or table row | 2 MB |
-| SQL statement length | 100 KB |
-| Bound parameters per query | 100 |
-| Columns per table | 100 |
-| CPU per request or WebSocket message | 30 s default, up to 5 min (`limits.cpu_ms`) |
-| Received WebSocket message size | 32 MiB |
-| Throughput | Soft limit of **1,000 requests/s per object**. Single-threaded. Too many queued requests give an "overloaded" error. |
+| Limit                                | Value                                                                                                                |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Storage per SQLite Durable Object    | 10 GB                                                                                                                |
+| Storage per account (Paid)           | Unlimited                                                                                                            |
+| String, BLOB or table row            | 2 MB                                                                                                                 |
+| SQL statement length                 | 100 KB                                                                                                               |
+| Bound parameters per query           | 100                                                                                                                  |
+| Columns per table                    | 100                                                                                                                  |
+| CPU per request or WebSocket message | 30 s default, up to 5 min (`limits.cpu_ms`)                                                                          |
+| Received WebSocket message size      | 32 MiB                                                                                                               |
+| Throughput                           | Soft limit of **1,000 requests/s per object**. Single-threaded. Too many queued requests give an "overloaded" error. |
 
 Cloudflare publishes no separate inbound WebSocket message rate. Each message is an event on the same single thread, so the 1,000/s soft limit is the safe ceiling. Throughput also drops when each event does heavy JSON work. In-object SQLite writes are synchronous, and `put()`/SQL writes are coalesced and flushed asynchronously ([SQLite storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)). The object's memory is 128 MB.
 
@@ -82,12 +82,12 @@ The ingest socket sends data many times a second, so the object stays active for
 
 ### Rows written
 
-| Design | Rows/day (1.3M–2.2M trades) | Rows/month | Cost over 50M |
-| --- | --- | --- | --- |
-| A. Row per frame, both Stockbit connections stored; trade insert + provenance update + index row + candle upsert per trade | 11.3M–14.9M | 236M–312M | **$187–$262** |
-| B. Same, but frames deduped across connections | 8.2M–11.8M | 173M–248M | **$123–$199** |
-| C. **Chunked** (recommended, below) | 2.05M–2.95M | 43M–62M | **$0–$12** |
-| D. Everything in per-second blobs, trades too | ~0.77M | ~16M | $0 |
+| Design                                                                                                                     | Rows/day (1.3M–2.2M trades) | Rows/month | Cost over 50M |
+| -------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ---------- | ------------- |
+| A. Row per frame, both Stockbit connections stored; trade insert + provenance update + index row + candle upsert per trade | 11.3M–14.9M                 | 236M–312M  | **$187–$262** |
+| B. Same, but frames deduped across connections                                                                             | 8.2M–11.8M                  | 173M–248M  | **$123–$199** |
+| C. **Chunked** (recommended, below)                                                                                        | 2.05M–2.95M                 | 43M–62M    | **$0–$12**    |
+| D. Everything in per-second blobs, trades too                                                                              | ~0.77M                      | ~16M       | $0            |
 
 Where the figures come from:
 
@@ -101,11 +101,11 @@ Rows read cost almost nothing: 25 billion a month are included. Opening one stoc
 
 Each trading day has its own object, so the 10 GB per-object cap applies to one day only.
 
-| What is stored | Per day | Per month | After 12 months | Storage bill in month 12 |
-| --- | --- | --- | --- | --- |
-| Decoded JSON books (110 × 2 sides × 1.3 KB + others ≈ 306 KB/s) | ~6.6 GB | ~139 GB | ~1,670 GB | ~$332 |
-| Raw broker bytes (≤ 70 KB/s) | ~1.5 GB | ~32 GB | ~381 GB | ~$75 |
-| Compressed chunks (estimate, 0.3 GB/day) | ~0.3 GB | ~6.3 GB | ~76 GB | ~$14 |
+| What is stored                                                  | Per day | Per month | After 12 months | Storage bill in month 12 |
+| --------------------------------------------------------------- | ------- | --------- | --------------- | ------------------------ |
+| Decoded JSON books (110 × 2 sides × 1.3 KB + others ≈ 306 KB/s) | ~6.6 GB | ~139 GB   | ~1,670 GB       | ~$332                    |
+| Raw broker bytes (≤ 70 KB/s)                                    | ~1.5 GB | ~32 GB    | ~381 GB         | ~$75                     |
+| Compressed chunks (estimate, 0.3 GB/day)                        | ~0.3 GB | ~6.3 GB   | ~76 GB          | ~$14                     |
 
 The decoded JSON day (6.6 GB) fits under 10 GB, but with little room. Storing both connections' copies would exceed it. Trades add ~2.2M × ~60 B ≈ 130 MB a day. The compressed figure is an estimate. Measure it on a soak-test capture before relying on it.
 

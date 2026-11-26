@@ -18,15 +18,15 @@ Sources:
 
 ## Comparison
 
-| | Cloudflare Email Sending | Resend | Postmark | Amazon SES |
-| --- | --- | --- | --- | --- |
-| Free tier | Only on Workers Paid ($5/mo): 3,000/mo included | 3,000/mo, 100/day, 3 domains | 100/mo | Only AWS sign-up credits |
-| Low-volume price | $0.35 per 1,000 over 3,000 | Pro $20/mo for 50,000, then $0.90 per 1,000 | Basic $15/mo for 10,000, then $1.80 per 1,000 | $0.10 per 1,000 |
-| Domain | A domain in the Cloudflare account. Records go on `cf-bounce.<domain>` plus `_dmarc` | Any DNS host. MX and SPF on `send.<sub>`, DKIM at `resend._domainkey` | Any DNS host | Any DNS host |
-| Alchemy manages it | Yes: `Email.SendingSubdomain` and `Email.SendEmail` | No | No | Yes in `@alchemy.run/aws` (`SES.EmailIdentity`), but that needs a second cloud provider |
-| Per-stage secret | None, it is a binding | `RESEND_API_KEY` | Server token | AWS access key, plus SigV4 signing in the Worker |
-| Local dev | `.eml` files under `.alchemy/local/email`, built in | Needs our own logging path, or a real send to a `@resend.dev` test address | Needs our own logging path | Needs our own logging path |
-| Status | Beta | GA | GA | GA |
+|                    | Cloudflare Email Sending                                                             | Resend                                                                     | Postmark                                      | Amazon SES                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Free tier          | Only on Workers Paid ($5/mo): 3,000/mo included                                      | 3,000/mo, 100/day, 3 domains                                               | 100/mo                                        | Only AWS sign-up credits                                                                |
+| Low-volume price   | $0.35 per 1,000 over 3,000                                                           | Pro $20/mo for 50,000, then $0.90 per 1,000                                | Basic $15/mo for 10,000, then $1.80 per 1,000 | $0.10 per 1,000                                                                         |
+| Domain             | A domain in the Cloudflare account. Records go on `cf-bounce.<domain>` plus `_dmarc` | Any DNS host. MX and SPF on `send.<sub>`, DKIM at `resend._domainkey`      | Any DNS host                                  | Any DNS host                                                                            |
+| Alchemy manages it | Yes: `Email.SendingSubdomain` and `Email.SendEmail`                                  | No                                                                         | No                                            | Yes in `@alchemy.run/aws` (`SES.EmailIdentity`), but that needs a second cloud provider |
+| Per-stage secret   | None, it is a binding                                                                | `RESEND_API_KEY`                                                           | Server token                                  | AWS access key, plus SigV4 signing in the Worker                                        |
+| Local dev          | `.eml` files under `.alchemy/local/email`, built in                                  | Needs our own logging path, or a real send to a `@resend.dev` test address | Needs our own logging path                    | Needs our own logging path                                                              |
+| Status             | Beta                                                                                 | GA                                                                         | GA                                            | GA                                                                                      |
 
 Postmark and SES were ruled out early. Postmark's free tier is 100 emails/month, and SES brings AWS credentials, SigV4 signing and sandbox exit into a Cloudflare-only stack. Neither has an advantage over the two leaders that this project needs.
 
@@ -35,7 +35,7 @@ Postmark and SES were ruled out early. Postmark's free tier is 100 emails/month,
 ### What it is and what it costs
 
 - Cloudflare Email Service has two parts. **Email Sending** is in beta, needs Workers Paid, and sends transactional mail. **Email Routing** handles inbound mail on Free and Paid ([overview](https://developers.cloudflare.com/email-service/)).
-- Pricing: "3,000 included per month" on Workers Paid, then "$0.35 per 1,000 emails". "Sending to arbitrary recipients requires the Workers Paid plan." Sends to *verified destination addresses* are free and don't count toward the quota ([pricing](https://developers.cloudflare.com/email-service/platform/pricing/)).
+- Pricing: "3,000 included per month" on Workers Paid, then "$0.35 per 1,000 emails". "Sending to arbitrary recipients requires the Workers Paid plan." Sends to _verified destination addresses_ are free and don't count toward the quota ([pricing](https://developers.cloudflare.com/email-service/platform/pricing/)).
 - Limits: "New accounts start with a conservative daily quota and scale up over time". No number is published, and a form requests increases. A message may have at most 50 recipients and be at most 25 MiB. "Before you onboard a sending domain, you can only send to verified destination addresses" ([limits](https://developers.cloudflare.com/email-service/platform/limits/)).
 - You can send through the Workers binding, the REST API, or SMTP. `env.EMAIL.send({ from, to, subject, html, text, ... })` resolves to `{ messageId }`. A failure throws an `Error` with a `code` property. The codes include `E_SENDER_DOMAIN_NOT_AVAILABLE`, `E_RECIPIENT_NOT_ALLOWED`, `E_RECIPIENT_SUPPRESSED`, `E_RATE_LIMIT_EXCEEDED` and `E_DAILY_LIMIT_EXCEEDED` ([Workers API](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/)).
 

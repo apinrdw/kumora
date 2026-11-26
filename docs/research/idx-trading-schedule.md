@@ -12,21 +12,21 @@ Research for [#56](https://github.com/apinrdw/kumora/issues/56), part of the Mar
 
 Source: Rule II-A, sections IV.2.1 (Monday–Thursday) and IV.2.2 (Friday), in [Kep-00158/BEI/10-2026](https://www.idx.co.id/Media/stumk2gi/signed_peraturan_nomor_ii_a_tentang_perdagangan_efek_bersifat_ekuitas-261020.pdf). The decree was issued and took effect on 20 October 2026. It replaced Kep-00157/BEI/10-2026 of 19 October 2026. The reasons both decrees give concern Auto Rejection limits, not session times. IDX's [trading hours page](https://www.idx.id/id/produk-layanan/jam-dan-mekanisme-perdagangan/) shows the same table and cites the same decree.
 
-| Phase | Mon–Thu | Fri | Ajaib `trading-day/detail` phase |
-|---|---|---|---|
-| Pre-opening, order input | 08:45:00–08:57:59 | same | `PRE_OPENING` / INPUT |
-| Pre-opening, no withdraw | 08:56:00–08:57:59 | same | `PRE_OPENING` / NON_CANCELLATION |
-| Pre-opening, no amend | 08:56:00–08:59:59 | same | (same) |
-| Pre-opening, matching at the opening price | 08:58:00–08:59:59 | same | `PRE_OPENING` / MATCHING |
-| Session I (continuous auction) | 09:00:00–12:00:00 | 09:00:00–11:30:00 | `MARKET_PHASE` |
-| Break | 12:00:00–13:30:00 | 11:30:00–14:00:00 | `MARKET_BREAK` |
-| Session II (continuous auction) | 13:30:00–15:49:59 | 14:00:00–15:49:59 | `MARKET_PHASE` |
-| Pre-closing, order input | 15:50:00–15:59:59 | same | `PRE_CLOSING` |
-| Random closing (price set at a random moment) | 15:58:00–15:59:59 | same | `PRE_CLOSING` / RANDOM_CLOSING |
-| Pre-closing, no withdraw | 15:56:00–15:59:59 | same | (same) |
-| Pre-closing, no amend | 15:56:00–16:01:59 | same | (same) |
-| Pre-closing, matching at the closing price | 16:00:00–16:01:59 | same | (same) |
-| Post-closing (trades at the closing price only) | 16:02:00–16:15:00 | same | `POST_TRADING` |
+| Phase                                           | Mon–Thu           | Fri               | Ajaib `trading-day/detail` phase |
+| ----------------------------------------------- | ----------------- | ----------------- | -------------------------------- |
+| Pre-opening, order input                        | 08:45:00–08:57:59 | same              | `PRE_OPENING` / INPUT            |
+| Pre-opening, no withdraw                        | 08:56:00–08:57:59 | same              | `PRE_OPENING` / NON_CANCELLATION |
+| Pre-opening, no amend                           | 08:56:00–08:59:59 | same              | (same)                           |
+| Pre-opening, matching at the opening price      | 08:58:00–08:59:59 | same              | `PRE_OPENING` / MATCHING         |
+| Session I (continuous auction)                  | 09:00:00–12:00:00 | 09:00:00–11:30:00 | `MARKET_PHASE`                   |
+| Break                                           | 12:00:00–13:30:00 | 11:30:00–14:00:00 | `MARKET_BREAK`                   |
+| Session II (continuous auction)                 | 13:30:00–15:49:59 | 14:00:00–15:49:59 | `MARKET_PHASE`                   |
+| Pre-closing, order input                        | 15:50:00–15:59:59 | same              | `PRE_CLOSING`                    |
+| Random closing (price set at a random moment)   | 15:58:00–15:59:59 | same              | `PRE_CLOSING` / RANDOM_CLOSING   |
+| Pre-closing, no withdraw                        | 15:56:00–15:59:59 | same              | (same)                           |
+| Pre-closing, no amend                           | 15:56:00–16:01:59 | same              | (same)                           |
+| Pre-closing, matching at the closing price      | 16:00:00–16:01:59 | same              | (same)                           |
+| Post-closing (trades at the closing price only) | 16:02:00–16:15:00 | same              | `POST_TRADING`                   |
 
 The phase mapping in the last column is inferred from the names in the [#48 DevTools run](https://github.com/apinrdw/kumora/issues/48). It was not checked bound by bound.
 

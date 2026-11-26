@@ -17,12 +17,12 @@ Research for [#351](https://github.com/apinrdw/kumora/issues/351), part of the m
 
 Downloaded from `www.idx.id/Media/...` on 2026-11-15. Each is a zip with one worksheet, `xl/worksheets/sheet1.xml` (`unzip -l`).
 
-| File | Bytes | `sheet1.xml` (deflated → raw) | `sharedStrings.xml` raw | `<dimension>` |
-| --- | --- | --- | --- | --- |
-| `peng-03-00001-klasifikasi.xlsx` (Mar) | 270,653 | 226,400 → 1,410,129 | 61,314 | `A1:AQ962` |
-| `peng-05-00003-klasifikasi.xlsx` (May) | 273,696 | 231,097 → 1,433,862 | 61,397 | `A1:AR965` |
-| `peng-2026-09-00026-klasifikasi.xlsx` (Sep) | 388,660 | 355,564 → 2,593,639 | 63,639 | `A1:CD966` |
-| `peng-2026-10-00028-klasifikasi.xlsx` (Oct) | 392,917 | 358,572 → 2,614,650 | 63,642 | `A1:CD966` |
+| File                                        | Bytes   | `sheet1.xml` (deflated → raw) | `sharedStrings.xml` raw | `<dimension>` |
+| ------------------------------------------- | ------- | ----------------------------- | ----------------------- | ------------- |
+| `peng-03-00001-klasifikasi.xlsx` (Mar)      | 270,653 | 226,400 → 1,410,129           | 61,314                  | `A1:AQ962`    |
+| `peng-05-00003-klasifikasi.xlsx` (May)      | 273,696 | 231,097 → 1,433,862           | 61,397                  | `A1:AR965`    |
+| `peng-2026-09-00026-klasifikasi.xlsx` (Sep) | 388,660 | 355,564 → 2,593,639           | 63,639                  | `A1:CD966`    |
+| `peng-2026-10-00028-klasifikasi.xlsx` (Oct) | 392,917 | 358,572 → 2,614,650           | 63,642                  | `A1:CD966`    |
 
 What the XML holds (read with `unzip -p` and `grep`):
 
@@ -37,13 +37,13 @@ What the XML holds (read with `unzip -p` and `grep`):
 
 Each Worker took the xlsx as a POST body and parsed it 10 times in one request. The table shows the median of the 10 runs. Locally, `performance.now()` advances during CPU work: a 5×10⁷ loop read 25 ms in the test Worker, and Cloudflare documents that local timers advance while deployed ones only move after I/O ([Performance and timers](https://developers.cloudflare.com/workers/runtime-apis/performance/)). These are local wall times, so they show CPU time on this machine, not on Cloudflare's hardware. workerd reports whole milliseconds.
 
-| Reader | Added bundle (minified) | Mar | May | Sep | Oct | Later requests in the same isolate |
-| --- | --- | --- | --- | --- | --- | --- |
-| Hand reader + `DecompressionStream` | 2.3 KiB (3,870 B total − 1,544 B harness) | 12 ms | 11 ms | 19 ms | 18 ms | OK |
-| Hand reader + fflate 0.8.3 `unzipSync` | 6.9 KiB | 17 ms | 16 ms | 26 ms | 26 ms | OK |
-| SheetJS 0.20.3 (`XLSX.read`, dense) | 380 KiB (130 KiB gzip) | 63 ms | 60 ms | 107 ms | 108 ms | OK |
-| exceljs 4.4.0 | 937 KiB (270 KiB gzip) | 99 ms (first request) | 108 ms (first request, fresh isolate) | hung | hung | **Hangs** |
-| read-excel-file 9.3.17 `/universal` | 54 KiB (17 KiB gzip) | throws | throws | throws | throws | n/a |
+| Reader                                 | Added bundle (minified)                   | Mar                   | May                                   | Sep    | Oct    | Later requests in the same isolate |
+| -------------------------------------- | ----------------------------------------- | --------------------- | ------------------------------------- | ------ | ------ | ---------------------------------- |
+| Hand reader + `DecompressionStream`    | 2.3 KiB (3,870 B total − 1,544 B harness) | 12 ms                 | 11 ms                                 | 19 ms  | 18 ms  | OK                                 |
+| Hand reader + fflate 0.8.3 `unzipSync` | 6.9 KiB                                   | 17 ms                 | 16 ms                                 | 26 ms  | 26 ms  | OK                                 |
+| SheetJS 0.20.3 (`XLSX.read`, dense)    | 380 KiB (130 KiB gzip)                    | 63 ms                 | 60 ms                                 | 107 ms | 108 ms | OK                                 |
+| exceljs 4.4.0                          | 937 KiB (270 KiB gzip)                    | 99 ms (first request) | 108 ms (first request, fresh isolate) | hung   | hung   | **Hangs**                          |
+| read-excel-file 9.3.17 `/universal`    | 54 KiB (17 KiB gzip)                      | throws                | throws                                | throws | throws | n/a                                |
 
 The first run in a request was often slower than the rest (for example SheetJS Mar: 81 ms, then 59–67 ms). Bundle sizes are `wrangler deploy --dry-run --minify` "Total Upload" for each test Worker, minus the 1.51 KiB harness-only Worker.
 
@@ -57,11 +57,11 @@ The first run in a request was often slower than the rest (for example SheetJS M
 
 ## Empty trailing cells and merged cells
 
-| Reader | May row 7 (has `<c r="AR7" s="10"/>`) | May header row 5 | Merged title cells |
-| --- | --- | --- | --- |
-| Hand reader | length 44, last is `null` | length 43 | value only in the top-left cell (what the XML stores); `<mergeCells>` ignored |
-| SheetJS (`header: 1, defval: null`) | length 44, last is `null` | length 44: pads every row to `!ref` | value only in the top-left cell; ranges in `ws["!merges"]` |
-| exceljs | length 43: drops the valueless cell | length 43 | **copies** the top-left value into every merged cell (row 5's last three cells all read "NUMBER OF SCRIPLESS SHARES BASED ON INVESTOR TYPE AND CLASSIFICATION") |
+| Reader                              | May row 7 (has `<c r="AR7" s="10"/>`) | May header row 5                    | Merged title cells                                                                                                                                              |
+| ----------------------------------- | ------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hand reader                         | length 44, last is `null`             | length 43                           | value only in the top-left cell (what the XML stores); `<mergeCells>` ignored                                                                                   |
+| SheetJS (`header: 1, defval: null`) | length 44, last is `null`             | length 44: pads every row to `!ref` | value only in the top-left cell; ranges in `ws["!merges"]`                                                                                                      |
+| exceljs                             | length 43: drops the valueless cell   | length 43                           | **copies** the top-left value into every merged cell (row 5's last three cells all read "NUMBER OF SCRIPLESS SHARES BASED ON INVESTOR TYPE AND CLASSIFICATION") |
 
 Either way, a parser should **find the header row by its labels and read columns by header position, ignoring anything past the last labelled column**. Then May's extra column, whether it reads as `null` or is missing, can't shift or add a classification.
 
@@ -104,12 +104,12 @@ The entity decoder handles `&amp; &lt; &gt; &quot; &apos;` and numeric reference
 
 ## Library facts
 
-| | Licence | Version tested | Where from | Notes |
-| --- | --- | --- | --- | --- |
-| SheetJS CE | Apache-2.0 (`package.json`) | 0.20.3, the newest in `https://cdn.sheetjs.com/xlsx.lst` | `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` | [CVE-2023-30533](https://cdn.sheetjs.com/advisories/CVE-2023-30533) affects ≤ 0.19.2 and [CVE-2024-22363](https://cdn.sheetjs.com/advisories/CVE-2024-22363) affects ≤ 0.20.1 ("upgrade to version 0.20.2 or later"). Both pages list npm's `xlsx` as affected, and npm's latest is 0.18.5. |
-| exceljs | MIT | 4.4.0 (2023-10-19; a 4.4.1 prerelease, 2024-12-20) | npm | `main` is the Node build. It bundled under `nodejs_compat` without errors. |
-| read-excel-file | MIT | 9.3.17 | npm | Depends on `fflate`, `saxen`, `unzipper-esm`, `worker-f`. |
-| fflate | MIT | 0.8.3 | npm | `exports` resolves the browser build (`esm/browser.js`) under wrangler's conditions. `unzipSync` works. `unzip` (async) needs `Worker` above 512 KB. |
+|                 | Licence                     | Version tested                                           | Where from                                            | Notes                                                                                                                                                                                                                                                                                       |
+| --------------- | --------------------------- | -------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SheetJS CE      | Apache-2.0 (`package.json`) | 0.20.3, the newest in `https://cdn.sheetjs.com/xlsx.lst` | `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` | [CVE-2023-30533](https://cdn.sheetjs.com/advisories/CVE-2023-30533) affects ≤ 0.19.2 and [CVE-2024-22363](https://cdn.sheetjs.com/advisories/CVE-2024-22363) affects ≤ 0.20.1 ("upgrade to version 0.20.2 or later"). Both pages list npm's `xlsx` as affected, and npm's latest is 0.18.5. |
+| exceljs         | MIT                         | 4.4.0 (2023-10-19; a 4.4.1 prerelease, 2024-12-20)       | npm                                                   | `main` is the Node build. It bundled under `nodejs_compat` without errors.                                                                                                                                                                                                                  |
+| read-excel-file | MIT                         | 9.3.17                                                   | npm                                                   | Depends on `fflate`, `saxen`, `unzipper-esm`, `worker-f`.                                                                                                                                                                                                                                   |
+| fflate          | MIT                         | 0.8.3                                                    | npm                                                   | `exports` resolves the browser build (`esm/browser.js`) under wrangler's conditions. `unzipSync` works. `unzip` (async) needs `Worker` above 512 KB.                                                                                                                                        |
 
 ## Open questions
 

@@ -12,12 +12,12 @@ Research for [#61](https://github.com/apinrdw/kumora/issues/61), under the Marke
 
 ## Sources
 
-| Tag | Source | Version |
-|---|---|---|
-| **[sb]** | stockbit.com Next.js bundle, `buildId` `v3.54.12`, 323 chunks fetched anonymously with a browser User-Agent | chunk names below, 2026-11-06 |
-| **[aj]** | trade.ajaib.co.id Vite bundle, entry `index-DKOtYJk3.js`, 142 chunks crawled from the entry | chunk names below, 2026-11-06 |
+| Tag       | Source                                                                                                                                                                     | Version                                    |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| **[sb]**  | stockbit.com Next.js bundle, `buildId` `v3.54.12`, 323 chunks fetched anonymously with a browser User-Agent                                                                | chunk names below, 2026-11-06              |
+| **[aj]**  | trade.ajaib.co.id Vite bundle, entry `index-DKOtYJk3.js`, 142 chunks crawled from the entry                                                                                | chunk names below, 2026-11-06              |
 | **[mcp]** | [`INo-xious/stockbit-mcp`](https://github.com/INo-xious/stockbit-mcp) `src/core/market.ts` and `docs/LIVENESS.md`, a REST client with live probes recorded in its comments | `1a8e482c342af004c20acb72c818307060fbc2ee` |
-| **[#48]** | Owner's DevTools capture in signed-in tabs, 2026-11-06 09:36–09:41 WIB | issue comments |
+| **[#48]** | Owner's DevTools capture in signed-in tabs, 2026-11-06 09:36–09:41 WIB                                                                                                     | issue comments                             |
 
 The bundles are the primary source for parameter names. They show what the web app sends, not what the server accepts or caps. **[mcp]** is second-hand but records live probes.
 
@@ -32,19 +32,19 @@ The running-trade hook builds the query from three parts. **[sb]** `18430-d9c187
 1. **Initial params:** `{ sort: "DESC", limit: 80, order_by: "RUNNING_TRADE_ORDER_BY_TIME", trade_number: undefined }`. The sort values are `ASC` and `DESC`. The `order_by` values are `RUNNING_TRADE_ORDER_BY_TIME`, `RUNNING_TRADE_ORDER_BY_LOT` and `RUNNING_TRADE_ORDER_BY_VALUE` (same chunk, module before `37893`). The company-page widget uses `limit: 10`, the main widget and fast order `limit: 80` (same chunk, the `IE` export).
 2. **Filters**, built by `dC` in module `5704` (**[sb]** `screener-8592b13305301255.js`):
 
-| Param | Value |
-|---|---|
-| `symbols` | stock codes, repeated. Omitted for "All Stock" (`*`). Singular `symbol` is silently ignored (**[mcp]**) |
-| `action_type` | `RUNNING_TRADE_ACTION_TYPE_ALL`, `_BUY`, `_SELL` |
-| `market_board` | `BOARD_TYPE_ALL`, `_REGULAR`, `_CASH`, `_NEGOTIATION` |
-| `investor_type` | `RUNNING_TRADE_INVESTOR_TYPE_ALL`, `_FOREIGN_BUY`, `_FOREIGN_SELL`, `_DOMESTIC_BUY`, `_DOMESTIC_SELL`, repeated |
-| `price_range_from`, `price_range_to` | numbers |
-| `minimum_lot` | number |
-| `value_from`, `value_to` | numbers |
-| `time_range.start`, `time_range.end` | `HH:mm` strings (the filter's default `timeFormat`) |
-| `broker_buy`, `broker_sell`, `broker_operator` | broker codes; `FILTER_BROKER_OPERATOR_AND` or `_OR` |
-| `watchlist_id` | number, for "Watchlist" mode |
-| `date` | `YYYY-MM-DD`, sent only when the user picks a date |
+| Param                                          | Value                                                                                                           |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `symbols`                                      | stock codes, repeated. Omitted for "All Stock" (`*`). Singular `symbol` is silently ignored (**[mcp]**)         |
+| `action_type`                                  | `RUNNING_TRADE_ACTION_TYPE_ALL`, `_BUY`, `_SELL`                                                                |
+| `market_board`                                 | `BOARD_TYPE_ALL`, `_REGULAR`, `_CASH`, `_NEGOTIATION`                                                           |
+| `investor_type`                                | `RUNNING_TRADE_INVESTOR_TYPE_ALL`, `_FOREIGN_BUY`, `_FOREIGN_SELL`, `_DOMESTIC_BUY`, `_DOMESTIC_SELL`, repeated |
+| `price_range_from`, `price_range_to`           | numbers                                                                                                         |
+| `minimum_lot`                                  | number                                                                                                          |
+| `value_from`, `value_to`                       | numbers                                                                                                         |
+| `time_range.start`, `time_range.end`           | `HH:mm` strings (the filter's default `timeFormat`)                                                             |
+| `broker_buy`, `broker_sell`, `broker_operator` | broker codes; `FILTER_BROKER_OPERATOR_AND` or `_OR`                                                             |
+| `watchlist_id`                                 | number, for "Watchlist" mode                                                                                    |
+| `date`                                         | `YYYY-MM-DD`, sent only when the user picks a date                                                              |
 
 3. **Page cursor**, from react-query's `getNextPageParam` / `getPreviousPageParam` in module `37893`:
    - Next page: `{ trade_number: <last row's trade_number> }`.
@@ -84,14 +84,14 @@ While `is_open_market` is true, the widget shows the websocket tape seeded by th
 
 The query builder `JC` (**[aj]** `index-DKOtYJk3.js`, near `qC="/v1/stock/detail/running_trades/"`) sends exactly:
 
-| Param | Value |
-|---|---|
-| `last_timestamp` | epoch ms; defaults to `Date.now()` |
-| `direction` | always `DESC` in the app |
-| `side` | `BUY` or `SELL`; omitted for all |
-| `min_lot`, `min_price`, `max_price` | numbers |
-| `page` | 1-based |
-| `page_size` | the app uses 40 for the whole market, 8 or 40 for one code (`fj`/`pj`, `mj = 40`) |
+| Param                               | Value                                                                             |
+| ----------------------------------- | --------------------------------------------------------------------------------- |
+| `last_timestamp`                    | epoch ms; defaults to `Date.now()`                                                |
+| `direction`                         | always `DESC` in the app                                                          |
+| `side`                              | `BUY` or `SELL`; omitted for all                                                  |
+| `min_lot`, `min_price`, `max_price` | numbers                                                                           |
+| `page`                              | 1-based                                                                           |
+| `page_size`                         | the app uses 40 for the whole market, 8 or 40 for one code (`fj`/`pj`, `mj = 40`) |
 
 - **No trade-number parameter and no symbol filter** on the whole-market route. A single code has its own route, `v1/stock/detail/{CODE}/running_trades/`, with the same query.
 - **Paging:** the app fixes `last_timestamp` once (when the user scrolls past the live rows) and increments `page` while `has_next` (or `next`) is truthy (**[aj]** `running-trade-pagination-BbXY459p.js`: `e => !!(e?.has_next ?? e?.next)`, and `ZC`).

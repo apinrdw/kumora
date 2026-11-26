@@ -6,14 +6,14 @@ Research for apinrdw/kumora#257 (map apinrdw/kumora#256), read 2026-11-13. Prima
 
 Every layer fits inside the library. None of them needs a canvas outside the chart.
 
-| Layer | API | Draw layer |
-| --- | --- | --- |
-| Book heatmap | A **series primitive** on the candle series, with a pane view whose `zOrder()` is `"bottom"` | Below the grid and the candles |
-| Sweep bubbles | A **series primitive** on the candle series with `zOrder()` `"normal"`, plus `hitTest` for hover | Just above the candles |
-| Footprint cells | A **custom series** (`addCustomSeries`) with one data item per minute | Series layer |
-| Vol / Δ / CVD footer | A second **pane** in chart 2 (`chart.addPane()`), holding a small custom series that draws text, plus a series primitive's `priceAxisPaneViews` for the row labels | Its own pane |
-| VWAP ±1σ/2σ/3σ | Seven built-in `LineSeries`, plus an optional series primitive that fills the bands in `drawBackground` | Series layer |
-| Two stacked charts | `subscribeVisibleLogicalRangeChange` → `setVisibleLogicalRange` both ways, and `subscribeCrosshairMove` → `setCrosshairPosition` / `clearCrosshairPosition` both ways | — |
+| Layer                | API                                                                                                                                                                   | Draw layer                     |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| Book heatmap         | A **series primitive** on the candle series, with a pane view whose `zOrder()` is `"bottom"`                                                                          | Below the grid and the candles |
+| Sweep bubbles        | A **series primitive** on the candle series with `zOrder()` `"normal"`, plus `hitTest` for hover                                                                      | Just above the candles         |
+| Footprint cells      | A **custom series** (`addCustomSeries`) with one data item per minute                                                                                                 | Series layer                   |
+| Vol / Δ / CVD footer | A second **pane** in chart 2 (`chart.addPane()`), holding a small custom series that draws text, plus a series primitive's `priceAxisPaneViews` for the row labels    | Its own pane                   |
+| VWAP ±1σ/2σ/3σ       | Seven built-in `LineSeries`, plus an optional series primitive that fills the bands in `drawBackground`                                                               | Series layer                   |
+| Two stacked charts   | `subscribeVisibleLogicalRangeChange` → `setVisibleLogicalRange` both ways, and `subscribeCrosshairMove` → `setCrosshairPosition` / `clearCrosshairPosition` both ways | —                              |
 
 The day holds about 330 one-minute candles. The cost is the number of shapes per redraw, not the number of bars. Each redraw repaints the main canvas of every pane in full. The top canvas, which carries the crosshair and `"top"` views, repaints on every mouse move. So keep heavy layers off `"top"`, keep `hitTest` cheap, and cache the heatmap.
 
@@ -118,14 +118,14 @@ No. All drawing fits in primitives, custom series and panes, and layers are orde
 
 ## Confidence
 
-| Claim | Basis | Confidence |
-| --- | --- | --- |
-| API shapes (primitives, custom series, panes, zOrder, crosshair, `minimumWidth`) | 5.2.1 `typings.d.ts` | High |
-| Paint order, top-canvas-only repaint on mouse move, full update on `requestUpdate` | 5.2.1 development bundle | High |
-| `logicalToCoordinate` returns 0 for fractional logicals | Bundle 6163–6166; not run in a browser | High from source; the `CursorLine` effect is unverified |
-| Hovered custom-series heatmap jumps over candles | 5.2.0 notes plus bundle fallback hit test; not run | High from source |
-| Synced crosshair does not echo events | Bundle `skipEvent` paths | High |
-| Shape counts at the open and their frame cost | Estimates, no measurement | Low; needs the prototype and the data-volume ticket |
+| Claim                                                                              | Basis                                              | Confidence                                              |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------- |
+| API shapes (primitives, custom series, panes, zOrder, crosshair, `minimumWidth`)   | 5.2.1 `typings.d.ts`                               | High                                                    |
+| Paint order, top-canvas-only repaint on mouse move, full update on `requestUpdate` | 5.2.1 development bundle                           | High                                                    |
+| `logicalToCoordinate` returns 0 for fractional logicals                            | Bundle 6163–6166; not run in a browser             | High from source; the `CursorLine` effect is unverified |
+| Hovered custom-series heatmap jumps over candles                                   | 5.2.0 notes plus bundle fallback hit test; not run | High from source                                        |
+| Synced crosshair does not echo events                                              | Bundle `skipEvent` paths                           | High                                                    |
+| Shape counts at the open and their frame cost                                      | Estimates, no measurement                          | Low; needs the prototype and the data-volume ticket     |
 
 [tag]: https://github.com/tradingview/lightweight-charts/tree/v5.2.1
 [intro]: https://tradingview.github.io/lightweight-charts/docs/plugins/intro

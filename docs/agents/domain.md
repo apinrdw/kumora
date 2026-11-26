@@ -43,6 +43,7 @@ A decision that clears the bar is an ADR, and each line that enacts it carries a
   - fixes a tool, platform or process the whole repo depends on.
 
   A choice local to one function, component, constant or test stays a why-comment, however surprising it is. The comment at the site already stops a reader from "fixing" it.
+
 - **Where.** A decision of one workspace goes in that workspace's `docs/adr/`. Root scripts and root config (`scripts/`, `.github/`, `turbo.json`, `pnpm-workspace.yaml`) and system-wide decisions go in the root `docs/adr/`. A decision enacted in several workspaces goes in the lowest context every site depends on, even when that context has no enacting line of its own: the token refusal shared by `apps/extension` and `apps/dashboard` goes in `packages/relay`. When no workspace is shared by all the sites, it goes in the root. Create a directory when its first ADR is written, glossary or not, and name it in the ADRs column of `GLOSSARY-MAP.md`.
 - **Format.** `/domain-modeling`'s ADR format, named `NNNN-slug.md` with the next free number in its directory: a title, then a short paragraph of the context, the choice and the reason. It ends with a `Sites:` list of the files whose pointer names it, then a `Source:` line naming its issue or PR, or `Source: none`; the checker holds both. Frontmatter may carry `Status`, and `Sites: none` for a decision with no code or config line that can take a pointer. A D1 migration cannot: Alchemy refuses to deploy an applied one edited even in a comment, and the checker reads no SQL, so a decision enacted only in migrations names them in its body and declares `Sites: none`.
 - **Pointer.** A gist, then the ADR's path from the repo root, in at most two comment lines. It uses the file's comment syntax and opens its own comment line, not one that follows code:
@@ -53,6 +54,7 @@ A decision that clears the bar is an ADR, and each line that enacts it carries a
   ```
 
   One decision gets one ADR, with the same pointer at each enacting site. The checker (`scripts/decision-docs.mts`) names the file types whose comments it reads, and it reads `docs/adr/` links in every tracked file. `Decision:` lines in Markdown under `docs/research/` and `docs/runbooks/`, and in D1 migrations (`*.sql`), are dated records and keep their wording.
+
 - **Writing.** Write the ADR and its pointers in the same commit as the code, without asking first, and list the ADR under the PR body's `Decisions` heading.
 - **Changing.** A refinement, or a new site, edits the ADR in place. A reversal writes a new ADR, sets the old one's `Status` to `superseded by ADR-NNNN`, and moves every pointer to the new one; the checker fails a pointer left behind. When a change makes a why-comment false, update or delete it in the same commit.
 - **Number clash.** When another branch lands the same number in the directory first, the checker fails yours on `staging`. Renumber your ADR and update its pointers.

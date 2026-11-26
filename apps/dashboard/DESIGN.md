@@ -173,6 +173,7 @@ Every figure sits on a fixed grid. Prices, lots, rupiah and times use tabular fi
 Density is that of a working tool, not a showcase: 13px controls, 14px body, uppercase 11px micro-labels for section and status names, and compact 32–40px controls. The shadcn primitives in `packages/ui` are the base; the dashboard's `K` kit (`src/components/k/`) restyles them into this system. Dark is the only theme.
 
 **Key Characteristics:**
+
 - Navy canvas stepped up by tone, with hairline borders; flat.
 - One teal accent, used only for the primary action, the active state and focus.
 - Semantic color is reserved: up/down, foreign/domestic, freshness, chart series.
@@ -185,9 +186,11 @@ Density is that of a working tool, not a showcase: 13px controls, 14px body, upp
 A cool, low-chroma navy ground (hue ≈255) with a single teal accent and a reserved set of semantic hues. Values are hex custom properties on `:root` in `apps/dashboard/src/styles.css`; shadcn's variables alias them.
 
 ### Primary
+
 - **Teal** (`accent-primary`, #55d9c7): the primary button fill, the active nav icon, the focus outline (`--ring`), the selected chip border, the "Terminal" half of the wordmark. **Teal hover** (`accent-hover`, #7be6d8) is its hover. Text on it is **On-teal** (`accent-on-primary`, #09242a).
 
 ### Neutral
+
 - **Canvas** (`bg-canvas`, #0b1421): the page ground, input fields, and the blurred header (at 82% opacity).
 - **Sidebar** (`bg-sidebar`, #0e1a29): the sidebar.
 - **Surface** (`bg-surface`, #142234): cards, chips, secondary buttons.
@@ -197,12 +200,14 @@ A cool, low-chroma navy ground (hue ≈255) with a single teal accent and a rese
 - Text: **Primary** (`text-primary`, #edf4fb), **Secondary** (`text-secondary`, #b0c2d2) for labels and inactive nav, **Muted** (`text-muted`, #839aae) for hints, units, provenance lines and placeholders.
 
 ### Semantic
+
 - **Up green** (`semantic-up`, #51dda2) and **Down red** (`semantic-down`, #ff7987): price up/down, buy/sell aggressor on the tape, positive/negative delta. Down red is also the error and destructive color.
 - **Amber** (`semantic-warning`, #f4c36e): warnings, DELAYED and STALE, and **foreign** investors on the tape.
 - **Blue** (`semantic-info`, #7dbcf5): info, EOD and RECORDED, and **domestic** investors on the tape.
 - **Neutral gray** (`semantic-neutral`, #a8b8c8): flat change, neutral badges, demo data.
 
 ### Chart
+
 - **VWAP violet** (`chart-vwap`, #b3a0ff), **Volume gray** (`chart-volume`, #627f9b), **Grid** (`chart-grid`, #26384b).
 - Footprint: **Imbalance cyan** (#6fe3ff) for buy and **Imbalance magenta** (#ff8cf0) for sell; the day VWAP in Blue with its ±1σ/±2σ/±3σ bands in Up green, Lime (#9ad96c) and Amber.
 - Market Bubbles reuse up/down/neutral for each bubble's rim and glow, with the canvas as the core.
@@ -222,6 +227,7 @@ A cool, low-chroma navy ground (hue ≈255) with a single teal accent and a rese
 Note: `--font-mono` is deliberately Manrope. The `num` utility sets `font-family: var(--font-mono)` plus `font-variant-numeric: tabular-nums`, so market figures stay in Manrope with fixed-width digits.
 
 ### Hierarchy
+
 - **Display** (650, 28px/34px, tabular): the headline figure of a metric card. Compact metrics use 20px/28px semibold.
 - **Headline** (700, 24px/32px): the page h1 ("Market Live", "Account"). One per page. Auth pages use 20px semibold.
 - **Title** (600, 15px/22px): section and panel titles; the wordmark uses 15px extrabold.
@@ -261,7 +267,9 @@ A fixed radius scale (overriding shadcn's `calc()` radii on purpose): 4px (xs) f
 The kit lives in `apps/dashboard/src/components/k/` (`KButton`, `KChip`, `KBadge`, `KStatusPill`, `KInput`, `KSelect`, `KMetricCard`, `KDataTable`, `KDialog`, `KEmptyState`, `KSourceLine`, `Delta`, `KTooltip`, `KSkeleton`). New screens compose these rather than raw shadcn primitives.
 
 ### Buttons
+
 Precise and quiet.
+
 - **Shape:** small radius (6px); 32/36/40px tall; 18px line height; Tabler icons at stroke 1.75.
 - **Primary:** Teal fill, On-teal text; hover brightens to Teal hover.
 - **Secondary:** Surface fill, strong border, primary text; hover goes to Raised.
@@ -272,31 +280,38 @@ Precise and quiet.
 - **Icon button:** square, ghost by default, with its label as both accessible name and tooltip.
 
 ### Chips
+
 - **Style:** 28px pills, Surface fill, strong border, secondary text at 13px weight 450, an optional count in muted tabular figures.
 - **State:** selected chips get a Teal border, Selected fill and primary text. A removable chip splits off its × as a sibling button. A dashed chip is the "Reset" action.
 
 ### Cards / Containers
+
 - **Corner Style:** 10px.
 - **Background:** Surface with a 1px border, 16px padding, no shadow.
 - **Metric card:** a label row with an optional status pill, the display figure (with a muted unit), a `Delta` line, then the provenance line. A STALE card gets an amber border and dims its figure to secondary text.
 
 ### Inputs / Fields
+
 - **Style:** Canvas fill (darker than the card it sits on), strong border, 6px radius, 13px text. A label always sits above (12px secondary text); placeholders never replace it.
 - **Focus:** the border turns Teal; no glow.
 - **Error / Disabled:** Down red border and a Down red message under the field; disabled is 50% opacity. An optional leading icon and a `kbd` shortcut hint sit inside.
 
 ### Navigation
+
 - **Sidebar:** grouped links with 10px uppercase group labels; 36px items, secondary text, muted 18px icons. Hover fills Raised. Active fills Selected, makes the text semibold primary text and turns the icon Teal. Items can carry a small teal pill badge, a count, or an amber dot. The foot shows the market-hours box and the decision-support disclaimer.
 - **Header:** breadcrumbs (last crumb semibold primary text), stock search, WIB clock.
 - **Mobile:** a bottom nav replaces the rail below 768px.
 
 ### Status Pill (signature)
+
 The freshness pill beside every live-looking value: 22px, fully rounded, Raised fill, an uppercase 11px label with a 6px dot in the current color. LIVE is Up green, DELAYED and STALE Amber, EOD and RECORDED Blue, UNAVAILABLE Down red, and DATA DEMO a dashed Neutral gray. It can carry a detail ("DELAYED · 17m"), a source ("· extension") and the WIB time, and its tooltip states the reason and definition.
 
 ### Provenance Line and Delta (signature)
+
 `KSourceLine` sets the "source · per 14.45 WIB" line in 12px muted text under any live value. `Delta` renders a signed change as an arrow, sign and color plus a screen-reader word, and "—" for no value.
 
 ### Data Table
+
 - **Structure:** `KDataTable` on Surface cells with a border along the bottom per row; the last row has none. Headers are 36px, 12px weight 450 muted text on Surface; the active sort column's header turns primary text.
 - **Cells:** built-in formats (`pct` as a `Delta`, `idr`, `compactIdr` signed up/down, `shares`, `ticker`, `status` as a pill, `asOf`). Numeric kinds right-align with tabular figures; a null cell shows "—". The `ticker` cell is the stock code in 650 weight with the company name under it in 11px secondary text.
 - **Sort:** a small chevron beside the label, 40% opacity when idle, Teal when active, rotated for descending; `aria-sort` is set.
@@ -305,11 +320,13 @@ The freshness pill beside every live-looking value: 22px, fully rounded, Raised 
 - **States:** loading, empty, restricted and error replace the body through `KStateBody`; a ready table with no rows shows the `no-result` empty state.
 
 ### Ticker Row
+
 - **Use:** a watchlist row: stock code and name, last price, change, volume, freshness pill.
 - **Density:** compact 36px (13px text), comfortable 44px (14px), or a card form on mobile (Surface, 10px radius, 12px padding) with the same cells in the same order.
 - **Selected:** Selected fill plus a 2px Teal bar on the left edge (inset shadow).
 
 ### Running Trade Tape (signature)
+
 - **Rows:** fixed 22px rows, virtualized, every value tabular. Price, lots and value take the aggressor's color (Up green for buy, Down red for sell); the side is also given as screen-reader text.
 - **Broker codes:** each side reads `AK [F]`, colored Amber for foreign or Blue for domestic; the bracketed letter carries the meaning without color.
 - **Big trades:** a row worth at least Rp1 B is tinted at 15% of its side's color with a 3px inset bar of that color on the left.
@@ -318,25 +335,30 @@ The freshness pill beside every live-looking value: 22px, fully rounded, Raised 
 - **Feeds:** small dots show which feed saw each trade; a stale tape drops to 50% opacity rather than disappearing.
 
 ### Select
+
 - **Style:** the same field shell as inputs (Canvas, Strong border, 6px, 13px) at 32, 36 or 40px, with a muted chevron. A label always sits above.
 - **Menu:** Raised popover, 1px border, 6px radius, popover shadow; the highlighted item fills Selected.
 
 ### Toast
+
 - **Surface:** 360px wide, Raised, 1px border, 10px radius, popover shadow, 12px × 16px padding.
 - **Tone:** a single icon in the tone's color carries the tone (success Up green, info Blue, warning Amber, error Down red); the surface itself stays neutral. Title 13px medium primary text, description 12px secondary text, an optional ghost action, and a dismiss icon button.
 - **Timing:** 4s for success and info, 8s for warnings and errors, which are also announced as alerts.
 
 ### Tooltip
+
 - **Surface:** Raised, 1px border, 4px radius, popover shadow, 12px text, 160–280px wide, 8px from its trigger.
 - **Explain variant:** a 2px Blue rule on the left and a Blue title line, for methodology notes.
 - **Rule:** a critical figure never lives only inside a tooltip.
 
 ### Skeleton
+
 - **Style:** Raised bars with a 4px radius, shaped like the element they stand in for (text, metric card, table rows, chart), with `aria-busy`. The pulse stops under reduced motion.
 
 ## Do's and Don'ts
 
 ### Do:
+
 - **Do** compose new screens from the `K` kit, and add a variant to it before styling a one-off.
 - **Do** put `num` on every changing figure and right-align numeric table columns.
 - **Do** show freshness (`KStatusPill`) and provenance (`KSourceLine`) beside every live-looking value, and render a missing value as "—".
@@ -345,6 +367,7 @@ The freshness pill beside every live-looking value: 22px, fully rounded, Raised 
 - **Do** use the 2px Teal focus outline (`kFocus`) on every interactive element.
 
 ### Don't:
+
 - **Don't** use Teal for data, charts or decoration.
 - **Don't** reuse green, red, amber or blue for anything except their reserved meanings.
 - **Don't** put shadows on resting cards or panels.

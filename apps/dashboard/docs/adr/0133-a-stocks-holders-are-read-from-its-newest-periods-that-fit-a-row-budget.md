@@ -10,6 +10,7 @@ Every reader of a kind's periods now takes them from one definition, the windows
 A period's lines and its panel then read the same periods, so a holder has one identity and one Trend in both. That holds while the stock's periods up to the newest fit the page's budget. Past it the panel starts at a later period than the derivation did, and a holder back from before the panel's first period can show a shorter Trend there. A stock with over 4,000 rows of months beside two days at the cap shows fewer days than Holder moves derived from, down to none at both caps. The two budgets apart let one stock's page read 62,004 rows, which took 144 MiB of heap, more than a Worker has (apinrdw/kumora#673's review). No real stock comes near either cap: at most 20 holders can be above 5% and 100 above 1%.
 
 What a panel's server render holds of its rows has one bound too. A list of stored rows is rendered through `BoundedRows` (`components/k/bounded-rows.tsx`): the server renders the list's first 200 rows, and the browser renders every row once the page hydrates. So the server render holds 200 rows of a list, whatever its length. Rendered whole, a day at the cap (8,000 holders of a securities account each) took more than a Worker's 128 MiB in React's server render alone (apinrdw/kumora#673's review). The browser has no such limit, and the owner chose on 2026-11-25 that it renders the rest with no button to click, so a real day isn't cut: Holder moves has over 263 lines on every real day. Through it go:
+
 - Daily holders' table, as one list: each holder, a listed one's securities accounts under it, then the earlier holders under their heading;
 - Major holders' table, and its Every month grid. The grid's server render holds as many rows as fit 6,000 cells, so fewer for more months (100 rows of 60 months), and works out a row's cells when it renders the row (`cellsOf` in `lib/every-month.ts`): every row's cells at once are holders times months, which no row budget bounds;
 - Holder moves' table and its Entered or left list (ADR 0134).
@@ -17,6 +18,7 @@ What a panel's server render holds of its rows has one bound too. A list of stor
 The ownership bar draws a segment for each of its first 100 holders and one for the rest. A real stock's day stays under the bound unless it has well over a hundred earlier holders, which no stock's parsed days were checked for: at most 20 holders can be above 5%, and the busiest stock has 38 securities accounts (DNET, 25 Nov 2026). A real month has at most 28 rows. Holder moves' table does pass it on a real day.
 
 The view model keeps what grows with the periods' holders, not with periods times holders: `holderMoves` (`lib/holder-identity.ts`) holds each period's own holders, and `earlierHolders` works out the earlier holders of the one period shown. `tests/server/holdings/stock-page-heap.test.ts` holds the bounds:
+
 - The read of two days at the cap's longest texts retains under 32 MiB (21 MiB measured on 25 Nov 2026), and of two months under 48 MiB (31.6 MiB).
 - The read of both kinds and the render of both panels fit a worker whose heap stops at 96 MiB (`stock-page-worker.tsx`), about 30 MiB of it the worker's own, React with it. Every case fit 88 MiB on 25 Nov 2026 and the tightest not always 84; a worker thread's limit isn't exact, so the bound leaves room. The cases:
   - the page's budget: at both caps, with two months at the cap and the days that fit beside them, and with two days at the cap and 4,000 rows of months. A month's rows are let go as its holders are made of them (`drained` in `server/holdings/stock-page.ts`): held whole beside the holders, the read alone of the second fit 112 MiB, not 104;
@@ -26,6 +28,7 @@ The view model keeps what grows with the periods' holders, not with periods time
 Undoing this means another bound on the read, such as reading by the selected period, which reloads the whole stock page on each period picked. It also means a second definition of the periods the derivation reads. With its own, the last 21 periods, Holder moves gave a holder renamed before them and back within them a Trend its panel didn't show (apinrdw/kumora#673's review).
 
 Sites:
+
 - `apps/dashboard/src/components/k/bounded-rows.tsx`
 - `apps/dashboard/src/components/holder-moves/holder-moves.tsx`
 - `apps/dashboard/src/components/stocks/daily-holders.tsx`

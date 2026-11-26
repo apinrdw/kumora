@@ -30,14 +30,14 @@ Source: `https://trade.ajaib.co.id/` and `https://trade.ajaib.co.id/__ENV.js`, f
 
 `__ENV.js` sets `window.__RUNTIME_ENV__`. The market-data entries:
 
-| Key | Value |
-|---|---|
-| `VITE_PUBLIC_API_URL` | `https://ht2.ajaib.co.id/api/` |
-| `VITE_PUBLIC_STOCK_WEBSOCKET` | `wss://stream.ajaib.co.id:8009` |
-| `VITE_PUBLIC_CENTRIFUGO_WS` | `wss://edge-events.ajaib.co.id/connection/websocket` |
+| Key                                 | Value                                                        |
+| ----------------------------------- | ------------------------------------------------------------ |
+| `VITE_PUBLIC_API_URL`               | `https://ht2.ajaib.co.id/api/`                               |
+| `VITE_PUBLIC_STOCK_WEBSOCKET`       | `wss://stream.ajaib.co.id:8009`                              |
+| `VITE_PUBLIC_CENTRIFUGO_WS`         | `wss://edge-events.ajaib.co.id/connection/websocket`         |
 | `VITE_PUBLIC_CENTRIFUGO_WS_PRIVATE` | `wss://edge-events-private.ajaib.co.id/connection/websocket` |
-| `VITE_PUBLIC_WATCHLIST_WEBSOCKET` | `wss://realtime.ajaib.co.id` |
-| `VITE_PUBLIC_SHARED_COOKIE_DOMAIN` | `.ajaib.co.id` |
+| `VITE_PUBLIC_WATCHLIST_WEBSOCKET`   | `wss://realtime.ajaib.co.id`                                 |
+| `VITE_PUBLIC_SHARED_COOKIE_DOMAIN`  | `.ajaib.co.id`                                               |
 
 `VITE_PUBLIC_USE_WS_PROXY` is not set. That decides which WebSocket URL the web build uses (next section).
 
@@ -62,12 +62,12 @@ The tape uses `wsUrl("trade")` and the chart uses `wsUrl("price")`. With today's
 
 Unauthenticated HTTP/1.1 upgrade probes on 2026-11-06, all with `Origin: https://trade.ajaib.co.id`:
 
-| URL | Result |
-|---|---|
-| `wss://stream.ajaib.co.id:8009/ws/trade` | `401 Unauthorized` (`server: istio-envoy`) |
-| `wss://stream.ajaib.co.id:8009/ws/price` | `401 Unauthorized` |
+| URL                                      | Result                                           |
+| ---------------------------------------- | ------------------------------------------------ |
+| `wss://stream.ajaib.co.id:8009/ws/trade` | `401 Unauthorized` (`server: istio-envoy`)       |
+| `wss://stream.ajaib.co.id:8009/ws/price` | `401 Unauthorized`                               |
 | `wss://trade.ajaib.co.id/ws/stock/trade` | `101 Switching Protocols` (`server: cloudflare`) |
-| `wss://trade.ajaib.co.id/ws/stock/price` | `101 Switching Protocols` |
+| `wss://trade.ajaib.co.id/ws/stock/price` | `101 Switching Protocols`                        |
 
 Both URLs work. The direct host checks auth at the upgrade. The proxy path upgrades first and presumably checks auth afterwards; I did not subscribe without credentials to find out. **Confirm** in DevTools → Network → WS which URL the signed-in tab opens today.
 
@@ -92,19 +92,19 @@ This is a verbatim live fill from the 2026-10-15 capture, quoted in the fixture 
 {"ticker":"MEJA","updateTime":1792033042261,"buyer":"","seller":"","buyerType":null,"sellerType":null,"type":"SELL","price":138.0,"lot":21.0,"value":289800,"tradedAt":"2026-10-15T09:57:22.000+07:00","tradeNum":"202610150000499855","returnPct":-2.82,"co":340,"s":345,"eb":5}
 ```
 
-| Field | Meaning | Source |
-|---|---|---|
-| `ticker` | Stock code | bundle maps it to `stock_code` |
-| `type` | `"BUY"` or `"SELL"`, the aggressor side | bundle filters frames on this value |
-| `price` | Price in rupiah. A float in JSON, integral in practice | fixture |
-| `lot` | Lots, where 1 lot is 100 shares. A float in JSON | fixture |
-| `value` | `price × lot × 100` | issue #91 |
-| `returnPct` | Change from the previous close, in % | bundle maps it to `return_pct` |
-| `tradedAt` | Trade time, ISO with `+07:00`. Milliseconds are always `.000`, so precision is effectively 1 s | fixture, issue #91 |
-| `tradeNum` | `YYYYMMDD` plus a 10-digit market-wide daily sequence. Keep it as a string: as a number it exceeds the safe-integer range | issue #91 |
-| `updateTime` | Epoch ms when the message was stamped | bundle uses it for `timestamp` and for candle bucketing |
-| `buyer`, `seller`, `buyerType`, `sellerType` | Broker codes and their type. Empty in the whole-market capture | fixture; bundle defaults them to `""` |
-| `co`, `s`, `eb` | Undocumented numbers. The bundle reads `s` as a latency term for its own `wsFreshness` metric, so `s` is probably a server-side delay in ms (**inferred**) | `websocket-*.js` |
+| Field                                        | Meaning                                                                                                                                                    | Source                                                  |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `ticker`                                     | Stock code                                                                                                                                                 | bundle maps it to `stock_code`                          |
+| `type`                                       | `"BUY"` or `"SELL"`, the aggressor side                                                                                                                    | bundle filters frames on this value                     |
+| `price`                                      | Price in rupiah. A float in JSON, integral in practice                                                                                                     | fixture                                                 |
+| `lot`                                        | Lots, where 1 lot is 100 shares. A float in JSON                                                                                                           | fixture                                                 |
+| `value`                                      | `price × lot × 100`                                                                                                                                        | issue #91                                               |
+| `returnPct`                                  | Change from the previous close, in %                                                                                                                       | bundle maps it to `return_pct`                          |
+| `tradedAt`                                   | Trade time, ISO with `+07:00`. Milliseconds are always `.000`, so precision is effectively 1 s                                                             | fixture, issue #91                                      |
+| `tradeNum`                                   | `YYYYMMDD` plus a 10-digit market-wide daily sequence. Keep it as a string: as a number it exceeds the safe-integer range                                  | issue #91                                               |
+| `updateTime`                                 | Epoch ms when the message was stamped                                                                                                                      | bundle uses it for `timestamp` and for candle bucketing |
+| `buyer`, `seller`, `buyerType`, `sellerType` | Broker codes and their type. Empty in the whole-market capture                                                                                             | fixture; bundle defaults them to `""`                   |
+| `co`, `s`, `eb`                              | Undocumented numbers. The bundle reads `s` as a latency term for its own `wsFreshness` metric, so `s` is probably a server-side delay in ms (**inferred**) | `websocket-*.js`                                        |
 
 Ajaib's own whole-market view dedupes on `trade_num` alone, keeping 100 rows (`index-*.js`, near `tw=e=>({stock_code:e.ticker,trade_num:e.tradeNum,...})`). The per-stock view falls back to `` `${stock_code}-${timestamp}` `` when `trade_num` is missing.
 
@@ -120,13 +120,13 @@ For the merge with Stockbit: if Stockbit's tape carries the same IDX trade numbe
 
 Base URL: `https://ht2.ajaib.co.id/api/`. Unauthenticated GETs from curl get a Cloudflare challenge page (`403`). From inside the signed-in tab they work as the app's own calls do.
 
-| Purpose | Request | Response shape |
-|---|---|---|
+| Purpose                     | Request                                                                                                                                         | Response shape                                                                                                                                                                                           |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Whole-market running trades | `GET v1/stock/detail/running_trades/?last_timestamp=<ms>&direction=DESC&page=<n>&page_size=<n>[&side=BUY\|SELL&min_lot=&min_price=&max_price=]` | `results[]` of `{stock_code, trade_num, lot, price, side, date, time, buyer, seller, buyer_type, seller_type, return_pct, market_type, timestamp, buyer_color, seller_color}`, plus `has_next` or `next` |
-| One code's running trades | `GET v1/stock/detail/{CODE}/running_trades/` with the same query | same |
-| Candles | `GET v1/stock/detail/{CODE}/candlestick/?resolution=1M&to=<ms>&countback=<n>` | `{err_code:"EC0000000", result:{points:[{from_time, open, high, low, close, volume}]}}` |
-| Stock code list | `GET v1/stock/data/list/` | `results[]` with `code` and `name`, plus fields not read here |
-| Trading-day times | `GET v1/stock/data/trading-day/time/` | session times; not read in detail |
+| One code's running trades   | `GET v1/stock/detail/{CODE}/running_trades/` with the same query                                                                                | same                                                                                                                                                                                                     |
+| Candles                     | `GET v1/stock/detail/{CODE}/candlestick/?resolution=1M&to=<ms>&countback=<n>`                                                                   | `{err_code:"EC0000000", result:{points:[{from_time, open, high, low, close, volume}]}}`                                                                                                                  |
+| Stock code list             | `GET v1/stock/data/list/`                                                                                                                       | `results[]` with `code` and `name`, plus fields not read here                                                                                                                                            |
+| Trading-day times           | `GET v1/stock/data/trading-day/time/`                                                                                                           | session times; not read in detail                                                                                                                                                                        |
 
 Sources: chunk `index-*.js` for running trades and trading-day times, and chunk `Chart-*.js` for candles and the list.
 
@@ -163,12 +163,12 @@ An extension should never copy, store or forward these tokens. Both options belo
 
 ## Can an MV3 extension read it?
 
-| Approach | Works? | Evidence |
-|---|---|---|
-| `chrome.webRequest` | Handshake only, no frames | [webRequest docs](https://developer.chrome.com/docs/extensions/reference/api/webRequest) (updated 2026-10-29): "the API does not intercept individual messages sent over an established WebSocket connection" |
-| Socket from the service worker | No | Ajaib's edge returned Cloudflare 403 to a `chrome-extension://` origin (issue #91, item 1) |
-| Own socket from a content script in the Ajaib tab | Yes, proven Sep to Oct 2026 | The earlier extension (`apps/extension/entrypoints/ajaib.content.ts` at `4b7b18f`) opened `wss://trade.ajaib.co.id/ws/stock/trade` from an isolated-world content script. Cookies authenticated the upgrade. It read the account id from the JWT `sub` in `document.cookie` and sent its own heartbeat |
-| Passive tap of the page's socket | Should work; not yet tried | A `"world": "MAIN"` content script at `document_start` ([content_scripts docs](https://developer.chrome.com/docs/extensions/reference/manifest/content-scripts)) can wrap `window.WebSocket` before the bundle runs. The bundle calls `new WebSocket(url)` on the main thread, not in a worker. Frames then reach the isolated world through `postMessage` |
+| Approach                                          | Works?                      | Evidence                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chrome.webRequest`                               | Handshake only, no frames   | [webRequest docs](https://developer.chrome.com/docs/extensions/reference/api/webRequest) (updated 2026-10-29): "the API does not intercept individual messages sent over an established WebSocket connection"                                                                                                                                              |
+| Socket from the service worker                    | No                          | Ajaib's edge returned Cloudflare 403 to a `chrome-extension://` origin (issue #91, item 1)                                                                                                                                                                                                                                                                 |
+| Own socket from a content script in the Ajaib tab | Yes, proven Sep to Oct 2026 | The earlier extension (`apps/extension/entrypoints/ajaib.content.ts` at `4b7b18f`) opened `wss://trade.ajaib.co.id/ws/stock/trade` from an isolated-world content script. Cookies authenticated the upgrade. It read the account id from the JWT `sub` in `document.cookie` and sent its own heartbeat                                                     |
+| Passive tap of the page's socket                  | Should work; not yet tried  | A `"world": "MAIN"` content script at `document_start` ([content_scripts docs](https://developer.chrome.com/docs/extensions/reference/manifest/content-scripts)) can wrap `window.WebSocket` before the bundle runs. The bundle calls `new WebSocket(url)` on the main thread, not in a worker. Frames then reach the isolated world through `postMessage` |
 
 Trade-offs:
 

@@ -62,13 +62,13 @@ The English path comes from the page record's `i18n.links.en`. The guessed path 
 
 ### Parameters and paging
 
-| Parameter | Effect (observed) |
-|---|---|
-| `year` | Filters by `ListingDate` year. `2026` gave 143 items, `2025` gave 2, and 2010–2024 and 2027 each gave `{"items":[],...}`. Omitting it returns every year: 145 items. |
-| `length` | Page size. The default is 25 when omitted (`pageSize: 25, pageTotal: 6`). |
-| `start` | A zero-based **item** offset, not a page index. `start=1&length=3` returns items 2–4. |
-| `search` | A server-side text filter. `search=satu` returned only the "above 1%" files, so it also matches the file URL. |
-| `lang` | Has no effect on this path: `lang=en` on the Indonesian path still returns Indonesian descriptions. The path picks the language. |
+| Parameter | Effect (observed)                                                                                                                                                    |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `year`    | Filters by `ListingDate` year. `2026` gave 143 items, `2025` gave 2, and 2010–2024 and 2027 each gave `{"items":[],...}`. Omitting it returns every year: 145 items. |
+| `length`  | Page size. The default is 25 when omitted (`pageSize: 25, pageTotal: 6`).                                                                                            |
+| `start`   | A zero-based **item** offset, not a page index. `start=1&length=3` returns items 2–4.                                                                                |
+| `search`  | A server-side text filter. `search=satu` returned only the "above 1%" files, so it also matches the file URL.                                                        |
+| `lang`    | Has no effect on this path: `lang=en` on the Indonesian path still returns Indonesian descriptions. The path picks the language.                                     |
 
 `meta` has no total count, only `pageTotal = ceil(total / length)`. Sending `length=9999` with no `year` gets the whole history in one call, so no paging is needed.
 
@@ -88,12 +88,12 @@ Items are sorted by `ListingDate`, newest first. Within one date the order is no
 
 All 145 files are `.xlsx` (`content-type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`; `file` reports "Microsoft Excel 2007+"). The page's disclaimer (CMS field `disclaimer`) names the four series and says the data comes from KSEI (PT Kustodian Sentral Efek Indonesia):
 
-| Series (`Description` prefix) | Cadence | Count | First data date | Size |
-|---|---|---|---|---|
-| Pemegang Saham di Atas 5% | every trading day | 116 | 2026-05-29 | 386–405 KB |
-| Pemegang Saham di Atas 1% | month end | 9 | 2026-02-27 | 562–626 KB |
-| Data Kepemilikan Saham Perusahaan Tercatat per Tipe Investor | month end | 12 | 2025-11-28 | 172–269 KB |
-| Data Kepemilikan Saham Perusahaan Tercatat Berdasarkan Klasifikasi Investor | month end | 8 | 2026-03-31 | 260–393 KB |
+| Series (`Description` prefix)                                               | Cadence           | Count | First data date | Size       |
+| --------------------------------------------------------------------------- | ----------------- | ----- | --------------- | ---------- |
+| Pemegang Saham di Atas 5%                                                   | every trading day | 116   | 2026-05-29      | 386–405 KB |
+| Pemegang Saham di Atas 1%                                                   | month end         | 9     | 2026-02-27      | 562–626 KB |
+| Data Kepemilikan Saham Perusahaan Tercatat per Tipe Investor                | month end         | 12    | 2025-11-28      | 172–269 KB |
+| Data Kepemilikan Saham Perusahaan Tercatat Berdasarkan Klasifikasi Investor | month end         | 8     | 2026-03-31      | 260–393 KB |
 
 The daily series has no gaps. Its 116 dates are exactly the weekdays from 2026-05-29 to 2026-11-12, minus the 2026 exchange holidays (1 Jun, 16 Jun, 17 Aug, 25 Aug) from [`docs/research/idx-trading-schedule.md`](https://github.com/apinrdw/kumora/blob/research/idx-trading-schedule/docs/research/idx-trading-schedule.md).
 
@@ -146,10 +146,10 @@ That `GET` carried no `Content-Length`. The same file on `www.idx.co.id` sent `c
 
 The table below measures the time from the data date to `Last-Modified`, in WIB. It leaves out the batch uploads listed above.
 
-| Series | Typical lag | Upload hour (WIB) |
-|---|---|---|
-| 5% daily | next calendar day (69 of 116). Friday data comes on Monday (3 days). Data before a holiday comes 2–4 days later. | mostly 10:00–15:00; a few at 16:00–17:00, one at 08:00, one at 21:00 and one at 23:00 |
-| Monthly ×3 | 2–5 days after month end, all three on the same day | September: 2 Oct 13:52–13:53; October: 2 Nov 14:53–21:31 |
+| Series     | Typical lag                                                                                                      | Upload hour (WIB)                                                                     |
+| ---------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 5% daily   | next calendar day (69 of 116). Friday data comes on Monday (3 days). Data before a holiday comes 2–4 days later. | mostly 10:00–15:00; a few at 16:00–17:00, one at 08:00, one at 21:00 and one at 23:00 |
+| Monthly ×3 | 2–5 days after month end, all three on the same day                                                              | September: 2 Oct 13:52–13:53; October: 2 Nov 14:53–21:31                              |
 
 Examples: the 12 November file was uploaded at 2026-11-13 17:28 WIB, and the 11 November file at 2026-11-12 13:46 WIB. On Saturday 2026-11-14 the newest entry was still 12 November, so the 13 November (Friday) file is expected on Monday.
 
@@ -175,16 +175,16 @@ set-cookie: __cf_bm=...; Domain=idx.co.id
 
 The body is the JavaScript challenge page (`challenges.cloudflare.com`). Results of each attempt from this machine, the same for the API, a `/Media/` file and the HTML page:
 
-| Headers sent | Status |
-|---|---|
-| Chrome UA only | 403 |
-| Chrome UA + `Accept` (json or html) | 403 |
-| Chrome UA + `Accept-Language` | 403 |
-| Chrome UA + `Referer: https://www.idx.co.id/` | 403 |
-| Chrome UA + `Accept` + `Accept-Language` + `Referer` | 403 |
-| curl's default UA + `Accept` + `Accept-Language` + `Referer` | 403 |
+| Headers sent                                                                                                     | Status  |
+| ---------------------------------------------------------------------------------------------------------------- | ------- |
+| Chrome UA only                                                                                                   | 403     |
+| Chrome UA + `Accept` (json or html)                                                                              | 403     |
+| Chrome UA + `Accept-Language`                                                                                    | 403     |
+| Chrome UA + `Referer: https://www.idx.co.id/`                                                                    | 403     |
+| Chrome UA + `Accept` + `Accept-Language` + `Referer`                                                             | 403     |
+| curl's default UA + `Accept` + `Accept-Language` + `Referer`                                                     | 403     |
 | Chrome UA + **any one** of `Sec-Fetch-Mode`, `Sec-Fetch-Site`, `Sec-Fetch-Dest`, `sec-ch-ua`, `sec-ch-ua-mobile` | **200** |
-| curl's default UA + any one of those headers | 403 |
+| curl's default UA + any one of those headers                                                                     | 403     |
 
 So, from this IP on this date, the rule needed a browser `User-Agent` plus at least one header that only browsers send. No cookie and no solved challenge were needed. This is a Cloudflare bot-management heuristic, not a documented contract. It can tighten at any time, and requests from a Cloudflare Worker's egress were not tested.
 

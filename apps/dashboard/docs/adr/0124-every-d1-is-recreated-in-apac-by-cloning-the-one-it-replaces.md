@@ -7,6 +7,7 @@ A D1's location is fixed when it is created, so adding the hint replaces the dat
 During the cutover, the old database refuses queries while D1 exports it, and anything written between the export and the switch is lost. The owner therefore publishes each production Release outside IDX market hours.
 
 We rejected these alternatives:
+
 - Reading admin sessions through the cookie cache. A ban or a role change would then take up to 5 minutes to reach admin pages.
 - Pinning the Worker near the databases. BrokerTotalsDb sat on another continent.
 - A maintenance mode. It needs new code for a one-off cutover.
@@ -25,6 +26,7 @@ AuthDb therefore carries an explicit name with a roll number, `AUTH_DB_ROLL`, an
 Roll 2 (2026-11-25) copied production's AuthDb whole, keeping every user, session and account, but landed in Osaka (KIX). `authorize` stayed at a median of about 97 ms. Roll 3 (2026-11-25) landed in Hong Kong (HKG), again with every row, and brought `authorize` to a median of about 55 ms, from about 390 ms before the move. The owner stopped re-rolling there rather than pay another production cutover for Singapore's 15–30 ms. `clone` came out of AuthDb again; its name keeps `AUTH_DB_ROLL` at 3, and raising the roll now would replace AuthDb without copying it.
 
 Sites:
+
 - `apps/dashboard/alchemy.run.ts`
 
 Source: apinrdw/kumora#658

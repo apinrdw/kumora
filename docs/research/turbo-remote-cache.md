@@ -8,16 +8,16 @@ Checked on 2026-11-11 against `turbo` 2.11.7 (installed version), `main` at `055
 
 Three free backends fit `ubuntu-latest` runners. Each one is set up by one workflow step plus `TURBO_*` env vars, and none needs a `turbo.json` change:
 
-| | Vercel Remote Cache | Self-hosted Worker + R2 | GitHub Actions cache-backed server |
-| --- | --- | --- | --- |
-| Example | `vercel/setup-turborepo-remote-cache-action` (OIDC) or a PAT | `AdiRishi/turborepo-remote-cache-cloudflare` | `rharkor/caching-for-turbo` |
-| Account | Vercel Hobby team | Cloudflare account we already have | none |
-| Secrets in GitHub | none with OIDC (`TURBO_TEAM` variable); `TURBO_TOKEN` with a PAT | `TURBO_TOKEN` secret (+ `TURBO_API`, `TURBO_TEAM`) | none |
-| Free limits | 100 GB uploads/month, 100 artifact requests/min (Hobby fair use) | Workers 100k requests/day; R2 10 GB-month, 1M Class A, 10M Class B, free egress | 10 GB per repo, 200 uploads/min, 1500 downloads/min |
-| Retention | 7 days from upload | 30 days by default (`BUCKET_OBJECT_EXPIRATION_HOURS`), daily cron | evicted after 7 days with no access |
-| PR writes reach `main`? | yes, unless PR jobs are made read-only | yes, unless PR jobs are made read-only | no: GitHub scopes a PR's entries to that PR |
-| Fork PRs | no secrets → runs uncached | no secrets → runs uncached | can read the base branch's entries; writes stay PR-scoped |
-| Terms | Hobby is "non-commercial personal use only" | own infra, MIT code | GitHub-native |
+|                         | Vercel Remote Cache                                              | Self-hosted Worker + R2                                                         | GitHub Actions cache-backed server                        |
+| ----------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Example                 | `vercel/setup-turborepo-remote-cache-action` (OIDC) or a PAT     | `AdiRishi/turborepo-remote-cache-cloudflare`                                    | `rharkor/caching-for-turbo`                               |
+| Account                 | Vercel Hobby team                                                | Cloudflare account we already have                                              | none                                                      |
+| Secrets in GitHub       | none with OIDC (`TURBO_TEAM` variable); `TURBO_TOKEN` with a PAT | `TURBO_TOKEN` secret (+ `TURBO_API`, `TURBO_TEAM`)                              | none                                                      |
+| Free limits             | 100 GB uploads/month, 100 artifact requests/min (Hobby fair use) | Workers 100k requests/day; R2 10 GB-month, 1M Class A, 10M Class B, free egress | 10 GB per repo, 200 uploads/min, 1500 downloads/min       |
+| Retention               | 7 days from upload                                               | 30 days by default (`BUCKET_OBJECT_EXPIRATION_HOURS`), daily cron               | evicted after 7 days with no access                       |
+| PR writes reach `main`? | yes, unless PR jobs are made read-only                           | yes, unless PR jobs are made read-only                                          | no: GitHub scopes a PR's entries to that PR               |
+| Fork PRs                | no secrets → runs uncached                                       | no secrets → runs uncached                                                      | can read the base branch's entries; writes stay PR-scoped |
+| Terms                   | Hobby is "non-commercial personal use only"                      | own infra, MIT code                                                             | GitHub-native                                             |
 
 The cache would save less than the table suggests. `pnpm check` takes about 4m46s, and `dashboard#test` (219s) plus `//#test:root` (67s) make up most of it. Most PRs bust one or both of those tasks: 18 of the last 21 merged PRs missed at least one. The 9-minute `e2e` job does not run through turbo, so no turbo cache helps it.
 
@@ -25,13 +25,13 @@ The cache would save less than the table suggests. `pnpm check` takes about 4m46
 
 From the `check` job of run [42995512081](https://github.com/apinrdw/kumora/actions/runs/42995512081) (PR #161), with no cache. `pnpm check` runs five separate `turbo run` invocations:
 
-| Invocation | Tasks | Time |
-| --- | --- | --- |
-| `typecheck` + `typecheck:root` | 10 | 31.4s |
-| `build` | 1 (`extension#build`) | 2.4s |
-| `lint` + `lint:root` | 10 | 9.5s |
-| `format:check` + `format:check:root` | 10 | 7.4s |
-| `test` + `test:root` | 9 | 3m47s |
+| Invocation                           | Tasks                 | Time  |
+| ------------------------------------ | --------------------- | ----- |
+| `typecheck` + `typecheck:root`       | 10                    | 31.4s |
+| `build`                              | 1 (`extension#build`) | 2.4s  |
+| `lint` + `lint:root`                 | 10                    | 9.5s  |
+| `format:check` + `format:check:root` | 10                    | 7.4s  |
+| `test` + `test:root`                 | 9                     | 3m47s |
 
 The test invocation runs its tasks in parallel, so its wall time comes from the slowest tasks. Vitest durations per task: `dashboard#test` 219s, `//#test:root` 67s, `@workspace/deploy#test` 32s, `extension#test` 27s, `@workspace/client#test` 17s, `relay` 12s, `server` 11s, `web` 10s, `ui` 5s. The whole `pnpm check` step took 4m46s, and the `e2e` job took about 10 minutes. `e2e` runs `pnpm test:e2e`, which is `pnpm --filter e2e e2e`, not a turbo task.
 
@@ -52,21 +52,21 @@ Turbo already prints `Remote caching disabled` in every invocation, so this is a
 
 Method: run `turbo run typecheck typecheck:root build lint lint:root format:check format:check:root test test:root --dry=json` on clean `main`, change one file, run it again, and count the real tasks (not `transit` or tasks with no script) whose hash changed. There are 40 real tasks.
 
-| Change | Misses | Expensive tasks rerun |
-| --- | --- | --- |
-| `packages/relay/src/*.ts` | 16/40: relay, client, dashboard, e2e, extension (typecheck, lint, test, `extension#build`) | `dashboard#test`, `extension#test`, `client#test` |
-| `packages/server/src/*.ts` | 10/40: server, dashboard, web | `dashboard#test` |
-| `apps/dashboard/src/*` | 4/40: the dashboard's own four tasks | `dashboard#test` |
-| `apps/extension/manifest.ts` | 5/40: the extension's own five tasks | `extension#test` |
-| `apps/web/package.json` (a field) | 5/40: web's four tasks + `//#test:root` | `//#test:root` |
-| `scripts/*.mts` | 4/40: the four root tasks | `//#test:root` |
-| `.github/workflows/ci.yml` | 1/40: `//#test:root` | `//#test:root` |
-| `pnpm-lock.yaml`, whitespace only | 1/40: `//#test:root` | `//#test:root` |
-| `pnpm-lock.yaml`, root importer's `typescript` version | 40/40 (global hash) | everything |
-| `.oxlintrc.json` (a `globalDependencies` entry) | 40/40 | everything |
-| `turbo.json`, comment only | 4/40: the root tasks (task definitions unchanged) | `//#test:root` |
-| `tsconfig.json` (root) | 1/40: `//#typecheck:root` | none |
-| `AGENTS.md` | 0/40 | none |
+| Change                                                 | Misses                                                                                     | Expensive tasks rerun                             |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------- |
+| `packages/relay/src/*.ts`                              | 16/40: relay, client, dashboard, e2e, extension (typecheck, lint, test, `extension#build`) | `dashboard#test`, `extension#test`, `client#test` |
+| `packages/server/src/*.ts`                             | 10/40: server, dashboard, web                                                              | `dashboard#test`                                  |
+| `apps/dashboard/src/*`                                 | 4/40: the dashboard's own four tasks                                                       | `dashboard#test`                                  |
+| `apps/extension/manifest.ts`                           | 5/40: the extension's own five tasks                                                       | `extension#test`                                  |
+| `apps/web/package.json` (a field)                      | 5/40: web's four tasks + `//#test:root`                                                    | `//#test:root`                                    |
+| `scripts/*.mts`                                        | 4/40: the four root tasks                                                                  | `//#test:root`                                    |
+| `.github/workflows/ci.yml`                             | 1/40: `//#test:root`                                                                       | `//#test:root`                                    |
+| `pnpm-lock.yaml`, whitespace only                      | 1/40: `//#test:root`                                                                       | `//#test:root`                                    |
+| `pnpm-lock.yaml`, root importer's `typescript` version | 40/40 (global hash)                                                                        | everything                                        |
+| `.oxlintrc.json` (a `globalDependencies` entry)        | 40/40                                                                                      | everything                                        |
+| `turbo.json`, comment only                             | 4/40: the root tasks (task definitions unchanged)                                          | `//#test:root`                                    |
+| `tsconfig.json` (root)                                 | 1/40: `//#typecheck:root`                                                                  | none                                              |
+| `AGENTS.md`                                            | 0/40                                                                                       | none                                              |
 
 A dependency change in a single package's importer section should, per the docs, miss only that package's tasks plus `//#test:root`, which hashes the whole lockfile. A hand-edited version in `apps/web`'s importer only moved `//#test:root`, probably because the edited version did not resolve to any entry under `packages:`. So that row is not measured; a real `pnpm add` would settle it.
 

@@ -50,15 +50,15 @@ The map says "Books are subscribed only for the selected and watchlist codes, no
 
 ## 3. What a frame carries
 
-| | Stockbit `order_book` (v1, wrapper case 10) | Ajaib `ORDER_BOOK_CUSTOM` |
-| --- | --- | --- |
-| Kind | **Snapshot of one side** per frame, bid or offer | **Deltas** per level. An `is_initial: "true"` frame replaces the whole book. A level with `lot` 0 is deleted |
-| Body | Pipe text `#O\|CODE\|BID or OFFER\|price;orders;shares\|…\|<epoch s>-<orders>&<shares>` | JSON `{ ticker, is_initial?, buy?, sell?, updateTime }`, each level `{ price, lot, num }` |
-| Levels | The whole side: 45–85 levels, average 44–62 in captures | Only the levels that changed |
-| Order count | Yes, per level (`orders`) | Yes, per level (`num`) |
-| Side totals | Yes, whole-side orders and shares in the trailer | No. The object sums the levels it holds (`lotsOf`) |
-| Size | About 0.53 KB on the wire, 0.8–1.4 KB as text in captures | Small. Not measured |
-| Batching | One frame per side change | Batched every 150 ms by Ajaib |
+|             | Stockbit `order_book` (v1, wrapper case 10)                                             | Ajaib `ORDER_BOOK_CUSTOM`                                                                                    |
+| ----------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Kind        | **Snapshot of one side** per frame, bid or offer                                        | **Deltas** per level. An `is_initial: "true"` frame replaces the whole book. A level with `lot` 0 is deleted |
+| Body        | Pipe text `#O\|CODE\|BID or OFFER\|price;orders;shares\|…\|<epoch s>-<orders>&<shares>` | JSON `{ ticker, is_initial?, buy?, sell?, updateTime }`, each level `{ price, lot, num }`                    |
+| Levels      | The whole side: 45–85 levels, average 44–62 in captures                                 | Only the levels that changed                                                                                 |
+| Order count | Yes, per level (`orders`)                                                               | Yes, per level (`num`)                                                                                       |
+| Side totals | Yes, whole-side orders and shares in the trailer                                        | No. The object sums the levels it holds (`lotsOf`)                                                           |
+| Size        | About 0.53 KB on the wire, 0.8–1.4 KB as text in captures                               | Small. Not measured                                                                                          |
+| Batching    | One frame per side change                                                               | Batched every 150 ms by Ajaib                                                                                |
 
 Sources: the parsers `sideBookOf` and `AjaibOrderBook` in `order-books.ts`; `live-price-channels.md` (§1 and the Ajaib table); `broker-frame-rates.md` (bytes per frame).
 
@@ -68,13 +68,13 @@ The served book (`packages/relay/src/order-book.ts`) keeps `BOOK_DEPTH` = 20 lev
 
 All Stockbit rates are per socket. The relay holds two, and the object drops the slower copy of each side (`newerThanHeld`).
 
-| When | Book side frames a second | Codes with a book frame in a minute | Per code |
-| --- | --- | --- | --- |
-| Session 2, typical (2026-11-06, 15:00–15:30, 690 codes) | 99–119 | 449–472 | Average about 0.24/s. Busiest about 2–3/s |
-| Session 2, busiest measured minute (14:44) | 160 | 474 | |
-| Session 2, last ten minutes (15:40–15:50) | about 200–250 (estimate, scaled from trade rates) | | |
-| 09:00 open (2026-11-09) | about 360 (estimate from a 450 f/s total) | | About 3–3.5× Session 2 |
-| Pre-opening and closing auction | Little. Mostly `iepiev` | | |
+| When                                                    | Book side frames a second                         | Codes with a book frame in a minute | Per code                                  |
+| ------------------------------------------------------- | ------------------------------------------------- | ----------------------------------- | ----------------------------------------- |
+| Session 2, typical (2026-11-06, 15:00–15:30, 690 codes) | 99–119                                            | 449–472                             | Average about 0.24/s. Busiest about 2–3/s |
+| Session 2, busiest measured minute (14:44)              | 160                                               | 474                                 |                                           |
+| Session 2, last ten minutes (15:40–15:50)               | about 200–250 (estimate, scaled from trade rates) |                                     |                                           |
+| 09:00 open (2026-11-09)                                 | about 360 (estimate from a 450 f/s total)         |                                     | About 3–3.5× Session 2                    |
+| Pre-opening and closing auction                         | Little. Mostly `iepiev`                           |                                     |                                           |
 
 Source: `broker-frame-rates.md`. The probes listed 690 codes. With the 3,406-code production list, that note estimates 10–25% more load, since only codes that trade send frames (865 codes traded on 2026-11-02).
 
@@ -122,12 +122,12 @@ This is already paid today too, and it is the largest cost.
 
 ## Confidence
 
-| Claim | Basis | Confidence |
-| --- | --- | --- |
-| Stockbit books are subscribed for every listed code | Code: `subscribeFrame`, `makeStockbitSubscriptions(codeList.codes, …)` | High |
-| Every changed book goes to every viewer | Code: `sendDelta`, `takeChanged`; relay glossary **Delta** | High |
-| Book chunks are recorded for every served code | Code: `bookChunks.record` in `sendDelta` | High |
-| Stockbit frame rates by channel | Probe captures from 2026-11-06 and 2026-11-09 | High for Session 2, medium for the open |
-| Per-code cadence | Three anchors, no per-code counts | Low (estimate) |
-| Viewer bytes a second | Arithmetic on frame rates and book size | Low (estimate) |
-| Ajaib limit for N in the hundreds | No data | None |
+| Claim                                               | Basis                                                                  | Confidence                              |
+| --------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------- |
+| Stockbit books are subscribed for every listed code | Code: `subscribeFrame`, `makeStockbitSubscriptions(codeList.codes, …)` | High                                    |
+| Every changed book goes to every viewer             | Code: `sendDelta`, `takeChanged`; relay glossary **Delta**             | High                                    |
+| Book chunks are recorded for every served code      | Code: `bookChunks.record` in `sendDelta`                               | High                                    |
+| Stockbit frame rates by channel                     | Probe captures from 2026-11-06 and 2026-11-09                          | High for Session 2, medium for the open |
+| Per-code cadence                                    | Three anchors, no per-code counts                                      | Low (estimate)                          |
+| Viewer bytes a second                               | Arithmetic on frame rates and book size                                | Low (estimate)                          |
+| Ajaib limit for N in the hundreds                   | No data                                                                | None                                    |

@@ -16,16 +16,16 @@ Nobody signed in for this. Every claim comes from shipped client code, from open
 
 ## Sources
 
-| Tag | Source | Pinned at |
-|---|---|---|
-| **[sb]** | stockbit.com Next.js bundle, `buildId` `v3.54.12`, fetched anonymously. All 647 chunks from `_buildManifest.js` plus the webpack runtime's lazy-chunk map | chunk names below, 2026-11-06 |
-| **[aj]** | trade.ajaib.co.id Vite bundle, entry `index-CYGRWyZA.js`, 140 chunks crawled from the entry | chunk names below, 2026-11-06 |
-| **[haka]** | [`nofendian17/stockbit-haka-haki`](https://github.com/nofendian17/stockbit-haka-haki) | `18fe1e9ccd6b5437ad4e84a23decc08c75e4bad8` |
-| **[axiom]** | [`chairulridjaal/axiom-feed`](https://github.com/chairulridjaal/axiom-feed) | `ec7447aba8ab44e1363e667964a05624be622bb3` |
-| **[ofs]** | [`silenccy/orderflow-station`](https://github.com/silenccy/orderflow-station) | `39f4410ea0702bb5209f7a765e6b8e1f5e490173` |
-| **[lot]** | [`r3ven7/lot`](https://github.com/r3ven7/lot), with committed CDP captures of Stockbit frames from 2026-04-17 | `1a66f4c68a83b2764d3ee66770b98848e1334857` |
-| **[wina]** | [`aa-ardanirahman/wina_idx`](https://github.com/aa-ardanirahman/wina_idx) | `40369094a15b4c8fd250e6dfbf519f4ee4f9e4dc` |
-| **[proxyai]** | [`azdharsyahputra/proxyai`](https://github.com/azdharsyahputra/proxyai) | `a39ff4462b3e953231cbd6472f6a8a6e3db7db2b` |
+| Tag           | Source                                                                                                                                                    | Pinned at                                  |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| **[sb]**      | stockbit.com Next.js bundle, `buildId` `v3.54.12`, fetched anonymously. All 647 chunks from `_buildManifest.js` plus the webpack runtime's lazy-chunk map | chunk names below, 2026-11-06              |
+| **[aj]**      | trade.ajaib.co.id Vite bundle, entry `index-CYGRWyZA.js`, 140 chunks crawled from the entry                                                               | chunk names below, 2026-11-06              |
+| **[haka]**    | [`nofendian17/stockbit-haka-haki`](https://github.com/nofendian17/stockbit-haka-haki)                                                                     | `18fe1e9ccd6b5437ad4e84a23decc08c75e4bad8` |
+| **[axiom]**   | [`chairulridjaal/axiom-feed`](https://github.com/chairulridjaal/axiom-feed)                                                                               | `ec7447aba8ab44e1363e667964a05624be622bb3` |
+| **[ofs]**     | [`silenccy/orderflow-station`](https://github.com/silenccy/orderflow-station)                                                                             | `39f4410ea0702bb5209f7a765e6b8e1f5e490173` |
+| **[lot]**     | [`r3ven7/lot`](https://github.com/r3ven7/lot), with committed CDP captures of Stockbit frames from 2026-04-17                                             | `1a66f4c68a83b2764d3ee66770b98848e1334857` |
+| **[wina]**    | [`aa-ardanirahman/wina_idx`](https://github.com/aa-ardanirahman/wina_idx)                                                                                 | `40369094a15b4c8fd250e6dfbf519f4ee4f9e4dc` |
+| **[proxyai]** | [`azdharsyahputra/proxyai`](https://github.com/azdharsyahputra/proxyai)                                                                                   | `a39ff4462b3e953231cbd6472f6a8a6e3db7db2b` |
 
 The GitHub code search also returned `kevindoni/hakahaki`, `oyi77/1ai-nexus` and `aryarifki/Mapping`. None of them subscribes a price, watchlist or order-book channel.
 
@@ -37,33 +37,33 @@ The request side, `WebsocketChannel`, holds `repeated string` stock codes per ch
 
 ### `liveprice` (request 6) → reply case 9, `consumer.entity.v1.LivePrice`
 
-| # | Field | Type | Watchlist use |
-|---|---|---|---|
-| 1 | `stock_code` | string | code |
-| 2 | `lastprice` | double | **last** |
-| 3 | `volume` | double | **volume** (shares or lots: **confirm**) |
-| 4 | `high` | double | |
-| 5 | `low` | double | |
-| 6 | `open` | double | |
-| 7 | `frequency` | double | **frequency** |
-| 8 | `frg_buy` | double | foreign buy |
-| 9 | `frg_sell` | double | foreign sell |
-| 10 | `average` | double | |
-| 11 | `date` | string | |
-| 12 | `close` | double | |
-| 13 | `prev` | double | **previous close** |
-| 14 | `value` | double | **value** |
-| 15 | `change` | `Change { value, percentage }` | **change**, change % |
-| 16 | `order_verb` | string | |
-| 17 | `quantity` | int64 | |
-| 18 | `is_index` | bool | marks indices |
-| 19–22 | `sequence_number`, `order_book_id`, `order_number`, `match_number` | int64 | |
-| 23 | `board` | enum RG / TN / NG | |
-| 24 | `source` | enum ITCH / IMQ / CRYPTO | |
-| 25 | `switch_reset` | `SwitchReset { from, to, reason, datetime }` | |
-| 26 | `itch_incoming_time` | string | |
-| 27 | `trade_trigger` | `TradeTrigger { stock_code, quantity, execution_price, value, volume, timestamp }` | the trade that caused the update |
-| 28 | `lot` | double | **lots** |
+| #     | Field                                                              | Type                                                                               | Watchlist use                            |
+| ----- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ---------------------------------------- |
+| 1     | `stock_code`                                                       | string                                                                             | code                                     |
+| 2     | `lastprice`                                                        | double                                                                             | **last**                                 |
+| 3     | `volume`                                                           | double                                                                             | **volume** (shares or lots: **confirm**) |
+| 4     | `high`                                                             | double                                                                             |                                          |
+| 5     | `low`                                                              | double                                                                             |                                          |
+| 6     | `open`                                                             | double                                                                             |                                          |
+| 7     | `frequency`                                                        | double                                                                             | **frequency**                            |
+| 8     | `frg_buy`                                                          | double                                                                             | foreign buy                              |
+| 9     | `frg_sell`                                                         | double                                                                             | foreign sell                             |
+| 10    | `average`                                                          | double                                                                             |                                          |
+| 11    | `date`                                                             | string                                                                             |                                          |
+| 12    | `close`                                                            | double                                                                             |                                          |
+| 13    | `prev`                                                             | double                                                                             | **previous close**                       |
+| 14    | `value`                                                            | double                                                                             | **value**                                |
+| 15    | `change`                                                           | `Change { value, percentage }`                                                     | **change**, change %                     |
+| 16    | `order_verb`                                                       | string                                                                             |                                          |
+| 17    | `quantity`                                                         | int64                                                                              |                                          |
+| 18    | `is_index`                                                         | bool                                                                               | marks indices                            |
+| 19–22 | `sequence_number`, `order_book_id`, `order_number`, `match_number` | int64                                                                              |                                          |
+| 23    | `board`                                                            | enum RG / TN / NG                                                                  |                                          |
+| 24    | `source`                                                           | enum ITCH / IMQ / CRYPTO                                                           |                                          |
+| 25    | `switch_reset`                                                     | `SwitchReset { from, to, reason, datetime }`                                       |                                          |
+| 26    | `itch_incoming_time`                                               | string                                                                             |                                          |
+| 27    | `trade_trigger`                                                    | `TradeTrigger { stock_code, quantity, execution_price, value, volume, timestamp }` | the trade that caused the update         |
+| 28    | `lot`                                                              | double                                                                             | **lots**                                 |
 
 The web app's mapper (**[sb]** `24631.cfd1cf1ad2f92202.js`, export `XA`) reads `prev, change.value, change.percentage, frequency, open, high, low, lot, volume, value, average, close, lastprice, date, stockCode`. That is the set the UI trusts. `volume` and `lot` both exist, so `volume` is probably shares. **Confirm.**
 
@@ -77,12 +77,12 @@ The web app's mapper (**[sb]** `24631.cfd1cf1ad2f92202.js`, export `XA`) reads `
 
 ### Order book messages
 
-| Channel | Reply | Fields |
-|---|---|---|
-| `order_book` (2) | case 10 `consumer.entity.v1.Orderbook` | 1 `stock_code`, 2 `body` (string), 3 `sequence_number`, 4 `order_book_id`, 5 `datetime` (string), 6 `source`, 7 `switch_reset`, 8 `board`, 9 `itch_incoming_time` |
-| (legacy) | case 5 `OrderBookHeader` | 1 `stock_symbol`, 2 `change`, 3 `price` = `Price { open, high, low, avg, last, prev, frequency, fbuy, fsell, lot, val }`, 4 `time` |
-| (legacy) | case 6 `OrderBookBody` | 1 `stock_symbol`, 2 `bid[]`, 3 `offer[]` (each `{ price, lot }`), 4 `time` |
-| `order_book_v3` (13) | case 17 `consumer.entity.v3.Orderbook` | 1 `symbol`, 2 `bid[]`, 3 `offer[]`, 4 `total_bid`, 5 `total_offer` (each `OrderBookData { volume, price, frequency }` as `DecimalValue`), 6 `timestamp` |
+| Channel              | Reply                                          | Fields                                                                                                                                                                             |
+| -------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `order_book` (2)     | case 10 `consumer.entity.v1.Orderbook`         | 1 `stock_code`, 2 `body` (string), 3 `sequence_number`, 4 `order_book_id`, 5 `datetime` (string), 6 `source`, 7 `switch_reset`, 8 `board`, 9 `itch_incoming_time`                  |
+| (legacy)             | case 5 `OrderBookHeader`                       | 1 `stock_symbol`, 2 `change`, 3 `price` = `Price { open, high, low, avg, last, prev, frequency, fbuy, fsell, lot, val }`, 4 `time`                                                 |
+| (legacy)             | case 6 `OrderBookBody`                         | 1 `stock_symbol`, 2 `bid[]`, 3 `offer[]` (each `{ price, lot }`), 4 `time`                                                                                                         |
+| `order_book_v3` (13) | case 17 `consumer.entity.v3.Orderbook`         | 1 `symbol`, 2 `bid[]`, 3 `offer[]`, 4 `total_bid`, 5 `total_offer` (each `OrderBookData { volume, price, frequency }` as `DecimalValue`), 6 `timestamp`                            |
 | `best_bid_offer` (9) | case 13 `company_price_feed.v1.BestBidOfferWS` | 1 `stock_code`, 2 `sequence_number`, 3 `best_bid`, 4 `best_offer` (each `BestOrder { price, quantity: Value { raw: float, formatted }, change_percentage: string }`), 5 `datetime` |
 
 The v1 `body` is pipe-delimited text. The web parser (**[sb]** `62534.14089f78aa4b9305.js`, module `27886`, `parseSocketString`) reads `#O|SYM|BID` or `#O|SYM|OFFER`, then `price;queue;volume` levels. **[ofs]** `docs/protocol.md` reports the same live: one side per frame as a full snapshot, the middle field as the resting order count, volume in shares, and about 60 levels.
@@ -100,11 +100,11 @@ The web app uses only `order_book` (v1) and `best_bid_offer`. `orderBookV3`, `or
 
 **Open source:**
 
-| Repo | Sends | What it does with the reply |
-|---|---|---|
-| **[haka]** `websocket/client.go` | `RunningTradeBatch: ["*"], Watchlist: ["*"]` | Its `proto/datafeed.proto` wrapper has no `watchlist` case (only 1, 2, 6, 8, 9, 10). `handlers/running_trade.go` returns `unknown message channel type` for anything else. It drops `orderbook` case 10 by its first byte. It never processes a watchlist reply. |
-| **[axiom]** `services/ingest-rs/src/feed.rs`, `services/api-py/.../embedded_ingest.py` | `running_trade_batch: ["*"]`, `watchlist: ["*"]`, and `liveprice` / `order_book` with **explicit** codes | `feed.rs` asserts `"wildcard only for trades/watchlist"`. `docs/ARCHITECTURE.md` states that `"*"` is only valid for `running_trade_batch` and rejects `*` for quotes and books with a 400. Its wrapper proto is copied from **[haka]**, also without a `watchlist` case. |
-| **[ofs]** `orderflow/feed.py` | One captured web subscribe frame, re-targeted per code (`order_book`, `running_trade_batch`, `liveprice`, `iepiev`) | Never sends `*`. |
+| Repo                                                                                   | Sends                                                                                                               | What it does with the reply                                                                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[haka]** `websocket/client.go`                                                       | `RunningTradeBatch: ["*"], Watchlist: ["*"]`                                                                        | Its `proto/datafeed.proto` wrapper has no `watchlist` case (only 1, 2, 6, 8, 9, 10). `handlers/running_trade.go` returns `unknown message channel type` for anything else. It drops `orderbook` case 10 by its first byte. It never processes a watchlist reply.          |
+| **[axiom]** `services/ingest-rs/src/feed.rs`, `services/api-py/.../embedded_ingest.py` | `running_trade_batch: ["*"]`, `watchlist: ["*"]`, and `liveprice` / `order_book` with **explicit** codes            | `feed.rs` asserts `"wildcard only for trades/watchlist"`. `docs/ARCHITECTURE.md` states that `"*"` is only valid for `running_trade_batch` and rejects `*` for quotes and books with a 400. Its wrapper proto is copied from **[haka]**, also without a `watchlist` case. |
+| **[ofs]** `orderflow/feed.py`                                                          | One captured web subscribe frame, re-targeted per code (`order_book`, `running_trade_batch`, `liveprice`, `iepiev`) | Never sends `*`.                                                                                                                                                                                                                                                          |
 
 So `watchlist: ["*"]` appears in two repos, but no repo shows what it returns. No repo sends `liveprice: ["*"]`.
 
@@ -114,15 +114,15 @@ So `watchlist: ["*"]` appears in two repos, but no repo shows what it returns. N
 
 The `PRICE` hook (**[aj]** `price-ws-DLfW6eKV.js`) opens `wsUrl("price")` and sends `{method, id, stream: "PRICE", streamObject: <code>}`. It reference-counts each code in a `tickerCounter` map. On reconnect it resubscribes each counted code, one frame per code. Its consumers read these fields:
 
-| Field | Read by | Meaning |
-|---|---|---|
-| `ticker` | all consumers | stock code |
-| `price` | all | last |
-| `change` | `useStockPriceWs-CUiK06W8.js`, `fetch-CBAwHG3Q.js`, list hook `lne` in `index-*.js` | change in rupiah |
-| `pctChange` | same | change %. The list hook's guard `yE` requires `ticker`, `price`, `change` and `pctChange` |
-| `open`, `hi`, `lo`, `close` | `useStockPriceWs`, `fetch-CBAwHG3Q.js` (stored as `ws_open`, `ws_hi`, `ws_lo`, `ws_close`), `Chart-BiAa0fN8.js` | day OHLC. Whether `close` is the previous close or the current close: **confirm** |
-| `tradableVolume` | `Chart-BiAa0fN8.js` | cumulative day volume. The chart takes the per-bar volume as the change in it |
-| `updateTime` | all | epoch ms |
+| Field                       | Read by                                                                                                         | Meaning                                                                                   |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `ticker`                    | all consumers                                                                                                   | stock code                                                                                |
+| `price`                     | all                                                                                                             | last                                                                                      |
+| `change`                    | `useStockPriceWs-CUiK06W8.js`, `fetch-CBAwHG3Q.js`, list hook `lne` in `index-*.js`                             | change in rupiah                                                                          |
+| `pctChange`                 | same                                                                                                            | change %. The list hook's guard `yE` requires `ticker`, `price`, `change` and `pctChange` |
+| `open`, `hi`, `lo`, `close` | `useStockPriceWs`, `fetch-CBAwHG3Q.js` (stored as `ws_open`, `ws_hi`, `ws_lo`, `ws_close`), `Chart-BiAa0fN8.js` | day OHLC. Whether `close` is the previous close or the current close: **confirm**         |
+| `tradableVolume`            | `Chart-BiAa0fN8.js`                                                                                             | cumulative day volume. The chart takes the per-bar volume as the change in it             |
+| `updateTime`                | all                                                                                                             | epoch ms                                                                                  |
 
 No consumer reads value, frequency or a named previous close. Previous close can be derived as `price - change`. Value and frequency would have to come from REST (`v1/stock/detail/{CODE}/price/`) unless the frame carries more fields than the client reads. **Confirm.**
 
@@ -140,11 +140,11 @@ The fields are in section 1. The web app subscribes `order_book` per code and de
 
 **Payload size and rate**, measured from the **[lot]** CDP captures with a script that reads frame headers only:
 
-| Capture | Codes | Duration | Book frames (case 10) | Bytes per frame | Levels per frame | `liveprice` (case 9) |
-|---|---|---|---|---|---|---|
-| `orderbook_subscribe_raw_20260417_135958` | PTRO | 46 s | 2.5/s | avg 790, max 897 | avg 44, max 50 | 1.0/s, about 220 B |
-| `…_140155` | PTRO, BBRI | 58 s | 1.4/s | avg 884, max 1,430 | avg 49, max 84 | 0.4/s |
-| `…_142448` | mostly BBRI | 34 s | 2.3/s | avg 1,104, max 1,431 | avg 62, max 84 | 0.5/s |
+| Capture                                   | Codes       | Duration | Book frames (case 10) | Bytes per frame      | Levels per frame | `liveprice` (case 9) |
+| ----------------------------------------- | ----------- | -------- | --------------------- | -------------------- | ---------------- | -------------------- |
+| `orderbook_subscribe_raw_20260417_135958` | PTRO        | 46 s     | 2.5/s                 | avg 790, max 897     | avg 44, max 50   | 1.0/s, about 220 B   |
+| `…_140155`                                | PTRO, BBRI  | 58 s     | 1.4/s                 | avg 884, max 1,430   | avg 49, max 84   | 0.4/s                |
+| `…_142448`                                | mostly BBRI | 34 s     | 2.3/s                 | avg 1,104, max 1,431 | avg 62, max 84   | 0.5/s                |
 
 A whole-market book, if `*` were accepted, would be roughly a few hundred active codes × 1–2.5 side snapshots/s × about 1 KB. That is **on the order of 0.3–1 MB/s of text to split and parse, more at the open and close**. This is an extrapolation, not a measurement. A whole-market `liveprice` would be much lighter: one about 220-byte frame per update, at most on the order of the trade rate (the #38 map records a measured Stockbit peak of 263 trades/s), so roughly 15–60 KB/s.
 
@@ -152,10 +152,10 @@ A whole-market book, if `*` were accepted, would be roughly a few hundred active
 
 The order book has two streams, each on its own socket path from `wsUrl()` (**[aj]** `index-*.js`):
 
-| Stream | Path | When used | Frame |
-|---|---|---|---|
-| `ORDER_BOOK_CUSTOM` | `/ws/order-book-custom` | default | `{ ticker, updateTime, buy: [level], sell: [level] }`, applied as **deltas** to the REST `v1/stock/bestquote/?code=&extended=true` snapshot. A level with `lot` 0 deletes that price. Batched every 150 ms |
-| `ORDER_BOOK_FULL` | `/ws/order-book-full` | when the `desktop_fast_trade_zero_lot` flag is on | the same shape plus `is_initial` / `isInitial`. An initial frame replaces the book, and later frames merge by price. Seeded from REST `v1/stock/data/orderbook/full?code=`. Batched every 50 ms |
+| Stream              | Path                    | When used                                         | Frame                                                                                                                                                                                                      |
+| ------------------- | ----------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ORDER_BOOK_CUSTOM` | `/ws/order-book-custom` | default                                           | `{ ticker, updateTime, buy: [level], sell: [level] }`, applied as **deltas** to the REST `v1/stock/bestquote/?code=&extended=true` snapshot. A level with `lot` 0 deletes that price. Batched every 150 ms |
+| `ORDER_BOOK_FULL`   | `/ws/order-book-full`   | when the `desktop_fast_trade_zero_lot` flag is on | the same shape plus `is_initial` / `isInitial`. An initial frame replaces the book, and later frames merge by price. Seeded from REST `v1/stock/data/orderbook/full?code=`. Batched every 50 ms            |
 
 A `level` is `{ price, lot, num }`, where `num` is the order count (the UI maps it to `bidFreq` and `askFreq`). Both streams subscribe one code, `streamObject: <code>`, with a 500 ms delay. **[proxyai]** `go-proxy/debug/debug_ws.go` also subscribes `ORDER_BOOK_CUSTOM` with `BBCA`, through `wss://trade.ajaib.co.id/ws/stock/order-book-custom`. Nothing sends `*`. Ajaib's book is a delta stream, so a whole-market subscription would be lighter per update than Stockbit's snapshots. It would still need one REST snapshot per code before any delta means anything, so it does not work as a whole-market feed.
 

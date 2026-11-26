@@ -15,12 +15,12 @@ Two parts are weaker than the rest:
 
 ## Sources
 
-| Tag | Source | Version |
-|---|---|---|
-| **[sb]** | stockbit.com Next.js bundle, `buildId` `v3.55.0`: 312 page and shared chunks plus 323 lazy chunks from the webpack runtime, fetched anonymously with a browser User-Agent | chunk names below, 2026-11-07 |
+| Tag       | Source                                                                                                                                                                                          | Version                                    |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| **[sb]**  | stockbit.com Next.js bundle, `buildId` `v3.55.0`: 312 page and shared chunks plus 323 lazy chunks from the webpack runtime, fetched anonymously with a browser User-Agent                       | chunk names below, 2026-11-07              |
 | **[mcp]** | [`INo-xious/stockbit-mcp`](https://github.com/INo-xious/stockbit-mcp) `src/core/market.ts`, `docs/LIVENESS.md`, `docs/stockbit-api.md`: a REST client with live probes recorded in its comments | `1a8e482c342af004c20acb72c818307060fbc2ee` |
-| **[#48]** | Owner's DevTools capture in signed-in tabs, 2026-11-06 09:36–09:41 WIB | issue comments |
-| **[idx]** | IDX Rule II-A, Kep-00158/BEI/10-2026, as summarised in `idx-trading-schedule.md` (#56) | 2026-11-06 |
+| **[#48]** | Owner's DevTools capture in signed-in tabs, 2026-11-06 09:36–09:41 WIB                                                                                                                          | issue comments                             |
+| **[idx]** | IDX Rule II-A, Kep-00158/BEI/10-2026, as summarised in `idx-trading-schedule.md` (#56)                                                                                                          | 2026-11-06                                 |
 
 The bundle shows what the web app sends and renders, not what the server enforces. **[mcp]** is second-hand but records live probes. The bundle moved from `v3.54.12` (#61) to `v3.55.0`. The running-trade chunk `18430-d9c187f91165df68.js` kept the same hash, so its code is unchanged.
 
@@ -98,10 +98,10 @@ GET /order-trade/running-trade
 
 ### Call count and wall time
 
-| Day | Calls (100 rows each) | At 1 call/s | At 4 calls/s | At 10 calls/s |
-|---|---|---|---|---|
-| 1.3M trades | 13,000 | 3.6 h | 54 min | 22 min |
-| 2.2M trades | 22,000 | 6.1 h | 92 min | 37 min |
+| Day         | Calls (100 rows each) | At 1 call/s | At 4 calls/s | At 10 calls/s |
+| ----------- | --------------------- | ----------- | ------------ | ------------- |
+| 1.3M trades | 13,000                | 3.6 h       | 54 min       | 22 min        |
+| 2.2M trades | 22,000                | 6.1 h       | 92 min       | 37 min        |
 
 - One cursor chain is sequential, so its speed is one call per round trip. A round trip of 250 ms gives about 4 calls/s. That round trip is an assumption. Measure it.
 - To go faster, run several chains at once. The trade number is a dense daily sequence, so the day splits into ranges, each started at its own `trade_number` and stopped at the next range's start. This needs the server to accept a `trade_number` the app never returned (live check). Per-stock chains are the other way to split.

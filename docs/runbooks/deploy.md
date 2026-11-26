@@ -29,17 +29,17 @@ Bootstrapped once from a personal profile with `bun alchemy state bootstrap --ba
 
 One connection per app, each on a hand-made anchor Worker that Alchemy never deploys. As observed 2026-11-05, both deployed this spec's PR (#33) to its Preview, and `/probe` answered the `staging` hash prefix.
 
-| Setting | `kumora-web-builds` | `kumora-dashboard-builds` |
-| --- | --- | --- |
-| Status | ✅ created and connected | ✅ created and connected |
-| Root directory | `apps/web` | `apps/dashboard` |
-| Watch paths | `apps/web/**`, `packages/**`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`, `.bun-version` | `apps/dashboard/**`, `packages/**`, and the same four root files |
-| Production branch | `main` | `main` |
-| Non-production branch builds | on | on |
-| Build command | ⬜ `bash ../../packages/deploy/workers-builds-install.sh` | ⬜ the same |
-| Deploy command | ✅ `bun ../../packages/deploy/src/deploy.ts web` | ✅ `bun ../../packages/deploy/src/deploy.ts dashboard` |
-| Version command (non-production branches) | ✅ same as the deploy command | ✅ same as the deploy command |
-| Build variables | `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET` (secret), `BUN_VERSION` set to the version in `.bun-version`, ⬜ `SKIP_DEPENDENCY_INSTALL` set to `1` | the same |
+| Setting                                   | `kumora-web-builds`                                                                                                                                    | `kumora-dashboard-builds`                                        |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| Status                                    | ✅ created and connected                                                                                                                               | ✅ created and connected                                         |
+| Root directory                            | `apps/web`                                                                                                                                             | `apps/dashboard`                                                 |
+| Watch paths                               | `apps/web/**`, `packages/**`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`, `.bun-version`                                                  | `apps/dashboard/**`, `packages/**`, and the same four root files |
+| Production branch                         | `main`                                                                                                                                                 | `main`                                                           |
+| Non-production branch builds              | on                                                                                                                                                     | on                                                               |
+| Build command                             | ⬜ `bash ../../packages/deploy/workers-builds-install.sh`                                                                                              | ⬜ the same                                                      |
+| Deploy command                            | ✅ `bun ../../packages/deploy/src/deploy.ts web`                                                                                                       | ✅ `bun ../../packages/deploy/src/deploy.ts dashboard`           |
+| Version command (non-production branches) | ✅ same as the deploy command                                                                                                                          | ✅ same as the deploy command                                    |
+| Build variables                           | `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET` (secret), `BUN_VERSION` set to the version in `.bun-version`, ⬜ `SKIP_DEPENDENCY_INSTALL` set to `1` | the same                                                         |
 
 The deploy command runs alchemy in-process, in the same `bun` process, and prints the same progress lines the alchemy CLI did. It reads `WORKERS_CI_BRANCH` (set by Workers Builds) and the two Infisical build variables; a missing or empty one fails the build with a `ConfigError` naming it. Every failure prints to stderr and exits 1.
 
@@ -106,6 +106,7 @@ Production and Staging offer Continue with Google; Previews, Dev and Test stages
    - `<Staging stage URL>/api/auth/callback/google`
 
    Each stage URL is the one `stageUrl` in `packages/deploy/src/target.ts` builds for the dashboard; `scripts/deploy-setup.sh` prints both URIs from it.
+
 2. In Infisical project `kumora`, add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from that client at `/dashboard` of **both** `prod` and `staging`. Do this before the first deploy of either stage with Google.
 3. Check by hand on Staging: sign in with Google on a new Google address (it lands signed in and verified), then on the email of a verified password account (it links, and both sign-ins work), then on the email of an unverified password account (it returns to sign-in with "Sign in with your password and verify your email first."). Check that a Preview's sign-in page shows no Google button.
 

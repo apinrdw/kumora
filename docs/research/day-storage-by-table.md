@@ -22,21 +22,21 @@ Research ticket [apinrdw/kumora#546](https://github.com/apinrdw/kumora/issues/54
 
 After Ajaib's walk and Stockbit's cross-check, before any `VACUUM`. The first column is K = 900 (every code books). The second is the runbook's K = 30. Everything except the two book tables is the same in both.
 
-| Rank | B-tree | K = 900, MB | K = 30, MB | Rows | Disk bytes a row | Payload bytes a row | Fill | Overflow pages |
-| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | `heatmaps` | **1,149.2** | 38.3 | 245,700 / 8,190 | 4,677 | 3,148 | 67 % | 1 a row |
-| 2 | `book_chunks` | **330.2** | 41.8 | 245,700 / 8,190 | 1,344 (5,098 for the top 30) | 832 (3,255) | 62 % | 33,677 / 9,011 |
-| 3 | `sweep_brokers` | 236.5 | 236.5 | 222,788 | 1,062 | 541 | 51 % | 25,768 |
-| 4 | `footprints` | 104.1 | 104.1 | 222,788 | 467 | 304 | 65 % | 10,426 |
-| 5 | `broker_trades` | 96.4 | 96.4 | 2,920,000 | 33 | 14 | **44 %** | 0 |
-| 6 | `trades` | 68.5 | 68.5 | 1,460,000 | 47 | 40 | 86 % | 0 |
-| 7 | `candles` | 29.1 | 29.1 | 222,788 | 131 | 109 | 84 % | 0 |
-| 8 | `broker_code_chunks` | 12.0 | 12.0 | 1,460 | 8,200 | 7,000 | 85 % | 1 a row |
-| 9 | `live_prices`, `ajaib_books`, `cross_check_differences`, `facts`, `sqlite_schema` | 0.5 | 0.5 | | | | | |
-| | `walk_trades` (relay day) | 0.0 | 0.0 | 0 | | | | |
-| | **Total (`databaseSize`)** | **2,026.7** | **627.1** | | | | | |
-| | of which live hours (at the seal) | 1,681.8 | 282.2 | | | | | |
-| | of which the evening walk | 344.9 | 344.9 | | | | | |
+| Rank | B-tree                                                                            | K = 900, MB | K = 30, MB |            Rows |             Disk bytes a row | Payload bytes a row |     Fill | Overflow pages |
+| ---: | --------------------------------------------------------------------------------- | ----------: | ---------: | --------------: | ---------------------------: | ------------------: | -------: | -------------: |
+|    1 | `heatmaps`                                                                        | **1,149.2** |       38.3 | 245,700 / 8,190 |                        4,677 |               3,148 |     67 % |        1 a row |
+|    2 | `book_chunks`                                                                     |   **330.2** |       41.8 | 245,700 / 8,190 | 1,344 (5,098 for the top 30) |         832 (3,255) |     62 % | 33,677 / 9,011 |
+|    3 | `sweep_brokers`                                                                   |       236.5 |      236.5 |         222,788 |                        1,062 |                 541 |     51 % |         25,768 |
+|    4 | `footprints`                                                                      |       104.1 |      104.1 |         222,788 |                          467 |                 304 |     65 % |         10,426 |
+|    5 | `broker_trades`                                                                   |        96.4 |       96.4 |       2,920,000 |                           33 |                  14 | **44 %** |              0 |
+|    6 | `trades`                                                                          |        68.5 |       68.5 |       1,460,000 |                           47 |                  40 |     86 % |              0 |
+|    7 | `candles`                                                                         |        29.1 |       29.1 |         222,788 |                          131 |                 109 |     84 % |              0 |
+|    8 | `broker_code_chunks`                                                              |        12.0 |       12.0 |           1,460 |                        8,200 |               7,000 |     85 % |        1 a row |
+|    9 | `live_prices`, `ajaib_books`, `cross_check_differences`, `facts`, `sqlite_schema` |         0.5 |        0.5 |                 |                              |                     |          |                |
+|      | `walk_trades` (relay day)                                                         |         0.0 |        0.0 |               0 |                              |                     |          |                |
+|      | **Total (`databaseSize`)**                                                        | **2,026.7** |  **627.1** |                 |                              |                     |          |                |
+|      | of which live hours (at the seal)                                                 |     1,681.8 |      282.2 |                 |                              |                     |          |                |
+|      | of which the evening walk                                                         |       344.9 |      344.9 |                 |                              |                     |          |                |
 
 Notes on the rows:
 
@@ -54,13 +54,13 @@ Notes on the rows:
 
 ## Against the measured 1.3–1.8 GB
 
-| | Model day | Against 1.3–1.8 GB |
-| --- | ---: | --- |
-| The runbook's K = 30 | 627 MB | 0.35–0.48 of it |
-| K = 900, every code every minute it has a frame | 2,027 MB | 1.1–1.6 times it |
-| Fixed part (everything but the two book tables) | 547 MB | |
-| Each book code-minute | 6.02 KB | (1,149.2 + 330.2) MB / 245,700 |
-| Book code-minutes that close the gap | 125 K – 210 K | (1,300 or 1,800 − 547) MB / 6.02 KB |
+|                                                 |     Model day | Against 1.3–1.8 GB                  |
+| ----------------------------------------------- | ------------: | ----------------------------------- |
+| The runbook's K = 30                            |        627 MB | 0.35–0.48 of it                     |
+| K = 900, every code every minute it has a frame |      2,027 MB | 1.1–1.6 times it                    |
+| Fixed part (everything but the two book tables) |        547 MB |                                     |
+| Each book code-minute                           |       6.02 KB | (1,149.2 + 330.2) MB / 245,700      |
+| Book code-minutes that close the gap            | 125 K – 210 K | (1,300 or 1,800 − 547) MB / 6.02 KB |
 
 The model at K = 30 falls well short. At K = 900 it overshoots. The gap closes at 460–770 codes with chunks in all 273 minutes, or 900 codes with chunks in 50–85 % of them. The extension subscribes `order_book` for every code in the code list (`apps/extension/src/worker/stockbit.ts:126`–`139`, fed by `codeList.codes` at `service-worker.ts:305`). The object records every changed served book, of any code (`order-books.ts:327` `takeChanged`, `trading-day.ts:689`). The comment at `stockbit.ts:120` proves 690 codes in one subscribe message. So **book chunks and heatmaps for most of the market** is the explanation that fits.
 

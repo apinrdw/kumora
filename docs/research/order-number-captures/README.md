@@ -4,13 +4,13 @@ The scripts are stored as text so lint skips them; drop the `.txt` to run one.
 
 Raw `exodus.stockbit.com/order-trade/running-trade` responses, gzipped, fetched at 20:2x WIB with the owner's session (token not stored). For [Capture real order-number rows for one code-day from each route](https://github.com/apinrdw/kumora/issues/618).
 
-| File | Query | Rows |
-|---|---|---|
-| `sb-HOPE-2026-11-20.json.gz` | `symbols=HOPE&date=2026-11-20`, ASC, every page (trade_number cursor), rows merged | 1,312 |
-| `sb-BBCA-2026-11-20.json.gz` | `symbols=BBCA&date=2026-11-20`, ASC, every page, rows merged | 23,028 |
-| `sb-hope-1120-p1.json.gz` | HOPE 2026-11-20, first page, raw response | 100 |
-| `sb-hope-2026-11-19-p1.json.gz`, `-10-20-`, `-06-15-` | HOPE on past days, first page | 100 each |
-| `sb-all-1120-desc.json.gz` | whole market, no `symbols`, DESC, one page | 100 (94 RG, 6 NG) |
+| File                                                  | Query                                                                              | Rows              |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------- |
+| `sb-HOPE-2026-11-20.json.gz`                          | `symbols=HOPE&date=2026-11-20`, ASC, every page (trade_number cursor), rows merged | 1,312             |
+| `sb-BBCA-2026-11-20.json.gz`                          | `symbols=BBCA&date=2026-11-20`, ASC, every page, rows merged                       | 23,028            |
+| `sb-hope-1120-p1.json.gz`                             | HOPE 2026-11-20, first page, raw response                                          | 100               |
+| `sb-hope-2026-11-19-p1.json.gz`, `-10-20-`, `-06-15-` | HOPE on past days, first page                                                      | 100 each          |
+| `sb-all-1120-desc.json.gz`                            | whole market, no `symbols`, DESC, one page                                         | 100 (94 RG, 6 NG) |
 
 `market_board=NG` / `TN` as a query parameter answers 400 `INVALID_PARAMETER`.
 

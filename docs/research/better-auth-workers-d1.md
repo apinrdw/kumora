@@ -18,6 +18,7 @@ Sources:
   - **(B) Alchemy's `@alchemy.run/better-auth` in a separate Effect-native auth Worker.** The dashboard forwards `/api/auth/*` to it over a service binding. This gives automatic deploy-time migrations and a managed secret.
 
   `Website.Vite` takes no Effect implementation, so it cannot host `@alchemy.run/better-auth` directly.
+
 - **Recommend (A).** It keeps one Worker per stage, keeps the session check in-process for route loaders, server functions and the Durable Object upgrade, and keeps the client's plugin type inference. The cost is generating migration SQL by script.
 - **TanStack Start.** Mount `auth.handler` in the splat server route `src/routes/api/auth/$.ts`. Read the session with `auth.api.getSession({ headers })`. Use one global request middleware in `src/start.ts`, or a `_protected` layout `beforeLoad` that calls a server function.
 - **Admin plugin.** It covers roles, ban/unban (ban also deletes sessions), revoke one session, revoke all sessions, and list users. The `member` role needs custom access control, because without it only `admin` and `user` are valid roles. A `databaseHooks.user.create.before` hook can set `role: "admin"` from a config email list. A `hooks.before` on `/admin/set-role` can refuse to demote listed admins.
@@ -39,6 +40,7 @@ Sources:
   - SCIM in 1.7 cannot run on D1 (`BA:docs/content/docs/guides/1-7-upgrade-guide.mdx:566`; `AL:website/src/content/docs/better-auth/databases/cloudflare-d1.mdx`, "Transaction and migration limits").
 
   Neither matters for the map's feature set.
+
 - **Drizzle.** It would only help if the dashboard also wanted a typed ORM over the same D1. Better Auth's own docs point D1 + Drizzle users to drizzle-kit (`BA:docs/content/docs/concepts/database.mdx:118-121`). Nothing in the map needs that.
 
 ### 2. Hosting: where the Better Auth instance lives
@@ -102,6 +104,7 @@ Sources:
   - `impersonate-user`
 
   A `session.create.before` hook refuses new sessions for banned users and lifts expired bans (`BA:packages/better-auth/src/plugins/admin/admin.ts:90-122`).
+
 - **The `member` role.** By default, new users get `defaultRole` (`"user"`). "When not using custom access control, only `admin` and `user` exist as valid roles" (admin.mdx:795).
   - For admin and member, define `createAccessControl` roles `{ admin, member }`, built from `adminAc` and `userAc`, and set `defaultRole: "member"`.
   - With `roles` set, `set-role` rejects unknown roles (`routes.ts:146-157`).

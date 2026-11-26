@@ -16,6 +16,7 @@ Research for [#471](https://github.com/apinrdw/kumora/issues/471), part of the m
   - **630 do not match on any key:** 372 rewordings (honorifics, a custodian prefix, a typo), 114 holdings that move unchanged to an unrelated name, and 144 merges or splits.
 
   The cause is upstream. One investor has several account names, and the report prints one of them, not always the same one. In 210 of the 302 renamed holders that also appear in IDX's daily above-5% report, both names are listed under that one investor there. Names also flip back and forth: 39–83 (stock, name) pairs a month disappear and come back unchanged the month after.
+
 - **Verdict on name matching:** exact names are not enough for "new / exited / up / down". A normalized key (uppercase; strip punctuation, `PT`, `TBK` and `PERSERO`; sort the words) cuts the false pairs from 2,243 to 630, and the stocks affected from 152–272 a month to 32–129. The rest are real aliases that no string rule catches. Removing them would need a holder identity that the report does not publish, such as a SID.
 - **Coverage.** There are 955–961 stocks, all equities with 4-letter codes. A stock's rows are contiguous and sorted by code. Each stock has 1–28 rows (median 7). The file leaves out 44–47 of the type report's stocks. In Oct, all but MSKY have price 0 in KSEI's file. The `TRUE` stock is a boolean cell in Feb, Sep and Oct, and the string `TRUE` in Mar–Aug.
 - **The ≥5% rows match the daily above-5% report on scripless.** The daily report counts scripless shares only. For the rows whose **scripless** holding is ≥5% of listed shares, the scripless shares equal the daily report's "Saham Gabungan Per Investor" for 99.4–99.8% of rows on all 6 shared dates (Oct: 1,763 of 1,767). 570–606 rows a month have `PERCENTAGE` ≥5 only because of their scrip, and the daily report omits those. The daily report also prints one investor once per name variant: 62–65 extra rows a date.
@@ -24,17 +25,17 @@ Research for [#471](https://github.com/apinrdw/kumora/issues/471), part of the m
 
 The 9 files are the "Pemegang Saham di Atas 1%" entries in the listing from [How IDX serves the Data Kepemilikan Saham listing](idx-kepemilikan-listing.md), fetched from `www.idx.id` with the listed path:
 
-| Period | Path under `https://www.idx.id/Media/` | `DATE` serial | Data rows | Stocks |
-|---|---|---|---|---|
-| 2026-02-27 | `r2kjzpk5/peng-02-00011-satu-persen.xlsx` | 46080 | 7,257 | 955 |
-| 2026-03-31 | `1ivhzj1q/peng-03-00012-satu-persen.xlsx` | 46112 | 7,213 | 955 |
-| 2026-04-30 | `pt1hj5vy/peng-04-00013-satu-persen.xlsx` | 46142 | 7,172 | 956 |
-| 2026-05-29 | `i3xcp2nk/peng-05-00014-satu-persen.xlsx` | 46171 | 7,161 | 956 |
-| 2026-06-30 | `qsplyxa4/peng-06-00015-satu-persen.xlsx` | 46203 | 7,197 | 956 |
-| 2026-07-31 | `fjelt0en/peng-2026-07-00018-satu-persen.xlsx` | 46234 | 7,193 | 961 |
-| 2026-08-31 | `fahlw1o2/peng-2026-08-00023-satu-persen.xlsx` | 46265 | 7,158 | 961 |
-| 2026-09-30 | `yqjhhsee/peng-2026-09-00024-satu-persen.xlsx` | 46295 | 7,154 | 961 |
-| 2026-10-30 | `wlef2nvt/peng-2026-10-00029-satu-persen.xlsx` | 46325 | 7,149 | 961 |
+| Period     | Path under `https://www.idx.id/Media/`         | `DATE` serial | Data rows | Stocks |
+| ---------- | ---------------------------------------------- | ------------- | --------- | ------ |
+| 2026-02-27 | `r2kjzpk5/peng-02-00011-satu-persen.xlsx`      | 46080         | 7,257     | 955    |
+| 2026-03-31 | `1ivhzj1q/peng-03-00012-satu-persen.xlsx`      | 46112         | 7,213     | 955    |
+| 2026-04-30 | `pt1hj5vy/peng-04-00013-satu-persen.xlsx`      | 46142         | 7,172     | 956    |
+| 2026-05-29 | `i3xcp2nk/peng-05-00014-satu-persen.xlsx`      | 46171         | 7,161     | 956    |
+| 2026-06-30 | `qsplyxa4/peng-06-00015-satu-persen.xlsx`      | 46203         | 7,197     | 956    |
+| 2026-07-31 | `fjelt0en/peng-2026-07-00018-satu-persen.xlsx` | 46234         | 7,193     | 961    |
+| 2026-08-31 | `fahlw1o2/peng-2026-08-00023-satu-persen.xlsx` | 46265         | 7,158     | 961    |
+| 2026-09-30 | `yqjhhsee/peng-2026-09-00024-satu-persen.xlsx` | 46295         | 7,154     | 961    |
+| 2026-10-30 | `wlef2nvt/peng-2026-10-00029-satu-persen.xlsx` | 46325         | 7,149     | 961    |
 
 Each file has one sheet (`Sheet1` in Feb, Sep and Oct, `Sheet 1` otherwise). `DATE` is a numeric Excel serial, the same on every row, and it equals the listing's period date in all 9 files. The comparisons use the investor-type report for the same 9 dates (`NUMBER_OF_SHARES`), KSEI's `BalanceposEfek<YYYYMMDD>.zip` for the same dates (`Sec. Num`, see [How KSEI serves the Kepemilikan Efek files](ksei-statistik-kepemilikan-listing.md)), and IDX's daily above-5% report for the 6 dates on which both reports exist (29 May to 30 Oct 2026).
 
@@ -42,15 +43,15 @@ Each file has one sheet (`Sheet1` in Feb, Sep and Oct, `Sheet 1` otherwise). `DA
 
 Every disclaimer and label is one string in column `A`, merged across the row, except where noted.
 
-| Files | Indonesian disclaimer | English disclaimer | `[PUBLIC]` tag | Header row | First data row | Sheet `dimension` |
-|---|---|---|---|---|---|---|
-| Feb | row 1 (`A1:L1`), 5 items | row 3 (`A3:L3`) | none | 5 | 6 | `A1:M7262` |
-| Mar | row 2 (`A2:L2`), 8 items | row 4 (`A4:L4`) | `[PUBLIK]` in `F5` | 7 | 8 | `A2:M7231` |
-| Apr | row 2, 9 items | row 4 | `[PUBLIK]` in `F5` | 7 | 8 | `A2:O7190` |
-| May | row 1, 9 items | row 3 | `[PUBLIC]` in `F4` | 6 | 7 | `A1:L7167` |
-| Jun, Jul | row 1, 9 items | row 3 (`A3:K3` or `A3:L3`) | `[PUBLIC]` in `E4` | 6 | 7 | `A1:M7203`, `A1:L7199` |
-| Aug, Sep | row 1, 9 items | row 3 | `[PUBLIC]` in `A4` (merged `A4:L4`) | 6 | 7 | `A1:M7164`, `A1:M7160` |
-| Oct | row 1 (`A1:N1`), 11 items | row 2 (`A2:N2`) | `[PUBLIC]` in `A3` | 5 | 6 | `A1:N7154` |
+| Files    | Indonesian disclaimer     | English disclaimer         | `[PUBLIC]` tag                      | Header row | First data row | Sheet `dimension`      |
+| -------- | ------------------------- | -------------------------- | ----------------------------------- | ---------- | -------------- | ---------------------- |
+| Feb      | row 1 (`A1:L1`), 5 items  | row 3 (`A3:L3`)            | none                                | 5          | 6              | `A1:M7262`             |
+| Mar      | row 2 (`A2:L2`), 8 items  | row 4 (`A4:L4`)            | `[PUBLIK]` in `F5`                  | 7          | 8              | `A2:M7231`             |
+| Apr      | row 2, 9 items            | row 4                      | `[PUBLIK]` in `F5`                  | 7          | 8              | `A2:O7190`             |
+| May      | row 1, 9 items            | row 3                      | `[PUBLIC]` in `F4`                  | 6          | 7              | `A1:L7167`             |
+| Jun, Jul | row 1, 9 items            | row 3 (`A3:K3` or `A3:L3`) | `[PUBLIC]` in `E4`                  | 6          | 7              | `A1:M7203`, `A1:L7199` |
+| Aug, Sep | row 1, 9 items            | row 3                      | `[PUBLIC]` in `A4` (merged `A4:L4`) | 6          | 7              | `A1:M7164`, `A1:M7160` |
+| Oct      | row 1 (`A1:N1`), 11 items | row 2 (`A2:N2`)            | `[PUBLIC]` in `A3`                  | 5          | 6              | `A1:N7154`             |
 
 May–Sep share one disclaimer text exactly (by MD5). Apr's English text is the same as May's. Its Indonesian text is 2,245 characters long against May's 2,244, with the same 9 items.
 
@@ -70,11 +71,11 @@ Apr–Sep: the same, with `INVESTOR_CLASSIFICATION` in `E`. Oct: `INVESTOR_CLASS
 
 ### Stray cells and rows
 
-| File | What |
-|---|---|
-| Mar | Rows 7224 and 7226–7231 are present and empty, after the last data row (7220). |
-| Apr | Rows 7180–7190 have no data, only an error cell `#DIV/0!` (`t="e"`) in column `O`. One `HOLDINGS_SCRIP` cell is missing (read as 0). |
-| Oct | Column `M` is now `PERCENTAGE`, not a stray column. |
+| File | What                                                                                                                                 |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Mar  | Rows 7224 and 7226–7231 are present and empty, after the last data row (7220).                                                       |
+| Apr  | Rows 7180–7190 have no data, only an error cell `#DIV/0!` (`t="e"`) in column `O`. One `HOLDINGS_SCRIP` cell is missing (read as 0). |
+| Oct  | Column `M` is now `PERCENTAGE`, not a stray column.                                                                                  |
 
 A parser that finds the header row by its labels, maps columns by name, and stops at or skips rows with no `SHARE_CODE` handles all of these.
 
@@ -92,17 +93,17 @@ Method: for each data row, read every column. A missing `<v>` counts as blank. N
 
 For each row, the share was computed against each candidate denominator and rounded to 2 decimals, then compared with `PERCENTAGE` read as `round(x, 2)`:
 
-| Month | Rows | total / type-report shares, half up | total / KSEI `Sec. Num`, half up | same, half even | same, truncated | scripless / shares | total / KSEI scripless |
-|---|---|---|---|---|---|---|---|
-| Feb | 7,257 | 7,256 | 7,256 | 7,246 | 3,673 | 6,218 | 3,052 |
-| Mar | 7,213 | **7,213** | 7,213 | 7,202 | 3,687 | 6,172 | 3,042 |
-| Apr | 7,172 | 7,157 | 7,157 | 7,146 | 3,680 | 6,140 | 3,042 |
-| May | 7,161 | **7,161** | 7,161 | 7,151 | 3,675 | 6,124 | 3,028 |
-| Jun | 7,197 | **7,197** | 7,187 | 7,187 | 3,725 | 6,170 | 3,093 |
-| Jul | 7,193 | 7,181 | 7,181 | 7,171 | 3,691 | 6,159 | 3,132 |
-| Aug | 7,158 | **7,158** | 7,158 | 7,148 | 3,660 | 6,136 | 3,117 |
-| Sep | 7,154 | **7,154** | 7,154 | 7,144 | 3,677 | 6,139 | 3,114 |
-| Oct | 7,149 | **7,149** | 7,149 | 7,138 | 3,661 | 6,148 | 3,156 |
+| Month | Rows  | total / type-report shares, half up | total / KSEI `Sec. Num`, half up | same, half even | same, truncated | scripless / shares | total / KSEI scripless |
+| ----- | ----- | ----------------------------------- | -------------------------------- | --------------- | --------------- | ------------------ | ---------------------- |
+| Feb   | 7,257 | 7,256                               | 7,256                            | 7,246           | 3,673           | 6,218              | 3,052                  |
+| Mar   | 7,213 | **7,213**                           | 7,213                            | 7,202           | 3,687           | 6,172              | 3,042                  |
+| Apr   | 7,172 | 7,157                               | 7,157                            | 7,146           | 3,680           | 6,140              | 3,042                  |
+| May   | 7,161 | **7,161**                           | 7,161                            | 7,151           | 3,675           | 6,124              | 3,028                  |
+| Jun   | 7,197 | **7,197**                           | 7,187                            | 7,187           | 3,725           | 6,170              | 3,093                  |
+| Jul   | 7,193 | 7,181                               | 7,181                            | 7,171           | 3,691           | 6,159              | 3,132                  |
+| Aug   | 7,158 | **7,158**                           | 7,158                            | 7,148           | 3,660           | 6,136              | 3,117                  |
+| Sep   | 7,154 | **7,154**                           | 7,154                            | 7,144           | 3,677           | 6,139              | 3,114                  |
+| Oct   | 7,149 | **7,149**                           | 7,149                            | 7,138           | 3,661           | 6,148              | 3,156                  |
 
 So `PERCENTAGE` = `TOTAL_HOLDING_SHARES` / listed shares × 100, rounded half up to 2 decimals. Listed shares include scrip. The half-even column misses about 10 rows a month, all exact halves. In Jun, KSEI's denominator misses LPPF's 10 rows. That is the month in which IDX's and KSEI's listed shares for LPPF differ (#395), and `PERCENTAGE` follows IDX.
 
@@ -136,44 +137,44 @@ The 9 **KSEI investor type** codes: `CP`, `ID`, `IB`, `MF`, `SC`, `OT`, `IS`, `P
 
 The **Investor classification** label in English. It is the classification report's header label without the `(xx)` suffix: `Mutual Funds`, not `Mutual Funds (MF)`. Counts per month, Apr to Oct:
 
-| Value | Apr | May | Jun | Jul | Aug | Sep | Oct | KSEI type |
-|---|---|---|---|---|---|---|---|---|
-| Individual | 2,550 | 2,537 | 2,559 | 2,559 | 2,547 | 2,552 | 2,536 | ID |
-| Corporate | 1,986 | 2,268 | 2,303 | 2,317 | 2,286 | 2,296 | 2,320 | CP |
-| *(blank)* | 560 | 255 | 234 | 229 | 222 | 219 | 208 | |
-| Mutual Funds | 307 | 307 | 310 | 304 | 293 | 281 | 273 | MF |
-| Securities Company | 241 | 241 | 241 | 242 | 261 | 267 | 271 | SC |
-| Private Bank | 196 | 204 | 212 | 242 | 241 | 241 | 243 | IB |
-| Investment Advisors | 196 | 212 | 209 | 219 | 237 | 239 | 238 | OT |
-| Private Equity | 234 | 217 | 210 | 207 | 199 | 199 | 197 | CP |
-| Insurance | 116 | 116 | 117 | 152 | 150 | 149 | 150 | IS |
-| Firm | 155 | 149 | 146 | 143 | 148 | 143 | 138 | CP |
-| Bank | 120 | 122 | 125 | 98 | 103 | 106 | 111 | IB |
-| State Owned Enterprises | 102 | 104 | 104 | 66 | 79 | 79 | 80 | CP |
-| Venture Capital | 51 | 46 | 46 | 52 | 51 | 46 | 45 | CP |
-| Investment Manager | 64 | 64 | 64 | 60 | 40 | 39 | 39 | SC |
-| Pension Funds | 49 | 48 | 46 | 46 | 45 | 44 | 40 | PF |
-| Partnership | 39 | 35 | 38 | 37 | 35 | 35 | 37 | CP |
-| Trustee Bank | 34 | 33 | 31 | 31 | 28 | 29 | 30 | IB |
-| Sole Proprietorship / Sole proprietorship | 22 | 22 | 22 | 24 | 29 | 27 | 28 | CP |
-| Sovereign Wealth Fund | 28 | 28 | 27 | 26 | 26 | 25 | 25 | OT |
-| Government | 21 | 21 | 21 | 21 | 21 | 23 | 23 | OT |
-| Financial Institutional | 19 | 19 | 19 | 18 | 19 | 18 | 17 | IB |
-| Hedge Fund | 12 | 11 | 12 | 12 | 13 | 13 | 13 | MF |
-| Permanent establishment | | 14† | 15† | 13† | 13 | 14 | 14 | CP |
-| Capital Market Supporting Institutions And/and Professions | 15 | 13 | 11 | 11 | 11 | 8 | 8 | OT |
-| Exchange Traded Funds | 16 | 14 | 12 | 12 | 9 | 10 | 10 | MF |
-| Commanditaire Vennootschap (CV) Or/or Limited Partnership | | 12 | 12 | 11 | 11 | 10‡ | 10‡ | CP |
-| Cooperatives | 12 | 11 | 12 | 11 | 11 | 12 | 12 | IB |
-| Investment Fund Selling Agent | 8 | 9 | 10 | 10 | 10 | 10 | 10 | OT |
-| Brokerage Firms | 4 | 14 | 15 | 5 | 5 | 5 | 8 | SC |
-| Foundation | 6 | 6 | 6 | 6 | 6 | 6 | 6 | FD |
-| Peer To Peer Lending / Peer to peer lending | 2 | 2 | 2 | 3 | 3 | 3 | 3 | CP |
-| International Organization / organization | 3 | 3 | 2 | 2 | 2 | 2 | 2 | OT |
-| State Owned Company | 2 | 2 | 2 | 2 | 2 | 2 | 2 | CP |
-| Educational Institution | 1 | 1 | 1 | 1 | 1 | 1 | 1 | FD |
-| Association/Social Organizations | | | | 1 | 1 | 1 | 1 | OT |
-| Diocese | 1 | 1 | 1 | | | | | OT |
+| Value                                                      | Apr   | May   | Jun   | Jul   | Aug   | Sep   | Oct   | KSEI type |
+| ---------------------------------------------------------- | ----- | ----- | ----- | ----- | ----- | ----- | ----- | --------- |
+| Individual                                                 | 2,550 | 2,537 | 2,559 | 2,559 | 2,547 | 2,552 | 2,536 | ID        |
+| Corporate                                                  | 1,986 | 2,268 | 2,303 | 2,317 | 2,286 | 2,296 | 2,320 | CP        |
+| _(blank)_                                                  | 560   | 255   | 234   | 229   | 222   | 219   | 208   |           |
+| Mutual Funds                                               | 307   | 307   | 310   | 304   | 293   | 281   | 273   | MF        |
+| Securities Company                                         | 241   | 241   | 241   | 242   | 261   | 267   | 271   | SC        |
+| Private Bank                                               | 196   | 204   | 212   | 242   | 241   | 241   | 243   | IB        |
+| Investment Advisors                                        | 196   | 212   | 209   | 219   | 237   | 239   | 238   | OT        |
+| Private Equity                                             | 234   | 217   | 210   | 207   | 199   | 199   | 197   | CP        |
+| Insurance                                                  | 116   | 116   | 117   | 152   | 150   | 149   | 150   | IS        |
+| Firm                                                       | 155   | 149   | 146   | 143   | 148   | 143   | 138   | CP        |
+| Bank                                                       | 120   | 122   | 125   | 98    | 103   | 106   | 111   | IB        |
+| State Owned Enterprises                                    | 102   | 104   | 104   | 66    | 79    | 79    | 80    | CP        |
+| Venture Capital                                            | 51    | 46    | 46    | 52    | 51    | 46    | 45    | CP        |
+| Investment Manager                                         | 64    | 64    | 64    | 60    | 40    | 39    | 39    | SC        |
+| Pension Funds                                              | 49    | 48    | 46    | 46    | 45    | 44    | 40    | PF        |
+| Partnership                                                | 39    | 35    | 38    | 37    | 35    | 35    | 37    | CP        |
+| Trustee Bank                                               | 34    | 33    | 31    | 31    | 28    | 29    | 30    | IB        |
+| Sole Proprietorship / Sole proprietorship                  | 22    | 22    | 22    | 24    | 29    | 27    | 28    | CP        |
+| Sovereign Wealth Fund                                      | 28    | 28    | 27    | 26    | 26    | 25    | 25    | OT        |
+| Government                                                 | 21    | 21    | 21    | 21    | 21    | 23    | 23    | OT        |
+| Financial Institutional                                    | 19    | 19    | 19    | 18    | 19    | 18    | 17    | IB        |
+| Hedge Fund                                                 | 12    | 11    | 12    | 12    | 13    | 13    | 13    | MF        |
+| Permanent establishment                                    |       | 14†   | 15†   | 13†   | 13    | 14    | 14    | CP        |
+| Capital Market Supporting Institutions And/and Professions | 15    | 13    | 11    | 11    | 11    | 8     | 8     | OT        |
+| Exchange Traded Funds                                      | 16    | 14    | 12    | 12    | 9     | 10    | 10    | MF        |
+| Commanditaire Vennootschap (CV) Or/or Limited Partnership  |       | 12    | 12    | 11    | 11    | 10‡   | 10‡   | CP        |
+| Cooperatives                                               | 12    | 11    | 12    | 11    | 11    | 12    | 12    | IB        |
+| Investment Fund Selling Agent                              | 8     | 9     | 10    | 10    | 10    | 10    | 10    | OT        |
+| Brokerage Firms                                            | 4     | 14    | 15    | 5     | 5     | 5     | 8     | SC        |
+| Foundation                                                 | 6     | 6     | 6     | 6     | 6     | 6     | 6     | FD        |
+| Peer To Peer Lending / Peer to peer lending                | 2     | 2     | 2     | 3     | 3     | 3     | 3     | CP        |
+| International Organization / organization                  | 3     | 3     | 2     | 2     | 2     | 2     | 2     | OT        |
+| State Owned Company                                        | 2     | 2     | 2     | 2     | 2     | 2     | 2     | CP        |
+| Educational Institution                                    | 1     | 1     | 1     | 1     | 1     | 1     | 1     | FD        |
+| Association/Social Organizations                           |       |       |       | 1     | 1     | 1     | 1     | OT        |
+| Diocese                                                    | 1     | 1     | 1     |       |       |       |       | OT        |
 
 † written `PermanentEstablishment`, with no space. ‡ written with a trailing space.
 
@@ -183,17 +184,17 @@ The **Investor classification** label in English. It is the classification repor
 
 ### `LOCAL_FOREIGN`, `NATIONALITY`, `DOMICILE`
 
-| Month | `L` | `F` | blank | blank with 0 scripless | `NATIONALITY` blank | Individuals with no nationality | `DOMICILE` blank (of which L / F) |
-|---|---|---|---|---|---|---|---|
-| Feb | 5,436 | 1,577 (`A`) | 244 | 241 | 4,703 | 12 | 584 (288 / 52) |
-| Mar | 5,383 | 1,602 | 228 (`""`) | 227 | 4,656 | 13 | 565 (283 / 54) |
-| Apr | 5,352 | 1,607 | 213 | 211 | 4,630 | 13 | 530 (267 / 50) |
-| May | 5,333 | 1,594 | 234 | 234 | 4,631 | 8 | 542 (257 / 52) |
-| Jun | 5,368 | 1,608 | 221 | 221 | 4,647 | 9 | 534 (260 / 53) |
-| Jul | 5,383 | 1,597 | 213 | 213 | 4,643 | 9 | 524 (257 / 54) |
-| Aug | 5,346 | 1,600 | 212 | 212 | 4,620 | 9 | 519 (253 / 54) |
-| Sep | 5,353 | 1,592 | 209 | 209 | 4,611 | 9 | 502 (238 / 55) |
-| Oct | 5,352 | 1,599 | 198 | 198 | 4,622 | 9 | 473 (220 / 55) |
+| Month | `L`   | `F`         | blank      | blank with 0 scripless | `NATIONALITY` blank | Individuals with no nationality | `DOMICILE` blank (of which L / F) |
+| ----- | ----- | ----------- | ---------- | ---------------------- | ------------------- | ------------------------------- | --------------------------------- |
+| Feb   | 5,436 | 1,577 (`A`) | 244        | 241                    | 4,703               | 12                              | 584 (288 / 52)                    |
+| Mar   | 5,383 | 1,602       | 228 (`""`) | 227                    | 4,656               | 13                              | 565 (283 / 54)                    |
+| Apr   | 5,352 | 1,607       | 213        | 211                    | 4,630               | 13                              | 530 (267 / 50)                    |
+| May   | 5,333 | 1,594       | 234        | 234                    | 4,631               | 8                               | 542 (257 / 52)                    |
+| Jun   | 5,368 | 1,608       | 221        | 221                    | 4,647               | 9                               | 534 (260 / 53)                    |
+| Jul   | 5,383 | 1,597       | 213        | 213                    | 4,643               | 9                               | 524 (257 / 54)                    |
+| Aug   | 5,346 | 1,600       | 212        | 212                    | 4,620               | 9                               | 519 (253 / 54)                    |
+| Sep   | 5,353 | 1,592       | 209        | 209                    | 4,611               | 9                               | 502 (238 / 55)                    |
+| Oct   | 5,352 | 1,599       | 198        | 198                    | 4,622               | 9                               | 473 (220 / 55)                    |
 
 - **Blank `LOCAL_FOREIGN` is a special scrip account** (disclaimer item 5): a holder with no SID whose shares sit in eBAE. Nearly all have 0 scripless shares, and all but one (in May) also have a blank `DOMICILE`. They are 3% of rows, and they include large holders. In Feb, BSDE's PARAGA ARTAMIDA, PT holds 30.52% this way, and AKPI's TIARA INTIMAHKOTA holds 23.03%.
 - **Feb 2026 writes foreign as `A`** (Asing) and pads `L` and `A` to 10 characters on 6,822 of 7,013 rows. Mar writes blank as an empty string. Apr–Oct write `L`/`F` and leave a blank cell. Trim, and map `A` to `F`.
@@ -210,6 +211,7 @@ The **Investor classification** label in English. It is the classification repor
   - persistent pairs every month, such as EAST's two `HUSSAIN AHMAD BIN ABDULLAH HARHARAH` spellings and PALM's two `GAVIN ARNOLD CAUDLE` spellings.
 
   The count falls from 29 to about 5 after Feb–Apr, so KSEI is merging more of these. They still exist. A storage key of (stock, normalized name) would collide. (stock, exact name) collides once in 64,654 rows. A row ordinal within the stock never collides.
+
 - **Within a month, one holder can be spelled differently in different stocks.** 20–56 normalized names a month have more than one raw spelling, on 65–185 rows. Examples: `MAYBANK SECURITIES PTE. LTD.` and `MAYBANK SECURITIES PTE LTD`, or `ZICO TRUST (S) LTD` and `ZICO TRUST (S) LTD.`.
 - **Nominee names are not one beneficial owner.** In Oct, 455 rows (92 distinct names) are custodian or omnibus names such as `UOB KAY HIAN PRIVATE LIMITED` (64 stocks), `BANK OF SINGAPORE LIMITED` (34) and `UBS AG SINGAPORE BRANCH` (30). An exact match on such a name says the custodian kept its line, not that one investor stayed.
 
@@ -228,32 +230,32 @@ For each of the 8 consecutive pairs of months, and each stock present in both, e
 
 ### Results
 
-| Months | A rows | exact | formatting | reworded | same shares, unrelated name | merge/split | exit | new | exact % |
-|---|---|---|---|---|---|---|---|---|---|
-| Feb → Mar | 7,257 | 6,763 | 277 | 22 | 10 | 30 | 158 | 138 | 93.2% |
-| Mar → Apr | 7,213 | 6,795 | 180 | 46 | 14 | 31 | 158 | 122 | 94.2% |
-| Apr → May | 7,172 | 6,706 | 208 | 97 | 24 | 19 | 120 | 124 | 93.5% |
-| May → Jun | 7,161 | 6,802 | 185 | 29 | 20 | 17 | 119 | 150 | 95.0% |
-| Jun → Jul | 7,191 | 6,832 | 186 | 20 | 5 | 13 | 139 | 103 | 95.0% |
-| Jul → Aug | 7,193 | 6,851 | 169 | 12 | 9 | 15 | 142 | 112 | 95.2% |
-| Aug → Sep | 7,158 | 6,631 | 238 | 113 | 13 | 8 | 161 | 153 | 92.6% |
-| Sep → Oct | 7,154 | 6,779 | 170 | 33 | 19 | 11 | 145 | 145 | 94.8% |
-| **all 8** | **57,499** | **54,159** | **1,613** | **372** | **114** | **144** | **1,142** | **1,047** | **94.2%** |
+| Months    | A rows     | exact      | formatting | reworded | same shares, unrelated name | merge/split | exit      | new       | exact %   |
+| --------- | ---------- | ---------- | ---------- | -------- | --------------------------- | ----------- | --------- | --------- | --------- |
+| Feb → Mar | 7,257      | 6,763      | 277        | 22       | 10                          | 30          | 158       | 138       | 93.2%     |
+| Mar → Apr | 7,213      | 6,795      | 180        | 46       | 14                          | 31          | 158       | 122       | 94.2%     |
+| Apr → May | 7,172      | 6,706      | 208        | 97       | 24                          | 19          | 120       | 124       | 93.5%     |
+| May → Jun | 7,161      | 6,802      | 185        | 29       | 20                          | 17          | 119       | 150       | 95.0%     |
+| Jun → Jul | 7,191      | 6,832      | 186        | 20       | 5                           | 13          | 139       | 103       | 95.0%     |
+| Jul → Aug | 7,193      | 6,851      | 169        | 12       | 9                           | 15          | 142       | 112       | 95.2%     |
+| Aug → Sep | 7,158      | 6,631      | 238        | 113      | 13                          | 8           | 161       | 153       | 92.6%     |
+| Sep → Oct | 7,154      | 6,779      | 170        | 33       | 19                          | 11          | 145       | 145       | 94.8%     |
+| **all 8** | **57,499** | **54,159** | **1,613**  | **372**  | **114**                     | **144**     | **1,142** | **1,047** | **94.2%** |
 
 "A rows" counts rows of stocks present in both months. Stocks joining or leaving are excluded: 1 joined in Mar → Apr, and in Jun → Jul 1 left and 6 joined.
 
 Stocks with at least one false new/exit pair (a holder still present but not matched):
 
 | Pair starting | Stocks in both | Under exact names | Under the formatting key |
-|---|---|---|---|
-| Feb | 955 | 242 | 57 |
-| Mar | 955 | 215 | 84 |
-| Apr | 956 | 272 | 129 |
-| May | 956 | 193 | 60 |
-| Jun | 955 | 172 | 38 |
-| Jul | 961 | 152 | 32 |
-| Aug | 961 | 270 | 122 |
-| Sep | 961 | 187 | 62 |
+| ------------- | -------------- | ----------------- | ------------------------ |
+| Feb           | 955            | 242               | 57                       |
+| Mar           | 955            | 215               | 84                       |
+| Apr           | 956            | 272               | 129                      |
+| May           | 956            | 193               | 60                       |
+| Jun           | 955            | 172               | 38                       |
+| Jul           | 961            | 152               | 32                       |
+| Aug           | 961            | 270               | 122                      |
+| Sep           | 961            | 187               | 62                       |
 
 ### What the misses look like
 
@@ -267,6 +269,7 @@ Stocks with at least one false new/exit pair (a holder still present but not mat
   - `CAI LONG` → `LONG CAI`
 
   The legal-form position (`PT X`, `X PT`, `X, PT`, bare `X`) changes most often: 682 rows in the first per-step pass, against 617 for punctuation and 216 for case.
+
 - **Reworded (372), mostly the same holder:**
   - honorifics added or dropped: `DRS SURONO SUBEKTI` → `SURONO SUBEKTI` (15 stocks in Mar → Apr), `JANG AGUNG HANDOKO` → `IR JANG AGUNG HANDOKO`;
   - a custodian prefix added or dropped: `JPMCB NA RE - SWEDBANK ROBUR …` → `SWEDBANK ROBUR …`, `NIPPON STEEL CORPORATION` → `NOMURA SINGAPORE LIMITED S/A NIPPON STEEL CORPORATION`;
@@ -274,6 +277,7 @@ Stocks with at least one false new/exit pair (a holder still present but not mat
   - typos: `SINTAWATI` → `SINTAWATY`, `MATAHARI DEPARTMENT` → `DEPATMENT`, `UBS AG HONG KONG` → `HONGKONG`.
 
   The similarity rule also pairs a few different entities, such as `CGS INTERNATIONAL SECURITIES SINGAPORE` → `… MAURITIUS`. So this count is an estimate.
+
 - **Same shares, unrelated name (114).** This group mixes two cases:
   - Aliases of one investor that flip month to month:
     - AMAG, CFIN, PNBS, VRNA, PANS: `BANK PAN INDONESIA TBK, PT` ↔ `Panin Bank Tbk, PT`, flipping in Mar, Apr, Aug and Sep.
@@ -285,14 +289,15 @@ Stocks with at least one false new/exit pair (a holder still present but not mat
   - Whole blocks that moved to a new holder (`PT BASIS UTAMA PRIMA` → `PT TIRTA ORISA YASA` in 5 stocks, `PT MEGA INTI PERDANA UTAMA` → `PT ORION GLOBAL DEVELOPMENT`).
 
   The name alone cannot tell these apart.
+
 - **Merge/split (144), mostly Feb–Apr.** Feb's split rows (special scrip account, second SID) are merged in Mar. AKPI's `PRISMATAMA NUGRAHA` (21.24%, scrip) and `PT PRISMATAMA NUGRAHA` (6.04%) become one row of 27.28%. BSDE's three Paraga rows become one row of 40.35%.
 - **Exit (1,142) and new (1,047), split by `PERCENTAGE`:**
 
-  | Band | Exits | News |
-  |---|---|---|
-  | 1.00–1.49% | 636 | 641 |
-  | 1.50–4.99% | 431 | 316 |
-  | ≥5% | 75 | 90 |
+  | Band       | Exits | News |
+  | ---------- | ----- | ---- |
+  | 1.00–1.49% | 636   | 641  |
+  | 1.50–4.99% | 431   | 316  |
+  | ≥5%        | 75    | 90   |
 
   More than half sit at the 1% edge. This step cannot tell a sale from a rename with a changed holding, so some exits ≥1.5% are renames. `WIRASTUTI PUNTARAKSMA, S.H.` 11.43% → `BERNADETTE WIRASTUTI PUNTARAKSMA` 11.65% was caught as reworded. Others with a changed holding and no shared words were not.
 
@@ -305,7 +310,7 @@ The daily above-5% report prints, for each investor (by SID), every sub-account'
 - `PT. MULTIPOLAR TBK` / `MULTIPOLAR,PT,TBK`
 - `PT. MANUNGGAL PRIME DEVELOPMENT` / `MANUNGGAL PRIME DEVELOPMENT, PT`
 
-So the above-1% report prints one of an investor's account names, and which one it prints is not stable. A name that disappears and comes back unchanged a month later shows the same flipping. In all, 39–83 (stock, exact name) pairs a month are present in month *i*, absent in *i*+1 and back in *i*+2, on stocks present in all three. Normalization merges most of these spellings. The rest need an alias table or a SID, and the report publishes no SID.
+So the above-1% report prints one of an investor's account names, and which one it prints is not stable. A name that disappears and comes back unchanged a month later shows the same flipping. In all, 39–83 (stock, exact name) pairs a month are present in month _i_, absent in _i_+1 and back in _i_+2, on stocks present in all three. Normalization merges most of these spellings. The rest need an alias table or a SID, and the report publishes no SID.
 
 ### What this means for "new / exited / up / down"
 
@@ -316,13 +321,13 @@ So the above-1% report prints one of an investor's account names, and which one 
 
 ## Stocks and rows
 
-| Month | Stocks | Type-report stocks with no row | Rows per stock (min / median / max) |
-|---|---|---|---|
-| Feb | 955 | 47 | 1 / 7 / 28 (CARS) |
-| Mar | 955 | 47 | 1 / 7 / 28 (INPC) |
-| Apr–Jun | 956 | 46 | 1 / 7 / 28 (INPC) |
-| Jul–Aug | 961 | 46 | 1 / 7 / 28 (INPC) |
-| Sep–Oct | 961 | 44 | 1 / 7 / 28 (INPC) |
+| Month   | Stocks | Type-report stocks with no row | Rows per stock (min / median / max) |
+| ------- | ------ | ------------------------------ | ----------------------------------- |
+| Feb     | 955    | 47                             | 1 / 7 / 28 (CARS)                   |
+| Mar     | 955    | 47                             | 1 / 7 / 28 (INPC)                   |
+| Apr–Jun | 956    | 46                             | 1 / 7 / 28 (INPC)                   |
+| Jul–Aug | 961    | 46                             | 1 / 7 / 28 (INPC)                   |
+| Sep–Oct | 961    | 44                             | 1 / 7 / 28 (INPC)                   |
 
 - **Every code is a 4-letter equity** that is in the type report and has type `EQUITY` in KSEI's file. There are no warrants, rights or bonds. The 5-letter share classes (`EDJSA`, `EDJSB`, `MAMIP`, `MYRXP`) never appear.
 - **The left-out stocks are unpriced.** In Oct, 43 of the 44 have `Price` 0 in KSEI's `BalanceposEfek`. The exception is MSKY (price 32), which is also missing from the daily above-5% report (#395).
@@ -337,14 +342,14 @@ Files: the "Pemegang Saham di Atas 5%" entries for 29 May, 30 Jun, 31 Jul, 31 Au
 
 **The daily report counts scripless shares only.** For example, DNAR's OK NEXT CO.LTD holds 4,923,693,929 scripless and 10,364,979,314 scrip. The 1% report gives 90.51% (the total), and the daily report gives 4,923,693,929 shares, 29.15%. TOWR's PT DWIMURIA INVESTAMA ANDALAN shows 19.95% in the 1% report and 7.45% in the daily report. So the comparison selects 1% rows whose **scripless** holding is ≥5% of listed shares, the rule #395 found for the type report's `>=5%` band. Rows are matched on (stock, scripless shares = "Saham Gabungan") as a multiset:
 
-| Date | 1% rows, scripless ≥5% | Daily-report investors on those stocks | Matched | 1% only | Daily only: repeated investor | Daily only: other | Daily investors on stocks absent from the 1% report | 1% rows with `PERCENTAGE` ≥5 only by scrip |
-|---|---|---|---|---|---|---|---|---|
-| 29 May | 1,698 | 1,767 | 1,688 | 10 | 64 | 15 | 101 | 606 |
-| 30 Jun | 1,713 | 1,782 | 1,703 | 10 | 64 | 15 | 101 | 591 |
-| 31 Jul | 1,737 | 1,807 | 1,729 | 8 | 65 | 13 | 101 | 584 |
-| 31 Aug | 1,750 | 1,817 | 1,744 | 6 | 65 | 8 | 100 | 579 |
-| 30 Sep | 1,749 | 1,814 | 1,745 | 4 | 65 | 4 | 98 | 575 |
-| 30 Oct | 1,767 | 1,829 | 1,763 | 4 | 62 | 4 | 98 | 570 |
+| Date   | 1% rows, scripless ≥5% | Daily-report investors on those stocks | Matched | 1% only | Daily only: repeated investor | Daily only: other | Daily investors on stocks absent from the 1% report | 1% rows with `PERCENTAGE` ≥5 only by scrip |
+| ------ | ---------------------- | -------------------------------------- | ------- | ------- | ----------------------------- | ----------------- | --------------------------------------------------- | ------------------------------------------ |
+| 29 May | 1,698                  | 1,767                                  | 1,688   | 10      | 64                            | 15                | 101                                                 | 606                                        |
+| 30 Jun | 1,713                  | 1,782                                  | 1,703   | 10      | 64                            | 15                | 101                                                 | 591                                        |
+| 31 Jul | 1,737                  | 1,807                                  | 1,729   | 8       | 65                            | 13                | 101                                                 | 584                                        |
+| 31 Aug | 1,750                  | 1,817                                  | 1,744   | 6       | 65                            | 8                 | 100                                                 | 579                                        |
+| 30 Sep | 1,749                  | 1,814                                  | 1,745   | 4       | 65                            | 4                 | 98                                                  | 575                                        |
+| 30 Oct | 1,767                  | 1,829                                  | 1,763   | 4       | 62                            | 4                 | 98                                                  | 570                                        |
 
 - **Matched rows mostly agree on the name too.** On 30 Oct, of 1,763 matched rows, 1,738 have the 1% name equal to the daily report's holder name, 9 equal one of its account names, 16 differ in formatting, and none differ otherwise.
 - **The 1%-only / daily-only pairs are the same investors with a different scripless total.** In Sep–Oct: SQMI Wilton Resources (1% 8,312,954,942 vs daily 7,692,954,942), MYOH ST International, PICO Citrajaya Perkasamulia and WINS Wintermarjaya Lestari. In May–Aug also TAPG, SRAJ, BVIC, LPPF, PEHA, KLBF and BPII. These are #395's misses: the 1% report sums an investor's accounts across types, and the daily report seems to group by investor and type.

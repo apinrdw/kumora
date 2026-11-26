@@ -13,5 +13,6 @@ Running the site and its probe locally, and checking prerender without a deploy.
   ```
 
   Pass: `[prerender] Prerendered 1 pages:` followed by `[prerender] - /`. Delete `dist/` afterwards. The config reads `COMPATIBILITY_DATE` from `packages/deploy/src/target.ts`.
+
 - **Newest compatibility date the bundled workerd accepts.** Set `COMPATIBILITY_DATE` to a far-future date, run `bun alchemy dev`, and read "the newest date supported by this server binary" in the error. Put the date back.
 - **A branch's Preview stage.** `bun packages/deploy/src/teardown.ts stage <branch>` from the root prints `stage=<stage>`; the Worker is `kumora-web-<stage>`.

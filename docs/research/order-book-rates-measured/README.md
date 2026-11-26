@@ -6,16 +6,16 @@ Task [#496](https://github.com/apinrdw/kumora/issues/496), map [#485](https://gi
 
 [`books.mjs.txt`](books.mjs.txt) read every share code's book chunk (3,152 codes) for each minute of two windows, 09:00–09:05 and 14:00–14:30 WIB. It rebuilt every served book the way a viewer delta sends it, whole. [`stats.py.txt`](stats.py.txt) summarises the result.
 
-| | 09:00–09:05 | 14:00–14:30 |
-| --- | --- | --- |
-| Codes with a served book each minute | 1,365 | 1,367 |
-| Served books a second, whole market (mean / p95 second / max second) | 334 / 421 / 1,823 | 126 / 164 / 557 |
-| Per code, updates a second (median / p90 / p99 / max) | 0.077 / 0.60 / 2.54 / 3.32 | 0.033 / 0.18 / 1.22 / 1.89 |
-| Busiest codes | BBRI, TRIN, COIN, INET, BRMS, about 3.2–3.3/s | FOLK, DFAM, TLKM, UNIQ, KOTA, about 1.6–1.9/s |
-| Share of updates from the 250 busiest codes | 71% | 67% |
-| One served book's JSON (median / p90) | 1,186 B / 1,658 B | 1,126 B / 1,675 B |
-| Levels on both sides, median | 28 | 26 |
-| Whole books' JSON a second, per viewer (mean / p95 second / max second) | 364 / 464 / 1,318 KB/s | 135 / 172 / 396 KB/s |
+|                                                                         | 09:00–09:05                                   | 14:00–14:30                                   |
+| ----------------------------------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
+| Codes with a served book each minute                                    | 1,365                                         | 1,367                                         |
+| Served books a second, whole market (mean / p95 second / max second)    | 334 / 421 / 1,823                             | 126 / 164 / 557                               |
+| Per code, updates a second (median / p90 / p99 / max)                   | 0.077 / 0.60 / 2.54 / 3.32                    | 0.033 / 0.18 / 1.22 / 1.89                    |
+| Busiest codes                                                           | BBRI, TRIN, COIN, INET, BRMS, about 3.2–3.3/s | FOLK, DFAM, TLKM, UNIQ, KOTA, about 1.6–1.9/s |
+| Share of updates from the 250 busiest codes                             | 71%                                           | 67%                                           |
+| One served book's JSON (median / p90)                                   | 1,186 B / 1,658 B                             | 1,126 B / 1,675 B                             |
+| Levels on both sides, median                                            | 28                                            | 26                                            |
+| Whole books' JSON a second, per viewer (mean / p95 second / max second) | 364 / 464 / 1,318 KB/s                        | 135 / 172 / 396 KB/s                          |
 
 The day had five relay gaps of 2–7 s, none inside these windows. The 250 ms coalescing caps any code at 4 updates a second, and no code reached that cap.
 

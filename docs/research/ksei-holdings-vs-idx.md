@@ -10,13 +10,14 @@ Research for [#357](https://github.com/apinrdw/kumora/issues/357), part of the m
 - **The nine types agree once local and foreign are added together.** KSEI's local + foreign value per type equals the type report's domestic + foreign value (each summed over <5% and >=5%) for all nine types in 993–995 of 1,005–1,007 stocks (98.8%) every month, and within 1% of scripless in all but 2 (TRIL 4.0%, SRSN 2.2%). The same 12 stocks differ, by the same amounts, in all three months.
 - **The local/foreign split does not agree.** IDX's two reports share one local/foreign split; KSEI's file uses another. The difference is almost all in **Individual (ID)**: KSEI counts shares as local that IDX counts as foreign, by the same amount on both sides. Per stock:
 
-  | Month | KSEI local total = IDX type local | within 1% of scripless | all 18 type × origin values exact | KSEI local total = classification `Local_` sum | within 1% |
-  |---|---|---|---|---|---|
-  | Aug 2026 | 118 / 1,007 (11.7%) | 938 (93.1%) | 117 (11.6%) | n/a (unsplit layout) | n/a |
-  | Sep 2026 | 109 / 1,005 (10.8%) | 936 (93.1%) | 108 (10.7%) | 92 / 962 (9.6%) | 893 (92.8%) |
-  | Oct 2026 | 105 / 1,005 (10.4%) | 936 (93.1%) | 104 (10.3%) | 88 / 962 (9.1%) | 893 (92.8%) |
+  | Month    | KSEI local total = IDX type local | within 1% of scripless | all 18 type × origin values exact | KSEI local total = classification `Local_` sum | within 1%   |
+  | -------- | --------------------------------- | ---------------------- | --------------------------------- | ---------------------------------------------- | ----------- |
+  | Aug 2026 | 118 / 1,007 (11.7%)               | 938 (93.1%)            | 117 (11.6%)                       | n/a (unsplit layout)                           | n/a         |
+  | Sep 2026 | 109 / 1,005 (10.8%)               | 936 (93.1%)            | 108 (10.7%)                       | 92 / 962 (9.6%)                                | 893 (92.8%) |
+  | Oct 2026 | 105 / 1,005 (10.4%)               | 936 (93.1%)            | 104 (10.3%)                       | 88 / 962 (9.1%)                                | 893 (92.8%) |
 
   The 16 non-ID type × origin values match exactly for 98.3–98.4% of stocks. Market-wide the gap is small (Oct 2026 foreign share of scripless: KSEI 30.47%, IDX 30.59%), but for a few stocks it is the whole picture: ACRO is 3.1% foreign in KSEI's file and 89.8% in IDX's; BSBK 0.9% vs 47.0%. In Oct 2026, 69 of 962 stocks differ by more than 1 point of foreign share, 21 by more than 5, 10 by more than 10.
+
 - **The 39 classifications do not roll up to the 9 types.** Individual is the only class that equals its type in every stock. The best single-type mapping of the other classes that a greedy search found reproduces all nine type values exactly for only 32% of stocks, and within 1% for 68%. The owner's ~70% for CP and OT is a property of the data, not a mapping mistake: one class (Bank, for example) lands in different types for different accounts.
 - **History:** the same 25-column header, byte for byte, in every file read from Jan 2008 to Oct 2026 (2008, 2009, 2012, 2015, 2017, 2020, 2023 and Aug–Oct 2026 samples). The one change: the Jan 2008 file writes `Type` as a number (`1` for equities) where Mar 2009 onward writes `EQUITY`. All 226 month-ends from Jan 2008 to Oct 2026 are on the legacy host `web.ksei.co.id/Download/`, with their original upload time. `www.ksei.co.id/storage/Download/` has Jan 2009–Apr 2013 and Jan 2018–Oct 2026, and nothing for May 2013–Dec 2017 (56 months). So about 18 years are usable, 13 of them from `www` alone.
 - **Files get corrected.** The Dec 2020 file on `www.ksei.co.id` is a corrected copy (zip entry dated 2021-10-19) of the one on `web.ksei.co.id` (dated 2021-01-01): three rows' `Sec. Num` changed (MSIN 520,200,000,000 → 5,202,000,000, and two bonds). Holdings were unchanged.
@@ -41,27 +42,27 @@ Date|Code|Type|Sec. Num|Price|Local IS|Local CP|Local PF|Local IB|Local ID|Local
 
 ### Securities in one file (Oct 2026, 3,733 rows)
 
-| `Type` | Rows |
-|---|---|
-| EQUITY | 1,005 |
-| CORPORATE BOND | 935 |
-| STRUCTURED WARRANT | 533 |
-| SUKUK | 367 |
-| EQUITY CROWDFUNDING (ECF) | 278 |
-| SUKUK CROWD FUNDING | 175 |
-| TERM NOTES | 169 |
-| GOVERNMENT BOND | 73 |
+| `Type`                                                                                                                                                                                                                               | Rows      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------- |
+| EQUITY                                                                                                                                                                                                                               | 1,005     |
+| CORPORATE BOND                                                                                                                                                                                                                       | 935       |
+| STRUCTURED WARRANT                                                                                                                                                                                                                   | 533       |
+| SUKUK                                                                                                                                                                                                                                | 367       |
+| EQUITY CROWDFUNDING (ECF)                                                                                                                                                                                                            | 278       |
+| SUKUK CROWD FUNDING                                                                                                                                                                                                                  | 175       |
+| TERM NOTES                                                                                                                                                                                                                           | 169       |
+| GOVERNMENT BOND                                                                                                                                                                                                                      | 73        |
 | SBSN, MUTUAL FUND, DEBT CROWD FUNDING, NEGOTIABLE CERTIFICATE OF DEPOSIT, BANK INDONESIA RUPIAH SECURITIES (SRBI), WARRANT, SPN, EBA, PERPETUAL BONDS, DANA INVESTASI REAL ESTATE, RIGHT, ELECTRONIC GOLD RECEIPTS, COMMERCIAL PAPER | 1–54 each |
 
 Warrants (`BRNA-W`), rights (`BUVA-R`), ETFs (`R-LQ45X`, typed `MUTUAL FUND`) and crowdfunding equity (`ABNSECF`) all have their own `Type`, so `EQUITY` is only shares. Each code appears once per file.
 
 ### Which equities to keep
 
-| Month | `EQUITY` rows | of which `Price > 0` | Type report stocks | Classification report stocks |
-|---|---|---|---|---|
-| Aug 2026 | 1,007 | 963 | 1,007 (same codes) | 962 (priced set minus SQBI) |
-| Sep 2026 | 1,005 | 962 | 1,005 (same codes) | 962 (same codes as priced) |
-| Oct 2026 | 1,005 | 962 | 1,005 (same codes) | 962 (same codes as priced) |
+| Month    | `EQUITY` rows | of which `Price > 0` | Type report stocks | Classification report stocks |
+| -------- | ------------- | -------------------- | ------------------ | ---------------------------- |
+| Aug 2026 | 1,007         | 963                  | 1,007 (same codes) | 962 (priced set minus SQBI)  |
+| Sep 2026 | 1,005         | 962                  | 1,005 (same codes) | 962 (same codes as priced)   |
+| Oct 2026 | 1,005         | 962                  | 1,005 (same codes) | 962 (same codes as priced)   |
 
 All 43 unpriced Oct 2026 equities still hold scripless shares (none is zero). Against KSEI's `StatisEfek20261030.txt`, 24 of them are absent from the securities master entirely (APOL, BORN, CKRA, CPGT, KARK, TRUB…) and the rest are listed as `ACTIVE` there (ATPK, MYRX, NIPS, SUDI…), which fits delisted and long-suspended stocks. SQBI is priced in Aug 2026 and absent from KSEI's file from Sep, but already missing from IDX's Aug classification report.
 
@@ -75,28 +76,28 @@ Method: parse the KSEI `.txt` and IDX's xlsx files (`xl/sharedStrings.xml` + `xl
 
 ### Against the type report (all 1,005–1,007 stocks)
 
-| Check | Aug 2026 | Sep 2026 | Oct 2026 |
-|---|---|---|---|
-| `Sec. Num` = `NUMBER_OF_SHARES` | 100% | 100% | 100% |
-| local + foreign total = `TOTAL SCRIPLESS` | 100% | 100% | 100% |
-| 9 types, local + foreign, exact | 995 (98.8%) | 993 (98.8%) | 993 (98.8%) |
-| 9 types, local + foreign, within 1% | 1,005 (99.8%) | 1,003 (99.8%) | 1,003 (99.8%) |
-| local total exact / within 1% | 11.7% / 93.1% | 10.8% / 93.1% | 10.4% / 93.1% |
-| foreign total exact / within 1% | 11.7% / 93.1% | 10.8% / 93.1% | 10.4% / 93.1% |
-| all 18 values exact / within 1% | 11.6% / 92.9% | 10.7% / 92.9% | 10.3% / 92.9% |
-| 16 non-ID values exact | 98.4% | 98.4% | 98.3% |
+| Check                                     | Aug 2026      | Sep 2026      | Oct 2026      |
+| ----------------------------------------- | ------------- | ------------- | ------------- |
+| `Sec. Num` = `NUMBER_OF_SHARES`           | 100%          | 100%          | 100%          |
+| local + foreign total = `TOTAL SCRIPLESS` | 100%          | 100%          | 100%          |
+| 9 types, local + foreign, exact           | 995 (98.8%)   | 993 (98.8%)   | 993 (98.8%)   |
+| 9 types, local + foreign, within 1%       | 1,005 (99.8%) | 1,003 (99.8%) | 1,003 (99.8%) |
+| local total exact / within 1%             | 11.7% / 93.1% | 10.8% / 93.1% | 10.4% / 93.1% |
+| foreign total exact / within 1%           | 11.7% / 93.1% | 10.8% / 93.1% | 10.4% / 93.1% |
+| all 18 values exact / within 1%           | 11.6% / 92.9% | 10.7% / 92.9% | 10.3% / 92.9% |
+| 16 non-ID values exact                    | 98.4%         | 98.4%         | 98.3%         |
 
 Per type and origin, exact match in Oct 2026: IS, PF, FD, SC (foreign) and IB (local) 100%; CP, MF, OT, SC (local), IB (foreign) 99.2–99.9%; **ID 10.4%** (local and foreign alike).
 
 **The Individual shift.** For 1,000 of 1,005 stocks in Oct 2026, KSEI's local ID minus IDX's local ID equals IDX's foreign ID minus KSEI's foreign ID: the same shares sit on the other side. KSEI has the larger local figure in 848 stocks (84%). Summed over all stocks the moved shares are 29.8 billion of 10.54 trillion scripless (0.28%), but some stocks are dominated by it:
 
-| Stock (Oct 2026) | KSEI local ID | IDX local ID | Foreign share, KSEI | Foreign share, IDX |
-|---|---|---|---|---|
-| ACRO | 3,361,481,534 | 352,315,185 | 3.11% | 89.84% |
-| BSBK | 2,323,759,730 | 2,315,966,230 | 0.86% | 47.00% |
-| BBCA | 12,030,567,470 | 12,256,650,330 | 67.22% | 66.79% |
-| BBRI | 16,345,838,119 | 16,293,507,616 | 54.44% | 54.51% |
-| TLKM | 2,375,308,007 | 2,360,557,307 | 76.93% | 76.96% |
+| Stock (Oct 2026) | KSEI local ID  | IDX local ID   | Foreign share, KSEI | Foreign share, IDX |
+| ---------------- | -------------- | -------------- | ------------------- | ------------------ |
+| ACRO             | 3,361,481,534  | 352,315,185    | 3.11%               | 89.84%             |
+| BSBK             | 2,323,759,730  | 2,315,966,230  | 0.86%               | 47.00%             |
+| BBCA             | 12,030,567,470 | 12,256,650,330 | 67.22%              | 66.79%             |
+| BBRI             | 16,345,838,119 | 16,293,507,616 | 54.44%              | 54.51%             |
+| TLKM             | 2,375,308,007  | 2,360,557,307  | 76.93%              | 76.96%             |
 
 BSBK is the exception to "almost all ID": 2,341,713,397 corporate (CP) shares are local in KSEI's file and foreign in IDX's. The files say nothing about why the split differs; a nationality-versus-domicile difference in how the two products tag an account would produce this pattern, but that is a guess, not something any source here states.
 
@@ -104,11 +105,11 @@ BSBK is the exception to "almost all ID": 2,341,713,397 corporate (CP) shares ar
 
 ### Against the classification report (962 stocks)
 
-| Check | Aug 2026 | Sep 2026 | Oct 2026 |
-|---|---|---|---|
-| local + foreign total = `Total Scripless` | 100% | 100% | 100% |
-| local total = sum of `Local_` columns, exact / within 1% | n/a | 9.6% / 92.8% | 9.1% / 92.8% |
-| type report local = sum of `Local_` columns | n/a | 100% | 100% |
+| Check                                                    | Aug 2026 | Sep 2026     | Oct 2026     |
+| -------------------------------------------------------- | -------- | ------------ | ------------ |
+| local + foreign total = `Total Scripless`                | 100%     | 100%         | 100%         |
+| local total = sum of `Local_` columns, exact / within 1% | n/a      | 9.6% / 92.8% | 9.1% / 92.8% |
+| type report local = sum of `Local_` columns              | n/a      | 100%         | 100%         |
 
 The classification report's `Local_Individual (ID)` equals the type report's domestic ID (AADI Oct 2026: 1,651,905,480 in both; KSEI's file has 1,655,253,619).
 
@@ -116,28 +117,28 @@ The classification report's `Local_Individual (ID)` equals the type report's dom
 
 ## History and layout
 
-| File | Host | Lines | `EQUITY` rows (priced) | Header |
-|---|---|---|---|---|
-| `BalanceposEfek20080131.txt.zip` | `web.ksei.co.id` | 758 | 406 with `Type` `1` (405) | same |
-| `BalanceposEfek20090331.zip` | both (same SHA-256) | 757 | 420 (398) | same |
-| `BalanceposEfek20121228.zip` | both (same SHA-256) | 1,112 | 495 (463) | same |
-| `BalanceposEfek20151230.zip` | `web.ksei.co.id` only | 1,335 | 563 (527) | same |
-| `BalanceposEfek20170131.zip` | `web.ksei.co.id` only | 1,487 | 575 (539) | same |
-| `BalanceposEfek20200831.zip` | `www` | 2,180 | 735 (715) | same |
-| `BalanceposEfek20201230.zip` | both (different bytes, see below) | 2,182 | 750 (730) | same |
-| `BalanceposEfek20230831.zip` | `www` | 2,758 | 924 (891) | same |
-| `BalanceposEfek20261030.zip` | both (same SHA-256) | 3,734 | 1,005 (962) | same |
+| File                             | Host                              | Lines | `EQUITY` rows (priced)    | Header |
+| -------------------------------- | --------------------------------- | ----- | ------------------------- | ------ |
+| `BalanceposEfek20080131.txt.zip` | `web.ksei.co.id`                  | 758   | 406 with `Type` `1` (405) | same   |
+| `BalanceposEfek20090331.zip`     | both (same SHA-256)               | 757   | 420 (398)                 | same   |
+| `BalanceposEfek20121228.zip`     | both (same SHA-256)               | 1,112 | 495 (463)                 | same   |
+| `BalanceposEfek20151230.zip`     | `web.ksei.co.id` only             | 1,335 | 563 (527)                 | same   |
+| `BalanceposEfek20170131.zip`     | `web.ksei.co.id` only             | 1,487 | 575 (539)                 | same   |
+| `BalanceposEfek20200831.zip`     | `www`                             | 2,180 | 735 (715)                 | same   |
+| `BalanceposEfek20201230.zip`     | both (different bytes, see below) | 2,182 | 750 (730)                 | same   |
+| `BalanceposEfek20230831.zip`     | `www`                             | 2,758 | 924 (891)                 | same   |
+| `BalanceposEfek20261030.zip`     | both (same SHA-256)               | 3,734 | 1,005 (962)               | same   |
 
 The header line has the same MD5 in all of them, every equity row's types sum to its totals, and no equity value is fractional or empty. Only the security type vocabulary changed (`MEDIUM TERM NOTES` became `TERM NOTES` by Dec 2020; crowdfunding, structured warrants and SRBI appear later), which the `EQUITY` filter ignores.
 
 **Where the files are.** `HEAD https://www.ksei.co.id/storage/Download/BalanceposEfek<date>.zip` returned `302 → /id` (not there) for all 14 month-ends tried in 2013–2017, and 200 for 2012-12-28, 2018-12-28, 2019-12-30 and later (this ticket and [the listing research](ksei-statistik-kepemilikan-listing.md)). The legacy Apache host answers for the same names, including 2015 and 2017, with the original upload time as `Last-Modified` (2015-12-30 file: `Mon, 04 Jan 2016 01:38:22 GMT`) and a 404 or 500 for a missing name. Every month was probed on the legacy host, then each name it found was checked on `www` with `HEAD`:
 
-| Months | `web.ksei.co.id/Download/` | `www.ksei.co.id/storage/Download/` |
-|---|---|---|
-| Jan 2008 – Feb 2009 | 200, named `BalanceposEfek<date>.txt.zip` | not probed (Wayback has these names under the old `/Download/` path) |
-| Mar 2009 – Apr 2013 | 200 for every month | 200 for every month |
-| May 2013 – Dec 2017 | 200 for every month | `302 → /id` for every month (56) |
-| Jan 2018 – Oct 2026 | 200 for every month | 200 for every month checked (2018–2023 by name; Nov 2023 onward is the listing) |
+| Months              | `web.ksei.co.id/Download/`                | `www.ksei.co.id/storage/Download/`                                              |
+| ------------------- | ----------------------------------------- | ------------------------------------------------------------------------------- |
+| Jan 2008 – Feb 2009 | 200, named `BalanceposEfek<date>.txt.zip` | not probed (Wayback has these names under the old `/Download/` path)            |
+| Mar 2009 – Apr 2013 | 200 for every month                       | 200 for every month                                                             |
+| May 2013 – Dec 2017 | 200 for every month                       | `302 → /id` for every month (56)                                                |
+| Jan 2018 – Oct 2026 | 200 for every month                       | 200 for every month checked (2018–2023 by name; Nov 2023 onward is the listing) |
 
 The first pass tried the last seven weekdays of each month once and missed seven months (Mar and Apr 2015, Feb 2016, Jun 2017, Jul 2020, Aug 2021, May 2023). A second pass over every weekday, with retries, found all seven, so those were dropped connections, not gaps. Some period ends fall well before the calendar month end (`BalanceposEfek20170622.zip` for June 2017, `BalanceposEfek20201027.zip` for October 2020), so a backfill should take names from the legacy host's hits or from IDX's trading calendar rather than guess the last weekday.
 
@@ -149,11 +150,11 @@ Upload times on the legacy host (223 `Last-Modified` values, Jan 2008 – Oct 20
 
 ## Publish lag
 
-| Period end | KSEI `BalanceposEfek` | IDX type report | IDX classification report |
-|---|---|---|---|
-| Fri 2026-10-30 | Mon 2 Nov 07:08 WIB | Mon 2 Nov 14:53 WIB | Mon 2 Nov 14:53 WIB |
-| Wed 2026-09-30 | Thu 1 Oct 07:07 WIB | Fri 2 Oct 13:53 WIB | Fri 2 Oct 13:53 WIB |
-| Mon 2026-08-31 | Tue 1 Sep 07:07 WIB | (2 Oct 11:38, batch) | (2 Oct 11:36, batch) |
+| Period end     | KSEI `BalanceposEfek` | IDX type report      | IDX classification report |
+| -------------- | --------------------- | -------------------- | ------------------------- |
+| Fri 2026-10-30 | Mon 2 Nov 07:08 WIB   | Mon 2 Nov 14:53 WIB  | Mon 2 Nov 14:53 WIB       |
+| Wed 2026-09-30 | Thu 1 Oct 07:07 WIB   | Fri 2 Oct 13:53 WIB  | Fri 2 Oct 13:53 WIB       |
+| Mon 2026-08-31 | Tue 1 Sep 07:07 WIB   | (2 Oct 11:38, batch) | (2 Oct 11:36, batch)      |
 
 All times are `Last-Modified` converted to WIB (UTC+7). IDX's July and August monthly files carry 2 Oct 2026, the batch upload [the IDX listing research](idx-kepemilikan-listing.md#cadence) already noted, so they say nothing about August's lag. The IDX listing's `ListingDate` is the data date (`2026-10-30T12:00:00`), not an upload time. The legacy KSEI host shows the same pattern years back: most 2008–2011 files carry 23:00–23:55 UTC on the period end or the next calendar day, so about 06:00–07:00 WIB on the first morning after the period (one outlier: Sep 2008, uploaded 6 Oct).
 

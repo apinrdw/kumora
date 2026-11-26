@@ -22,14 +22,14 @@ From this repo. Volumes come from `docs/research/broker-frame-rates.md`, `docs/r
 
 **The flush** (`armFlush` in `trading-day.ts`, `write` in `day-store.ts`) runs once a minute, 5 s past the minute (`FLUSH_PAST_MINUTE`), as one transaction:
 
-| Table | Rows a flush writes | Write | Basis |
-| --- | --- | --- | --- |
-| `trades` | about 4,000 on average; about 30,000 in the peak minute | `INSERT OR IGNORE`, key `number` | 1.46 M / 360 min; `order-flow-cost.md` (peak minute) |
-| `candles` | up to about 900 (codes that traded) | `INSERT OR REPLACE`, key `(code, minute)` | about 900 stocks trade |
-| `footprints` | about 400–750 | `INSERT OR REPLACE` | 150–270 K stock-minutes a day |
-| `book_chunks`, `heatmaps` | 30–100 each, gzipped blob or JSON | `INSERT OR REPLACE` | K = 30–100 codes with books |
-| `live_prices` | up to the code count (690 to 3,406 listed) | `INSERT OR REPLACE` | `broker-frame-rates.md` |
-| `ajaib_books`, `facts` | a few | `INSERT OR REPLACE` | |
+| Table                     | Rows a flush writes                                     | Write                                     | Basis                                                |
+| ------------------------- | ------------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------- |
+| `trades`                  | about 4,000 on average; about 30,000 in the peak minute | `INSERT OR IGNORE`, key `number`          | 1.46 M / 360 min; `order-flow-cost.md` (peak minute) |
+| `candles`                 | up to about 900 (codes that traded)                     | `INSERT OR REPLACE`, key `(code, minute)` | about 900 stocks trade                               |
+| `footprints`              | about 400–750                                           | `INSERT OR REPLACE`                       | 150–270 K stock-minutes a day                        |
+| `book_chunks`, `heatmaps` | 30–100 each, gzipped blob or JSON                       | `INSERT OR REPLACE`                       | K = 30–100 codes with books                          |
+| `live_prices`             | up to the code count (690 to 3,406 listed)              | `INSERT OR REPLACE`                       | `broker-frame-rates.md`                              |
+| `ajaib_books`, `facts`    | a few                                                   | `INSERT OR REPLACE`                       |                                                      |
 
 So the store writes **about 6,000 rows a minute on average and about 35,000 at the peak**, or about 100–600 rows a second spread over the minute. The day store is 0.3–1.5 GB a day (an estimate in `durable-object-cost.md`). Trades are in number order, which IDX hands out in time order (the `Decision:` on `highestWithin`).
 
@@ -44,19 +44,19 @@ A recorded-day GET (`recorded-answers.ts`) runs `tradesAt`, which is a binary se
 
 ## Concurrency: one writer process, Quack for everyone else
 
-| Fact | Source |
-| --- | --- |
-| "Read-write mode: one process can both read and write to the database." "Read-only mode: multiple processes can read from the database, but no processes can write." | [Concurrency][concurrency] |
-| Inside one process, read-write mode supports several writer threads under MVCC with optimistic concurrency. "Appends will never conflict, even on the same table." Two writers that update or delete the same row conflict, and the second one fails. | [Concurrency][concurrency] |
-| "Writing to DuckDB's native database format from multiple processes is supported through the Quack remote protocol", which "turns DuckDB into a client-server database". DuckLake with a PostgreSQL catalog is the other route. | [Concurrency][concurrency] |
-| DuckDB manages concurrent access with file locks. | [Concurrency][concurrency] |
-| "A server is started from an existing DuckDB session": `CALL quack_serve('quack:localhost')`. The call returns the URI, the HTTP URL and a generated token. | [Quack overview][quack] |
-| `quack_serve` has no parameter that picks a database or catalog, and none for read-only. `quack_server_max_connections` defaults to 1,024. One instance can run several servers (`quack_server_list()`). | [Quack reference][quack-ref] |
-| Transport is HTTP, or HTTPS for non-local hosts. "Every interaction is initiated by the client." Server pushes are not part of the protocol. The default port is 9494. | [Quack overview][quack] |
-| The server binds only to localhost unless `allow_other_hostname` is set. DuckDB advises against exposing a Quack endpoint directly to the internet. | [Quack reference][quack-ref]; [Quack blog][quack-blog] |
-| Quack clients are other DuckDB instances, including DuckDB-Wasm. | [Quack overview][quack]; [Quack blog][quack-blog] |
-| "Multiple instances in the same process should not attach the same database." The client offers `DuckDBInstance.fromCache` to prevent that. | [node-api README][neo-readme] |
-| A transaction can write to only one attached database. Atomicity does not hold across attached files. | [ATTACH][attach] |
+| Fact                                                                                                                                                                                                                                                  | Source                                                 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| "Read-write mode: one process can both read and write to the database." "Read-only mode: multiple processes can read from the database, but no processes can write."                                                                                  | [Concurrency][concurrency]                             |
+| Inside one process, read-write mode supports several writer threads under MVCC with optimistic concurrency. "Appends will never conflict, even on the same table." Two writers that update or delete the same row conflict, and the second one fails. | [Concurrency][concurrency]                             |
+| "Writing to DuckDB's native database format from multiple processes is supported through the Quack remote protocol", which "turns DuckDB into a client-server database". DuckLake with a PostgreSQL catalog is the other route.                       | [Concurrency][concurrency]                             |
+| DuckDB manages concurrent access with file locks.                                                                                                                                                                                                     | [Concurrency][concurrency]                             |
+| "A server is started from an existing DuckDB session": `CALL quack_serve('quack:localhost')`. The call returns the URI, the HTTP URL and a generated token.                                                                                           | [Quack overview][quack]                                |
+| `quack_serve` has no parameter that picks a database or catalog, and none for read-only. `quack_server_max_connections` defaults to 1,024. One instance can run several servers (`quack_server_list()`).                                              | [Quack reference][quack-ref]                           |
+| Transport is HTTP, or HTTPS for non-local hosts. "Every interaction is initiated by the client." Server pushes are not part of the protocol. The default port is 9494.                                                                                | [Quack overview][quack]                                |
+| The server binds only to localhost unless `allow_other_hostname` is set. DuckDB advises against exposing a Quack endpoint directly to the internet.                                                                                                   | [Quack reference][quack-ref]; [Quack blog][quack-blog] |
+| Quack clients are other DuckDB instances, including DuckDB-Wasm.                                                                                                                                                                                      | [Quack overview][quack]; [Quack blog][quack-blog]      |
+| "Multiple instances in the same process should not attach the same database." The client offers `DuckDBInstance.fromCache` to prevent that.                                                                                                           | [node-api README][neo-readme]                          |
+| A transaction can write to only one attached database. Atomicity does not hold across attached files.                                                                                                                                                 | [ATTACH][attach]                                       |
 
 **What this means for the box** (inference from the rows above):
 
@@ -65,20 +65,21 @@ A recorded-day GET (`recorded-answers.ts`) runs `tradesAt`, which is a binary se
   - **(b)** A separate DuckDB process owns the file and serves Quack. The Node ingest becomes a Quack client and sends each flush over loopback HTTP.
 
   Shape (a) has one fewer process and no network hop on writes. In both shapes the same process runs reads and writes, so a slow viewer query competes with the flush for the same two cores.
+
 - With one Node process per stage, every stage needs its own Quack port, or one reverse proxy in front of all of them. With one process for every stage (one instance with an `ATTACH` per stage database), a single `quack_serve` exposes every attached database to any client with the token. The docs give no per-database scope or token. Isolating stages therefore argues for one process, or at least one instance, per stage. apinrdw/kumora#535 and #537 own the Worker side of Quack.
 - A Quack client that sends a flush as a single statement or a single transaction makes one round trip. DuckDB's blog measured 0.28 ms ping between VMs in the same availability zone, and about 1,000 single-thread small-write transactions a second against a Quack server ([Quack blog][quack-blog]). One flush a minute is far below that.
 
 ## Small inserts against the Appender
 
-| Fact | Source |
-| --- | --- |
-| "avoid using lots of individual row-by-row INSERT statements when inserting more than a few rows". Maximise the rows per statement. In auto-commit mode "every single statement will be wrapped in a separate transaction, meaning `fsync` will be called for every statement". Wrap loops in `BEGIN TRANSACTION` / `COMMIT`. | [INSERT guide][insert-guide] |
-| "Appenders are the most efficient way of loading data into DuckDB from within the C interface." "The appender is much faster than using prepared statements or individual `INSERT INTO` statements." | [C Appender][c-appender] |
-| If a flush hits a constraint violation, "all data is invalidated". | [C Appender][c-appender] |
-| The Node appender flushes on `flushSync()` and `closeSync()`, and on its own about every 204,800 rows. Since 2.0, an appender cannot flush while its connection has an unread streaming or pending result. The rows appended since the last flush are then lost. The README says to append on a separate connection. | [node-api README][neo-readme] |
-| `flushSync` and `closeSync` are synchronous. An issue to add async versions is still open. | [node-neo #155][neo-155] |
-| `INSERT OR IGNORE` and `INSERT OR REPLACE` need a `PRIMARY KEY` or `UNIQUE` constraint. When one statement holds the same key twice, "DuckDB applies only one update per conflicting key", and the winner is "not guaranteed to be the last one in insertion order". | [INSERT statement][insert-stmt] |
-| On DuckDB's own small-write benchmark through Quack, single-row transactions ran at 1,038 a second on 1 thread and 5,434 on 8 threads. Past 8 threads, a limit on concurrent inserts into one table holds them back. | [Quack blog][quack-blog] |
+| Fact                                                                                                                                                                                                                                                                                                                          | Source                          |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| "avoid using lots of individual row-by-row INSERT statements when inserting more than a few rows". Maximise the rows per statement. In auto-commit mode "every single statement will be wrapped in a separate transaction, meaning `fsync` will be called for every statement". Wrap loops in `BEGIN TRANSACTION` / `COMMIT`. | [INSERT guide][insert-guide]    |
+| "Appenders are the most efficient way of loading data into DuckDB from within the C interface." "The appender is much faster than using prepared statements or individual `INSERT INTO` statements."                                                                                                                          | [C Appender][c-appender]        |
+| If a flush hits a constraint violation, "all data is invalidated".                                                                                                                                                                                                                                                            | [C Appender][c-appender]        |
+| The Node appender flushes on `flushSync()` and `closeSync()`, and on its own about every 204,800 rows. Since 2.0, an appender cannot flush while its connection has an unread streaming or pending result. The rows appended since the last flush are then lost. The README says to append on a separate connection.          | [node-api README][neo-readme]   |
+| `flushSync` and `closeSync` are synchronous. An issue to add async versions is still open.                                                                                                                                                                                                                                    | [node-neo #155][neo-155]        |
+| `INSERT OR IGNORE` and `INSERT OR REPLACE` need a `PRIMARY KEY` or `UNIQUE` constraint. When one statement holds the same key twice, "DuckDB applies only one update per conflicting key", and the winner is "not guaranteed to be the last one in insertion order".                                                          | [INSERT statement][insert-stmt] |
+| On DuckDB's own small-write benchmark through Quack, single-row transactions ran at 1,038 a second on 1 thread and 5,434 on 8 threads. Past 8 threads, a limit on concurrent inserts into one table holds them back.                                                                                                          | [Quack blog][quack-blog]        |
 
 **Inference for this store:**
 
@@ -88,16 +89,16 @@ A recorded-day GET (`recorded-answers.ts`) runs `tradesAt`, which is a binary se
 
 ## WAL, checkpoints and what a crash loses
 
-| Fact | Source |
-| --- | --- |
-| DuckDB writes a WAL and "explicitly calls the `fsync()` system call to make sure any WAL entries will be forced to be written to persistent storage". | [Concurrent transactions blog][txn-blog] |
+| Fact                                                                                                                                                                                                                                     | Source                                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| DuckDB writes a WAL and "explicitly calls the `fsync()` system call to make sure any WAL entries will be forced to be written to persistent storage".                                                                                    | [Concurrent transactions blog][txn-blog]                          |
 | A checkpoint runs automatically "whenever the WAL file reached a limit, by default 16 MB" (`checkpoint_threshold`), and at shutdown. `CHECKPOINT` waits for running transactions. `FORCE CHECKPOINT` rolls back the active transactions. | [Concurrent transactions blog][txn-blog]; [Configuration][config] |
-| On restart, DuckDB reloads the database file and re-applies the WAL. | [Concurrent transactions blog][txn-blog] |
-| A process killed with SIGKILL before `COMMIT` loses that transaction. Committed transactions survive. | [ACID blog][acid-blog] |
-| `fsync_mode` is `STANDARD` by default (fsync or fdatasync on Linux). `FULL` differs only on macOS. `NONE` "may cause database corruption after an operating system or hardware crash". The setting is global to the instance. | [Configuration][config] |
-| "Compression is applied when the data is checkpointed." | [Tuning workloads][tuning] |
-| The docs do not say whether a checkpoint blocks readers or writers while it runs. | (absent from [txn-blog], [concurrency]) |
-| The 2.0 storage format adds checkpoint vacuuming that compacts tables with ART indexes. DuckDB before 2.0 cannot read files that 2.0 created. | [2.0 highlights][highlights]; [2.0 announcement][announce] |
+| On restart, DuckDB reloads the database file and re-applies the WAL.                                                                                                                                                                     | [Concurrent transactions blog][txn-blog]                          |
+| A process killed with SIGKILL before `COMMIT` loses that transaction. Committed transactions survive.                                                                                                                                    | [ACID blog][acid-blog]                                            |
+| `fsync_mode` is `STANDARD` by default (fsync or fdatasync on Linux). `FULL` differs only on macOS. `NONE` "may cause database corruption after an operating system or hardware crash". The setting is global to the instance.            | [Configuration][config]                                           |
+| "Compression is applied when the data is checkpointed."                                                                                                                                                                                  | [Tuning workloads][tuning]                                        |
+| The docs do not say whether a checkpoint blocks readers or writers while it runs.                                                                                                                                                        | (absent from [txn-blog], [concurrency])                           |
+| The 2.0 storage format adds checkpoint vacuuming that compacts tables with ART indexes. DuckDB before 2.0 cannot read files that 2.0 created.                                                                                            | [2.0 highlights][highlights]; [2.0 announcement][announce]        |
 
 **Inference for this store:**
 
@@ -107,16 +108,16 @@ A recorded-day GET (`recorded-answers.ts`) runs `tradesAt`, which is a binary se
 
 ## Memory and threads for several databases on 8 GB
 
-| Fact | Source |
-| --- | --- |
-| `memory_limit` defaults to "80% of RAM". `threads` defaults to the number of CPU cores. Both are global (per instance) settings. | [Configuration][config] |
-| "Aim for 1-4 GB memory per thread." The minimum is 125 MB per thread. Aggregation-heavy work needs 1–2 GB per thread, and join-heavy work 3–4 GB. | [Environment][environment] |
-| Disk mode "is designed to work best with SSD and NVMe disks". HDD writes are slow. Do not use read-write mode on network-attached storage. | [Environment][environment] |
-| Larger-than-memory work spills to `temp_directory`, which can grow to 90% of free disk by default (`max_temp_directory_size`). 2.0 adds spilling for aggregations. | [Configuration][config]; [Tuning workloads][tuning]; [2.0 highlights][highlights] |
-| ART indexes "must currently be able to fit in memory during index creation". "DuckDB does not yet destroy any index buffers if it has to evict memory." Index memory is deserialized lazily on attach. | [Indexes][indexes]; [Indexing guide][indexing] |
-| An ART index is created for every `PRIMARY KEY` or `UNIQUE` column. It slows loading and updates. | [Indexes][indexes] |
-| DuckDB "may launch too many threads (e.g., due to HyperThreading), which can lead to slowdowns". | [Tuning workloads][tuning] |
-| Instances can be given settings at creation: `DuckDBInstance.create(path, { threads: '4' })`. | [node-api README][neo-readme] |
+| Fact                                                                                                                                                                                                   | Source                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `memory_limit` defaults to "80% of RAM". `threads` defaults to the number of CPU cores. Both are global (per instance) settings.                                                                       | [Configuration][config]                                                           |
+| "Aim for 1-4 GB memory per thread." The minimum is 125 MB per thread. Aggregation-heavy work needs 1–2 GB per thread, and join-heavy work 3–4 GB.                                                      | [Environment][environment]                                                        |
+| Disk mode "is designed to work best with SSD and NVMe disks". HDD writes are slow. Do not use read-write mode on network-attached storage.                                                             | [Environment][environment]                                                        |
+| Larger-than-memory work spills to `temp_directory`, which can grow to 90% of free disk by default (`max_temp_directory_size`). 2.0 adds spilling for aggregations.                                     | [Configuration][config]; [Tuning workloads][tuning]; [2.0 highlights][highlights] |
+| ART indexes "must currently be able to fit in memory during index creation". "DuckDB does not yet destroy any index buffers if it has to evict memory." Index memory is deserialized lazily on attach. | [Indexes][indexes]; [Indexing guide][indexing]                                    |
+| An ART index is created for every `PRIMARY KEY` or `UNIQUE` column. It slows loading and updates.                                                                                                      | [Indexes][indexes]                                                                |
+| DuckDB "may launch too many threads (e.g., due to HyperThreading), which can lead to slowdowns".                                                                                                       | [Tuning workloads][tuning]                                                        |
+| Instances can be given settings at creation: `DuckDBInstance.create(path, { threads: '4' })`.                                                                                                          | [node-api README][neo-readme]                                                     |
 
 **Inference for this box:**
 
@@ -127,26 +128,26 @@ A recorded-day GET (`recorded-answers.ts`) runs `tradesAt`, which is a binary se
 
 ## Bun or Node
 
-| Fact | Source |
-| --- | --- |
-| The package is "An API for using DuckDB in Node", built on DuckDB's C API through a native addon. It supports Linux x64 and arm64 on glibc and musl. | [node-api README][neo-readme] |
-| The client's CI sets up Node 24 and nothing else. The README never mentions Bun or Deno. | [node-neo workflow][neo-ci]; [node-api README][neo-readme] |
-| "Crashes opening databases on bun" ([oven-sh/bun#17216][bun-17216]) turned out to be a client race with finalization, which also reproduced on Node. It was fixed in `1.5.1-r.2`. The maintainer: "Bun has likely improved their Node Addon API support since then. Please file a new issue if you see something like this again." | [node-neo #151][neo-151] |
-| Bun closed its "duckdb compatibility" issue on 2026-07-24. | [oven-sh/bun#13910][bun-13910] |
+| Fact                                                                                                                                                                                                                                                                                                                               | Source                                                     |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| The package is "An API for using DuckDB in Node", built on DuckDB's C API through a native addon. It supports Linux x64 and arm64 on glibc and musl.                                                                                                                                                                               | [node-api README][neo-readme]                              |
+| The client's CI sets up Node 24 and nothing else. The README never mentions Bun or Deno.                                                                                                                                                                                                                                           | [node-neo workflow][neo-ci]; [node-api README][neo-readme] |
+| "Crashes opening databases on bun" ([oven-sh/bun#17216][bun-17216]) turned out to be a client race with finalization, which also reproduced on Node. It was fixed in `1.5.1-r.2`. The maintainer: "Bun has likely improved their Node Addon API support since then. Please file a new issue if you see something like this again." | [node-neo #151][neo-151]                                   |
+| Bun closed its "duckdb compatibility" issue on 2026-07-24.                                                                                                                                                                                                                                                                         | [oven-sh/bun#13910][bun-13910]                             |
 
 **Inference:** Node 24 is the tested runtime. Bun may work through its Node-API layer, but nobody tests it upstream, and a native-addon crash takes the box's only ingest down. Run Node, unless the replay also runs under Bun and stays clean for a whole day.
 
 ## Point reads next to SQLite
 
-| Fact | Source |
-| --- | --- |
+| Fact                                                                                                                                                                                                                                           | Source                     |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
 | "it is not a primary design goal for DuckDB to quickly execute many small queries concurrently". It is "optimized for running larger, less frequent queries". "DuckDB will perform best when reusing the same database connection many times." | [Tuning workloads][tuning] |
-| Two index types exist. Every column gets min-max zonemaps automatically. ART serves "point and very highly selective (i.e., < 0.1%) queries". | [Indexes][indexes] |
-| An index scan is used "for equality and `IN(...)` conditions", only on a single-column index without expressions. ART "does not affect the performance of join, aggregation, and sorting queries". | [Indexing guide][indexing] |
-| Data that is inserted pre-sorted on a selective filter column prunes better: "Even an imperfect ordering will still be helpful." | [Indexing guide][indexing] |
-| Row group size is set per database, for example `ATTACH ... (ROW_GROUP_SIZE 16384)`. | [Storage][storage] |
-| DuckDB's 2019 paper describes SQLite as a row-major engine on a B-tree, built for OLTP. | [SIGMOD 2019 demo][sigmod] |
-| DuckDB publishes no point-lookup benchmark against SQLite. | (none found on duckdb.org) |
+| Two index types exist. Every column gets min-max zonemaps automatically. ART serves "point and very highly selective (i.e., < 0.1%) queries".                                                                                                  | [Indexes][indexes]         |
+| An index scan is used "for equality and `IN(...)` conditions", only on a single-column index without expressions. ART "does not affect the performance of join, aggregation, and sorting queries".                                             | [Indexing guide][indexing] |
+| Data that is inserted pre-sorted on a selective filter column prunes better: "Even an imperfect ordering will still be helpful."                                                                                                               | [Indexing guide][indexing] |
+| Row group size is set per database, for example `ATTACH ... (ROW_GROUP_SIZE 16384)`.                                                                                                                                                           | [Storage][storage]         |
+| DuckDB's 2019 paper describes SQLite as a row-major engine on a B-tree, built for OLTP.                                                                                                                                                        | [SIGMOD 2019 demo][sigmod] |
+| DuckDB publishes no point-lookup benchmark against SQLite.                                                                                                                                                                                     | (none found on duckdb.org) |
 
 **Inference, for each read the store makes:**
 

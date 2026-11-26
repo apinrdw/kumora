@@ -6,14 +6,14 @@ A market terminal for the Indonesian stock exchange, built as a pnpm + Turborepo
 
 ## Workspaces
 
-| Workspace        | Package         | Purpose                                                                                                                             |
-| ---------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/dashboard` | `dashboard`     | The terminal. Only its shell today, with no pages. Port 3001 in dev. |
-| `apps/web`       | `web`           | Public site. Still the starter landing page. Port 3000 in dev.                                                                      |
-| `apps/e2e`       | `e2e`           | Playwright smoke tests. Starts both apps with dummy values, so no secret is needed.                                                 |
-| `packages/deploy` | `@workspace/deploy` | Branch to stage, Worker names, the Alchemy stack options, and the deploy and teardown scripts. |
+| Workspace         | Package             | Purpose                                                                                          |
+| ----------------- | ------------------- | ------------------------------------------------------------------------------------------------ |
+| `apps/dashboard`  | `dashboard`         | The terminal. Only its shell today, with no pages. Port 3001 in dev.                             |
+| `apps/web`        | `web`               | Public site. Still the starter landing page. Port 3000 in dev.                                   |
+| `apps/e2e`        | `e2e`               | Playwright smoke tests. Starts both apps with dummy values, so no secret is needed.              |
+| `packages/deploy` | `@workspace/deploy` | Branch to stage, Worker names, the Alchemy stack options, and the deploy and teardown scripts.   |
 | `packages/server` | `@workspace/server` | The Effect bridge server functions run through: `runServerEffect`, `WorkerEnv`, the HTTP errors. |
-| `packages/ui`    | `@workspace/ui` | Shared shadcn/ui components, hooks, and Tailwind styles consumed by both apps.                                                      |
+| `packages/ui`     | `@workspace/ui`     | Shared shadcn/ui components, hooks, and Tailwind styles consumed by both apps.                   |
 
 ## Commands
 

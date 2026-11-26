@@ -64,10 +64,10 @@ Paging keeps memory bounded. `sql.exec` returns an array, so one unpaged `SELECT
 
 The benchmark is `bench.mjs`, kept outside the repo. It builds the exact `trades`, `broker_code_chunks` and `broker_trades` schemas in Node 26 `node:sqlite` (in-memory). The day has 1,460,000 trades over 900 codes and 95 brokers, both Zipf-distributed, 98% `RG`, 30% foreign per side.
 
-| Approach | Wall time (2 runs) | Rows read |
-| --- | --- | --- |
-| A: ordered pass, 64-chunk pages, JS `Map` | 1.68 s, 1.61 s | 1.43 M |
-| B: SQL join + `GROUP BY` | 2.67 s, 2.67 s | ≈ 4.4 M (2.9 M index + 1.46 M lookups) |
+| Approach                                  | Wall time (2 runs) | Rows read                              |
+| ----------------------------------------- | ------------------ | -------------------------------------- |
+| A: ordered pass, 64-chunk pages, JS `Map` | 1.68 s, 1.61 s     | 1.43 M                                 |
+| B: SQL join + `GROUP BY`                  | 2.67 s, 2.67 s     | ≈ 4.4 M (2.9 M index + 1.46 M lookups) |
 
 Caveats:
 

@@ -5,6 +5,7 @@ Better Auth calls its callbacks and hooks with fixed Promise signatures and take
 The hooks don't use `makeCallbackRunner` from `callbacks.ts`: it needs `@workspace/server`, which the migration script can't load.
 
 Sites:
+
 - `apps/dashboard/src/server/auth/callbacks.ts`
 - `apps/dashboard/src/server/auth/options.ts`
 
