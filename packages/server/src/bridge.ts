@@ -28,7 +28,7 @@ type WaitUntilShape = {
 }
 
 // The explicit return type works around tsrs 7.1.0-beta's false TS5115 on an
-// inferred import("cloudflare:workers"); drop it once tsrs ships the fix:
+// inferred import("cloudflare:workers"); drop it once vite-plus ships a tsrs with the fix:
 // https://github.com/oxc-project/tsrs/issues/1113
 // Decision: only the bridge and workflow.ts import cloudflare:workers
 // (packages/server/docs/adr/0001-only-the-bridge-and-the-workflow-runner-import-cloudflare-workers.md)
