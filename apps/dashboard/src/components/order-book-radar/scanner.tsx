@@ -261,12 +261,14 @@ const Row = memo(function Row({
         onClick={() => onUnfold(unfolded ? undefined : code)}
         className="hover:bg-elevated grid w-full grid-cols-[72px_1fr_44px_78px_16px] items-center gap-2 px-2.5 py-1.5 text-left text-[12px] sm:grid-cols-[96px_1fr_52px_78px_100px_64px]"
       >
-        <span className="flex items-center gap-1 font-bold tracking-[0.02em]">
-          {code}
+        {/* A code too long for its column truncates; the star never
+            shrinks away beside it. */}
+        <span className="flex min-w-0 items-center gap-1 font-bold tracking-[0.02em]">
+          <span className="truncate">{code}</span>
           {watched && (
             <IconStarFilled
               aria-label="On the watchlist"
-              className="size-3 text-primary"
+              className="size-3 shrink-0 text-primary"
             />
           )}
         </span>
