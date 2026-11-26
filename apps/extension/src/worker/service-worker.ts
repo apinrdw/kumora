@@ -432,7 +432,6 @@ const main = Effect.gen(function* () {
     post: extra.tee(production.post),
     store: yield* ajaibWalkStore,
     trades: progress.trades,
-    repaired: progress.repair,
     phase: progress.phase,
     keep: keptTrades.keep,
   })

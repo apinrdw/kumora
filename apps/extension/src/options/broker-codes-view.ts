@@ -198,9 +198,7 @@ const phaseLabel = Effect.fnUntraced(function* (phase: WalkPhase | undefined) {
 
 // The walk in progress: its site and day, what it is doing since when,
 // trades fetched of N, the Done Details walk's codes walked of the day's,
-// pace and time left, each blank until known. In Ajaib's repair pass the trades are
-// the first pass's last, so its blocks show in place of the trades' pace,
-// and the time left is the blocks'.
+// pace and time left, each blank until known.
 export const walkView = Effect.fnUntraced(function* (
   progress: Extract<BrokerCodesProgress, { state: "walking" }>
 ) {
@@ -210,7 +208,7 @@ export const walkView = Effect.fnUntraced(function* (
       : progress.feed
   const walk = `${site}, ${progress.day} (${walkNames[progress.walk]})`
   const phase = yield* phaseLabel(progress.phase)
-  const { trades, repair, stockCodes } = progress
+  const { trades, stockCodes } = progress
   const codes =
     stockCodes === undefined
       ? ""
@@ -221,24 +219,13 @@ export const walkView = Effect.fnUntraced(function* (
       : trades.of === null
         ? `${yield* count(trades.fetched)} trades`
         : `${yield* count(trades.fetched)} of ${yield* count(trades.of)} trades`
-  if (repair !== undefined)
-    return {
-      walk,
-      phase,
-      trades: fetched,
-      repair: `repairing page seams: ${yield* count(repair.done)} of ${yield* count(repair.of)} blocks`,
-      codes,
-      pace: "",
-      left: yield* leftLabel(repair.of - repair.done, repair.perSecond),
-    }
   if (trades === undefined)
-    return { walk, phase, trades: "", repair: "", codes, pace: "", left: "" }
+    return { walk, phase, trades: "", codes, pace: "", left: "" }
   const { of, perSecond } = trades
   return {
     walk,
     phase,
     trades: fetched,
-    repair: "",
     codes,
     pace: perSecond === null ? "" : `${yield* count(perSecond)} trades/s`,
     left: yield* leftLabel(of === null ? null : of - trades.fetched, perSecond),

@@ -1,7 +1,7 @@
 // The broker codes progress the options page shows (spec apinrdw/kumora#244,
 // "The extension: options page and badge"): what the run queue reports,
-// with the walk's own trades and pace, the blocks of Ajaib's repair pass,
-// and Stockbit's signed-out wait over them.
+// with the walk's own trades and pace, and Stockbit's signed-out wait over
+// them.
 import { Clock, Effect, Option } from "effect"
 
 import type { BrokerCodesProgress, WalkPhase } from "./run-queue.ts"
@@ -29,10 +29,8 @@ export const makeProgress = Effect.fnUntraced(function* (
 ) {
   let reported: BrokerCodesProgress = { state: "idle" }
   let signedOut = false
-  // The walk's first trades and its repair pass's first blocks, and when
-  // either was last written.
+  // The walk's first trades, and when its counts were last written.
   let firstTrades = Option.none<Since>()
-  let firstRepair = Option.none<Since>()
   let written = Number.NEGATIVE_INFINITY
 
   const show = Effect.suspend(() =>
@@ -54,7 +52,6 @@ export const makeProgress = Effect.fnUntraced(function* (
       Effect.suspend(() => {
         reported = progress
         firstTrades = Option.none()
-        firstRepair = Option.none()
         written = Number.NEGATIVE_INFINITY
         return show
       }),
@@ -91,26 +88,6 @@ export const makeProgress = Effect.fnUntraced(function* (
         reported = { ...reported, phase }
         return show
       }),
-
-    // Ajaib's repair pass has walked `done` of its `of` blocks again. Its
-    // pace is a fraction of a block a second, so it isn't rounded. The
-    // pass's start is written at once: until then the page shows the first
-    // pass's time left.
-    repair: Effect.fnUntraced(function* (done: number, of: number) {
-      if (reported.state !== "walking") return
-      const now = yield* Clock.currentTimeMillis
-      if (Option.isNone(firstRepair)) written = Number.NEGATIVE_INFINITY
-      const since = Option.getOrElse(firstRepair, () => ({
-        at: now,
-        count: done,
-      }))
-      firstRepair = Option.some(since)
-      reported = {
-        ...reported,
-        repair: { done, of, perSecond: pace(since, now, done) },
-      }
-      yield* write(now)
-    }),
 
     // The Done Details walk has walked `done` of the day's `of` codes.
     codes: Effect.fnUntraced(function* (done: number, of: number) {

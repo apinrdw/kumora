@@ -43,8 +43,8 @@ describe("the Ajaib catch-up position", () => {
       const done: AjaibWalkPosition = {
         day: DAY,
         pass: "done",
-        next: 0,
-        repair: [],
+        page: 1,
+        lastTimestamp: 0,
       }
       yield* store.load
       yield* store.save(done)
@@ -70,7 +70,32 @@ describe("the Ajaib catch-up position", () => {
       const store = yield* ajaibCatchUpStore(Effect.sync(() => origin))
       assert.isTrue(Option.isNone(yield* store.load))
       origin = Option.some(PREVIEW)
-      yield* store.save({ day: DAY, pass: "done", next: 0, repair: [] })
+      yield* store.save({
+        day: DAY,
+        pass: "done",
+        page: 1,
+        lastTimestamp: 0,
+      })
+      assert.isTrue(Option.isNone(yield* store.load))
+    })
+  )
+
+  // apinrdw/kumora#711: the 3-minute block walk's position, kept by an
+  // earlier build, means nothing to the whole-day walk.
+  it.effect("reads a position kept in the old block shape as none", () =>
+    Effect.gen(function* () {
+      memoryLocal()
+      yield* Effect.promise(() =>
+        chrome.storage.local.set({
+          brokerCodesAjaibCatchUp: {
+            origin: STAGING,
+            value: { day: DAY, pass: "first", next: 0, repair: [] },
+          },
+        })
+      )
+      const store = yield* ajaibCatchUpStore(
+        Effect.succeed(Option.some(STAGING))
+      )
       assert.isTrue(Option.isNone(yield* store.load))
     })
   )

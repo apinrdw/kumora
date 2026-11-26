@@ -87,10 +87,7 @@ export interface CatchUpWalk {
 // a site, catching the extra target up, or paused. A walk is of the newest
 // closed day, an older day's gaps, or a History day (history.ts). A walk
 // that has fetched trades says how many, of the day's N once known, and its
-// pace (progress.ts). Ajaib's walk in its repair pass says how many blocks
-// it has walked again, of those it had left when it started or restarted,
-// and their pace; its trades are then the first pass's last. Ajaib's Done
-// Details walk (route `done-details`) says how many of the day's stock
+// pace (progress.ts). Ajaib's Done Details walk (route `done-details`) says how many of the day's stock
 // codes it has walked. A catch-up's
 // end reports idle, which has the options page ask the days again, so a day
 // it caught up no longer shows Behind.
@@ -123,13 +120,6 @@ export const BrokerCodesProgress = Schema.Union([
       Schema.Struct({
         fetched: Schema.Finite,
         of: Schema.NullOr(Schema.Finite),
-        perSecond: Schema.NullOr(Schema.Finite),
-      })
-    ),
-    repair: Schema.optionalKey(
-      Schema.Struct({
-        done: Schema.Finite,
-        of: Schema.Finite,
         perSecond: Schema.NullOr(Schema.Finite),
       })
     ),
