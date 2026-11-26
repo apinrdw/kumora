@@ -2,7 +2,10 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
 import { RunId } from "@/server/archive/run"
-import { startDisclosureRun } from "@/server/disclosures/runs"
+import {
+  scheduledDisclosureRun,
+  startDisclosureRun,
+} from "@/server/disclosures/runs"
 import { startKseiRun } from "@/server/ksei/runs"
 
 import { runStores, storedRun } from "../archive/runs.ts"
@@ -67,6 +70,54 @@ describe("starting a disclosure run", () => {
       )
       yield* start(disclosures, 2)
       assert.strictEqual(disclosures.workflow.instances.size, 1)
+    })
+  )
+})
+
+// 10:15 WIB on 26 November 2026, a firing of the 15-minute cron.
+const QUARTER_PAST = Date.parse("2026-11-26T03:15:00Z")
+
+const fire = (stores: ReturnType<typeof runStores>, scheduledTime: number) =>
+  scheduledDisclosureRun(scheduledTime).pipe(Effect.provide(stores.layer))
+
+const started = (stores: ReturnType<typeof runStores>) => [
+  ...stores.workflow.instances.keys(),
+]
+
+describe("the disclosure cron", () => {
+  it.effect("starts a run named after its firing's minute", () =>
+    Effect.gen(function* () {
+      const stores = runStores()
+      yield* fire(stores, QUARTER_PAST)
+      assert.deepStrictEqual(started(stores), ["cron-2026-11-26T0315"])
+      assert.deepInclude(
+        storedRun(stores.db, DISCLOSURE_RUN, "cron-2026-11-26T0315"),
+        { outcome: "running", trigger: "cron" }
+      )
+    })
+  )
+
+  it.effect("starts a run on each firing once the last has ended", () =>
+    Effect.gen(function* () {
+      const stores = runStores()
+      yield* fire(stores, QUARTER_PAST)
+      const first = stores.workflow.instances.get("cron-2026-11-26T0315")
+      assert.isDefined(first)
+      first.status = "complete"
+      yield* fire(stores, QUARTER_PAST + 15 * 60 * 1000)
+      assert.deepStrictEqual(started(stores), [
+        "cron-2026-11-26T0315",
+        "cron-2026-11-26T0330",
+      ])
+    })
+  )
+
+  it.effect("is refused without error while a run is in progress", () =>
+    Effect.gen(function* () {
+      const stores = runStores()
+      yield* start(stores, 1)
+      yield* fire(stores, QUARTER_PAST)
+      assert.deepStrictEqual(started(stores), ["admin-1"])
     })
   )
 })

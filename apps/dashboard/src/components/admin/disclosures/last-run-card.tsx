@@ -4,6 +4,7 @@ import { count } from "@/lib/format"
 import { runDisclosuresNowFn } from "@/server/admin/disclosures.functions"
 import type { RunView } from "@/server/archive/run-view"
 import type { DisclosureRunResult } from "@/server/disclosures/run-result"
+import { DISCLOSURE_EVERY } from "@/server/disclosures/schedule"
 
 import {
   ArchiveLastRunCard,
@@ -55,9 +56,11 @@ function Detail({ result }: { result: DisclosureRunResult }) {
  */
 export function DisclosureLastRunCard({
   lastRun,
+  nextRun,
   now,
 }: {
   lastRun: RunView<DisclosureRunResult> | undefined
+  nextRun: string
   // When the page read the run, for a running run's time so far.
   now: string
 }) {
@@ -90,6 +93,7 @@ export function DisclosureLastRunCard({
           Run now
         </RunArchiveButton>
       }
+      schedule={{ every: DISCLOSURE_EVERY, nextRun }}
     />
   )
 }

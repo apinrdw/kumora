@@ -6,5 +6,6 @@ Sites:
 - `apps/dashboard/src/server/shareholding/cron.ts`
 - `apps/dashboard/src/server/sectors/cron.ts`
 - `apps/dashboard/src/server/special-board/cron.ts`
+- `apps/dashboard/src/server/disclosures/cron.ts`
 
 Source: apinrdw/kumora#308

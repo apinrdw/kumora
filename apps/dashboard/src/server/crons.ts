@@ -4,6 +4,8 @@
 // archive's own cron.ts, for the reason ./shareholding/cron.ts gives.
 import { runReconcileCron } from "./broker-totals/cron.ts"
 import { RECONCILE_CRON } from "./broker-totals/schedule.ts"
+import { runDisclosureCron } from "./disclosures/cron.ts"
+import { DISCLOSURE_CRON } from "./disclosures/schedule.ts"
 import { runKseiCron, runKseiParseCron } from "./ksei/cron.ts"
 import { KSEI_CRON, KSEI_PARSE_CRON } from "./ksei/schedule.ts"
 import { runSectorCron } from "./sectors/cron.ts"
@@ -15,8 +17,8 @@ import { PARSE_CRON } from "./shareholding/schedule.ts"
 import { runSpecialBoardCron } from "./special-board/cron.ts"
 import { SPECIAL_BOARD_CRON } from "./special-board/schedule.ts"
 
-// The archive crons, the parse crons, the sector, logo and board crons, on
-// Production only, and the broker totals reconcile, on every stage
+// The archive crons, the parse crons, the sector, logo, board and disclosure
+// crons, on Production only, and the broker totals reconcile, on every stage
 // (stage-crons.ts). Each firing names its expression, which picks its
 // handler here; any other expression is the shareholding archive's.
 const HANDLERS = new Map([
@@ -27,6 +29,7 @@ const HANDLERS = new Map([
   [SECTOR_CRON, runSectorCron],
   [LOGO_CRON, runLogoCron],
   [SPECIAL_BOARD_CRON, runSpecialBoardCron],
+  [DISCLOSURE_CRON, runDisclosureCron],
 ])
 
 export const runCron = (cron: string, scheduledTime: number) =>

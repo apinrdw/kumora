@@ -3,21 +3,17 @@
 // recent runs its admin page reads in one ArchiveDb batch. Its bucket never
 // held run records, so the cutover import finds none and only marks the
 // kind imported.
-import type { DateTime } from "effect"
+import { type DateTime, Effect } from "effect"
 
 import { recentRunsRead } from "../archive/history.ts"
-import {
-  type ArchiveSource,
-  dailyRunIdAt,
-  type RunId,
-  RUNS_PREFIX,
-} from "../archive/run.ts"
-import { lastRunRead, startRunOf } from "../archive/runs.ts"
+import { type ArchiveSource, type RunId, RUNS_PREFIX } from "../archive/run.ts"
+import { lastRunRead, scheduledRun, startRunOf } from "../archive/runs.ts"
 import { writeRunRow } from "../archive/run-rows.ts"
 import {
   DisclosureRunResult,
   DisclosureRunSummary,
   DisclosureTrigger,
+  disclosureRunIdAt,
   runningDisclosureResult,
 } from "./run-result.ts"
 
@@ -27,7 +23,7 @@ const DISCLOSURE_RUNS = {
   runKind: "archive",
   runsPrefix: RUNS_PREFIX,
   triggers: DisclosureTrigger.literals,
-  runIdAt: dailyRunIdAt,
+  runIdAt: disclosureRunIdAt,
   result: DisclosureRunResult,
   summary: DisclosureRunSummary,
   readersPastRetention: {},
@@ -50,3 +46,11 @@ export const recentDisclosureRuns = (now: DateTime.Utc) =>
 
 export const startDisclosureRun = (id: RunId, trigger: DisclosureTrigger) =>
   startRunOf(DISCLOSURE_RUNS, id, trigger)
+
+// What each cron firing runs (`runDisclosureCron`, cron.ts): a run named
+// after its firing, unless a run is still in progress.
+export const scheduledDisclosureRun = Effect.fn("scheduledDisclosureRun")(
+  function* (scheduledTime: number) {
+    yield* scheduledRun(DISCLOSURE_RUNS, scheduledTime)
+  }
+)

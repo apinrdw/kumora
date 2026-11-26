@@ -2,6 +2,7 @@
 // imports, as the schedules it reads are; runCron (./crons.ts) tells them
 // apart by expression.
 import { RECONCILE_CRON } from "./broker-totals/schedule.ts"
+import { DISCLOSURE_CRON } from "./disclosures/schedule.ts"
 import { KSEI_CRON, KSEI_PARSE_CRON } from "./ksei/schedule.ts"
 import { LOGO_CRON } from "./logos/schedule.ts"
 import { SECTOR_CRON } from "./sectors/schedule.ts"
@@ -35,6 +36,9 @@ export const stageCrons = (production: boolean) => [
         // Decision: crons that call outside sources run on Production only
         // (apps/dashboard/docs/adr/0007-crons-that-read-outside-sources-run-on-production-only.md)
         SPECIAL_BOARD_CRON,
+        // Decision: crons that call outside sources run on Production only
+        // (apps/dashboard/docs/adr/0007-crons-that-read-outside-sources-run-on-production-only.md)
+        DISCLOSURE_CRON,
       ]
     : []),
 ]

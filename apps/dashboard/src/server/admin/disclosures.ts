@@ -11,13 +11,14 @@ import {
 } from "@/server/admin/archive-access"
 import { timePart } from "@/server/admin/part-timing"
 import { readPage } from "@/server/archive/page-read"
-import { dailyRunIdAt } from "@/server/archive/run"
 import { disclosureCoverage } from "@/server/disclosures/coverage"
+import { disclosureRunIdAt } from "@/server/disclosures/run-result"
 import {
   lastDisclosureRun,
   recentDisclosureRuns,
   startDisclosureRun,
 } from "@/server/disclosures/runs"
+import { nextDisclosureRun } from "@/server/disclosures/schedule"
 
 const DISCLOSURES_PATH =
   "/admin/disclosures" satisfies keyof FileRoutesByFullPath
@@ -43,6 +44,9 @@ export const disclosureArchivePage = Effect.fn("disclosureArchivePage")(
     return {
       coverage: read.coverage,
       lastRun: read.lastRun,
+      nextRun: (yield* nextDisclosureRun(
+        DateTime.toDateUtc(now)
+      )).toISOString(),
       now: DateTime.formatIso(now),
       recentRuns: read.recentRuns,
     }
@@ -58,7 +62,7 @@ export const runDisclosuresNow = Effect.fn("runDisclosuresNow")(function* (
     "admin.run-disclosure-archive",
     DISCLOSURES_PATH
   )
-  const id = yield* dailyRunIdAt(
+  const id = yield* disclosureRunIdAt(
     "admin",
     DateTime.toEpochMillis(yield* DateTime.now)
   )

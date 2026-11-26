@@ -160,8 +160,11 @@ describe("the Disclosures admin page", () => {
     const { layer, mails } = archive()
     return Effect.gen(function* () {
       const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+      yield* TestClock.setTime(Date.parse("2026-11-26T03:07:00.000Z"))
       const page = yield* disclosureArchivePage(headers(cookie))
       assert.isUndefined(page.lastRun)
+      // The cron's next quarter hour.
+      assert.strictEqual(page.nextRun, "2026-11-26T03:15:00.000Z")
       assert.deepStrictEqual(page.recentRuns, [])
     }).pipe(Effect.provide(layer))
   })
