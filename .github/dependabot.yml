@@ -4,13 +4,11 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    # Decision: oxlint and oxfmt are pinned exactly and move by one grouped PR
-    # (docs/adr/0003-oxlint-and-oxfmt-are-pinned-and-move-by-one-grouped-pr.md)
+    # Decision: vite-plus is the one Oxc pin; every lint and format call goes through vp
+    # (docs/adr/0022-vite-plus-is-the-one-oxc-pin.md)
     allow:
-      - dependency-name: "oxlint"
-      - dependency-name: "oxfmt"
+      - dependency-name: "vite-plus"
     groups:
       oxc:
         patterns:
-          - "oxlint"
-          - "oxfmt"
+          - "vite-plus"

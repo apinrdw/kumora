@@ -3,9 +3,8 @@
   "ui": "tui",
   "agentGuidance": false,
   "globalDependencies": [
-    ".oxlintrc.json",
-    "scripts/oxlint-plugin.mts",
-    ".oxfmtrc.json"
+    "vite.config.ts",
+    "scripts/oxlint-plugin.mts"
   ],
   "tasks": {
     // Decision: CI's package tasks hash no Markdown, so GLOSSARY edits replay cache
@@ -125,7 +124,7 @@
       "inputs": [
         "scripts/**",
         "vitest.config.*",
-        ".oxlintrc.json"
+        "vite.config.ts"
       ]
     },
     // All of scripts/**, not only what these tests import: root-test-inputs

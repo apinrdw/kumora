@@ -1,6 +1,6 @@
 // A cached root test task must miss when a file one of its tests reads
 // changes, so each task's inputs must hold every file its tests read: the test
-// itself and the scripts modules it imports, the root Vitest config, each repo
+// itself and the repo modules it imports, the root Vitest config, each repo
 // file a test opens by path, and the files a tool it or a module it imports
 // spawns reads on its own.
 import { NodeServices } from "@effect/platform-node"
@@ -24,9 +24,15 @@ const Projects = Schema.fromJsonString(
 )
 
 const repoRead = /path\.resolve\(\s*import\.meta\.dirname,\s*"\.\.\/([^"]+)"/g
-const spawned = /"(?:[^"\s]*\/)?(turbo|pnpm|vp|oxlint)"/g
+const spawned = /"(?:[^"\s]*\/)?(turbo|pnpm|vp)"/g
 const vitestRun = /^vitest run (.+)$/
-const localImport = /from "(\.\.?\/[^"]+\.mts)"/g
+const localImport = /from "(\.\.?\/[^"]+\.m?ts)"/g
+
+// Modules that spawn a tool only in a temporary root they build, so it reads
+// none of the repo's files: lint-bans runs `vp lint` in its own package.
+const scratchSpawns: Readonly<Record<string, string>> = {
+  "scripts/lint-bans.test.mts": "vp",
+}
 
 // The files under `target`, or `target` itself when it is a file.
 const filesAt = Effect.fnUntraced(function* (root: string, target: string) {
@@ -82,7 +88,6 @@ const toolReads = Effect.gen(function* () {
     turbo: ["turbo.json", "pnpm-lock.yaml", ...workspace],
     pnpm: workspace,
     vp: workspace,
-    oxlint: [".oxlintrc.json"],
   }
   return reads
 })
@@ -136,7 +141,8 @@ const filesRead = Effect.fnUntraced(function* (tests: ReadonlyArray<string>) {
     for (const [module, source] of modules) {
       read.add(module)
       for (const [, tool] of source.matchAll(spawned))
-        for (const file of tools[tool as string] ?? []) read.add(file)
+        if (scratchSpawns[module] !== tool)
+          for (const file of tools[tool as string] ?? []) read.add(file)
     }
     // A module in scripts/lib resolves `../` from there, so only the test's
     // own reads by path are taken.

@@ -1,8 +1,8 @@
-// Fails when an .oxlintrc.json override's no-restricted-imports omits a root
-// path or pattern. An override's rule options replace the root ones rather
-// than merge, so an override that bans more imports must restate the root bans
-// or silently drop them in its files.
-import { Console, Effect, FileSystem, Option, Path, Schema } from "effect"
+// Fails when an override's no-restricted-imports in the lint block of the
+// root vite.config.ts omits a root path or pattern. An override's rule options
+// replace the root ones rather than merge, so an override that bans more
+// imports must restate the root bans or silently drop them in its files.
+import { Console, Effect, Option, Schema } from "effect"
 
 import { CheckFailed } from "./lib/check.mts"
 
@@ -41,16 +41,6 @@ const Config = Schema.Struct({
   ),
 })
 
-// .oxlintrc.json is JSONC: drop comments and trailing commas outside strings.
-const jsonc = Effect.fnUntraced(function* (text: string) {
-  return text
-    .replace(
-      /("(?:\\.|[^"\\])*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
-      (_, s) => s ?? ""
-    )
-    .replace(/("(?:\\.|[^"\\])*")|,(\s*[}\]])/g, (_, s, close) => s ?? close)
-})
-
 const describePattern = Effect.fnUntraced(function* ({
   group,
   regex,
@@ -61,13 +51,8 @@ const describePattern = Effect.fnUntraced(function* ({
 })
 
 export const checkOxlintOverrides = Effect.fn("checkOxlintOverrides")(
-  function* (root: string) {
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
-    const text = yield* fs.readFileString(path.join(root, ".oxlintrc.json"))
-    const config = yield* Schema.decodeUnknownEffect(
-      Schema.fromJsonString(Config)
-    )(yield* jsonc(text))
+  function* (lint: unknown) {
+    const config = yield* Schema.decodeUnknownEffect(Config)(lint)
     const [, rootBans] = yield* Schema.decodeUnknownEffect(ImportBans)(
       config.rules?.[rule]
     )
@@ -106,7 +91,7 @@ export const checkOxlintOverrides = Effect.fn("checkOxlintOverrides")(
     const findings = perOverride.flat()
     if (findings.length > 0)
       return yield* new CheckFailed({
-        summary: `An override's ${rule} replaces the root options, so it must restate every root path and pattern (.oxlintrc.json):`,
+        summary: `An override's ${rule} replaces the root options, so it must restate every root path and pattern (vite.config.ts):`,
         findings,
       })
     yield* Console.log(

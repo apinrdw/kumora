@@ -1,18 +1,19 @@
-// Lints snippets against the real .oxlintrc.json. Fixtures can't live in the
-// repo (they would fail lint), so each one gets a case directory of its own
-// in a temporary root, holding a copy of the config and the snippet at the
-// path under test. Several cases share a path, so one root can't hold them.
-// One oxlint run lints every case, each under its nearest config,
-// because starting oxlint once per case cost 32 s of the root tests in CI.
-// Each case's plugin is a symlink to scripts/oxlint-plugin.mts: oxlint
-// refuses a second copy of the `kumora` plugin, and dedupes one real path.
-// See apinrdw/kumora#171.
+// Lints snippets with `vp lint` against the lint block of the real root
+// vite.config.ts. Fixtures can't live in the repo (they would fail lint), so
+// each one gets a case directory of its own in a temporary root, holding the
+// snippet at the path under test. Several cases share a path, so one case
+// directory can't hold them. vp applies only the config at the root it runs
+// from, so the temporary root gets the repo's lint block with every glob moved
+// under `case-*/` and the JS plugin by its absolute path. One run lints every
+// case, because starting the linter once per case cost 32 s of the root tests
+// in CI. See apinrdw/kumora#171.
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import type { Vitest } from "@effect/vitest"
 import { Context, Effect, FileSystem, Layer, Path, Schema } from "effect"
 import { ChildProcess } from "effect/process"
 
+import config from "../vite.config.ts"
 import { CommandFailed, collect } from "./lib/command.mts"
 
 const Report = Schema.fromJsonString(
@@ -40,6 +41,27 @@ const fixtures: Array<Fixture> = []
 
 const caseDir = (index: number) => `case-${index}`
 
+// The repo's lint block as it applies inside each case directory of a
+// temporary root.
+const underCases = (root: string, path: Path.Path) => {
+  const lint = config.lint ?? {}
+  const inCases = (glob: string) => `case-*/${glob}`
+  const plugins = (jsPlugins: ReadonlyArray<unknown> | null | undefined) =>
+    jsPlugins?.map((plugin) =>
+      typeof plugin === "string" ? path.join(root, plugin) : plugin
+    )
+  return {
+    ...lint,
+    jsPlugins: plugins(lint.jsPlugins),
+    ignorePatterns: lint.ignorePatterns?.map(inCases),
+    overrides: lint.overrides?.map((override) => ({
+      ...override,
+      files: override.files.map(inCases),
+      jsPlugins: plugins(override.jsPlugins),
+    })),
+  }
+}
+
 // Each case's diagnostics, by fixture index.
 class Linted extends Context.Service<
   Linted,
@@ -55,30 +77,25 @@ class Linted extends Context.Service<
       const files = fixtures.map(({ file }, index) =>
         path.join(caseDir(index), file)
       )
-      for (const [index, { file, source }] of fixtures.entries()) {
-        const at = (relative: string) =>
-          path.join(dir, caseDir(index), relative)
-        for (const relative of [file, "scripts/oxlint-plugin.mts"])
-          yield* fs.makeDirectory(path.dirname(at(relative)), {
-            recursive: true,
-          })
-        yield* fs.copyFile(
-          path.join(root, ".oxlintrc.json"),
-          at(".oxlintrc.json")
-        )
-        yield* fs.symlink(
-          path.join(root, "scripts/oxlint-plugin.mts"),
-          at("scripts/oxlint-plugin.mts")
-        )
-        yield* fs.writeFileString(at(file), source)
-      }
-      const oxlint = path.join(root, "node_modules/.bin/oxlint")
-      const args = ["--format=json", ...files]
-      const result = yield* collect(
-        ChildProcess.make(oxlint, args, { cwd: dir })
+      // vp lint refuses a directory outside any package.
+      yield* fs.writeFileString(
+        path.join(dir, "package.json"),
+        '{ "name": "lint-bans", "private": true }\n'
       )
+      yield* fs.writeFileString(
+        path.join(dir, "vite.config.mjs"),
+        `export default ${JSON.stringify({ lint: underCases(root, path) })}\n`
+      )
+      for (const [index, { file, source }] of fixtures.entries()) {
+        const at = path.join(dir, caseDir(index), file)
+        yield* fs.makeDirectory(path.dirname(at), { recursive: true })
+        yield* fs.writeFileString(at, source)
+      }
+      const vp = path.join(root, "node_modules/.bin/vp")
+      const args = ["lint", "--format=json", ...files]
+      const result = yield* collect(ChildProcess.make(vp, args, { cwd: dir }))
       const failed = new CommandFailed({
-        command: ["oxlint", ...args].join(" "),
+        command: ["vp", ...args].join(" "),
         exitCode: result.exitCode,
         stderr: result.stderr,
       })
@@ -97,7 +114,7 @@ class Linted extends Context.Service<
 }
 
 // Registers a fixture at collection time and adds a test that checks the
-// diagnostics oxlint gave it.
+// diagnostics vp lint gave it.
 const lints = (
   it: Vitest.MethodsNonLive<Linted>,
   name: string,
@@ -110,7 +127,7 @@ const lints = (
     Effect.gen(function* () {
       const diagnostics = (yield* Linted)[index]
       if (diagnostics === undefined)
-        return yield* Effect.die(`${name}: registered after the oxlint run`)
+        return yield* Effect.die(`${name}: registered after the lint run`)
       check(diagnostics)
     })
   )

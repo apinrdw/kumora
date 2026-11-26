@@ -1,14 +1,14 @@
 {
   "name": "extension",
-  "version": "0.0.56",
+  "version": "0.0.57",
   "type": "module",
   "private": true,
   "scripts": {
     "build": "vite build",
     "dev": "vite build --watch",
-    "lint": "oxlint --deny-warnings",
-    "format": "oxfmt --write \"**/*.{ts,tsx}\" package.json",
-    "format:check": "oxfmt --check \"**/*.{ts,tsx}\" package.json",
+    "lint": "vp lint --deny-warnings",
+    "format": "vp fmt --write \"**/*.{ts,tsx}\" package.json",
+    "format:check": "vp fmt --check \"**/*.{ts,tsx}\" package.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
