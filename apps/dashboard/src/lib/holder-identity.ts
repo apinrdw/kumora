@@ -7,8 +7,9 @@ import { Effect } from "effect"
 import { TREND_PERIODS } from "@/domain/holdings"
 
 // Against the period before: absent from it (new), from this one (off list),
-// else up, down or unchanged by the caller's rule.
-export type Move = "new" | "up" | "down" | "unchanged" | "off list"
+// else up, down or unchanged by the caller's rule, an unchanged one a
+// transfer when the rule finds one.
+export type Move = "new" | "up" | "down" | "transfer" | "unchanged" | "off list"
 
 // A holder's identity across a stock's periods, through returns: the same
 // investor's listings in every period share one.
@@ -31,6 +32,9 @@ export interface MoveRule<H> {
   // period, neither matched by key, are one holder renamed. Without it a
   // holder matches by key only.
   readonly renamed?: (gone: H, arrived: H) => Effect.Effect<boolean>
+  // Whether a holder `change` finds unchanged moved its shares elsewhere,
+  // a Transfer. Without it none is.
+  readonly transferred?: (before: H, now: H) => Effect.Effect<boolean>
 }
 
 // What a period's moves are against: the period before, or why there are
@@ -174,10 +178,18 @@ const settle = <H extends { readonly key: string }>(
     })
   })
 
-const moveOf = (change: number) =>
-  Effect.succeed<"up" | "down" | "unchanged">(
-    change > 0 ? "up" : change < 0 ? "down" : "unchanged"
-  )
+const moveOf = Effect.fnUntraced(function* <H>(
+  before: H,
+  now: H,
+  rule: MoveRule<H>
+): Effect.fn.Return<"up" | "down" | "transfer" | "unchanged"> {
+  const change = yield* rule.change(before, now)
+  if (change !== 0) return change > 0 ? "up" : "down"
+  return rule.transferred !== undefined &&
+    (yield* rule.transferred(before, now))
+    ? "transfer"
+    : "unchanged"
+})
 
 // What a period's moves are against, from the period before it and whether
 // any period before it has a report.
@@ -213,7 +225,7 @@ const listedOf = <H>(
             ? undefined
             : last === undefined
               ? "new"
-              : yield* moveOf(yield* rule.change(last, identified.now)),
+              : yield* moveOf(last, identified.now, rule),
       } satisfies Listed<H>
     })
   )
@@ -286,9 +298,10 @@ export const earlierHolders = <H>(
   })
 
 // A trend's period: the change in shares on the period before, "in" where
-// the holder entered the list and "out" where it left, null where neither
-// is known (not listed, or no comparable period before).
-export type TrendCell = number | "in" | "out" | null
+// the holder entered the list and "out" where it left, "transfer" where
+// its shares moved elsewhere unchanged, null where none is known (not
+// listed, or no comparable period before).
+export type TrendCell = number | "in" | "out" | "transfer" | null
 
 // `holder`'s trend over the TREND_PERIODS periods ending at `index` of
 // `moves`, oldest first; fewer when the stock has fewer.
@@ -307,6 +320,7 @@ export const trendOf = Effect.fnUntraced(function* <H>(
           ? "out"
           : null
       if (listed.before === undefined) return "in"
+      if (listed.move === "transfer") return "transfer"
       return (
         (yield* rule.shares(listed.now)) - (yield* rule.shares(listed.before))
       )

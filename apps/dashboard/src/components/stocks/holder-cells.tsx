@@ -9,6 +9,7 @@ import { kFocus } from "@/components/k/styles"
 import { KTooltip } from "@/components/k/tooltip"
 import { MOVEMENT } from "@/components/stocks/holder-movement"
 import { type MoveKind, TREND_PERIODS } from "@/domain/holdings"
+import type { Transfer } from "@/lib/daily-holders"
 import type { Move, TrendCell } from "@/lib/holder-identity"
 import { lotsOfShares, MINUS, plain } from "@/lib/format"
 
@@ -259,6 +260,52 @@ function Swatch({ className }: { className: string }) {
 
 // A broker code, or Custodian for an account at a bank or other custodian
 // that is not an exchange member.
+type Side = ReadonlyArray<BrokerCode | "custodian">
+
+// A move's Through: a Transfer's brokers its shares left, then those they
+// reached; else the brokers of the accounts whose shares changed.
+export function ThroughChips({
+  through,
+  transfer,
+}: {
+  through: Side
+  transfer: Transfer<BrokerCode | "custodian"> | undefined
+}) {
+  const chips = (side: Side) =>
+    side.map((broker) => <BrokerChip key={broker} broker={broker} />)
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {transfer === undefined ? (
+        chips(through)
+      ) : (
+        <>
+          {chips(transfer.from)}
+          <span aria-label="to" className="text-[11px] text-muted-foreground">
+            →
+          </span>
+          {chips(transfer.to)}
+        </>
+      )}
+    </div>
+  )
+}
+
+// A move's change in lots; a Transfer's lots moved, unsigned and untoned:
+// moved, not bought or sold.
+export function LotsChange({
+  shareChange,
+  transfer,
+}: {
+  shareChange: number | undefined
+  transfer: Transfer<unknown> | undefined
+}) {
+  return transfer === undefined ? (
+    <Change value={shareChange} text={lotsChangeText} />
+  ) : (
+    Effect.runSync(lotsOfShares(transfer.shares))
+  )
+}
+
 export function BrokerChip({ broker }: { broker: BrokerCode | "custodian" }) {
   return (
     <span
@@ -278,7 +325,8 @@ const TREND_HEIGHT = 26
 
 // One bar per period (a trading day or a month), the selected one last and
 // shaded: a change in shares up or down from the midline on a square-root
-// scale, a full bar where the holder entered (blue) or left (grey) the list.
+// scale, a full bar where the holder entered (blue) or left (grey) the list,
+// a tick on the midline where its shares moved between brokers.
 export function Trend({
   cells,
   name,
@@ -319,6 +367,18 @@ export function Trend({
         if (cell === null || cell === 0) return null
         const x = (offset + index) * slot + 1
         const width = Math.max(slot - 2, 1.4)
+        if (cell === "transfer")
+          return (
+            <rect
+              key={index}
+              data-cell={cell}
+              x={x}
+              y={middle - 2}
+              width={width}
+              height={4}
+              className="fill-muted-foreground"
+            />
+          )
         if (typeof cell === "string")
           return (
             <rect

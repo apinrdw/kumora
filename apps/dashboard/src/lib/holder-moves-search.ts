@@ -20,6 +20,7 @@ const MOVE_PARAMS = {
   new: "new",
   up: "up",
   down: "down",
+  transfer: "transfer",
   "off-list": "off list",
 } as const satisfies Record<string, Exclude<MoveFilter, "all">>
 type MoveParam = keyof typeof MOVE_PARAMS

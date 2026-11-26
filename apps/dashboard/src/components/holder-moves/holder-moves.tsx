@@ -12,15 +12,15 @@ import { Effect } from "effect"
 import { BoundedRows } from "@/components/k/bounded-rows"
 import { kCard, kFocus } from "@/components/k/styles"
 import {
-  BrokerChip,
   Change,
-  lotsChangeText,
+  LotsChange,
   MoveChip,
   offListText,
   percentChangeText,
   percentOf,
   stakeChangeText,
   THRESHOLDS,
+  ThroughChips,
   Trend,
 } from "@/components/stocks/holder-cells"
 import { monthOf, type MoveKind, TREND_PERIODS } from "@/domain/holdings"
@@ -92,7 +92,7 @@ const KINDS: Record<
     columns: COLUMNS,
     link: (holdersDay) =>
       Effect.succeed({ search: { holdersDay }, hash: "daily-holders" }),
-    note: `Percent of listed shares as IDX publishes it each trading day; holders under 5% are not listed. Moves follow shares, against the parsed day before. Lots: the change in shares, a New holder's whole holding in and an Off-list holder's last out. Through: the broker codes of the accounts whose shares changed, largest change first; Custodian for an account at a bank or other custodian that is not an exchange member. Trend: the change in lots on each of the last ${TREND_PERIODS} trading days up to the selected one, blue where the holder entered the list and grey where it left.`,
+    note: `Percent of listed shares as IDX publishes it each trading day; holders under 5% are not listed. Moves follow shares, against the parsed day before. Lots: the change in shares, a New holder's whole holding in and an Off-list holder's last out. Through: the broker codes of the accounts whose shares changed, largest change first; Custodian for an account at a bank or other custodian that is not an exchange member. Transfer: the holder's total is unchanged but shares moved from accounts at some brokers to accounts at others, shown from → to with the lots that moved. Trend: the change in lots on each of the last ${TREND_PERIODS} trading days up to the selected one, blue where the holder entered the list, grey where it left, a tick where it transferred.`,
   },
   monthly: {
     label: "Monthly",
@@ -120,13 +120,21 @@ const FILTERS: ReadonlyArray<{
   {
     filter: "all",
     label: "All",
-    of: (counts) => counts.new + counts.up + counts.down + counts.offList,
+    of: (counts) =>
+      counts.new + counts.up + counts.down + counts.transfer + counts.offList,
   },
   { filter: "new", label: "New", of: (counts) => counts.new },
   { filter: "up", label: "Up", of: (counts) => counts.up },
   { filter: "down", label: "Down", of: (counts) => counts.down },
+  { filter: "transfer", label: "Transfer", of: (counts) => counts.transfer },
   { filter: "off list", label: "Off list", of: (counts) => counts.offList },
 ]
+
+// The filters a kind offers: a month has no accounts, so no Transfer.
+const filtersOf = (kind: MoveKind) =>
+  kind === "daily"
+    ? FILTERS
+    : FILTERS.filter(({ filter }) => filter !== "transfer")
 
 export function HolderMovesPage({
   kind,
@@ -184,7 +192,7 @@ export function HolderMovesPage({
                 aria-label="Move"
                 className="bg-surface inline-flex gap-0.5 rounded-md border border-border p-0.5"
               >
-                {FILTERS.map((each) => (
+                {filtersOf(moves.kind).map((each) => (
                   <button
                     key={each.filter}
                     type="button"
@@ -386,17 +394,13 @@ function MoveCell({
     case "Through":
       return (
         <td data-through>
-          <div className="flex flex-wrap gap-1">
-            {line.through.map((broker) => (
-              <BrokerChip key={broker} broker={broker} />
-            ))}
-          </div>
+          <ThroughChips through={line.through} transfer={line.transfer} />
         </td>
       )
     case "Lots":
       return (
         <td className="num text-right whitespace-nowrap">
-          <Change value={line.shareChange} text={lotsChangeText} />
+          <LotsChange shareChange={line.shareChange} transfer={line.transfer} />
         </td>
       )
     case "Stake":

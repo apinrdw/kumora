@@ -131,6 +131,7 @@ describe("Holder moves, Daily", () => {
         new: 0,
         up: 1,
         down: 3,
+        transfer: 0,
         offList: 0,
       })
     })
@@ -168,6 +169,7 @@ describe("Holder moves, Daily", () => {
           new: counted(moves, "new"),
           up: counted(moves, "up"),
           down: counted(moves, "down"),
+          transfer: counted(moves, "transfer"),
           offList: counted(moves, "off list"),
         })
       assert.deepStrictEqual(
@@ -176,6 +178,7 @@ describe("Holder moves, Daily", () => {
           new: 3,
           up: 6,
           down: 3,
+          transfer: 0,
           offList: 1,
         }
       )

@@ -23,7 +23,9 @@ import {
   stakeChangeText,
   stakeSideText,
   THRESHOLDS,
+  ThroughChips,
   Trend,
+  LotsChange,
 } from "@/components/stocks/holder-cells"
 import { TREND_PERIODS } from "@/domain/holdings"
 import {
@@ -95,10 +97,13 @@ export function DailyHolders({ code, days, day, onDay }: DailyHoldersProps) {
             change in shares, a New holder's whole holding in and an Off-list
             holder's last out. Through: the broker codes of the accounts whose
             shares changed, largest change first; Custodian for an account at a
-            bank or other custodian that is not an exchange member. Trend: the
-            change in lots on each of the last {TREND_PERIODS} trading days up
-            to the selected one, green up and red down on a square-root scale,
-            blue where the holder entered the list and grey where it left.
+            bank or other custodian that is not an exchange member. Transfer:
+            the holder's total is unchanged but shares moved from accounts at
+            some brokers to accounts at others, shown from → to with the lots
+            that moved. Trend: the change in lots on each of the last{" "}
+            {TREND_PERIODS} trading days up to the selected one, green up and
+            red down on a square-root scale, blue where the holder entered the
+            list, grey where it left, a tick where it transferred.
           </p>
         </>
       )}
@@ -113,7 +118,7 @@ const summary = Effect.fnUntraced(function* (holders: HoldersDay) {
   const { against, counts } = holders
   if (against === undefined || counts === undefined)
     return `${held} · First day parsed, nothing to compare`
-  return `${held} · vs ${yield* dayDateLabel(against)}: ${counts.new} new, ${counts.up} up, ${counts.down} down, ${counts.offList} off list`
+  return `${held} · vs ${yield* dayDateLabel(against)}: ${counts.new} new, ${counts.up} up, ${counts.down} down, ${counts.transfer > 0 ? `${counts.transfer} transfer, ` : ""}${counts.offList} off list`
 })
 
 const ICON_BUTTON = cn(
@@ -322,14 +327,10 @@ function HolderRow({
         />
       </td>
       <td data-through>
-        <div className="flex flex-wrap gap-1">
-          {line.through.map((broker) => (
-            <BrokerChip key={broker} broker={broker} />
-          ))}
-        </div>
+        <ThroughChips through={line.through} transfer={line.transfer} />
       </td>
       <td className="num text-right whitespace-nowrap">
-        <Change value={line.shareChange} text={lotsChangeText} />
+        <LotsChange shareChange={line.shareChange} transfer={line.transfer} />
       </td>
       <td className="num text-right whitespace-nowrap">
         {Effect.runSync(stakeText(line, compared))}

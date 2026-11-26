@@ -32,7 +32,13 @@ const padded = (text: string, length: number) => text.padEnd(length, "X")
 
 const PERIOD = WibDate.make("2026-11-25")
 const AGAINST = WibDate.make("2026-11-24")
-const counts = { new: lines / 2, up: 0, down: 0, offList: lines / 2 }
+const counts = {
+  new: lines / 2,
+  up: 0,
+  down: 0,
+  transfer: 0,
+  offList: lines / 2,
+}
 
 // 50 stocks, as the derivation's test at the caps has.
 const read: HolderMovesRead = {
@@ -54,6 +60,7 @@ const read: HolderMovesRead = {
       shareChange: entered ? 1_000_000 + at : -1_000_000 - at,
       stake: entered ? { now: 500 + (at % 100) } : { before: 500 + (at % 100) },
       percentageChange: undefined,
+      transfer: undefined,
       trend: Array.from({ length: TREND_PERIODS }, (_period, cell) =>
         cell === TREND_PERIODS - 1 ? (entered ? "in" : "out") : at + cell
       ),

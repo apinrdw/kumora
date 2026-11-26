@@ -187,6 +187,7 @@ const MOVE_COLUMNS = [
   "stake_now",
   "percentage_change",
   "trend",
+  "transfer",
 ]
 const MOVE_ROW = ["data_date", ...MOVE_COLUMNS].join(", ")
 
@@ -205,6 +206,7 @@ const moveRow = (code: StockCode, issuerName: string, line: StockMoveLine) =>
     line.stake.now ?? null,
     line.percentageChange ?? null,
     JSON.stringify(line.trend),
+    line.transfer === undefined ? null : JSON.stringify(line.transfer),
   ])
 
 // Stages the lines of `period` of `stocks`, read together, each from its

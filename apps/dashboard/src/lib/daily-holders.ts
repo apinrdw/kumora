@@ -70,11 +70,21 @@ export interface DailyHolderLine {
   // those whose shares changed (a New holder's all, an Off-list holder's all
   // the day before's); none without a move this day.
   readonly through: ReadonlyArray<BrokerCode | "custodian">
+  // On a Transfer, the brokers its shares left and reached; else none.
+  readonly transfer: Transfer<BrokerCode | "custodian"> | undefined
   // The last TREND_PERIODS trading days up to the selected one, oldest
   // first.
   readonly trend: ReadonlyArray<TrendCell>
   // Largest first, then those emptied since the day before.
   readonly accounts: ReadonlyArray<SecuritiesAccountLine>
+}
+
+// A Transfer's sides, each custodian (or its broker) once, most shares
+// first, and the shares that moved between them.
+export interface Transfer<Side> {
+  readonly from: ReadonlyArray<Side>
+  readonly to: ReadonlyArray<Side>
+  readonly shares: number
 }
 
 export interface HoldersDay {
@@ -102,10 +112,55 @@ export interface HoldersDay {
         readonly new: number
         readonly up: number
         readonly down: number
+        readonly transfer: number
         readonly offList: number
       }
     | undefined
 }
+
+// The custodians whose shares a holder's securities accounts changed, each
+// by its accounts' summed change: shares moved between accounts at one
+// custodian cancel out. Undefined when none changed.
+const transferOf = (
+  changes: ReadonlyArray<readonly [custodian: string, change: number]>
+) =>
+  Effect.sync((): Transfer<string> | undefined => {
+    const net = new Map<string, number>()
+    for (const [custodian, change] of changes)
+      net.set(custodian, (net.get(custodian) ?? 0) + change)
+    const moved = [...net].filter(([, change]) => change !== 0)
+    if (moved.length === 0) return undefined
+    const side = (sign: number) =>
+      moved
+        .filter(([, change]) => Math.sign(change) === sign)
+        .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a))
+        .map(([custodian]) => custodian)
+    return {
+      from: side(-1),
+      to: side(1),
+      shares: moved.reduce((sum, [, change]) => sum + Math.max(change, 0), 0),
+    }
+  })
+
+// A Transfer line's custodians, from its securities accounts' changes:
+// what Holder moves stores of it (server/holdings/above-5-moves.ts).
+export const transferredCustodians = (
+  accounts: ReadonlyArray<SecuritiesAccountLine>
+) =>
+  transferOf(
+    accounts.map(({ custodian, shareChange }) => [custodian, shareChange ?? 0])
+  )
+
+// A Transfer's custodians as their brokers, Custodian for those without.
+export const transferThrough = Effect.fnUntraced(function* (
+  transfer: Transfer<string>
+) {
+  return {
+    from: yield* throughOf(transfer.from),
+    to: yield* throughOf(transfer.to),
+    shares: transfer.shares,
+  } satisfies Transfer<BrokerCode | "custodian">
+})
 
 // Decision: a holder matches by key, then as renamed, then as returning
 // (apps/dashboard/docs/adr/0129-a-renamed-or-returning-holder-keeps-its-identity.md)
@@ -122,6 +177,20 @@ const BY_SHARES: MoveRule<DailyHolder> = {
         )
       )
     }),
+  // Shares left one custodian for another: moved between accounts at one
+  // custodian, they are no Transfer.
+  transferred: (before, now) =>
+    Effect.map(
+      transferOf([
+        ...before.accounts.map(
+          ({ custodian, scripless }) => [custodian, -scripless] as const
+        ),
+        ...now.accounts.map(
+          ({ custodian, scripless }) => [custodian, scripless] as const
+        ),
+      ]),
+      (transfer) => transfer !== undefined
+    ),
 }
 
 // A block repeats an earlier one of its stock-day when its securities
@@ -248,6 +317,15 @@ export const throughOf = Effect.fnUntraced(function* (
   ] satisfies DailyHolderLine["through"]
 })
 
+const transferLine = Effect.fnUntraced(function* (
+  move: Move | undefined,
+  accounts: ReadonlyArray<SecuritiesAccountLine>
+) {
+  if (move !== "transfer") return undefined
+  const transfer = yield* transferredCustodians(accounts)
+  return transfer && (yield* transferThrough(transfer))
+})
+
 const originOf = (accounts: ReadonlyArray<Above5SecuritiesAccount>) =>
   Effect.sync((): DailyHolderLine["origin"] => {
     const origins = new Set(accounts.map(({ origin }) => origin))
@@ -315,6 +393,7 @@ export const dailyHolders = Effect.fnUntraced(function* (
         move === undefined
           ? []
           : yield* throughOf(yield* movedCustodians(accounts)),
+      transfer: yield* transferLine(move, accounts),
       trend: yield* trend(holder),
       accounts,
     } satisfies DailyHolderLine
@@ -344,6 +423,7 @@ export const dailyHolders = Effect.fnUntraced(function* (
         offListSince === undefined
           ? yield* throughOf(yield* movedCustodians(accounts))
           : [],
+      transfer: undefined,
       trend: yield* trend(holder),
       accounts,
     } satisfies DailyHolderLine
@@ -389,6 +469,7 @@ export const dailyHolders = Effect.fnUntraced(function* (
           new: counted("new"),
           up: counted("up"),
           down: counted("down"),
+          transfer: counted("transfer"),
           offList: offList.length,
         }
       : undefined,

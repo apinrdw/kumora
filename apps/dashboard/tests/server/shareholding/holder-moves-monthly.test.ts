@@ -186,6 +186,7 @@ describe("Holder moves, Monthly", () => {
           new: counted(moves, "new"),
           up: counted(moves, "up"),
           down: counted(moves, "down"),
+          transfer: counted(moves, "transfer"),
           offList: counted(moves, "off list"),
         })
     })

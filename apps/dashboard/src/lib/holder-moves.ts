@@ -9,7 +9,7 @@ import type { BrokerCode, StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import type { MoveKind } from "@/domain/holdings"
-import { throughOf } from "@/lib/daily-holders"
+import { throughOf, type Transfer, transferThrough } from "@/lib/daily-holders"
 import type { HolderId, Move, TrendCell } from "@/lib/holder-identity"
 import type {
   DerivedMoveLine,
@@ -17,7 +17,14 @@ import type {
 } from "@/server/holdings/holder-moves"
 
 // What a filter button shows: every move, or one kind of move.
-const MOVE_FILTERS = ["all", "new", "up", "down", "off list"] as const
+const MOVE_FILTERS = [
+  "all",
+  "new",
+  "up",
+  "down",
+  "transfer",
+  "off list",
+] as const
 export type MoveFilter = (typeof MOVE_FILTERS)[number]
 
 export interface MoveLine {
@@ -36,6 +43,8 @@ export interface MoveLine {
   // % × 100; absent on the side where it isn't listed.
   readonly stake: { readonly before?: number; readonly now?: number }
   readonly percentageChange: number | undefined
+  // On a Transfer, the brokers its shares left and reached; else none.
+  readonly transfer: Transfer<BrokerCode | "custodian"> | undefined
   readonly trend: ReadonlyArray<TrendCell>
 }
 
@@ -43,6 +52,7 @@ export interface MoveCounts {
   readonly new: number
   readonly up: number
   readonly down: number
+  readonly transfer: number
   readonly offList: number
 }
 
@@ -66,11 +76,12 @@ export interface HolderMoves {
 
 // A derived line, its Through's custodians as broker codes.
 const derivedLine = Effect.fnUntraced(function* (line: DerivedMoveLine) {
-  const { custodians, ...rest } = line
+  const { custodians, transfer, ...rest } = line
   return {
     ...rest,
     holder: line.holder as HolderId,
     through: yield* throughOf(custodians),
+    transfer: transfer && (yield* transferThrough(transfer)),
   } satisfies MoveLine
 })
 
@@ -96,6 +107,7 @@ export const holderMovesView = Effect.fnUntraced(function* (
       new: counted("new"),
       up: counted("up"),
       down: counted("down"),
+      transfer: counted("transfer"),
       offList: counted("off list"),
     },
     stockCount: new Set(lines.map(({ code }) => code)).size,
