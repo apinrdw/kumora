@@ -16,5 +16,6 @@ Sites:
 - `apps/dashboard/src/server/base-redirect.ts`
 - `packages/server/src/bridge.ts`
 - `packages/server/src/errors.ts`
+- `apps/extension/src/worker/settings.ts`
 
 Source: apinrdw/kumora#683

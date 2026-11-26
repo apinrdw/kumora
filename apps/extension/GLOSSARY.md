@@ -17,7 +17,7 @@ The service worker's 10 s heartbeat. A connection quiet since the last tick send
 _Avoid_: interval, poll
 
 **Target**:
-A dashboard the relay sends envelopes to over its own ingest socket: always Production, plus at most one extra target (Staging, a Preview or a Dev stage) set on the options page. A target is held by its dashboard's Stage URL (`packages/deploy/GLOSSARY.md`), base path included. The dashboard picks the trading-day object at the socket's handshake, by the WIB date, so the socket is reopened when the date changes.
+A dashboard the relay sends envelopes to over its own ingest socket: always Production, plus at most one extra target (Staging, a Preview or a Dev stage) set on the options page. A target is held by its dashboard's Stage URL (`packages/deploy/GLOSSARY.md`), base path included: a target URL with no path, saved by an older relay or typed on the options page, means that dashboard's base path, and one with a path is kept as is. The dashboard picks the trading-day object at the socket's handshake, by the WIB date, so the socket is reopened when the date changes.
 _Avoid_: destination, stage (a target names a Stage's dashboard, not the Stage)
 
 **Target state**:

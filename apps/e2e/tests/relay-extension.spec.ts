@@ -871,6 +871,39 @@ test("the options page shows a stopped relay, and copies diagnostics without the
   }
 })
 
+test("an extra target an older relay saved by its origin alone is reached under the dashboard base path", async () => {
+  const brokers = await startFakeBrokers()
+  const ingest = await startFakeIngest()
+  const { context, worker, optionsUrl } = await launchWithExtension(
+    brokers.port
+  )
+  try {
+    await worker.evaluate(
+      `chrome.storage.local.set(${JSON.stringify({
+        settings: {
+          productionToken: "",
+          extra: { origin: ingest.origin, token: "extra-token" },
+        },
+      })})`
+    )
+    await expect.poll(() => ingest.sockets.length).toBe(1)
+    await expect
+      .poll(async () =>
+        (await ingest.messages()).map(({ message }) => message._tag)
+      )
+      .toContain("Token")
+    const options = await context.newPage()
+    await options.goto(optionsUrl)
+    await expect(options.getByLabel("Extra target URL")).toHaveValue(
+      `${ingest.origin}/dashboard`
+    )
+  } finally {
+    await context.close()
+    await ingest.close()
+    await brokers.close()
+  }
+})
+
 test("the options page asks the last 10 days again when the targets change", async () => {
   const brokers = await startFakeBrokers()
   const ingest = await startFakeIngest()
