@@ -873,6 +873,8 @@ describe("Ajaib's walk: stopping and carrying on", () => {
             page: 2,
             lastTimestamp: start + HOUR,
             fetched: 50_000,
+            reached: 50_000,
+            unread: [],
           })
         )
 
