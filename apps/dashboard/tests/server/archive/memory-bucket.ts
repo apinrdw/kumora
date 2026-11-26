@@ -82,6 +82,14 @@ export const memoryBucket = (): MemoryBucket => {
             })
           }),
         exists: (key) => Effect.sync(() => objects.has(key)),
+        size: (key) =>
+          Effect.sync(() => {
+            const object = objects.get(key)
+            return object === undefined
+              ? undefined
+              : (object.bytes?.length ??
+                  new TextEncoder().encode(object.body).length)
+          }),
         get: (key) =>
           Effect.map(Clock.currentTimeMillis, (now) => {
             gets.push(key)

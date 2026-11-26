@@ -66,6 +66,10 @@ export class ArchiveBucket extends Context.Service<
       options?: ListOptions
     ) => Effect.Effect<ReadonlyArray<ListedObject>, BucketError>
     readonly exists: (key: string) => Effect.Effect<boolean, BucketError>
+    // The bytes of the object at `key`; undefined when there is none.
+    readonly size: (
+      key: string
+    ) => Effect.Effect<number | undefined, BucketError>
     // Undefined when there is no object at `key`.
     readonly get: (
       key: string

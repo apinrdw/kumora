@@ -17,7 +17,7 @@ import {
   type WorkflowSteps,
 } from "@workspace/server"
 import { type WibDate, wibDateAt } from "@workspace/relay"
-import { DateTime, Duration, Effect, Stream } from "effect"
+import { DateTime, Duration, Effect } from "effect"
 import { HttpClient, type HttpClientError } from "effect/http"
 
 import type { ArchiveDb } from "../archive/archive-db.ts"
@@ -289,10 +289,12 @@ type FileOutcome =
 const STORED: FileOutcome = { stored: true }
 
 // Downloads one attachment from www.idx.id and streams it into the bucket,
-// unless the index says it is stored: a retry of its step finds what its
-// first attempt stored. A download that fails, or outlasts
-// DOWNLOAD_TIMEOUT, is recorded in the index and left waiting; a store that
-// fails fails the step, which the runtime retries.
+// unless the index says it is stored, or the bucket holds it: an attempt
+// that wrote the object and failed to index it left the attachment stored,
+// so a retry indexes the object as it is, and IDX isn't asked again. A
+// download that fails, or outlasts DOWNLOAD_TIMEOUT, is recorded in the
+// index and left waiting; a store that fails fails the step, which the
+// runtime retries.
 // Decision: a stored disclosure version or attachment is never fetched again
 // (apps/dashboard/docs/adr/0137-a-stored-disclosure-is-never-fetched-again.md)
 const storeAttachment = Effect.fnUntraced(function* (
@@ -301,23 +303,18 @@ const storeAttachment = Effect.fnUntraced(function* (
   if (yield* isAttachmentStored(attachment)) return STORED
   const bucket = yield* ArchiveBucket
   const key = yield* attachmentKey(attachment.disclosure, attachment.path)
+  const held = yield* bucket.size(key)
+  if (held !== undefined) {
+    yield* markAttachmentStored(attachment, yield* nowIso, held)
+    return STORED
+  }
   const url = `https://www.idx.id${attachment.path}`
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
   const stored = yield* client.get(url).pipe(
-    Effect.flatMap(
-      Effect.fnUntraced(function* (response) {
-        // The object a retry's first attempt wrote is never written again;
-        // its body is only counted.
-        if (yield* bucket.exists(key))
-          return yield* Stream.runFold(
-            response.stream,
-            () => 0,
-            (size, chunk) => size + chunk.length
-          )
-        return yield* bucket.putStream(key, response.stream, {
-          contentType:
-            response.headers["content-type"] ?? "application/octet-stream",
-        })
+    Effect.flatMap((response) =>
+      bucket.putStream(key, response.stream, {
+        contentType:
+          response.headers["content-type"] ?? "application/octet-stream",
       })
     ),
     Effect.map((bytes) => ({ bytes, message: undefined })),

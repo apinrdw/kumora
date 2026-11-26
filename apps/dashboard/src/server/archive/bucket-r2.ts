@@ -33,7 +33,7 @@ interface R2Binding {
     readonly truncated: boolean
     readonly cursor?: string
   }>
-  readonly head: (key: string) => Promise<unknown>
+  readonly head: (key: string) => Promise<{ readonly size: number } | null>
   readonly get: (key: string) => Promise<{
     readonly httpEtag: string
     readonly uploaded: Date
@@ -135,6 +135,10 @@ export const r2ArchiveBucket = (binding: (env: WorkerEnvShape) => R2Binding) =>
         exists: (key) =>
           attempt("head", key, () => bucket.head(key)).pipe(
             Effect.map((object) => object !== null)
+          ),
+        size: (key) =>
+          attempt("head", key, () => bucket.head(key)).pipe(
+            Effect.map((object) => object?.size)
           ),
         get: (key) =>
           readObject(key, (object) =>
