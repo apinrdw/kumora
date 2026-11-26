@@ -147,14 +147,18 @@ PRs land on `staging`, and `main` moves only by a published Release or a Hotfix 
 5. Under Settings → Actions → General → Workflow permissions, tick "Allow GitHub Actions to create and approve pull requests". As of 2026-11-14 it is off, and `sync-staging.yml` can't open a Sync without it.
 6. In each existing clone, run `git remote set-head origin -a`. A clone keeps the default branch it was cloned with as `origin/HEAD`, and `fallow audit` compares a branch with no upstream, such as a T3 worktree's `t3/*`, against it. As observed 2026-11-14, the main clone still pointed at `main` after step 2, so the commit gate audited `staging`'s unreleased commits as the branch's own. Check with `git symbolic-ref refs/remotes/origin/HEAD`, which prints `refs/remotes/origin/staging`.
 
-To release, first tag the `staging` commit you tried on Staging as a Candidate. Then publish a GitHub Release on the same commit, with the Production tag as its tag. The date is today in WIB, N is one above the last Candidate's N whatever its date (`git tag -l 'v*-*-*' | sort -t- -k3 -n | tail -1`), and the version is yours to choose above Production's last:
+Every `staging` commit is up for release; there is no Candidate tag any more. To release:
+
+1. Bump the Release version: set the same `version` in the root, `apps/dashboard` and `apps/web` `package.json`, above Production's last, in a PR into `staging`. `scripts/check-release-version.mts` fails a PR whose three differ.
+2. Once Staging has run the commit you want to ship, push a Release tag on it. Its version is that commit's Release version and its date is today in WIB.
+3. Wait for that tag's `release.yml` run to pass, then publish a GitHub Release on the existing tag.
 
 ```sh
 git fetch origin --tags
-git tag v0.1.10-20261114-1 origin/staging && git push origin v0.1.10-20261114-1
-gh release create v0.1.10-20261114 --target "$(git rev-parse v0.1.10-20261114-1)" --generate-notes
+git tag v0.7.47-20261126 origin/staging && git push origin v0.7.47-20261126
+gh release create v0.7.47-20261126 --verify-tag --generate-notes
 ```
 
-On the web, Releases → Draft a new release does the same: type the Production tag, pick the Candidate's commit as the target, and publish. A draft or a pre-release does nothing.
+On the web, Releases → Draft a new release does step 3: choose the existing tag and publish. A draft or a pre-release does nothing.
 
-`.github/workflows/release.yml` checks each tag with `scripts/release-tag.mts` and deletes one it refuses, with its Release; its run log says why. A Production tag pushed without a Release is refused. On a published Release it fast-forwards `main` to the tag, which Workers Builds deploys. It refuses a Release while `main` holds a Hotfix that `staging` lacks: merge the open Sync PR, then tag a new Candidate. Publish after 16:35 WIB or on a non-trading day (step 9.2). Never open a `staging` into `main` PR: its merge commit would stop every later fast-forward.
+`.github/workflows/release.yml` checks each tag with `scripts/release-tag.mts` and deletes one it refuses; its run log says why. A tag is refused when its version differs from its commit's Release version, is not above Production's, or is not dated today, and a new `-<N>` tag is refused. A Release is judged again, without the date; a refused one is deleted and its tag stays, deploying nothing. On a published Release it fast-forwards `main` to the tag, which Workers Builds deploys. It refuses a Release while `main` holds a Hotfix that `staging` lacks: merge the open Sync PR, bump the Release version, and push a new Release tag. Publish after 16:35 WIB or on a non-trading day (step 9.2). Never open a `staging` into `main` PR: its merge commit would stop every later fast-forward.

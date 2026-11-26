@@ -1,36 +1,29 @@
-// Judges a release tag for .github/workflows/release.yml. A Candidate,
-// v<version>-<YYYYMMDD>-<N>, marks a staging commit tried on Staging; a
-// Production tag, v<version>-<YYYYMMDD>, is the tag of a Release, which
-// promotes a Candidate's commit.
-import { Console, Effect } from "effect"
+// Judges a Release tag, v<version>-<YYYYMMDD>, for
+// .github/workflows/release.yml. The owner pushes one on a staging commit
+// whose Release version it names, then publishes a GitHub Release on it,
+// which promotes that commit to Production.
+import { Console, Effect, Schema } from "effect"
 
 import { CheckFailed } from "./lib/check.mts"
-import { gitLines } from "./lib/command.mts"
+import { gitLines, stdoutOf } from "./lib/command.mts"
 
 type Version = readonly [number, number, number]
-
-type ReleaseTag =
-  | {
-      readonly kind: "candidate"
-      readonly version: Version
-      readonly date: string
-      readonly n: number
-    }
-  | {
-      readonly kind: "production"
-      readonly version: Version
-      readonly date: string
-    }
 
 export interface TagRef {
   readonly name: string
   readonly sha: string
 }
 
-const shape = /^v(\d+)\.(\d+)\.(\d+)-(\d{8})(?:-([1-9]\d*))?$/
+// Decision: a Release tag names the Release version, kept equal in these files
+// (docs/adr/0020-a-release-tag-names-the-release-version-on-a-staging-commit.md)
+export const releaseVersionFiles = [
+  "package.json",
+  "apps/dashboard/package.json",
+  "apps/web/package.json",
+] as const
 
-// Decision: N counts every Candidate ever tagged; refused tags are deleted
-// (docs/adr/0008-candidate-numbers-count-every-candidate-ever-tagged.md)
+const shape = /^v(\d+)\.(\d+)\.(\d+)-(\d{8})$/
+
 export const wibDate = Effect.fnUntraced(function* (now: Date) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Jakarta",
@@ -45,20 +38,23 @@ export const wibDate = Effect.fnUntraced(function* (now: Date) {
 const refuse = (summary: string) =>
   Effect.fail(new CheckFailed({ summary: `Refusing ${summary}`, findings: [] }))
 
+// `released` holds the tags on main: Production has shipped each of them.
+// `versions` is each Release version file's version at the tag's commit.
+// `today` is checked only when the tag is pushed; a Release may come later.
 export const judgeTag = Effect.fn("judgeTag")(function* (
   tag: TagRef,
-  others: ReadonlyArray<TagRef>,
-  today: string
+  released: ReadonlyArray<TagRef>,
+  versions: ReadonlyArray<readonly [file: string, version: string]>,
+  today: string | undefined
 ) {
-  const parse = (name: string): ReleaseTag | undefined => {
+  const parse = (name: string) => {
     const match = shape.exec(name)
     if (match === null) return undefined
-    const [, major, minor, patch, date = "", n] = match
+    const [, major, minor, patch, date = ""] = match
     const version: Version = [Number(major), Number(minor), Number(patch)]
-    return n === undefined
-      ? { kind: "production", version, date }
-      : { kind: "candidate", version, date, n: Number(n) }
+    return { version, date }
   }
+
   const compare = (a: Version, b: Version) =>
     a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
   const show = (version: Version) => version.join(".")
@@ -66,74 +62,92 @@ export const judgeTag = Effect.fn("judgeTag")(function* (
   const release = parse(tag.name)
   if (release === undefined)
     return yield* refuse(
-      `${tag.name}: a release tag is v<version>-<YYYYMMDD>-<N> (Candidate) or v<version>-<YYYYMMDD> (Production).`
+      `${tag.name}: a Release tag is v<version>-<YYYYMMDD>. Candidate tags (-<N>) are retired.`
     )
-  if (release.date !== today)
+  if (today !== undefined && release.date !== today)
     return yield* refuse(
       `${tag.name}: its date must be today in WIB, ${today}.`
     )
-  const parsed = others.flatMap((other) => {
-    const known = parse(other.name)
-    return known === undefined ? [] : [{ ...known, sha: other.sha }]
-  })
-  const released = parsed
-    .filter((known) => known.kind === "production")
-    .map((known) => known.version)
+  const mismatched = versions.filter(
+    ([, version]) => version !== show(release.version)
+  )
+  if (mismatched.length > 0)
+    return yield* new CheckFailed({
+      summary: `Refusing ${tag.name}: its commit's Release version is not ${show(release.version)}. Bump "version" in every file below on staging, then tag the bump's commit:`,
+      findings: mismatched.map(([file, version]) => `${file}: ${version}`),
+    })
+  const production = released
+    .filter((other) => other.name !== tag.name)
+    .flatMap((other) => {
+      const known = parse(other.name)
+      return known === undefined ? [] : [known.version]
+    })
     .reduce<Version | undefined>(
       (top, version) =>
         top === undefined || compare(version, top) > 0 ? version : top,
       undefined
     )
-  if (released !== undefined && compare(release.version, released) <= 0)
+  if (production !== undefined && compare(release.version, production) <= 0)
     return yield* refuse(
-      `${tag.name}: its version must be above Production's ${show(released)}.`
+      `${tag.name}: its version must be above Production's ${show(production)}.`
     )
-  if (release.kind === "candidate") {
-    // Decision: N counts every Candidate ever tagged; refused tags are deleted
-    // (docs/adr/0008-candidate-numbers-count-every-candidate-ever-tagged.md)
-    const next =
-      Math.max(
-        0,
-        ...parsed.flatMap((known) =>
-          known.kind === "candidate" ? [known.n] : []
-        )
-      ) + 1
-    if (release.n !== next)
-      return yield* refuse(`${tag.name}: the next Candidate is -${next}.`)
-  } else if (
-    !parsed.some(
-      (known) =>
-        known.kind === "candidate" &&
-        known.sha === tag.sha &&
-        compare(known.version, release.version) === 0
-    )
-  )
-    return yield* refuse(
-      `${tag.name}: its commit carries no v${show(release.version)} Candidate tag. Tag the commit as a Candidate and try it on Staging first.`
-    )
-  return release.kind
 })
 
-// Prints kind=candidate or kind=production for the workflow's output.
+const Package = Schema.fromJsonString(Schema.Struct({ version: Schema.String }))
+
+const versionsAt = Effect.fn("versionsAt")(function* (
+  root: string,
+  rev: string
+) {
+  return yield* Effect.forEach(releaseVersionFiles, (file) =>
+    stdoutOf("git", ["show", `${rev}:${file}`], { cwd: root }).pipe(
+      Effect.flatMap(Schema.decodeEffect(Package)),
+      Effect.map(({ version }) => [file, version] as const)
+    )
+  )
+})
+
+const tagRefs = Effect.fn("tagRefs")(function* (
+  root: string,
+  extra: ReadonlyArray<string>
+) {
+  return (yield* gitLines(root, [
+    "for-each-ref",
+    ...extra,
+    "refs/tags",
+    "--format=%(refname:short) %(if)%(*objectname)%(then)%(*objectname)%(else)%(objectname)%(end)",
+  ])).map((line): TagRef => {
+    const [name = "", sha = ""] = line.split(" ")
+    return { name, sha }
+  })
+})
+
+// A pushed tag is dated today; a Release on it is judged without the date.
 export const checkReleaseTag = Effect.fn("checkReleaseTag")(function* (
   root: string,
   name: string,
-  today: string
+  today: string | undefined
 ) {
-  const refs = (yield* gitLines(root, [
-    "for-each-ref",
-    "refs/tags",
-    "--format=%(refname:short) %(if)%(*objectname)%(then)%(*objectname)%(else)%(objectname)%(end)",
-  ])).map((line) => {
-    const [refName = "", sha = ""] = line.split(" ")
-    return { name: refName, sha }
-  })
-  const tag = refs.find((ref) => ref.name === name)
+  const tag = (yield* tagRefs(root, [])).find((ref) => ref.name === name)
   if (tag === undefined) return yield* refuse(`${name}: no such tag.`)
-  const kind = yield* judgeTag(
+  yield* judgeTag(
     tag,
-    refs.filter((ref) => ref.name !== name),
+    yield* tagRefs(root, ["--merged", "origin/main"]),
+    yield* versionsAt(root, tag.sha),
     today
   )
-  yield* Console.log(`kind=${kind}`)
+  yield* Console.log(`${name} names the Release version at ${tag.sha}.`)
 })
+
+export const checkReleaseVersions = Effect.fn("checkReleaseVersions")(
+  function* (root: string) {
+    const versions = yield* versionsAt(root, "HEAD")
+    if (new Set(versions.map(([, version]) => version)).size > 1)
+      return yield* new CheckFailed({
+        summary:
+          'The Release version differs between its files. Set the same "version" in each:',
+        findings: versions.map(([file, version]) => `${file}: ${version}`),
+      })
+    yield* Console.log(`Release version ${versions[0]?.[1]} in every file.`)
+  }
+)

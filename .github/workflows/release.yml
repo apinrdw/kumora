@@ -1,8 +1,8 @@
-# Release tags (scripts/release-tag.mts). Pushing a Candidate tag,
-# v<version>-<YYYYMMDD>-<N>, marks a staging commit tried on Staging.
-# Publishing a GitHub Release on a Production tag, v<version>-<YYYYMMDD>,
-# fast-forwards main to its Candidate's commit, and Workers Builds deploys
-# main to Production.
+# Release tags (scripts/release-tag.mts). The owner pushes a Release tag,
+# v<version>-<YYYYMMDD>, on a staging commit whose Release version it names;
+# this run deletes one it refuses. Publishing a GitHub Release on that tag
+# fast-forwards main to its commit, and Workers Builds deploys main to
+# Production.
 name: Release
 
 on:
@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   release:
-    # A pre-release is a note on a Candidate, never a release.
+    # A draft or a pre-release releases nothing.
     if: github.event_name == 'push' || !github.event.release.prerelease
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -37,37 +37,22 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - id: tag
-        run: node scripts/judge-release-tag.mts "$TAG" >> "$GITHUB_OUTPUT"
-      - env:
-          KIND: ${{ steps.tag.outputs.kind }}
-        run: |
-          case "$GITHUB_EVENT_NAME:$KIND" in
-            push:candidate | release:production) ;;
-            release:candidate)
-              echo "::error::A Release is published on a Production tag, v<version>-<YYYYMMDD>; $TAG is a Candidate."
-              exit 1
-              ;;
-            # Decision: publishing a Release fast-forwards main; no PR reaches Production
-            # (docs/adr/0007-production-is-reached-by-a-release-that-fast-forwards-main.md)
-            push:production)
-              published="$(gh release view "$TAG" --json isDraft,isPrerelease --jq '(.isDraft or .isPrerelease) | not' 2>/dev/null || true)"
-              if [ "$published" != "true" ]; then
-                echo "::error::Publish a GitHub Release for $TAG instead of pushing the tag alone."
-                exit 1
-              fi
-              ;;
-          esac
+      # Decision: a Release tag names the Release version on a staging commit
+      # (docs/adr/0020-a-release-tag-names-the-release-version-on-a-staging-commit.md)
+      - run: node scripts/judge-release-tag.mts "$TAG" "$GITHUB_EVENT_NAME"
+      - run: |
           sha="$(git rev-parse "$TAG^{commit}")"
           if ! git merge-base --is-ancestor "$sha" origin/staging; then
             echo "::error::$TAG ($sha) is not on staging."
             exit 1
           fi
+      # Decision: publishing a Release fast-forwards main; no PR reaches Production
+      # (docs/adr/0007-production-is-reached-by-a-release-that-fast-forwards-main.md)
       - if: github.event_name == 'release'
         run: |
           sha="$(git rev-parse "$TAG^{commit}")"
           if ! git merge-base --is-ancestor origin/main "$sha"; then
-            echo "::error::main has commits $TAG lacks. Merge the open Sync PR into staging, then tag a new Candidate."
+            echo "::error::main has commits $TAG lacks. Merge the open Sync PR into staging, bump the Release version, then push a new Release tag."
             exit 1
           fi
           # The release branches' ruleset requires e2e-evidence on main's new
@@ -76,15 +61,12 @@ jobs:
             -f state=success -f context=e2e-evidence \
             -f description="released as $TAG; its PRs passed this gate"
           git push origin "$sha:refs/heads/main"
-      # Decision: N counts every Candidate ever tagged; refused tags are deleted
-      # (docs/adr/0008-candidate-numbers-count-every-candidate-ever-tagged.md)
+      # A refused push deletes its tag. A refused Release deletes the Release
+      # and keeps its tag, which deploys nothing.
       - if: failure()
-        env:
-          KIND: ${{ steps.tag.outputs.kind }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = release ]; then
             gh release delete "$TAG" --yes
-          fi
-          if [ "$KIND" != candidate ] || [ "$GITHUB_EVENT_NAME" = push ]; then
+          else
             git push origin ":refs/tags/$TAG"
           fi
