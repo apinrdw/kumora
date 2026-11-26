@@ -40,14 +40,14 @@ export const MAX_PATH_LENGTH = 400
 // characters.
 export const MAX_KEY_LENGTH = 200
 
+const Reply = Schema.Struct({
+  pengumuman: Schema.Struct({ Id2: Schema.String }),
+  attachments: Schema.Array(Schema.Struct({ FullSavePath: Schema.String })),
+})
+
 const Page = Schema.Struct({
   ResultCount: Schema.Number,
-  Replies: Schema.Array(
-    Schema.Struct({
-      pengumuman: Schema.Struct({ Id2: Schema.String }),
-      attachments: Schema.Array(Schema.Struct({ FullSavePath: Schema.String })),
-    })
-  ),
+  Replies: Schema.Array(Reply),
 })
 
 // A version as a listing step stores it: its key, the reply exactly as IDX
@@ -105,21 +105,13 @@ const pathOf = Effect.fnUntraced(function* (fullSavePath: string) {
   return path.length > MAX_PATH_LENGTH ? undefined : path
 })
 
-// A reply as a version, and what of it is skipped.
-const versionOf = Effect.fnUntraced(function* (
-  day: WibDate,
+// The paths of a reply's attachments, each once, and why each attachment
+// without one was skipped.
+const attachmentsOf = Effect.fnUntraced(function* (
+  key: DisclosureKey,
   language: DisclosureLanguage,
-  raw: unknown,
-  reply: (typeof Page.Type)["Replies"][number]
+  reply: typeof Reply.Type
 ) {
-  const key = yield* disclosureKeyOf(reply.pengumuman.Id2, language)
-  if (key === undefined || key.length > MAX_KEY_LENGTH)
-    return {
-      version: undefined,
-      skipped: [
-        `IDX listed a disclosure on ${day} (${language}) whose Id2 isn't a publish time and number: ${reply.pengumuman.Id2.slice(0, 200)}`,
-      ],
-    }
   const paths = new Set<string>()
   const skipped: Array<string> = []
   for (const { FullSavePath } of reply.attachments) {
@@ -130,11 +122,39 @@ const versionOf = Effect.fnUntraced(function* (
       )
     else paths.add(path)
   }
-  const version: ListedVersion = {
-    key,
-    reply: JSON.stringify(raw),
-    paths: [...paths],
-  }
+  return { paths: [...paths], skipped }
+})
+
+// The attachment paths of a version as the bucket holds it: `stored`, the
+// reply a listing step wrote, which decoded as a listing's reply then.
+export const storedPaths = Effect.fnUntraced(function* (
+  key: DisclosureKey,
+  language: DisclosureLanguage,
+  stored: string
+) {
+  const reply = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Reply))(
+    stored
+  )
+  return (yield* attachmentsOf(key, language, reply)).paths
+})
+
+// A reply as a version, and what of it is skipped.
+const versionOf = Effect.fnUntraced(function* (
+  day: WibDate,
+  language: DisclosureLanguage,
+  raw: unknown,
+  reply: typeof Reply.Type
+) {
+  const key = yield* disclosureKeyOf(reply.pengumuman.Id2, language)
+  if (key === undefined || key.length > MAX_KEY_LENGTH)
+    return {
+      version: undefined,
+      skipped: [
+        `IDX listed a disclosure on ${day} (${language}) whose Id2 isn't a publish time and number: ${reply.pengumuman.Id2.slice(0, 200)}`,
+      ],
+    }
+  const { paths, skipped } = yield* attachmentsOf(key, language, reply)
+  const version: ListedVersion = { key, reply: JSON.stringify(raw), paths }
   return { version, skipped }
 })
 

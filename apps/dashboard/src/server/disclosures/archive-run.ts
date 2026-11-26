@@ -53,6 +53,7 @@ import {
   MAX_KEY_LENGTH,
   MAX_PATH_LENGTH,
   PAGE_SIZE,
+  storedPaths,
 } from "./listing.ts"
 import {
   DisclosureRunResult,
@@ -152,7 +153,9 @@ const plan = Effect.fnUntraced(function* (run: DisclosureRun) {
 })
 
 // Stores a version as IDX listed it, unless the bucket holds it: a stored
-// version is never written again.
+// version is never written again, and its attachments are those the bucket's
+// reply lists, however IDX lists it now. So an attempt that wrote the object
+// and failed to index it leaves a retry indexing what it wrote.
 // Decision: a stored disclosure version or attachment is never fetched again
 // (apps/dashboard/docs/adr/0137-a-stored-disclosure-is-never-fetched-again.md)
 const storeVersion = Effect.fnUntraced(function* (
@@ -161,13 +164,17 @@ const storeVersion = Effect.fnUntraced(function* (
 ) {
   const bucket = yield* ArchiveBucket
   const key = yield* versionKey(version.key, language)
-  if (!(yield* bucket.exists(key)))
+  const stored = yield* bucket.get(key)
+  if (stored === undefined)
     yield* bucket.put(key, version.reply, { contentType: "application/json" })
   return {
     key: version.key,
     language,
     day: yield* disclosureDayOf(version.key),
-    paths: version.paths,
+    paths:
+      stored === undefined
+        ? version.paths
+        : yield* storedPaths(version.key, language, stored.body),
   }
 })
 
