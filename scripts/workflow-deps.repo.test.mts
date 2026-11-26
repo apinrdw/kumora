@@ -1,6 +1,6 @@
 // A workflow job that runs a packages/deploy entry point imports its
 // dependencies, so it has to install them first on a clean runner. CI runs the
-// same checks as `pnpm check`, one root `check:*` script per job. No job runs
+// same checks as `vp run check`, one root `check:*` script per job. No job runs
 // e2e: a PR carries locally recorded evidence instead.
 // Workflows are read as YAML, so comments and layout never change a verdict.
 import { NodeServices } from "@effect/platform-node"
@@ -69,7 +69,7 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
             if (deploy === -1) continue
             checked++
             const installs = steps.findIndex((step) =>
-              runs(step, /\bpnpm install\b/)
+              runs(step, /\bvp install\b/)
             )
             if (installs === -1 || installs > deploy) {
               missing.push(`${file} ${job}`)
@@ -93,9 +93,9 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
       const perJob = [...jobSteps(yield* ciWorkflow).values()]
         .map((steps) =>
           steps.flatMap((step) =>
-            [...(step.run ?? "").matchAll(/\bpnpm (check(?::[\w-]+)?)\b/g)].map(
-              ([, script]) => script as string
-            )
+            [
+              ...(step.run ?? "").matchAll(/\bvp run (check(?::[\w-]+)?)\b/g),
+            ].map(([, script]) => script as string)
           )
         )
         .filter((checks) => checks.length > 0)
@@ -118,7 +118,7 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
         const missing: Array<string> = []
         for (const [job, steps] of jobSteps(yield* ciWorkflow)) {
           const check = steps.findIndex((step) =>
-            runs(step, /\bpnpm check(?::[\w-]+)?\b/)
+            runs(step, /\bvp run check(?::[\w-]+)?\b/)
           )
           if (check === -1) continue
           checked++
@@ -132,7 +132,7 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
       })
   )
 
-  it.effect("no workflow job runs pnpm test:e2e", () =>
+  it.effect("no workflow job runs test:e2e", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const dir = yield* workflowsDir
@@ -142,11 +142,46 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
         for (const [job, steps] of jobSteps(
           yield* readWorkflow(`${dir}/${file}`)
         )) {
-          if (steps.some((step) => runs(step, /\bpnpm test:e2e\b/)))
+          if (steps.some((step) => runs(step, /\btest:e2e\b/)))
             e2e.push(`${file} ${job}`)
         }
       }
       assert.deepStrictEqual(e2e, [])
     })
+  )
+
+  it.effect(
+    "each job that calls vp or pnpm sets up vp first, by setup-vp pinned to a commit",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const dir = yield* workflowsDir
+        const files = yield* fs.readDirectory(dir)
+        let checked = 0
+        const missing: Array<string> = []
+        for (const file of files.filter((name) => name.endsWith(".yml"))) {
+          for (const [job, steps] of jobSteps(
+            yield* readWorkflow(`${dir}/${file}`)
+          )) {
+            const calls = steps.findIndex((step) =>
+              runs(step, /^\s*(?:vp|pnpm)\s/m)
+            )
+            if (calls === -1) continue
+            checked++
+            const setup = steps.findIndex((step) =>
+              /^voidzero-dev\/setup-vp@[0-9a-f]{40}$/.test(step.uses ?? "")
+            )
+            const pnpmSetup = steps.some((step) =>
+              /^(?:pnpm\/action-setup|actions\/setup-node)@/.test(
+                step.uses ?? ""
+              )
+            )
+            if (setup === -1 || setup > calls || pnpmSetup)
+              missing.push(`${file} ${job}`)
+          }
+        }
+        assert.isAbove(checked, 0, "found a job calling vp")
+        assert.deepStrictEqual(missing, [])
+      })
   )
 })

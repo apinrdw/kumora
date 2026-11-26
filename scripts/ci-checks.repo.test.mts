@@ -1,4 +1,4 @@
-// `pnpm check` is what a contributor runs locally, and each CI job runs one
+// `vp run check` is what a contributor runs locally, and each CI job runs one
 // `check:*` script, so local and CI checks are the same work only while
 // `check` is exactly the union of the `check:*` scripts and those scripts
 // leave out none of the turbo tasks or `scripts/check-*.mts` checks.
@@ -26,10 +26,10 @@ const rootScripts = Effect.gen(function* () {
 
 const commands = (script: string) => script.split("&&").map((c) => c.trim())
 
-// A script's commands, with each `pnpm <root script>` replaced by its own.
+// A script's commands, with each `vp run <root script>` replaced by its own.
 const expand = (scripts: Record<string, string>, name: string): Array<string> =>
   commands(scripts[name] ?? "").flatMap((command) => {
-    const called = /^pnpm (\S+)$/.exec(command)?.[1]
+    const called = /^vp run (\S+)$/.exec(command)?.[1]
     return called !== undefined && called in scripts
       ? expand(scripts, called)
       : [command]
@@ -44,7 +44,7 @@ const turboTasks = (script: string) =>
   )
 
 layer(NodeServices.layer)("check scripts", (it) => {
-  it.effect("pnpm check runs exactly the union of the check:* scripts", () =>
+  it.effect("vp run check runs exactly the union of the check:* scripts", () =>
     Effect.gen(function* () {
       const scripts = yield* rootScripts
       const parts = checkScripts(scripts)

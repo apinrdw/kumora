@@ -21,15 +21,18 @@ jobs:
       stage: ${{ steps.stage.outputs.stage }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v5
+      # Decision: vp is the CLI; pnpm resolves underneath; turbo still runs the tasks
+      # (docs/adr/0021-vp-is-the-cli-pnpm-resolves-underneath-turbo-still-runs-the-tasks.md)
+      - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
         with:
+          version: 1.8.0
           node-version: 24
-          cache: pnpm
+          cache: true
+          run-install: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-      - run: pnpm install --frozen-lockfile
+      - run: vp install --frozen-lockfile
       # Refuses production and staging, so this job can never reach them.
       - id: stage
         run: bun packages/deploy/src/teardown.ts stage "$BRANCH" >> "$GITHUB_OUTPUT"
@@ -48,15 +51,16 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v5
+      - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
         with:
+          version: 1.8.0
           node-version: 24
-          cache: pnpm
+          cache: true
+          run-install: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-      - run: pnpm install --frozen-lockfile
+      - run: vp install --frozen-lockfile
       # Decision: teardown logs into Infisical by OIDC, as a Viewer that sees prod
       # (docs/adr/0009-teardown-reads-infisical-by-github-oidc-as-a-viewer.md)
       - run: bun packages/deploy/src/teardown.ts destroy "$STAGE"

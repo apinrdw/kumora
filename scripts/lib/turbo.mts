@@ -33,7 +33,7 @@ export const turboDryRun = Effect.fn("turboDryRun")(function* (
   tasks: ReadonlyArray<string>
 ) {
   const dryRun = yield* stdoutOf(
-    "pnpm",
+    "vp",
     ["exec", "turbo", "run", ...tasks, "--dry=json"],
     { cwd: yield* repoRoot }
   )
