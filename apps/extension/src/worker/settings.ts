@@ -18,6 +18,7 @@ import {
   BrokerCodesProgress,
   type IncompleteDaysStore,
 } from "./broker-codes/run-queue.ts"
+import { StaticHeaders } from "./broker.ts"
 import { CodeListCache, RelayOutcome, type CodeListStore } from "./code-list.ts"
 import { ErrorLogEntry, redact, type ErrorLogStore } from "./error-log.ts"
 
@@ -343,41 +344,24 @@ export const saveAjaibLock = Effect.fnUntraced(function* (lock: AjaibLock) {
   )
 })
 
-// The Ajaib page's latest request with its static headers alone, until
-// Chrome closes, so a reloaded tab's page-fetches still send them before the
-// page makes a call (spec apinrdw/kumora#707). The worker keeps it for the
-// content script, since session storage is out of content scripts' reach
-// (apps/extension/docs/adr/0016-the-ajaib-pin-lives-in-chrome-storage-session-alone.md).
-const PAGE_REQUEST_KEY = "ajaibPageRequest"
-const KeptPageRequest = Schema.Struct({
-  base: Schema.String,
-  headers: Schema.Record(Schema.String, Schema.String),
-})
-type KeptPageRequest = typeof KeptPageRequest.Type
-const decodeKeptPageRequest = Schema.decodeUnknownOption(KeptPageRequest)
+// The Ajaib page's latest static headers, until Chrome closes, so a
+// reloaded tab's page-fetches still send them before the page makes a call.
+// Decision: the worker keeps the static headers in chrome.storage.session
+// (apps/extension/docs/adr/0025-the-ajaib-static-headers-live-in-chrome-storage-session-via-the-worker.md)
+const STATIC_HEADERS_KEY = "ajaibStaticHeaders"
+const decodeStaticHeaders = Schema.decodeUnknownOption(StaticHeaders)
 
-// The headers that sign one call: never kept.
-const SIGNING_HEADERS = new Set(["authorization", "x-device-signature"])
-
-export const savePageRequest = Effect.fnUntraced(function* (
-  request: KeptPageRequest
+export const saveStaticHeaders = Effect.fnUntraced(function* (
+  staticHeaders: StaticHeaders
 ) {
-  const kept: KeptPageRequest = {
-    base: request.base,
-    headers: Object.fromEntries(
-      Object.entries(request.headers).filter(
-        ([name]) => !SIGNING_HEADERS.has(name.toLowerCase())
-      )
-    ),
-  }
   yield* Effect.promise(() =>
-    chrome.storage.session.set({ [PAGE_REQUEST_KEY]: kept })
+    chrome.storage.session.set({ [STATIC_HEADERS_KEY]: staticHeaders })
   )
 })
 
-export const loadPageRequest = Effect.map(
-  Effect.promise(() => chrome.storage.session.get(PAGE_REQUEST_KEY)),
-  (stored) => decodeKeptPageRequest(stored[PAGE_REQUEST_KEY])
+export const loadStaticHeaders = Effect.map(
+  Effect.promise(() => chrome.storage.session.get(STATIC_HEADERS_KEY)),
+  (stored) => decodeStaticHeaders(stored[STATIC_HEADERS_KEY])
 )
 
 // A value the extra target's catch-up keeps in local storage beside the

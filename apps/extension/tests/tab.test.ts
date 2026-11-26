@@ -9,7 +9,7 @@ import {
   type BrokerEvent,
   type PageEvent,
 } from "../src/worker/broker.ts"
-import { loadPageRequest, savePageRequest } from "../src/worker/settings.ts"
+import { loadStaticHeaders, saveStaticHeaders } from "../src/worker/settings.ts"
 import { makeBrokerTab, type TabHooks } from "../src/worker/tab.ts"
 import { memorySession } from "./memory-session.ts"
 
@@ -153,7 +153,7 @@ describe("a broker tab's page events", () => {
   )
 })
 
-describe("the Ajaib page's kept request", () => {
+describe("the Ajaib page's kept static headers", () => {
   const makeTab = Effect.gen(function* () {
     memorySession()
     return yield* makeBrokerTab({
@@ -162,7 +162,7 @@ describe("the Ajaib page's kept request", () => {
       batcher: yield* makeBatcher(),
       publish: () => Effect.void,
       hooks,
-      pageRequests: { load: loadPageRequest, save: savePageRequest },
+      staticHeaders: { load: loadStaticHeaders, save: saveStaticHeaders },
     })
   })
   // A port that records each command the worker posts to its tab.
@@ -175,57 +175,44 @@ describe("the Ajaib page's kept request", () => {
     return { recorder, posted }
   }
   const BASE = "https://trade.ajaib.co.id/api/"
+  const reported = (headers: Record<string, string>) => ({
+    _tag: "static-headers",
+    staticHeaders: { base: BASE, headers },
+  })
 
   it.effect(
-    "a tab that loads after the page's call gets its static headers, never its token or device signature",
+    "a tab that loads after the page's call gets its static headers",
     () =>
       Effect.gen(function* () {
         const tab = yield* makeTab
         yield* tab.connect(port)
-        yield* tab.message(port, {
-          _tag: "page-request",
-          base: BASE,
-          headers: {
-            Authorization: "jwt page-token",
-            "X-Device-Signature": "page-signature",
-            "X-Ht-Ver-Id": "4.2",
-            Accept: "application/json",
-          },
-        })
+        yield* tab.message(
+          port,
+          reported({ "X-Ht-Ver-Id": "4.2", Accept: "application/json" })
+        )
         yield* tab.disconnect(port)
         const reloaded = recording()
         yield* tab.connect(reloaded.recorder)
-        assert.deepStrictEqual(reloaded.posted.at(-1), {
-          _tag: "kept-page-request",
-          base: BASE,
-          headers: { "X-Ht-Ver-Id": "4.2", Accept: "application/json" },
-        })
-        const stored = JSON.stringify(
-          yield* Effect.promise(() => chrome.storage.session.get(null))
+        assert.deepStrictEqual(
+          reloaded.posted.at(-1),
+          reported({ "X-Ht-Ver-Id": "4.2", Accept: "application/json" })
         )
-        assert.notInclude(stored, "page-token")
-        assert.notInclude(stored, "page-signature")
       })
   )
 
-  it.effect("a header the page sends later replaces the kept one", () =>
+  it.effect("headers the page sends later replace the kept ones", () =>
     Effect.gen(function* () {
       const tab = yield* makeTab
       yield* tab.connect(port)
       for (const version of ["4.2", "4.3"])
-        yield* tab.message(port, {
-          _tag: "page-request",
-          base: BASE,
-          headers: { authorization: "jwt page-token", "x-ht-ver-id": version },
-        })
+        yield* tab.message(port, reported({ "x-ht-ver-id": version }))
       yield* tab.disconnect(port)
       const reloaded = recording()
       yield* tab.connect(reloaded.recorder)
-      assert.deepStrictEqual(reloaded.posted.at(-1), {
-        _tag: "kept-page-request",
-        base: BASE,
-        headers: { "x-ht-ver-id": "4.3" },
-      })
+      assert.deepStrictEqual(
+        reloaded.posted.at(-1),
+        reported({ "x-ht-ver-id": "4.3" })
+      )
     })
   )
 
@@ -236,7 +223,7 @@ describe("the Ajaib page's kept request", () => {
       yield* tab.connect(first.recorder)
       assert.notInclude(
         first.posted.map((command) => (command as { _tag: string })._tag),
-        "kept-page-request"
+        "static-headers"
       )
     })
   )
