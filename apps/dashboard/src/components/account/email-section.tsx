@@ -67,8 +67,16 @@ export function EmailSection({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const form = event.currentTarget
-    const newEmail = String(new FormData(form).get("newEmail")).trim()
-    clientRuntime.runFork(run(changeEmail(form, newEmail, email)))
+    const newEmail = new FormData(form).get("newEmail")
+    clientRuntime.runFork(
+      run(
+        changeEmail(
+          form,
+          typeof newEmail === "string" ? newEmail.trim() : "",
+          email
+        )
+      )
+    )
   }
   return (
     <AccountSection

@@ -37,8 +37,10 @@ export function DetailsSection({
   const { pending, outcome, run } = useAccountAction()
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const name = String(new FormData(event.currentTarget).get("name")).trim()
-    clientRuntime.runFork(run(saveName(name)))
+    const name = new FormData(event.currentTarget).get("name")
+    clientRuntime.runFork(
+      run(saveName(typeof name === "string" ? name.trim() : ""))
+    )
   }
   return (
     <AccountSection title="Details">

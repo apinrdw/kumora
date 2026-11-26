@@ -72,7 +72,10 @@ export const formFields = <K extends string>(
   Effect.sync(() => {
     const data = new FormData(form)
     return Object.fromEntries(
-      names.map((name) => [name, String(data.get(name) ?? "")])
+      names.map((name) => {
+        const value = data.get(name)
+        return [name, typeof value === "string" ? value : ""]
+      })
     ) as Record<K, string>
   })
 

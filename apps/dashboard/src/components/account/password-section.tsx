@@ -19,12 +19,15 @@ const changePassword = Effect.fnUntraced(function* (
   form: HTMLFormElement
 ): Effect.fn.Return<Outcome> {
   const data = new FormData(form)
+  const currentPassword = data.get("currentPassword")
+  const newPassword = data.get("newPassword")
   const retry = yield* retryAfter()
   const { error } = yield* Effect.promise(() =>
     authClient.changePassword(
       {
-        currentPassword: String(data.get("currentPassword")),
-        newPassword: String(data.get("newPassword")),
+        currentPassword:
+          typeof currentPassword === "string" ? currentPassword : "",
+        newPassword: typeof newPassword === "string" ? newPassword : "",
         revokeOtherSessions: data.get("revokeOtherSessions") === "on",
       },
       { onError: retry.onError }

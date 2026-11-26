@@ -133,7 +133,9 @@ const KIND_RENDERERS: Record<CellKind, KindRenderer> = {
     ),
   shares: (v) => numberCell(v, shares),
   ticker: (v, row) =>
-    Effect.succeed(<TickerCell symbol={String(v)} row={row} />),
+    Effect.succeed(
+      typeof v === "string" ? <TickerCell symbol={v} row={row} /> : "—"
+    ),
   status: (v) =>
     Effect.succeed(isFreshness(v) ? <KStatusPill status={v} hideAsOf /> : "—"),
   asOf: (v) => (typeof v === "string" ? asOf(v) : Effect.succeed("—")),
