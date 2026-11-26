@@ -26,7 +26,7 @@ test.describe("signed in", () => {
     const frames = session1Today(base)
     // Before the page opens: the snapshot carries these.
     await relay.sendAjaib(frames.slice(0, 10))
-    await page.goto(`${DASHBOARD}${PAGE}`)
+    await page.goto(`${DASHBOARD}${PAGE}?panel=tape`)
     const tape = page.getByRole("region", { name: "Running trades" })
     // A recorded trade number, as this test renumbered it.
     const row = (recorded: number) =>
@@ -457,7 +457,7 @@ test.describe("signed in", () => {
     const relay = await openIngest()
     await relay.sendAjaib(session1Today(freshTradeNumbers()).slice(0, 5))
     await relay.report("Stockbit", "alive")
-    await page.goto(`${DASHBOARD}${PAGE}`)
+    await page.goto(`${DASHBOARD}${PAGE}?panel=tape`)
     const conditions = page.getByRole("group", { name: "Market conditions" })
     const pill = (feed: string) =>
       conditions.getByRole("listitem").filter({ hasText: feed })
@@ -507,7 +507,7 @@ test.describe("signed in", () => {
         void socket.close({ code: 1012, reason: "Restart" })
       }
     })
-    await page.goto(`${DASHBOARD}${PAGE}`)
+    await page.goto(`${DASHBOARD}${PAGE}?panel=tape`)
     const conditions = page.getByRole("group", { name: "Market conditions" })
     await expect(conditions.getByRole("list", { name: "Feeds" })).toBeVisible()
     await expect.poll(() => dropPage !== undefined).toBe(true)
@@ -541,7 +541,7 @@ test.describe("signed in", () => {
       dropPage = () => socket.close({ code: 1012, reason: "Restart" })
       void server
     })
-    await page.goto(`${DASHBOARD}${PAGE}`)
+    await page.goto(`${DASHBOARD}${PAGE}?panel=tape`)
     await expect(
       page.getByRole("heading", { name: "Running trades" })
     ).toBeVisible()
@@ -549,14 +549,16 @@ test.describe("signed in", () => {
     await page.unrouteAll()
     await context.clearCookies()
     dropPage!()
-    await expect(page).toHaveURL(signInUrl(PAGE), { timeout: 15_000 })
+    await expect(page).toHaveURL(signInUrl(`${PAGE}?panel=tape`), {
+      timeout: 15_000,
+    })
   })
 
   test("a 4426 close asks for a reload", async ({ page }) => {
     await page.routeWebSocket(/\/market-live\/live$/, (socket) =>
       socket.close({ code: 4426, reason: "New version, reload" })
     )
-    await page.goto(`${DASHBOARD}${PAGE}`)
+    await page.goto(`${DASHBOARD}${PAGE}?panel=tape`)
     await expect(page.getByRole("alert")).toContainText("Reload to continue")
   })
 })
@@ -584,7 +586,7 @@ test.describe("the tape at peak", () => {
         })
       )
     )
-    await page.goto(`${DASHBOARD}${PAGE}`)
+    await page.goto(`${DASHBOARD}${PAGE}?panel=tape`)
     const tape = page.getByRole("region", { name: "Running trades" })
     await expect(
       tape.locator(`tr[data-trade-number="${base + newer}"]`)
@@ -668,7 +670,7 @@ test.describe("the tape at peak", () => {
         board: "NG",
       }),
     ])
-    await page.goto(`${DASHBOARD}${PAGE}`)
+    await page.goto(`${DASHBOARD}${PAGE}?panel=tape`)
     const tape = page.getByRole("region", { name: "Running trades" })
     const row = (n: number) =>
       tape.locator(`tr[data-trade-number="${base + n}"]`)
@@ -720,7 +722,7 @@ test.describe("the tape at peak", () => {
         })
       )
     await relay.sendAjaib(trades(1, 100))
-    await page.goto(`${DASHBOARD}${PAGE}`)
+    await page.goto(`${DASHBOARD}${PAGE}?panel=tape`)
     const tape = page.getByRole("region", { name: "Running trades" })
     const row = (n: number) =>
       tape.locator(`tr[data-trade-number="${base + n}"]`)
@@ -759,7 +761,7 @@ test.describe("the tape at peak", () => {
         })
       )
     )
-    await page.goto(`${DASHBOARD}${PAGE}`)
+    await page.goto(`${DASHBOARD}${PAGE}?panel=tape`)
     const tape = page.getByRole("region", { name: "Running trades" })
     await expect(
       tape.locator(`tr[data-trade-number="${base + 100}"]`)

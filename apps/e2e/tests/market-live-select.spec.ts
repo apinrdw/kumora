@@ -123,13 +123,13 @@ test("clicking a tape row selects its code", async ({ page }) => {
   const base = freshTradeNumbers()
   await relay.sendAjaib(session1Today(base).slice(0, 10))
   const selected = await recordSelects(page)
-  await page.goto(`${DASHBOARD}${PAGE}`)
+  await page.goto(`${DASHBOARD}${PAGE}?panel=tape`)
   await expect.poll(() => selected).toEqual(["BBCA"])
   const tape = page.getByRole("region", { name: "Running trades" })
   const row = tape.locator(`tr[data-trade-number="${base + 22265}"]`)
   await expect(row).toContainText("BREN")
   await row.click()
-  await expect(page).toHaveURL(`${DASHBOARD}${PAGE}?code=BREN`)
+  await expect(page).toHaveURL(`${DASHBOARD}${PAGE}?panel=tape&code=BREN`)
   await expect(
     page.getByRole("region", { name: "Chart" }).getByRole("heading", {
       name: "BREN",

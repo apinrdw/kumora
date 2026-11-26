@@ -115,7 +115,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   )
   // A desktop's width: 10 minutes of the footprint chart then read as text.
   await page.setViewportSize({ width: 1920, height: 1080 })
-  await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
+  await page.goto(`${DASHBOARD}${PAGE}?code=${code}&panel=tape`)
   const conditions = page.getByRole("group", { name: "Market conditions" })
   await expect(conditions.getByRole("list", { name: "Feeds" })).toBeVisible()
 
@@ -263,7 +263,7 @@ test("a recorded day's tape shows each trade's Buyer and Seller as the extension
     }),
     ajaibTradeToday({ seq: base + 2, time, ticker: code, price: 505, lot: 2 }),
   ])
-  await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
+  await page.goto(`${DASHBOARD}${PAGE}?code=${code}&panel=tape`)
   const tape = page.getByRole("region", { name: "Running trades" })
   const cells = (n: number) =>
     tape.locator(`tr[data-trade-number="${n}"]`).locator("td")
@@ -307,10 +307,19 @@ test("a recorded day's tape shows each trade's Buyer and Seller as the extension
   )
   expect(posted.status()).toBe(200)
 
-  await page.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}`)
+  await page.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}&panel=tape`)
   await expect(
     page.getByRole("group", { name: "Market conditions" })
   ).toContainText("RECORDED")
+  // A recorded day's middle column has the live page's tabs, on the tape.
+  const tabs = page.getByRole("tablist", { name: "Trades" })
+  await expect(tabs.getByRole("tab")).toHaveText([
+    `Buy/Sell sweeps · ${code}`,
+    "Running trades",
+  ])
+  await expect(tabs.getByRole("tab", { selected: true })).toHaveText(
+    "Running trades"
+  )
   // The price cell keeps its index; Buyer and Seller follow Value.
   await expect(cells(base + 1).nth(2)).toContainText("45,000")
   await expect(cells(base + 1).nth(3)).toHaveText("123,456")
