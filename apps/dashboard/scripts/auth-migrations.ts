@@ -61,7 +61,7 @@ if (!pending) {
   console.log("Auth migrations match the Better Auth config.")
 } else if (check) {
   console.error(
-    `The Better Auth config needs a migration the checked-in ones lack:\n\n${sql}\n\nRun: pnpm --filter dashboard auth:migrations <name>`
+    `The Better Auth config needs a migration the checked-in ones lack:\n\n${sql}\n\nRun: vp run --filter dashboard auth:migrations <name>`
   )
   process.exit(1)
 } else {

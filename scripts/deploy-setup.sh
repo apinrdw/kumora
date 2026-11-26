@@ -320,7 +320,7 @@ pause
 
 # ── 3 ─────────────────────────────────────────────────────────────────────
 stage "Infisical staging: the same four values"
-say "Staging reads /dashboard of staging, and so do every Preview and your pnpm dev."
+say "Staging reads /dashboard of staging, and so do every Preview and your vp run dev."
 open_url "$INFISICAL"
 step "Project kumora → environment staging → folder /dashboard (path unverified, not yet observed)."
 step "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET: the same client as prod."

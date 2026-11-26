@@ -1,4 +1,4 @@
-// `pnpm ksei:wayback-seed`: rewrites the Deep backfill's seed from the
+// `vp run ksei:wayback-seed`: rewrites the Deep backfill's seed from the
 // Wayback Machine's CDX index (ksei-wayback-seed.mts).
 import { Console, Effect, FileSystem, Path } from "effect"
 import { FetchHttpClient } from "effect/http"

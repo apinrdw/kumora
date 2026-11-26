@@ -19,7 +19,7 @@ A busy day is Production's busiest measured day, 1,460,000 trades ([apinrdw/kumo
 
 A hot day is a recorded day that still lives in its object. A cold day lives in R2 and bills no SQL rows. `apps/dashboard/GLOSSARY.md` defines both.
 
-The row-budget suite checks the same budgets in workerd before a deploy, on a modelled busy day. Run `pnpm --filter dashboard test:row-budgets` for each operation's budget. Run `pnpm --filter dashboard test:whole-day --silent=false` for a whole recorded day: it takes about 5.5 minutes and is not part of `pnpm check`.
+The row-budget suite checks the same budgets in workerd before a deploy, on a modelled busy day. Run `vp run --filter dashboard test:row-budgets` for each operation's budget. Run `vp run --filter dashboard test:whole-day --silent=false` for a whole recorded day: it takes about 5.5 minutes and is not part of `vp run check`.
 
 ## Every cost Decision states rows billed
 

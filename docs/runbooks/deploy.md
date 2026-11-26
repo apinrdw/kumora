@@ -11,8 +11,8 @@ Steps marked ✅ were done during the throwaway deploy, observed 2026-11-05 ([ap
 - Project slug `kumora`, environments `prod` and `staging`. A `dev` environment also exists; it is unused and stays empty. Local dev (the Dev stage) reads `staging`, so don't put secrets in `dev`.
 - `/` in each environment holds `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, with a separate token per environment.
 - `/web` holds `DEPLOY_PROBE_SECRET`. `/dashboard` holds the dashboard's secrets: the Google client of step 10, and:
-  - ⬜ `ADMIN_EMAILS` in both `prod` and `staging`: the comma-separated emails that become admins once verified. The dashboard deploy, and `pnpm dev` (which reads `staging`), fail without it. The Test stage reads it from the process environment instead (`apps/e2e/playwright.config.ts`). To change the list later, edit the value and redeploy the dashboard (values are read at deploy). An email added after its account was verified is a config admin from the deploy on, and its admin role is stored at its next sign-in or admin action. An email removed keeps its stored admin role, without the config-admin protections; demote it on `/admin/users` if it should be a member.
-  - ⬜ `INGEST_TOKEN` in both `prod` and `staging`: the Market Live relay's shared secret, a long random string (for example `openssl rand -base64 32`). The dashboard deploy, and `pnpm dev`, fail without it. Paste each into the extension's options page for that Stage. Previews and Dev stages share `staging`'s. The Test stage reads it from the process environment (`apps/e2e/playwright.config.ts`). A deploy restarts every Durable Object and drops the relay's socket; during IDX hours that costs a reconnect and a backfill.
+  - ⬜ `ADMIN_EMAILS` in both `prod` and `staging`: the comma-separated emails that become admins once verified. The dashboard deploy, and `vp run dev` (which reads `staging`), fail without it. The Test stage reads it from the process environment instead (`apps/e2e/playwright.config.ts`). To change the list later, edit the value and redeploy the dashboard (values are read at deploy). An email added after its account was verified is a config admin from the deploy on, and its admin role is stored at its next sign-in or admin action. An email removed keeps its stored admin role, without the config-admin protections; demote it on `/admin/users` if it should be a member.
+  - ⬜ `INGEST_TOKEN` in both `prod` and `staging`: the Market Live relay's shared secret, a long random string (for example `openssl rand -base64 32`). The dashboard deploy, and `vp run dev`, fail without it. Paste each into the extension's options page for that Stage. Previews and Dev stages share `staging`'s. The Test stage reads it from the process environment (`apps/e2e/playwright.config.ts`). A deploy restarts every Durable Object and drops the relay's socket; during IDX hours that costs a reconnect and a backfill.
 - Machine identity `kumora-workers-builds`: Universal Auth only, client secret with a 1-year TTL, project `kumora` role Viewer. Organization role **No Access**, set 2026-11-05 (it was Admin, which let every branch build manage the whole Infisical organization); the owner reported the next build succeeding.
 
 ## 2. Cloudflare API tokens ✅
@@ -63,7 +63,7 @@ bun alchemy profile edit --add Cloudflare
 bun alchemy profile edit --add Infisical
 ```
 
-`pnpm dev` then runs both apps on the developer's Dev stage, with secrets from Infisical `staging`.
+`vp run dev` then runs both apps on the developer's Dev stage, with secrets from Infisical `staging`.
 
 ## 7. Yearly rotation
 
@@ -117,7 +117,7 @@ The auth routes are also rate-limited per client IP in the stage's D1 (sign-in 1
 
 Market Live's feed comes from `apps/extension`, loaded unpacked in the owner's Chrome. It is never published or deployed.
 
-1. Run `pnpm --filter extension build`. It writes `apps/extension/dist`, with Production's dashboard URL baked in.
+1. Run `vp run --filter extension build`. It writes `apps/extension/dist`, with Production's dashboard URL baked in.
 2. In `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and pick `apps/extension/dist`. After each rebuild, press the extension's reload button, then reload the Stockbit and Ajaib tabs.
 3. Open the extension's options page. Paste Production's `INGEST_TOKEN` (step 1). To relay to Staging, a Preview or a Dev stage as well, set the extra target's URL and `staging`'s token. Each target's state shows below its fields; "Connected" means its ingest socket is open.
 4. Keep a signed-in `stockbit.com` tab and a signed-in `trade.ajaib.co.id` tab open. The relay streams by itself from 08:40 to 16:35 WIB on trading days and closes its sockets outside those hours. In hours, trades reach the stage's Market Live tape within a second.

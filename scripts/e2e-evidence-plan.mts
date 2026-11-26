@@ -211,7 +211,7 @@ export const preflight = Effect.fn("preflight")(function* ({
   const specs = [...new Set([...named, ...added])]
   if (specs.length === 0)
     return yield* new EvidenceRefused({
-      reason: `No spec to show: none is named and no spec file changed. Name a spec file (pnpm e2e:evidence <spec...>), or give a PR with no visible behaviour change the ${OPT_OUT_LABEL} label.`,
+      reason: `No spec to show: none is named and no spec file changed. Name a spec file (vp run e2e:evidence <spec...>), or give a PR with no visible behaviour change the ${OPT_OUT_LABEL} label.`,
     })
   return { pr, specs, unmet }
 })

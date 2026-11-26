@@ -1,6 +1,6 @@
 #!/bin/sh
-# The fast, offline part of `pnpm check`, which CI (.github/workflows/ci.yml) runs in full.
+# The fast, offline part of `vp run check`, which CI (.github/workflows/ci.yml) runs in full.
 cd "$(git rev-parse --show-toplevel)" || exit 1
 # errors-only: a passing commit prints no task logs, which every agent commit
 # would otherwise pay for in context.
-pnpm lint --output-logs=errors-only && pnpm format:check --output-logs=errors-only
+vp run lint --output-logs=errors-only && vp run format:check --output-logs=errors-only

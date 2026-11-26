@@ -1,6 +1,6 @@
 # Crons that read outside sources run on Production only
 
-Alchemy's dev runtime fires a Worker's crons, so an ungated cron would make `pnpm dev` and every Preview call IDX, KSEI or Stockbit. Each cron that reads an outside source is therefore set by stage, on Production only, the way Google sign-in is bound: the IDX archive, the KSEI archive and parse, the shareholding parse, the sector cron, the logo sync and the Special Monitoring Board cron. Other stages start a run with Run now, so their tables, such as `stock_sector` and `special_board`, stay empty until someone does.
+Alchemy's dev runtime fires a Worker's crons, so an ungated cron would make `vp run dev` and every Preview call IDX, KSEI or Stockbit. Each cron that reads an outside source is therefore set by stage, on Production only, the way Google sign-in is bound: the IDX archive, the KSEI archive and parse, the shareholding parse, the sector cron, the logo sync and the Special Monitoring Board cron. Other stages start a run with Run now, so their tables, such as `stock_sector` and `special_board`, stay empty until someone does.
 
 The broker totals reconcile is the deliberate exception and runs on every stage: it touches only the stage's own day index, BrokerTotalsDb and trading days, and the extension's extra target feeds a second stage, so a dev or Preview run calls nothing outside.
 

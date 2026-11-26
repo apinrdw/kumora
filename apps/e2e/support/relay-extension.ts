@@ -33,7 +33,7 @@ import { wibInstant } from "./clock"
 import { closeWhenTestEnds } from "./test"
 import { recordVideo } from "./video"
 
-/** The built extension (`pnpm --filter extension build`, run by `pnpm e2e`). */
+/** The built extension (`vp run --filter extension build`, run by `vp run e2e`). */
 const EXTENSION = fileURLToPath(
   new URL("../../extension/dist", import.meta.url)
 )

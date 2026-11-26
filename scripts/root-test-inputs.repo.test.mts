@@ -24,7 +24,7 @@ const Projects = Schema.fromJsonString(
 )
 
 const repoRead = /path\.resolve\(\s*import\.meta\.dirname,\s*"\.\.\/([^"]+)"/g
-const spawned = /"(?:[^"\s]*\/)?(turbo|pnpm|oxlint)"/g
+const spawned = /"(?:[^"\s]*\/)?(turbo|pnpm|vp|oxlint)"/g
 const vitestRun = /^vitest run (.+)$/
 const localImport = /from "(\.\.?\/[^"]+\.mts)"/g
 
@@ -81,6 +81,7 @@ const toolReads = Effect.gen(function* () {
   const reads: Record<string, ReadonlyArray<string>> = {
     turbo: ["turbo.json", "pnpm-lock.yaml", ...workspace],
     pnpm: workspace,
+    vp: workspace,
     oxlint: [".oxlintrc.json"],
   }
   return reads
@@ -97,7 +98,7 @@ const testFiles = Effect.fnUntraced(function* (task: string) {
   const args = vitestRun.exec(scripts[task] ?? "")?.[1]
   assert.isDefined(args, `the ${task} script is a vitest run`)
   const listed = yield* stdoutOf(
-    "pnpm",
+    "vp",
     [
       "exec",
       "vitest",

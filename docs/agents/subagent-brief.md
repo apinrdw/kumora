@@ -29,9 +29,9 @@ Never print a secret value; hash prefixes only. Never run `alchemy deploy` or `a
 ## Done means
 
 - The verify command or test the spec names passes, with the exact command and output in the report.
-- From the repo root: `pnpm check`, which is what CI runs, and the lint and format commands in `AGENTS.md` exit 0.
+- From the repo root: `vp run check`, which is what CI runs, and the lint and format commands in `AGENTS.md` exit 0.
 - A Vitest test that is slow on purpose sets its own `timeout`. The local default is 2.5 s, half CI's (`vitest.timeout.mts`), so a test that would time out on CI's 2 cores times out here first.
-- An e2e change passes `pnpm test:e2e`, which runs only on the dev machine. A per-ticket implementer inside an implement-spec run posts no evidence; `post-implementation-review` runs `pnpm e2e:evidence` on the integration PR.
+- An e2e change passes `vp run test:e2e`, which runs only on the dev machine. A per-ticket implementer inside an implement-spec run posts no evidence; `post-implementation-review` runs `vp run e2e:evidence` on the integration PR.
 - A new entry file, such as a `scripts/*.mts` that a command runs, lands in the same commit as the `package.json` script that runs it. Until then fallow's commit gate blocks it as an unused file.
 - A name is exported only when another file imports it in the same commit. An export kept for a test that doesn't exist yet, or for a later ticket, led every one of specs #303 and #327's 13 commit-gate blocks.
 - Small logical commits whose messages end with the attribution line the harness requires. Before reporting, merge the integration branch's current tip.
@@ -46,4 +46,4 @@ At most 20 subagents run at once. Any spawned past that fails at once with "Conc
 
 ## e2e in parallel
 
-Ports are per run (`apps/e2e/support/ports.ts` says how a preset one is treated) and local state is per worktree, so parallel implementers run `pnpm test:e2e` with no lock. CPU is the shared limit: give each run `--workers=<cores / runs>`. Two runs at 8 workers each on 16 cores timed out sign-in specs; at 4 each, both passed.
+Ports are per run (`apps/e2e/support/ports.ts` says how a preset one is treated) and local state is per worktree, so parallel implementers run `vp run test:e2e` with no lock. CPU is the shared limit: give each run `--workers=<cores / runs>`. Two runs at 8 workers each on 16 cores timed out sign-in specs; at 4 each, both passed.

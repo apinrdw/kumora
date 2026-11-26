@@ -20,21 +20,21 @@ A market terminal for the Indonesian stock exchange, built as a pnpm + Turborepo
 Run from the repo root. Each fans out through Turborepo to every workspace.
 
 ```bash
-pnpm dev        # start both apps with `bun alchemy dev` (needs Bun, see .bun-version)
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm test:e2e  # first run: pnpm --filter e2e exec playwright install chromium
+vp run dev        # start both apps with `bun alchemy dev` (needs Bun, see .bun-version)
+vp run typecheck
+vp run lint
+vp run test
+vp run test:e2e  # first run: vp exec --filter e2e playwright install chromium
 ```
 
-CI runs typecheck, lint and test on every pull request and push to `main` or `staging`. The E2E suite runs on your machine: `pnpm e2e:evidence <spec...>` runs it, posts the named specs' videos to the PR and sets its `e2e-evidence` status (rules in `scripts/e2e-evidence-plan.mts`). `.github/workflows/e2e-evidence.yml` sets that status on PRs that have none. Workers Builds deploys each push: `main` to production, `staging` to staging, any other branch to a preview. PRs target `staging`, the default branch, and reach `main` when the owner publishes a GitHub Release on a tried `staging` commit, which fast-forwards it. See `docs/runbooks/deploy.md`; `scripts/deploy-setup.sh` walks through its one-time steps.
+CI runs typecheck, lint and test on every pull request and push to `main` or `staging`. The E2E suite runs on your machine: `vp run e2e:evidence <spec...>` runs it, posts the named specs' videos to the PR and sets its `e2e-evidence` status (rules in `scripts/e2e-evidence-plan.mts`). `.github/workflows/e2e-evidence.yml` sets that status on PRs that have none. Workers Builds deploys each push: `main` to production, `staging` to staging, any other branch to a preview. PRs target `staging`, the default branch, and reach `main` when the owner publishes a GitHub Release on a tried `staging` commit, which fast-forwards it. See `docs/runbooks/deploy.md`; `scripts/deploy-setup.sh` walks through its one-time steps.
 
 ## Adding UI components
 
 Run from the repo root. Components land in `packages/ui/src/components`.
 
 ```bash
-pnpm dlx shadcn@latest add button -c apps/web
+vp dlx shadcn@latest add button -c apps/web
 ```
 
 Import them from the shared package:

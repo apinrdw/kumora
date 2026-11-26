@@ -1,4 +1,4 @@
-// `pnpm e2e:evidence [--pr <n>] [--dry-run] [spec...]`: runs the full e2e
+// `vp run e2e:evidence [--pr <n>] [--dry-run] [spec...]`: runs the full e2e
 // suite, recording video of only the picked specs, posts their videos to the
 // PR as comments of at most 50 videos each and, once every one is up, marks
 // the PR head `e2e-evidence: success`, linking to the first. Every decision
@@ -24,7 +24,7 @@ import { CheckFailed, repoRoot } from "./lib/check.mts"
 import { collect, CommandFailed, gitLines, stdoutOf } from "./lib/command.mts"
 import { runScript } from "./lib/run.mts"
 
-const USAGE = "Usage: pnpm e2e:evidence [--pr <n>] [--dry-run] [spec...]"
+const USAGE = "Usage: vp run e2e:evidence [--pr <n>] [--dry-run] [spec...]"
 
 const Pr = Schema.fromJsonString(
   Schema.Struct({
@@ -175,6 +175,7 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
   // on it and finished no sooner than 4, which passed (apinrdw/kumora#210).
   const workers = Math.max(1, Math.floor(availableParallelism() / 4))
   const playwright = [
+    "run",
     "test:e2e",
     "--forbid-only",
     `--workers=${workers}`,
@@ -183,7 +184,7 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
     "--reporter=list,json",
   ]
   const exitCode = yield* runOnTerminal(
-    ChildProcess.make("pnpm", playwright, {
+    ChildProcess.make("vp", playwright, {
       cwd: root,
       // The video switch, as apps/e2e/support/video.ts defines it: the picked
       // specs, comma-separated. A root script imports from no workspace, so
@@ -200,7 +201,7 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
   )
   if (!(yield* fs.exists(reportFile)))
     return yield* new CommandFailed({
-      command: ["pnpm", ...playwright].join(" "),
+      command: ["vp", ...playwright].join(" "),
       exitCode,
       stderr: `It wrote no JSON report to ${path.relative(root, reportFile)}.`,
     })

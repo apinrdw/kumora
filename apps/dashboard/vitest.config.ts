@@ -3,10 +3,10 @@ import { configDefaults, defineConfig } from "vitest/config"
 import { testTimeout } from "../../vitest.timeout.mts"
 
 // The row budgets (tests/server/market-live/row-budgets.workerd.test.ts) run
-// the day object in workerd; `pnpm --filter dashboard test:row-budgets` runs
+// the day object in workerd; `vp run --filter dashboard test:row-budgets` runs
 // them alone.
 const ROW_BUDGETS = "tests/**/*.workerd.test.ts"
-// Decision: the whole busy day runs on request, outside pnpm check and CI
+// Decision: the whole busy day runs on request, outside vp run check and CI
 // (apps/dashboard/docs/adr/0011-the-whole-busy-day-runs-outside-pnpm-check-and-ci.md)
 const WHOLE_DAY = "tests/**/whole-day.workerd.test.ts"
 
@@ -24,7 +24,7 @@ export default defineConfig({
     // (#171).
     maxWorkers: 2,
     testTimeout,
-    // Decision: the row budgets run with the unit tests in pnpm check and CI
+    // Decision: the row budgets run with the unit tests in vp run check and CI
     // (apps/dashboard/docs/adr/0012-row-budgets-run-with-the-unit-tests.md)
     projects: [
       {

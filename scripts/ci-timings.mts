@@ -1,5 +1,5 @@
 // Where a workflow run's time went: each job's seconds and its slowest steps.
-// `pnpm ci-timings <run-id>` (from `gh run list`) runs it, for a run of any
+// `vp run ci-timings <run-id>` (from `gh run list`) runs it, for a run of any
 // workflow.
 import { Console, Effect, Schema } from "effect"
 
@@ -71,7 +71,7 @@ export const ciTimings = Effect.fn("ciTimings")(function* (
   const [runId = ""] = args
   if (!/^\d+$/.test(runId))
     return yield* new CheckFailed({
-      summary: "Usage: pnpm ci-timings <run-id>",
+      summary: "Usage: vp run ci-timings <run-id>",
       findings: [],
     })
   const run = yield* decode(Run, yield* api(root, `actions/runs/${runId}`))

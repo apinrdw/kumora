@@ -18,7 +18,7 @@ A decision whose undoing reaches beyond its line is an ADR in a `docs/adr/` dire
 
 ### Deploys
 
-Alchemy deploys `apps/web` and `apps/dashboard` through Workers Builds: `main` to production, `staging` to staging, every other branch to its own preview stage. `staging` is the default branch: a PR targets it. Every `staging` commit is up for release. The owner bumps the Release version (`version` in the root, `apps/dashboard` and `apps/web` `package.json`, kept equal by `scripts/check-release-version.mts`), pushes a Release tag (`v<version>-<YYYYMMDD>`) on a `staging` commit, then publishes a GitHub Release on that tag, which `.github/workflows/release.yml` fast-forwards `main` to. Pushing a tag alone never releases; `scripts/release-tag.mts` holds the tag rules. Only a hotfix targets `main`; `.github/workflows/sync-staging.yml` then opens a PR syncing `main` back into `staging`. Each app's stack is its `alchemy.run.ts`; the stage logic, Worker names and deploy script live in `packages/deploy` (see its `GLOSSARY.md`). `.github/workflows/teardown-preview.yml` destroys a preview when its PR closes or its branch is deleted. Secrets come from the Infisical project `kumora`. `pnpm dev` runs both apps fully locally with `bun alchemy dev`. The human steps are in `docs/runbooks/deploy.md`.
+Alchemy deploys `apps/web` and `apps/dashboard` through Workers Builds: `main` to production, `staging` to staging, every other branch to its own preview stage. `staging` is the default branch: a PR targets it. Every `staging` commit is up for release. The owner bumps the Release version (`version` in the root, `apps/dashboard` and `apps/web` `package.json`, kept equal by `scripts/check-release-version.mts`), pushes a Release tag (`v<version>-<YYYYMMDD>`) on a `staging` commit, then publishes a GitHub Release on that tag, which `.github/workflows/release.yml` fast-forwards `main` to. Pushing a tag alone never releases; `scripts/release-tag.mts` holds the tag rules. Only a hotfix targets `main`; `.github/workflows/sync-staging.yml` then opens a PR syncing `main` back into `staging`. Each app's stack is its `alchemy.run.ts`; the stage logic, Worker names and deploy script live in `packages/deploy` (see its `GLOSSARY.md`). `.github/workflows/teardown-preview.yml` destroys a preview when its PR closes or its branch is deleted. Secrets come from the Infisical project `kumora`. `vp run dev` runs both apps fully locally with `bun alchemy dev`. The human steps are in `docs/runbooks/deploy.md`.
 
 ### Production data
 
@@ -28,6 +28,10 @@ Before reading a deployed stage's recorded days (a measurement, a research ticke
 
 A PR that changes `apps/extension` bumps `version` in its `package.json`, the owner's only way to tell unpacked builds apart; `scripts/check-extension-version.mts` fails it otherwise.
 
+### Toolchain CLI
+
+`vp` (Vite+) is the CLI for package work, and pnpm resolves packages underneath it (`docs/adr/0021-vp-is-the-cli-pnpm-resolves-underneath-turbo-still-runs-the-tasks.md`): `vp install`, `vp add`, `vp exec`, `vp dlx`, and `vp run <script>` for a root `package.json` script (`vp run check`, `vp run dev`). Bare `vp dev`, `vp build` and `vp test` are Vite+'s own commands, not the repo's scripts. The lockfile, `pnpm-workspace.yaml` and the catalog stay pnpm's, and turbo still runs the tasks.
+
 ### Vendored references
 
 `repos/effect` and `repos/alchemy` are read-only `git subtree --squash` copies of the installed Effect and Alchemy versions.
@@ -35,7 +39,7 @@ A PR that changes `apps/extension` bumps `version` in its `package.json`, the ow
 - Read `repos/effect/LLMS.md` before writing Effect code. Consult `repos/alchemy` for Alchemy resources and props.
 - Never edit `repos/`, and never import from it. Lint rejects the import.
 - The `effect` and `alchemy` versions live once, in the `pnpm-workspace.yaml` catalog. A PR that bumps either also runs `git subtree pull --prefix repos/<name> <url> <tag> --squash` to the matching tag. Alchemy's subtree brings back its `submodules/*` entries, which break the Workers Builds clone: drop them with `git rm --cached`; `scripts/check-no-gitlinks.mts` fails until you do.
-- After any filtered `pnpm --filter <pkg> add`, run a full `pnpm install`: a filtered add links only that package and the root, which leaves the other workspaces unresolved.
+- After any filtered `vp add --filter <pkg>`, run a full `vp install`: a filtered add links only that package and the root, which leaves the other workspaces unresolved.
 
 ### Briefing a subagent
 
@@ -55,7 +59,7 @@ Before writing a PR body (opening a PR or rewriting one), invoke the `/mattpococ
 
 List each ADR the PR adds, edits or supersedes, by title and path, under a `Decisions` heading in the PR body. Leave the heading out when there are none.
 
-CI holds a PR that touches `apps/{web,dashboard,extension,e2e}` or `packages/` on its `e2e-evidence` status. After opening one, run `pnpm e2e:evidence <spec...>` naming the specs that show the change, or add the `no-e2e-evidence` label when nothing visible changed. Rules: `.claude/skills/post-implementation-review/workspaces/e2e.md`.
+CI holds a PR that touches `apps/{web,dashboard,extension,e2e}` or `packages/` on its `e2e-evidence` status. After opening one, run `vp run e2e:evidence <spec...>` naming the specs that show the change, or add the `no-e2e-evidence` label when nothing visible changed. Rules: `.claude/skills/post-implementation-review/workspaces/e2e.md`.
 
 ## Asking the user
 
