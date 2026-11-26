@@ -10,20 +10,15 @@
 //   URL among them, gets a 301 to the Stage URL's host, the path joined under
 //   the base path and the query kept.
 import { DashboardBasePath, pathUnderBase } from "@workspace/client/base-path"
+import { WorkerEnv } from "@workspace/server"
 import { Effect, Option } from "effect"
+
+import { dashboardStageUrl } from "./dashboard-url.ts"
 
 // Cloudflare's own paths on every host, such as `alchemy dev`'s local R2
 // endpoint (apps/e2e/support/archive-bucket.ts). The dev server
 // (vite.config.ts) passes them through too.
 export const CLOUDFLARE_PATH = "/cdn-cgi/"
-
-// The bindings the entry's redirects read.
-// Decision: Production alone redirects other hosts to its Stage URL
-// (apps/dashboard/docs/adr/0135-production-alone-redirects-other-hosts-to-its-stage-url.md)
-export interface RedirectEnv {
-  readonly DASHBOARD_URL: string
-  readonly REDIRECT_TO_STAGE_URL?: "on"
-}
 
 const underBase = Effect.fnUntraced(function* (pathname: string) {
   return Option.isSome(yield* pathUnderBase(pathname))
@@ -41,24 +36,21 @@ export const redirectIntoBase = Effect.fnUntraced(function* (request: Request) {
   return Option.some(Response.redirect(url.href, 301))
 })
 
-const redirectToStageUrl = Effect.fnUntraced(function* (
-  request: Request,
-  env: RedirectEnv
-) {
-  const url = new URL(request.url)
-  const stage = new URL(env.DASHBOARD_URL)
-  if (env.REDIRECT_TO_STAGE_URL === undefined || url.host === stage.host)
+// Decision: Production alone redirects other hosts to its Stage URL
+// (apps/dashboard/docs/adr/0135-production-alone-redirects-other-hosts-to-its-stage-url.md)
+const redirectToStageUrl = Effect.fnUntraced(function* (request: Request) {
+  if ((yield* WorkerEnv).REDIRECT_TO_STAGE_URL === undefined)
     return Option.none()
+  const url = new URL(request.url)
+  const stage = new URL(yield* dashboardStageUrl)
+  if (url.host === stage.host) return Option.none()
   const path = yield* underBase(url.pathname)
   return Option.some(
     Response.redirect(`${stage.origin}${path}${url.search}`, 301)
   )
 })
 
-export const entryRedirect = Effect.fnUntraced(function* (
-  request: Request,
-  env: RedirectEnv
-) {
-  const toStage = yield* redirectToStageUrl(request, env)
+export const entryRedirect = Effect.fnUntraced(function* (request: Request) {
+  const toStage = yield* redirectToStageUrl(request)
   return Option.isSome(toStage) ? toStage : yield* redirectIntoBase(request)
 })

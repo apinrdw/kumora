@@ -5,7 +5,11 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { vi } from "vitest"
 
-import type { RedirectEnv } from "@/server/base-redirect"
+// The bindings the entry's redirects read.
+interface RedirectEnv {
+  readonly DASHBOARD_URL: string
+  readonly REDIRECT_TO_STAGE_URL?: "on"
+}
 
 // The entry's Durable Object and Workflow classes extend these at import.
 vi.mock("cloudflare:workers", () => ({
