@@ -15,6 +15,7 @@ import {
   Answer,
   BrokerEvent,
   PageEvent,
+  StaticHeadersMessage,
   detached,
   step,
   type BrokerInput,
@@ -23,6 +24,7 @@ import {
   type LocalRequest,
   type Payload,
   type SiteName,
+  type StaticHeaders,
   type TabCommand,
   type TabRequest,
   type Window,
@@ -31,6 +33,7 @@ import {
 const decodeBrokerEvent = Schema.decodeUnknownOption(BrokerEvent)
 const decodeAnswer = Schema.decodeUnknownOption(Answer)
 const decodePageEvent = Schema.decodeUnknownOption(PageEvent)
+const decodeStaticHeaders = Schema.decodeUnknownOption(StaticHeadersMessage)
 const decodeFeed = Schema.decodeUnknownOption(Feed)
 
 // How long a caller waits for the tab's answer. The pacer (pacer.ts) gives
@@ -66,6 +69,12 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
   // What the page script sees of the page (Ajaib's lock screen). A tab that
   // goes reports its lock gone, or the lock of the tab that takes over.
   readonly page?: (event: PageEvent) => Effect.Effect<void>
+  // Where the page's latest static headers are kept for a tab that loads
+  // later (settings.ts); each tab of the feed that connects is sent them.
+  readonly staticHeaders?: {
+    readonly load: Effect.Effect<Option.Option<StaticHeaders>>
+    readonly save: (staticHeaders: StaticHeaders) => Effect.Effect<void>
+  }
 }) {
   const { feed, sites, batcher, publish, hooks } = options
   const page = options.page ?? (() => Effect.void)
@@ -145,6 +154,20 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     // Ports of other feeds belong to the other tab.
     const named = decodeFeed(port.name)
     if (Option.isNone(named) || named.value !== feed) return
+    // Decision: the worker keeps the static headers in chrome.storage.session
+    // (apps/extension/docs/adr/0025-the-ajaib-static-headers-live-in-chrome-storage-session-via-the-worker.md)
+    if (options.staticHeaders !== undefined) {
+      const kept = yield* options.staticHeaders.load
+      if (Option.isSome(kept))
+        yield* Effect.ignore(
+          Effect.try(() =>
+            port.postMessage({
+              _tag: "static-headers",
+              staticHeaders: kept.value,
+            } satisfies TabCommand)
+          )
+        )
+    }
     if (active === undefined) yield* attach(port)
     else waiting.push(port)
   })
@@ -161,6 +184,11 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     port: chrome.runtime.Port,
     raw: unknown
   ) {
+    const reported = decodeStaticHeaders(raw)
+    if (Option.isSome(reported) && Option.contains(decodeFeed(port.name), feed))
+      return yield* (
+        options.staticHeaders?.save(reported.value.staticHeaders) ?? Effect.void
+      )
     if (port !== active) {
       const seen = decodePageEvent(raw)
       if (Option.isSome(seen) && seen.value._tag === "lock")

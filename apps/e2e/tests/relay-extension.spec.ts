@@ -13,6 +13,9 @@ import { readFileSync } from "node:fs"
 
 import { MEMBER } from "../support/accounts"
 import {
+  AJAIB_DEVICE_SIGNATURE,
+  AJAIB_PAGE_TOKEN,
+  AJAIB_STATIC_HEADERS,
   AJAIB_TAB,
   AJAIB_USER_ID,
   PIN_ANSWERS,
@@ -448,23 +451,6 @@ test("the options page shows the broker codes walks, and Pause and Run now steer
       .poll(() => worker.evaluate("chrome.action.getBadgeText({})"))
       .toBe("PIN")
 
-    // Ajaib's repair pass: its blocks and their time left, in place of the
-    // first pass's pace and time left.
-    await worker.evaluate(`chrome.storage.session.set({ brokerCodesProgress: {
-      state: "walking", walk: "newest", day: "2026-10-02", feed: "Ajaib",
-      trades: { fetched: 1597070, of: 1597351, perSecond: 1040 },
-      repair: { done: 12, of: 87, perSecond: 0.07 } } })`)
-    await expect(options.getByLabel("Broker codes trades")).toHaveText(
-      "1,597,070 of 1,597,351 trades"
-    )
-    await expect(options.getByLabel("Broker codes repair")).toHaveText(
-      "repairing page seams: 12 of 87 blocks"
-    )
-    await expect(options.getByLabel("Broker codes time left")).toHaveText(
-      "18 min left"
-    )
-    await expect(options.getByLabel("Broker codes pace")).toHaveCount(0)
-
     // Resume runs the queue again, and it stops on Streaming hours.
     await options.getByRole("button", { name: "Resume" }).click()
     await expect
@@ -770,6 +756,81 @@ test("after Ajaib's tape walk, its Done Details walk posts the kept trades' orde
     await expect(options.getByLabel("Broker codes stock codes")).toHaveText(
       "12 of 900 codes"
     )
+  } finally {
+    await context.close()
+    await brokers.close()
+  }
+})
+
+test("after the Ajaib tab reloads and its page makes no call, a walk call still carries the page's static headers", async () => {
+  test.setTimeout(240_000)
+  const brokers = await startFakeBrokers()
+  brokers.production.statuses = (day) =>
+    day === CLOSED_DAY
+      ? {
+          ...completeDay(day),
+          n: null,
+          complete: false,
+          sources: { ajaib: 0, stockbit: 0 },
+          crossCheck: { state: "none" },
+        }
+      : completeDay(day)
+  brokers.tapes.ajaibStatus = () => ({ result: { status: "CLOSED" } })
+  brokers.tapes.ajaib = ajaibTape
+  const { context, worker, optionsUrl } = await launchWithExtension(
+    brokers.port
+  )
+  try {
+    // The PIN sign-in's token is the walk's once the page holds none.
+    const options = await context.newPage()
+    await options.goto(optionsUrl)
+    await options.getByLabel("Production ingest token").fill("any")
+    await options.getByRole("button", { name: "Save" }).click()
+    await expect(options.getByLabel("Production state")).toHaveText("Connected")
+    await options.getByLabel("Ajaib PIN").fill("123456")
+    await options.getByRole("button", { name: "Sign in" }).click()
+    await setRelayClock(worker, SESSION_1)
+    await expect
+      .poll(
+        () => stored(worker, "session", "brokerCodesProgress"),
+        AJAIB_TAB_POLL
+      )
+      .toEqual({ state: "paused", cause: "streaming-hours" })
+    const ajaibTab = await context.newPage()
+    await ajaibTab.goto(AJAIB_TAB)
+    await ajaibAttached(worker, brokers)
+    await expect(options.getByLabel("Ajaib sign-in state")).toHaveText(
+      "Signed in."
+    )
+
+    // After the close the reloaded page drives its data over sockets and
+    // makes no REST call of its own.
+    brokers.ajaibPage.calls = false
+    const reloadedAt = brokers.requests.length
+    await ajaibTab.reload()
+    await setRelayClock(worker, EVENING)
+    const walkCalls = () =>
+      brokers.requests
+        .slice(reloadedAt)
+        .filter((request) =>
+          request.path.startsWith("/api/v1/stock/detail/running_trades/")
+        )
+    await expect
+      .poll(() => walkCalls().length, { timeout: 180_000, intervals: [1_000] })
+      .toBeGreaterThan(0)
+
+    const [call] = walkCalls()
+    expect(call?.headers).toMatchObject({
+      ...AJAIB_STATIC_HEADERS,
+      authorization: `jwt ${PIN_ANSWERS.approved.result.access_token}`,
+    })
+    expect(call?.headers).not.toHaveProperty("x-device-signature")
+    // Nothing secret is kept.
+    const session = await worker.evaluate(
+      "chrome.storage.session.get(null).then((all) => JSON.stringify(all))"
+    )
+    expect(session).not.toContain(AJAIB_PAGE_TOKEN)
+    expect(session).not.toContain(AJAIB_DEVICE_SIGNATURE)
   } finally {
     await context.close()
     await brokers.close()

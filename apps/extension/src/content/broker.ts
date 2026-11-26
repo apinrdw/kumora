@@ -10,11 +10,14 @@
 import type { Connection, Feed } from "@workspace/relay"
 
 import type {
+  ApiRequest,
   BrokerCommand,
   BrokerEvent,
   PageEvent,
   Payload,
   SiteName,
+  StaticHeaders,
+  StaticHeadersMessage,
   TabCommand,
   TabRequest,
 } from "../worker/broker.ts"
@@ -34,11 +37,28 @@ const AJAIB_API_BASE = "https://ht2.ajaib.co.id/api/"
 
 const feed: Feed = location.hostname === "stockbit.com" ? "Stockbit" : "Ajaib"
 
+// The headers that sign one call, which the static headers never hold.
+// Branded by a cast, not decoded: this script can't load Schema, and the
+// worker decodes what it's sent (tab.ts).
+const SIGNING_HEADERS = ["authorization", "x-device-signature"]
+const staticHeaders = (request: ApiRequest) =>
+  ({
+    base: request.base,
+    headers: Object.fromEntries(
+      Object.entries(request.headers).filter(
+        ([name]) => !SIGNING_HEADERS.includes(name.toLowerCase())
+      )
+    ),
+  }) as StaticHeaders
+
 // The page's latest REST request, from the MAIN-world wrapper (page.ts): its
 // API base and its exact headers. Ajaib answers 403 without them.
-let pageRequest:
-  | { readonly base: string; readonly headers: Record<string, string> }
-  | undefined
+let pageRequest: ApiRequest | undefined
+// The worker's kept static headers from an earlier page of this tab, which
+// stand in until this page makes a call.
+let kept: StaticHeaders | undefined
+const ownStaticHeaders = () =>
+  pageRequest === undefined ? kept : staticHeaders(pageRequest)
 window.addEventListener("message", (event) => {
   const data: unknown = event.data
   if (
@@ -52,11 +72,18 @@ window.addEventListener("message", (event) => {
     "headers" in data &&
     typeof data.headers === "object" &&
     data.headers !== null
-  )
+  ) {
     pageRequest = {
       base: data.base,
       headers: data.headers as Record<string, string>,
     }
+    // Decision: the worker keeps the static headers in chrome.storage.session
+    // (apps/extension/docs/adr/0025-the-ajaib-static-headers-live-in-chrome-storage-session-via-the-worker.md)
+    forward({
+      _tag: "static-headers",
+      staticHeaders: staticHeaders(pageRequest),
+    })
+  }
 })
 
 window.postMessage({ kumoraRelay: "ask-page-request" }, location.origin)
@@ -64,7 +91,7 @@ window.postMessage({ kumoraRelay: "ask-page-request" }, location.origin)
 // Ajaib's lock screen (spec apinrdw/kumora#244, "The extension: Ajaib
 // keep-alive and the PIN lock"): page.ts reports it and the page's PIN check,
 // which go to the worker over the current port, and answers `type-pin`.
-let forward: (event: PageEvent) => void = () => {}
+let forward: (event: PageEvent | StaticHeadersMessage) => void = () => {}
 const typing = new Map<number, (typed: boolean) => void>()
 let nextTyping = 0
 
@@ -156,9 +183,9 @@ const authorization = () =>
     )?.[1] ?? ""
   )?.groups
 
-// A page-fetch's headers: the page's own with `bearer` in place of their
-// token; before the page made a call, `bearer` or `token` alone; none
-// without any.
+// A page-fetch's headers: the page's own; with `bearer`, or before the page
+// made a call with `token`, the static headers signed with it; none without
+// either. The owner's console collector sends no device signature either.
 const pageHeaders = (
   bearer: string | undefined,
   token: string | undefined
@@ -167,11 +194,8 @@ const pageHeaders = (
     return pageRequest.headers
   const sent = bearer ?? token
   if (sent === undefined) return undefined
-  const own = Object.entries(pageRequest?.headers ?? {}).filter(
-    ([name]) => name.toLowerCase() !== "authorization"
-  )
   const scheme = authorization()?.scheme ?? "jwt"
-  return { ...Object.fromEntries(own), authorization: `${scheme} ${sent}` }
+  return { ...ownStaticHeaders()?.headers, authorization: `${scheme} ${sent}` }
 }
 
 const answer = async (
@@ -192,7 +216,7 @@ const answer = async (
       // bearer token in the headers is the session.
       return read(
         await fetch(
-          new URL(request.path, pageRequest?.base ?? AJAIB_API_BASE),
+          new URL(request.path, ownStaticHeaders()?.base ?? AJAIB_API_BASE),
           { headers }
         )
       )
@@ -238,7 +262,9 @@ const relay = () => {
     // the tab reloads.
     return
   }
-  const post = (event: BrokerEvent | PageEvent | Answer) => {
+  const post = (
+    event: BrokerEvent | PageEvent | StaticHeadersMessage | Answer
+  ) => {
     try {
       port.postMessage(event)
     } catch {
@@ -293,6 +319,9 @@ const relay = () => {
         sockets.delete(keyOf(command))
         return socket?.close()
       }
+      case "static-headers":
+        kept = command.staticHeaders
+        return
       case "request":
         return void reply(command.request).then(
           ([status, body, challenge]) =>

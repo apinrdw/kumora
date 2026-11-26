@@ -180,12 +180,37 @@ const AJAIB_HEADER = "x-fake-ajaib-page"
 /** Ajaib's stock code list, as the fake answers it. */
 export const LISTED_CODES = ["BBCA", "BRMS", "ENRG", "TLKM"]
 
+/** The static headers the fake Ajaib page sends on its calls, as Ajaib's does. */
+export const AJAIB_STATIC_HEADERS = {
+  "x-ht-ver-id": "fake-ver-7",
+  "x-product": "fake-product",
+  "x-platform": "web",
+  "x-device-name": "fake-device",
+  "x-web-version": "9.9.9",
+  "x-app-mode": "fake-mode",
+  accept: "application/json, text/plain, */*",
+}
+
+/** The page call's own token and device signature, which are never kept. */
+export const AJAIB_PAGE_TOKEN = "fake-ajaib-token"
+export const AJAIB_DEVICE_SIGNATURE = "fake-device-signature"
+
 // The fake Ajaib page calls its own API once it loads, signed `jwt <token>`
 // as Ajaib's is, then sends a token-less beacon under the same path, which
 // the relay's MAIN-world wrapper must not take for the page's headers.
+const AJAIB_PAGE_HEADERS = JSON.stringify({
+  ...AJAIB_STATIC_HEADERS,
+  [AJAIB_HEADER]: "yes",
+  authorization: `jwt ${AJAIB_PAGE_TOKEN}`,
+  "x-device-signature": AJAIB_DEVICE_SIGNATURE,
+})
 const AJAIB_PAGE = `<!doctype html><title>Fake Ajaib</title><p>Fake Ajaib</p>
-<script>fetch("/api/v1/user/profile/", { headers: { "${AJAIB_HEADER}": "yes", authorization: "jwt fake-ajaib-token" } })
+<script>fetch("/api/v1/user/profile/", { headers: ${AJAIB_PAGE_HEADERS} })
   .then(() => fetch("/api/v1/log/", { method: "POST", headers: { "content-type": "text/plain" }, body: "beacon" }))</script>`
+// The page after the close, when Ajaib's drives its data over sockets: no
+// REST call of its own.
+const SILENT_AJAIB_PAGE =
+  "<!doctype html><title>Fake Ajaib</title><p>Fake Ajaib</p>"
 
 // Stockbit's session cookies as a Google sign-in leaves them
 // (apinrdw/kumora#591): `credentialStorage` holds the user and no token, and
@@ -234,6 +259,9 @@ export async function startFakeBrokers() {
     statuses: () => undefined,
     batches: [],
   }
+  // Whether the Ajaib page makes its own REST call as it loads; a test
+  // turns it off.
+  const ajaibPage = { calls: true }
   const sockets: Array<BrokerSocket> = []
   const requests: Array<{ path: string; headers: Record<string, unknown> }> = []
   const server: Server = createServer(
@@ -282,7 +310,13 @@ export async function startFakeBrokers() {
         response.setHeader("access-control-allow-credentials", "true")
         response.setHeader(
           "access-control-allow-headers",
-          `content-type, authorization, ${AJAIB_HEADER}`
+          [
+            "content-type",
+            "authorization",
+            "x-device-signature",
+            AJAIB_HEADER,
+            ...Object.keys(AJAIB_STATIC_HEADERS),
+          ].join(", ")
         )
         if (request.method === "OPTIONS") return response.end()
         let body = ""
@@ -332,7 +366,7 @@ export async function startFakeBrokers() {
       }
       if (path.startsWith("/api/")) return response.end("{}")
       response.writeHead(200, { "content-type": "text/html" })
-      response.end(AJAIB_PAGE)
+      response.end(ajaibPage.calls ? AJAIB_PAGE : SILENT_AJAIB_PAGE)
     }
   )
   const streams = new WebSocketServer({
@@ -364,6 +398,7 @@ export async function startFakeBrokers() {
     tapes,
     production,
     pin,
+    ajaibPage,
     sockets,
     requests,
     /** The sockets opened on one path, oldest first. */

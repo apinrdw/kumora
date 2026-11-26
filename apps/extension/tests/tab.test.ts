@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import type { IngestUp } from "@workspace/relay"
-import { Effect } from "effect"
+import { Effect, Fiber, Option } from "effect"
 
 import { makeBatcher } from "../src/worker/batch.ts"
 import {
@@ -9,7 +9,9 @@ import {
   type BrokerEvent,
   type PageEvent,
 } from "../src/worker/broker.ts"
+import { loadStaticHeaders, saveStaticHeaders } from "../src/worker/settings.ts"
 import { makeBrokerTab, type TabHooks } from "../src/worker/tab.ts"
+import { memorySession } from "./memory-session.ts"
 
 const hooks: TabHooks = {
   opened: () => Effect.void,
@@ -147,6 +149,124 @@ describe("a broker tab's page events", () => {
         yield* tab.message(second, { _tag: "lock", locked: true })
         yield* tab.disconnect(port)
         assert.deepStrictEqual(events.at(-1), { _tag: "lock", locked: true })
+      })
+  )
+})
+
+describe("the Ajaib page's kept static headers", () => {
+  const makeTab = Effect.gen(function* () {
+    memorySession()
+    return yield* makeBrokerTab({
+      feed: "Ajaib",
+      sites: [ajaib, ...ajaibOnDemand],
+      batcher: yield* makeBatcher(),
+      publish: () => Effect.void,
+      hooks,
+      staticHeaders: { load: loadStaticHeaders, save: saveStaticHeaders },
+    })
+  })
+  // A port that records each command the worker posts to its tab.
+  const recording = () => {
+    const posted: Array<unknown> = []
+    const recorder = {
+      name: "Ajaib",
+      postMessage: (command: unknown) => void posted.push(command),
+    } as unknown as chrome.runtime.Port
+    return { recorder, posted }
+  }
+  const BASE = "https://trade.ajaib.co.id/api/"
+  const reported = (headers: Record<string, string>) => ({
+    _tag: "static-headers",
+    staticHeaders: { base: BASE, headers },
+  })
+
+  it.effect(
+    "a tab that loads after the page's call gets its static headers",
+    () =>
+      Effect.gen(function* () {
+        const tab = yield* makeTab
+        yield* tab.connect(port)
+        yield* tab.message(
+          port,
+          reported({ "X-Ht-Ver-Id": "4.2", Accept: "application/json" })
+        )
+        yield* tab.disconnect(port)
+        const reloaded = recording()
+        yield* tab.connect(reloaded.recorder)
+        assert.deepStrictEqual(
+          reloaded.posted.at(-1),
+          reported({ "X-Ht-Ver-Id": "4.2", Accept: "application/json" })
+        )
+      })
+  )
+
+  it.effect("headers the page sends later replace the kept ones", () =>
+    Effect.gen(function* () {
+      const tab = yield* makeTab
+      yield* tab.connect(port)
+      for (const version of ["4.2", "4.3"])
+        yield* tab.message(port, reported({ "x-ht-ver-id": version }))
+      yield* tab.disconnect(port)
+      const reloaded = recording()
+      yield* tab.connect(reloaded.recorder)
+      assert.deepStrictEqual(
+        reloaded.posted.at(-1),
+        reported({ "x-ht-ver-id": "4.3" })
+      )
+    })
+  )
+
+  it.effect("a tab that loads before any page call is sent nothing", () =>
+    Effect.gen(function* () {
+      const tab = yield* makeTab
+      const first = recording()
+      yield* tab.connect(first.recorder)
+      assert.notInclude(
+        first.posted.map((command) => (command as { _tag: string })._tag),
+        "static-headers"
+      )
+    })
+  )
+})
+
+describe("a broker tab's REST answers", () => {
+  // The Ajaib walk's calls (ajaib-calls.ts) read a failed request as an
+  // unanswered one, so the tab's status 0 must reach them as none.
+  it.effect(
+    "a request the tab reports as failed, with no status, reaches its caller as no answer",
+    () =>
+      Effect.gen(function* () {
+        const posted: Array<{ _tag: string; id?: number }> = []
+        const recorder = {
+          name: "Ajaib",
+          postMessage: (command: { _tag: string; id?: number }) =>
+            void posted.push(command),
+        } as unknown as chrome.runtime.Port
+        const tab = yield* makeBrokerTab({
+          feed: "Ajaib",
+          sites: [ajaib, ...ajaibOnDemand],
+          batcher: yield* makeBatcher(),
+          publish: () => Effect.void,
+          hooks,
+        })
+        yield* tab.connect(recorder)
+        const call = yield* Effect.forkChild(
+          tab.awaitAnswer({
+            _tag: "page-fetch",
+            path: "v1/stock/running_trades/",
+            bearer: "token",
+          })
+        )
+        yield* Effect.yieldNow
+        const sent = posted.find((command) => command._tag === "request")
+        assert.isDefined(sent?.id)
+        yield* tab.message(recorder, {
+          _tag: "answer",
+          id: sent?.id,
+          status: 0,
+          body: "",
+        })
+        assert.deepStrictEqual(yield* Fiber.join(call), Option.none())
       })
   )
 })

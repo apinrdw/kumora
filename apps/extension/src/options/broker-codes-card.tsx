@@ -117,7 +117,6 @@ const walkDetails = (walk: Effect.Success<ReturnType<typeof walkView>>) =>
     [
       ["Broker codes phase", walk.phase],
       ["Broker codes trades", walk.trades],
-      ["Broker codes repair", walk.repair],
       ["Broker codes stock codes", walk.codes],
       ["Broker codes pace", walk.pace],
       ["Broker codes time left", walk.left],

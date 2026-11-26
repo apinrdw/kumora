@@ -47,3 +47,19 @@ _Avoid_: login, PIN retry
 **Ajaib locked**:
 Ajaib's idle PIN lock showing on the relayed tab with no way for the extension to unlock it: no PIN kept, the kept one refused, or no lock screen boxes found. The extension keeps the lock away with a synthetic `mousemove` every 10 minutes, and records this cause for the options page and badge when it shows anyway.
 _Avoid_: PIN lock (the screen itself), signed out
+
+**Walk token**:
+The Ajaib access token a post-close walk's call sends: the one in the Ajaib tab's `trade_access_token` cookie at the moment of the call, else the page's own, else the PIN sign-in's, the first of them not a refused token. Ajaib rotates it, so it is never reused from an earlier call.
+_Avoid_: page token (that is only a fallback), session
+
+**Refused token**:
+A walk token the walks never send again: Ajaib answered a call made with it with a 401, two calls in a row with it got no answer, or it is past its expiry.
+_Avoid_: expired token (expiry is one way of three)
+
+**Stall cause**:
+Why an Ajaib walk's last call failed while it retries in place: a refused token, no answer, or a timeout, with how many calls in a row have failed and whether the walk token changed meanwhile. The Broker codes card shows it until a call answers.
+_Avoid_: error, stuck reason
+
+**Static headers**:
+The Ajaib page's REST request headers other than its token (`Authorization`) and `X-Device-Signature`, with the page's API base. The extension keeps the page's latest in `chrome.storage.session` until Chrome closes, and a reloaded tab's walk calls send them with the walk token until the page makes a call of its own.
+_Avoid_: page headers (those include the token)

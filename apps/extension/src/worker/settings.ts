@@ -18,6 +18,7 @@ import {
   BrokerCodesProgress,
   type IncompleteDaysStore,
 } from "./broker-codes/run-queue.ts"
+import { StaticHeaders } from "./broker.ts"
 import { CodeListCache, RelayOutcome, type CodeListStore } from "./code-list.ts"
 import { ErrorLogEntry, redact, type ErrorLogStore } from "./error-log.ts"
 
@@ -342,6 +343,26 @@ export const saveAjaibLock = Effect.fnUntraced(function* (lock: AjaibLock) {
     chrome.storage.session.set({ [AJAIB_LOCK_KEY]: encoded })
   )
 })
+
+// The Ajaib page's latest static headers, until Chrome closes, so a
+// reloaded tab's page-fetches still send them before the page makes a call.
+// Decision: the worker keeps the static headers in chrome.storage.session
+// (apps/extension/docs/adr/0025-the-ajaib-static-headers-live-in-chrome-storage-session-via-the-worker.md)
+const STATIC_HEADERS_KEY = "ajaibStaticHeaders"
+const decodeStaticHeaders = Schema.decodeUnknownOption(StaticHeaders)
+
+export const saveStaticHeaders = Effect.fnUntraced(function* (
+  staticHeaders: StaticHeaders
+) {
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({ [STATIC_HEADERS_KEY]: staticHeaders })
+  )
+})
+
+export const loadStaticHeaders = Effect.map(
+  Effect.promise(() => chrome.storage.session.get(STATIC_HEADERS_KEY)),
+  (stored) => decodeStaticHeaders(stored[STATIC_HEADERS_KEY])
+)
 
 // A value the extra target's catch-up keeps in local storage beside the
 // origin it was kept for. A load captures the origin as it stands, and reads

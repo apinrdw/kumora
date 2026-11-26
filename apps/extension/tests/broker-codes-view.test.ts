@@ -181,7 +181,6 @@ describe("the options page's broker codes section", () => {
           walk: "Stockbit, 2026-11-12 (newest closed day)",
           phase: "",
           trades: "460,000 of 1,000,000 trades",
-          repair: "",
           codes: "",
           pace: "300 trades/s",
           left: "30 min left",
@@ -198,7 +197,6 @@ describe("the options page's broker codes section", () => {
           walk: "Stockbit, 2026-11-12 (History)",
           phase: "",
           trades: "",
-          repair: "",
           codes: "",
           pace: "",
           left: "",
@@ -223,7 +221,6 @@ describe("the options page's broker codes section", () => {
           walk: "Ajaib Done Details, 2026-11-12 (newest closed day)",
           phase: "fetching since 00:02",
           trades: "",
-          repair: "",
           codes: "12 of 900 codes",
           pace: "",
           left: "",
@@ -232,78 +229,6 @@ describe("the options page's broker codes section", () => {
       // Before its first code.
       assert.strictEqual((yield* walkView(doneDetails)).codes, "")
     })
-  )
-
-  it.effect(
-    "shows the repair pass's blocks and its own time left, not the first pass's",
-    () =>
-      Effect.gen(function* () {
-        const walking = {
-          state: "walking",
-          walk: "newest",
-          day: DAY,
-          feed: "Ajaib",
-        } as const
-        const trades = { fetched: 1_597_070, of: 1_597_351, perSecond: 1_040 }
-        // The pass has just started: no block walked again yet, so no pace.
-        assert.deepStrictEqual(
-          yield* walkView({
-            ...walking,
-            trades,
-            repair: { done: 0, of: 87, perSecond: null },
-          }),
-          {
-            walk: "Ajaib, 2026-11-12 (newest closed day)",
-            phase: "",
-            trades: "1,597,070 of 1,597,351 trades",
-            repair: "repairing page seams: 0 of 87 blocks",
-            codes: "",
-            pace: "",
-            left: "",
-          }
-        )
-        assert.deepStrictEqual(
-          yield* walkView({
-            ...walking,
-            trades,
-            repair: { done: 12, of: 87, perSecond: 0.07 },
-          }),
-          {
-            walk: "Ajaib, 2026-11-12 (newest closed day)",
-            phase: "",
-            trades: "1,597,070 of 1,597,351 trades",
-            repair: "repairing page seams: 12 of 87 blocks",
-            codes: "",
-            pace: "",
-            left: "18 min left",
-          }
-        )
-        // The last block is walked again: nothing is left to time.
-        assert.strictEqual(
-          (yield* walkView({
-            ...walking,
-            trades,
-            repair: { done: 87, of: 87, perSecond: 0.07 },
-          })).left,
-          ""
-        )
-        // A worker restarted in the repair pass has no first-pass trades.
-        assert.deepStrictEqual(
-          yield* walkView({
-            ...walking,
-            repair: { done: 3, of: 75, perSecond: 0.11 },
-          }),
-          {
-            walk: "Ajaib, 2026-11-12 (newest closed day)",
-            phase: "",
-            trades: "",
-            repair: "repairing page seams: 3 of 75 blocks",
-            codes: "",
-            pace: "",
-            left: "11 min left",
-          }
-        )
-      })
   )
 
   it.effect("shows the History walk running, waiting or finished", () =>
@@ -382,5 +307,57 @@ describe("the walk's phase", () => {
         "fetching since 17:05"
       )
     })
+  )
+
+  it.effect(
+    "while a call retries, says its stall cause, failed calls in a row and whether the walk token changed",
+    () =>
+      Effect.gen(function* () {
+        const since = Date.parse("2026-11-20T17:05:00+07:00")
+        const phaseOf = (phase: WalkPhase) =>
+          Effect.map(
+            walkView({
+              state: "walking",
+              walk: "newest",
+              day: DAY,
+              feed: "Ajaib",
+              phase,
+            }),
+            (view) => view.phase
+          )
+        assert.strictEqual(
+          yield* phaseOf({
+            step: "fetching",
+            since,
+            stall: { kind: "refused-token", failures: 1, tokenChanged: false },
+          }),
+          "fetching since 17:05, retrying: Ajaib refused the walk token, 1 call failed in a row, walk token unchanged"
+        )
+        assert.strictEqual(
+          yield* phaseOf({
+            step: "fetching",
+            since,
+            stall: { kind: "no-answer", failures: 2, tokenChanged: true },
+          }),
+          "fetching since 17:05, retrying: the Ajaib tab got no answer, 2 calls failed in a row, walk token changed since the first"
+        )
+        assert.strictEqual(
+          yield* phaseOf({
+            step: "awaiting-close",
+            since,
+            stall: { kind: "timeout", failures: 12, tokenChanged: false },
+          }),
+          "waiting for Ajaib's close since 17:05, retrying: the Ajaib tab didn't answer in time, 12 calls failed in a row, walk token unchanged"
+        )
+        assert.strictEqual(
+          yield* phaseOf({
+            step: "awaiting-token",
+            since,
+            reloads: 2,
+            stall: { kind: "refused-token", failures: 3, tokenChanged: true },
+          }),
+          "waiting for a fresh Ajaib token since 17:05, tab reloaded 2×, retrying: Ajaib refused the walk token, 3 calls failed in a row, walk token changed since the first"
+        )
+      })
   )
 })

@@ -95,6 +95,30 @@ describe("the broker codes progress", () => {
       })
   )
 
+  it.effect(
+    "writes a retrying call's stall cause at once, and clears it with the next phase",
+    () =>
+      Effect.gen(function* () {
+        const { saved, progress } = yield* harness()
+        yield* progress.report(WALKING)
+        const stall = {
+          kind: "no-answer",
+          failures: 2,
+          tokenChanged: true,
+        } as const
+        yield* progress.phase({ step: "fetching", since: 1, stall })
+        assert.deepStrictEqual(saved.at(-1), {
+          ...WALKING,
+          phase: { step: "fetching", since: 1, stall },
+        })
+        yield* progress.phase({ step: "fetching", since: 1 })
+        assert.deepStrictEqual(saved.at(-1), {
+          ...WALKING,
+          phase: { step: "fetching", since: 1 },
+        })
+      })
+  )
+
   it.effect("writes a walk's trades at most once a second", () =>
     Effect.gen(function* () {
       const { saved, progress } = yield* harness()
@@ -105,49 +129,6 @@ describe("the broker codes progress", () => {
       assert.lengthOf(saved, 2)
       yield* TestClock.adjust("700 millis")
       yield* progress.trades(300, Option.none())
-      assert.lengthOf(saved, 3)
-    })
-  )
-
-  it.effect(
-    "shows the repair pass's blocks and pace beside the first pass's trades",
-    () =>
-      Effect.gen(function* () {
-        const { saved, progress } = yield* harness()
-        const trades = { fetched: 9_000, of: 9_003, perSecond: null }
-        yield* progress.report(WALKING)
-        yield* progress.trades(9_000, Option.some(9_003))
-        // The pass's start is written at once, within a second of the trades.
-        yield* TestClock.adjust("200 millis")
-        yield* progress.repair(0, 8)
-        assert.deepStrictEqual(saved.at(-1), {
-          ...WALKING,
-          trades,
-          repair: { done: 0, of: 8, perSecond: null },
-        })
-        yield* TestClock.adjust("40 seconds")
-        yield* progress.repair(2, 8)
-        assert.deepStrictEqual(saved.at(-1), {
-          ...WALKING,
-          trades,
-          repair: { done: 2, of: 8, perSecond: 0.05 },
-        })
-        // The next walk starts without the last one's repair.
-        yield* progress.report({ ...WALKING, walk: "gaps" })
-        assert.deepStrictEqual(saved.at(-1), { ...WALKING, walk: "gaps" })
-      })
-  )
-
-  it.effect("writes a repair pass's blocks at most once a second", () =>
-    Effect.gen(function* () {
-      const { saved, progress } = yield* harness()
-      yield* progress.report(WALKING)
-      yield* progress.repair(0, 8)
-      yield* TestClock.adjust("300 millis")
-      yield* progress.repair(1, 8)
-      assert.lengthOf(saved, 2)
-      yield* TestClock.adjust("700 millis")
-      yield* progress.repair(2, 8)
       assert.lengthOf(saved, 3)
     })
   )

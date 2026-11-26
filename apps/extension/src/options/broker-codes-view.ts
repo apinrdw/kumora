@@ -11,6 +11,7 @@ import type { BrokerCodesTarget } from "../worker/broker-codes/poster.ts"
 import type {
   BrokerCodesProgress,
   PauseCause,
+  StallCause,
   WalkPhase,
 } from "../worker/broker-codes/run-queue.ts"
 import { fetchGet, statusOnce } from "../worker/broker-codes/status.ts"
@@ -180,27 +181,42 @@ const leftLabel = Effect.fnUntraced(function* (
   return `${yield* count(Math.max(1, Math.ceil(remaining / perSecond / 60)))} min left`
 })
 
+const stallKinds: Record<StallCause["kind"], string> = {
+  "refused-token": "Ajaib refused the walk token",
+  "no-answer": "the Ajaib tab got no answer",
+  timeout: "the Ajaib tab didn't answer in time",
+}
+
+// Why a call is retrying in place, after its phase; blank while none is.
+const stallLabel = Effect.fnUntraced(function* (stall: StallCause | undefined) {
+  if (stall === undefined) return ""
+  const calls = stall.failures === 1 ? "call" : "calls"
+  const token = stall.tokenChanged
+    ? "walk token changed since the first"
+    : "walk token unchanged"
+  return `, retrying: ${stallKinds[stall.kind]}, ${yield* count(stall.failures)} ${calls} failed in a row, ${token}`
+})
+
 // What the walk is doing and since when, in WIB; blank until it says.
 const phaseLabel = Effect.fnUntraced(function* (phase: WalkPhase | undefined) {
   if (phase === undefined) return ""
   const since = yield* wibClock(phase.since)
+  const stall = yield* stallLabel(phase.stall)
   switch (phase.step) {
     case "awaiting-close":
-      return `waiting for Ajaib's close since ${since}`
+      return `waiting for Ajaib's close since ${since}${stall}`
     case "fetching":
-      return `fetching since ${since}`
+      return `fetching since ${since}${stall}`
     case "awaiting-token":
       return phase.reloads === 0
-        ? `waiting for a fresh Ajaib token since ${since}`
-        : `waiting for a fresh Ajaib token since ${since}, tab reloaded ${yield* count(phase.reloads)}×`
+        ? `waiting for a fresh Ajaib token since ${since}${stall}`
+        : `waiting for a fresh Ajaib token since ${since}, tab reloaded ${yield* count(phase.reloads)}×${stall}`
   }
 })
 
 // The walk in progress: its site and day, what it is doing since when,
 // trades fetched of N, the Done Details walk's codes walked of the day's,
-// pace and time left, each blank until known. In Ajaib's repair pass the trades are
-// the first pass's last, so its blocks show in place of the trades' pace,
-// and the time left is the blocks'.
+// pace and time left, each blank until known.
 export const walkView = Effect.fnUntraced(function* (
   progress: Extract<BrokerCodesProgress, { state: "walking" }>
 ) {
@@ -210,7 +226,7 @@ export const walkView = Effect.fnUntraced(function* (
       : progress.feed
   const walk = `${site}, ${progress.day} (${walkNames[progress.walk]})`
   const phase = yield* phaseLabel(progress.phase)
-  const { trades, repair, stockCodes } = progress
+  const { trades, stockCodes } = progress
   const codes =
     stockCodes === undefined
       ? ""
@@ -221,24 +237,13 @@ export const walkView = Effect.fnUntraced(function* (
       : trades.of === null
         ? `${yield* count(trades.fetched)} trades`
         : `${yield* count(trades.fetched)} of ${yield* count(trades.of)} trades`
-  if (repair !== undefined)
-    return {
-      walk,
-      phase,
-      trades: fetched,
-      repair: `repairing page seams: ${yield* count(repair.done)} of ${yield* count(repair.of)} blocks`,
-      codes,
-      pace: "",
-      left: yield* leftLabel(repair.of - repair.done, repair.perSecond),
-    }
   if (trades === undefined)
-    return { walk, phase, trades: "", repair: "", codes, pace: "", left: "" }
+    return { walk, phase, trades: "", codes, pace: "", left: "" }
   const { of, perSecond } = trades
   return {
     walk,
     phase,
     trades: fetched,
-    repair: "",
     codes,
     pace: perSecond === null ? "" : `${yield* count(perSecond)} trades/s`,
     left: yield* leftLabel(of === null ? null : of - trades.fetched, perSecond),

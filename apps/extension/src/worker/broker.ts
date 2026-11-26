@@ -63,9 +63,10 @@ export type TabRequest =
       readonly headers: Readonly<Record<string, string>>
     }
   // A GET of `path` on the page's own REST API with the page's own headers,
-  // as the MAIN-world wrapper last saw them. Before it saw any, `token` (the
-  // PIN sign-in's) stands in on Ajaib's API host; status 0 without either.
-  // `bearer` replaces the headers' token when given.
+  // as the MAIN-world wrapper last saw them. `bearer`, or before the page
+  // made a call `token` (the PIN sign-in's), goes with the static headers
+  // instead: the page's, else the kept ones, else none on Ajaib's API host;
+  // status 0 without either token.
   | {
       readonly _tag: "page-fetch"
       readonly path: string
@@ -99,6 +100,9 @@ export type TabCommand =
       readonly id: number
       readonly request: TabRequest
     }
+  // The static headers kept from an earlier page of the tab (settings.ts),
+  // for its page-fetches until the page makes a call of its own.
+  | StaticHeadersMessage
 
 // Status 0: the request failed before any answer. `challenge` is set when
 // the answer carried Cloudflare's `cf-mitigated: challenge` header.
@@ -127,6 +131,26 @@ export const PageEvent = Schema.Union([
   Schema.TaggedStruct("pin-validated", { status: Schema.Int }),
 ])
 export type PageEvent = typeof PageEvent.Type
+
+// An Ajaib REST request's API base and headers.
+const ApiRequest = Schema.Struct({
+  base: Schema.String,
+  headers: Schema.Record(Schema.String, Schema.String),
+})
+export type ApiRequest = typeof ApiRequest.Type
+
+// The Ajaib page's static headers: its latest REST request's base and
+// headers but those that sign one call, which the content script drops
+// (content/broker.ts).
+export const StaticHeaders = ApiRequest.pipe(Schema.brand("StaticHeaders"))
+export type StaticHeaders = typeof StaticHeaders.Type
+
+// The static headers between the content script and the worker: reported
+// from each page call, and the kept ones sent to a tab as it connects.
+export const StaticHeadersMessage = Schema.TaggedStruct("static-headers", {
+  staticHeaders: StaticHeaders,
+})
+export type StaticHeadersMessage = typeof StaticHeadersMessage.Type
 
 // How the relay talks to one broker socket.
 export interface BrokerSite {

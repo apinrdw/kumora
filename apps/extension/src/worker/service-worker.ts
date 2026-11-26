@@ -79,6 +79,8 @@ import {
   loadSettings,
   loadTargetStates,
   saveAjaibLock,
+  loadStaticHeaders,
+  saveStaticHeaders,
   saveBrokerCodesProgress,
   saveBrokerCodesRun,
   saveCodeListRelay,
@@ -332,6 +334,7 @@ const main = Effect.gen(function* () {
     hooks: onDemand.hooks,
     page: (event): Effect.Effect<void> =>
       Effect.suspend(() => ajaibLock.page(event)),
+    staticHeaders: { load: loadStaticHeaders, save: saveStaticHeaders },
   })
   const tabs = [stockbitTab, ajaibTab]
   const ajaibLock = yield* makeAjaibLock({
@@ -423,6 +426,7 @@ const main = Effect.gen(function* () {
     ...ajaibPacer.tab("walk"),
     attached: ajaibTab.attached,
     reload: ajaibTab.reload,
+    signInToken: ajaibSession.fallbackToken,
   }
   // The trades Ajaib's walk keeps for its Done Details walk, which then
   // gives them their order numbers before Stockbit's walk.
@@ -432,7 +436,6 @@ const main = Effect.gen(function* () {
     post: extra.tee(production.post),
     store: yield* ajaibWalkStore,
     trades: progress.trades,
-    repaired: progress.repair,
     phase: progress.phase,
     keep: keptTrades.keep,
   })
