@@ -78,6 +78,8 @@ const KINDS: Record<
     // How the headline puts the period: "on 20 Nov 2026", "in Oct 2026".
     readonly at: string
     readonly columns: ReadonlyArray<Column>
+    // Whether it can have a Transfer: a month lists no accounts.
+    readonly transfers: boolean
     readonly link: (period: WibDate) => Effect.Effect<StockLink>
     readonly note: string
   }
@@ -90,6 +92,7 @@ const KINDS: Record<
     units: "trading days",
     at: "on",
     columns: COLUMNS,
+    transfers: true,
     link: (holdersDay) =>
       Effect.succeed({ search: { holdersDay }, hash: "daily-holders" }),
     note: `Percent of listed shares as IDX publishes it each trading day; holders under 5% are not listed. Moves follow shares, against the parsed day before. Lots: the change in shares, a New holder's whole holding in and an Off-list holder's last out. Through: the broker codes of the accounts whose shares changed, largest change first; Custodian for an account at a bank or other custodian that is not an exchange member. Transfer: the holder's total is unchanged but shares moved from accounts at some brokers to accounts at others, shown from → to with the lots that moved. Trend: the change in lots on each of the last ${TREND_PERIODS} trading days up to the selected one, blue where the holder entered the list, grey where it left, a tick where it transferred.`,
@@ -103,6 +106,7 @@ const KINDS: Record<
     at: "in",
     // The above-1% report lists no accounts.
     columns: COLUMNS.filter(([label]) => label !== "Through"),
+    transfers: false,
     link: (period) =>
       Effect.map(monthOf(period), (holdersMonth) => ({
         search: { holdersMonth },
@@ -129,12 +133,6 @@ const FILTERS: ReadonlyArray<{
   { filter: "transfer", label: "Transfer", of: (counts) => counts.transfer },
   { filter: "off list", label: "Off list", of: (counts) => counts.offList },
 ]
-
-// The filters a kind offers: a month has no accounts, so no Transfer.
-const filtersOf = (kind: MoveKind) =>
-  kind === "daily"
-    ? FILTERS
-    : FILTERS.filter(({ filter }) => filter !== "transfer")
 
 export function HolderMovesPage({
   kind,
@@ -192,7 +190,10 @@ export function HolderMovesPage({
                 aria-label="Move"
                 className="bg-surface inline-flex gap-0.5 rounded-md border border-border p-0.5"
               >
-                {filtersOf(moves.kind).map((each) => (
+                {FILTERS.filter(
+                  (each) =>
+                    each.filter !== "transfer" || KINDS[moves.kind].transfers
+                ).map((each) => (
                   <button
                     key={each.filter}
                     type="button"

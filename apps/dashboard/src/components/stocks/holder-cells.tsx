@@ -258,9 +258,7 @@ function Swatch({ className }: { className: string }) {
   )
 }
 
-// A broker code, or Custodian for an account at a bank or other custodian
-// that is not an exchange member.
-type Side = ReadonlyArray<BrokerCode | "custodian">
+type Brokers = ReadonlyArray<BrokerCode | "custodian">
 
 // A move's Through: a Transfer's brokers its shares left, then those they
 // reached; else the brokers of the accounts whose shares changed.
@@ -268,10 +266,10 @@ export function ThroughChips({
   through,
   transfer,
 }: {
-  through: Side
+  through: Brokers
   transfer: Transfer<BrokerCode | "custodian"> | undefined
 }) {
-  const chips = (side: Side) =>
+  const chips = (side: Brokers) =>
     side.map((broker) => <BrokerChip key={broker} broker={broker} />)
   return (
     <div className="flex flex-wrap items-center gap-1">
@@ -306,6 +304,8 @@ export function LotsChange({
   )
 }
 
+// A broker code, or Custodian for an account at a bank or other custodian
+// that is not an exchange member.
 export function BrokerChip({ broker }: { broker: BrokerCode | "custodian" }) {
   return (
     <span

@@ -173,7 +173,10 @@ const dailyLines = Effect.fnUntraced(function* (
 const DAILY: MovesSource<StockRows> = {
   // Bumped whenever deriving changes what it stores: the run then derives
   // every day again.
-  // 2: a holder move may be a Transfer (apinrdw/kumora#700).
+  // 2: a holder move may be a Transfer.
+  //
+  // Decision: a Transfer is shares crossing brokers with the total unchanged
+  // (apps/dashboard/docs/adr/0135-a-transfer-is-shares-crossing-brokers-with-the-total-unchanged.md)
   version: 2,
   window: DAILY_WINDOW,
   lines: "above_5_move",

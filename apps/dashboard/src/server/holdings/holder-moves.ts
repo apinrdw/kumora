@@ -16,6 +16,10 @@ import {
 import { decodeRows } from "../d1.ts"
 import { HoldingsDb, type HoldingsDbError } from "./db.ts"
 
+// A Transfer's custodians, from and to, and the shares that moved.
+//
+// Decision: a Transfer is shares crossing brokers with the total unchanged
+// (apps/dashboard/docs/adr/0135-a-transfer-is-shares-crossing-brokers-with-the-total-unchanged.md)
 const Transfer = Schema.Struct({
   from: Schema.Array(Schema.String),
   to: Schema.Array(Schema.String),

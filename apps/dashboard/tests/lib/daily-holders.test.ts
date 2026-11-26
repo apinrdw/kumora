@@ -144,6 +144,26 @@ describe("the Daily holders view model's Transfers", () => {
   )
 
   it.effect(
+    "keep a holder Unchanged whose shares moved between two spellings of one broker",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* twoDays(
+          [holding("PT TIGA", [[PROFINDO, "PT TIGA", 1_000]])],
+          [
+            holding("PT TIGA", [
+              [PROFINDO, "PT TIGA", 400],
+              ["Profindo Sekuritas Indonesia, PT", "PT TIGA", 600],
+            ]),
+          ]
+        )
+        assert.deepInclude(day?.listed[0], {
+          move: "unchanged",
+          transfer: undefined,
+        })
+      })
+  )
+
+  it.effect(
     "keep a holder Up whose total grew while shares also crossed brokers",
     () =>
       Effect.gen(function* () {

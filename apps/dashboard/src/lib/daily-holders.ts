@@ -119,28 +119,35 @@ export interface HoldersDay {
 }
 
 // The custodians whose shares a holder's securities accounts changed, each
-// by its accounts' summed change: shares moved between accounts at one
-// custodian cancel out. Undefined when none changed.
-const transferOf = (
+// by its broker's accounts' summed change (a bank's by its own name), so
+// shares moved within one broker cancel out, however IDX spells it; each
+// broker named by its first custodian. Undefined when none changed.
+//
+// Decision: a Transfer is shares crossing brokers with the total unchanged
+// (apps/dashboard/docs/adr/0135-a-transfer-is-shares-crossing-brokers-with-the-total-unchanged.md)
+const transferOf = Effect.fnUntraced(function* (
   changes: ReadonlyArray<readonly [custodian: string, change: number]>
-) =>
-  Effect.sync((): Transfer<string> | undefined => {
-    const net = new Map<string, number>()
-    for (const [custodian, change] of changes)
-      net.set(custodian, (net.get(custodian) ?? 0) + change)
-    const moved = [...net].filter(([, change]) => change !== 0)
-    if (moved.length === 0) return undefined
-    const side = (sign: number) =>
-      moved
-        .filter(([, change]) => Math.sign(change) === sign)
-        .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a))
-        .map(([custodian]) => custodian)
-    return {
-      from: side(-1),
-      to: side(1),
-      shares: moved.reduce((sum, [, change]) => sum + Math.max(change, 0), 0),
-    }
-  })
+): Effect.fn.Return<Transfer<string> | undefined> {
+  const net = new Map<string, { custodian: string; change: number }>()
+  for (const [custodian, change] of changes) {
+    const key = (yield* brokerOf(custodian)) ?? custodian
+    const held = net.get(key)
+    if (held === undefined) net.set(key, { custodian, change })
+    else held.change += change
+  }
+  const moved = [...net.values()].filter(({ change }) => change !== 0)
+  if (moved.length === 0) return undefined
+  const side = (sign: number) =>
+    moved
+      .filter(({ change }) => Math.sign(change) === sign)
+      .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
+      .map(({ custodian }) => custodian)
+  return {
+    from: side(-1),
+    to: side(1),
+    shares: moved.reduce((sum, { change }) => sum + Math.max(change, 0), 0),
+  }
+})
 
 // A Transfer line's custodians, from its securities accounts' changes:
 // what Holder moves stores of it (server/holdings/above-5-moves.ts).
@@ -152,6 +159,9 @@ export const transferredCustodians = (
   )
 
 // A Transfer's custodians as their brokers, Custodian for those without.
+//
+// Decision: broker codes are looked up on read
+// (apps/dashboard/docs/adr/0132-broker-codes-are-looked-up-on-read.md)
 export const transferThrough = Effect.fnUntraced(function* (
   transfer: Transfer<string>
 ) {

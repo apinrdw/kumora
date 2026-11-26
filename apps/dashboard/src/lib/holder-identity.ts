@@ -178,6 +178,10 @@ const settle = <H extends { readonly key: string }>(
     })
   })
 
+// A holder's move by `rule`: a Transfer only when its total is unchanged.
+//
+// Decision: a Transfer is shares crossing brokers with the total unchanged
+// (apps/dashboard/docs/adr/0135-a-transfer-is-shares-crossing-brokers-with-the-total-unchanged.md)
 const moveOf = Effect.fnUntraced(function* <H>(
   before: H,
   now: H,
