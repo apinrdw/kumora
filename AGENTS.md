@@ -71,11 +71,11 @@ CI holds a PR that touches `apps/{web,dashboard,extension,e2e}` or `packages/` o
 
 ## Linting and formatting
 
-Oxlint and Oxfmt, configured once at the repo root (`.oxlintrc.json`, `.oxfmtrc.json`). Run from the repo root.
+Oxlint and Oxfmt through `vp lint` and `vp fmt`, configured once in the `lint` and `fmt` blocks of the root `vite.config.ts`. Plain `oxlint` and `oxfmt` don't read that file, so always call them through `vp`. Run from the repo root.
 
-- After making code changes, run `pnpm exec oxlint --disable-nested-config --fix`, then `pnpm exec oxfmt 'apps/**/*.{ts,tsx}' 'packages/**/*.{ts,tsx}' 'scripts/**/*.mts'`. `--fix` applies only safe fixes; do not add `--fix-suggestions` or `--fix-dangerously`.
-- Before finishing, run `pnpm exec oxlint --disable-nested-config --deny-warnings --format=agent` and `pnpm exec oxfmt --check 'apps/**/*.{ts,tsx}' 'packages/**/*.{ts,tsx}' 'scripts/**/*.mts'`. Both must exit 0; warnings count as failures.
-- `--disable-nested-config` keeps oxlint from loading the vendored configs under `repos/`, which it ignores. Generated files (`routeTree.gen.ts`) are ignored by both tools. Do not add inline ignore comments to silence a rule; fix the code or raise it.
+- After making code changes, run `vp lint --fix`, then `vp fmt`. `--fix` applies only safe fixes; do not add `--fix-suggestions` or `--fix-dangerously`.
+- Before finishing, run `vp lint --deny-warnings --format=agent` and `vp fmt --check`. Both must exit 0; warnings count as failures. The pre-commit hook runs `vp lint --deny-warnings && vp fmt --check`.
+- `vp` applies only the root config, never the vendored configs under `repos/`, which both tools ignore, as they do generated files (`routeTree.gen.ts`). `vp fmt` formats code and `package.json` files only. Do not add inline ignore comments to silence a rule; fix the code or raise it.
 - `scripts/check-skill-links.mts` fails on a relative link in `AGENTS.md` or any `SKILL.md` under `.claude/skills/` whose target is missing. CI runs it.
 
 ---

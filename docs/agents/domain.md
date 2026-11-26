@@ -70,4 +70,4 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 
 If your output contradicts an ADR, surface it explicitly rather than silently overriding:
 
-> _Contradicts the ADR behind the `Decision:` in `.oxlintrc.json` (no type-aware rules), but worth reopening because…_
+> _Contradicts the ADR behind the `Decision:` in `vite.config.ts` (no type-aware rules), but worth reopening because…_
