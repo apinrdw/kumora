@@ -227,10 +227,11 @@ export async function storeRecordedCodeList(request: APIRequestContext) {
 export async function openIngest(token = TEST_INGEST_TOKEN) {
   const { socket, closed } = await dial()
   // Every message the object sent down, as text; none comes before the
-  // token.
+  // token. With ws's default `nodebuffer` binary type, a text frame arrives
+  // as a string and a binary one as a Buffer.
   const received: Array<string> = []
   socket.addEventListener("message", (event) =>
-    received.push(String(event.data))
+    received.push((event.data as string | Buffer).toString())
   )
   await send(socket, {
     _tag: "Token",
