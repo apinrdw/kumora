@@ -45,8 +45,7 @@ const StandoutRow = memo(function StandoutRow({
   onSelect: (code: StockCode) => void
 }) {
   const { sweep } = row
-  // The rule never ranks an auction match, so a standout sweep has a side.
-  const side = SIDE[sweep.side === "sell" ? "sell" : "buy"]
+  const side = SIDE[sweep.side]
   return (
     <li>
       <button

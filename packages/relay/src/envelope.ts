@@ -414,6 +414,16 @@ export type MinuteSweeps = typeof MinuteSweeps.Type
 const AlertSide = Schema.Literals(["buy", "sell"])
 export type AlertSide = typeof AlertSide.Type
 
+// A sweep with an aggressor side, the only kind that ranks: on the wire a
+// Sweep, whose side isn't `none`.
+const SidedSweep = Sweep.pipe(
+  Schema.refine(
+    (sweep): sweep is Sweep & { readonly side: AlertSide } =>
+      sweep.side !== "none"
+  )
+)
+export type SidedSweep = typeof SidedSweep.Type
+
 // A sweep that reached its stock code's top-1% cutoff for its side (the rule
 // is in the dashboard's sweep-alerts.ts): its code, side and lots, and the
 // trade numbers of its trades, which the page marks on the tape.
@@ -440,7 +450,7 @@ export type StandoutLevel = typeof StandoutLevel.Type
 const StandoutSweep = Schema.Struct({
   code: StockCode,
   level: StandoutLevel,
-  sweep: Sweep,
+  sweep: SidedSweep,
 })
 export type StandoutSweep = typeof StandoutSweep.Type
 

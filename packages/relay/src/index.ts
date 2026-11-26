@@ -84,6 +84,7 @@ export type {
   MinuteSweeps,
   Sweep,
   AlertSide,
+  SidedSweep,
   StandoutLevel,
   StandoutSweep,
   SweepAlert,

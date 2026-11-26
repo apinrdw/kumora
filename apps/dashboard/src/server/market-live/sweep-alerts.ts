@@ -9,6 +9,7 @@
 import {
   STANDOUT_LEVELS,
   type AlertSide,
+  type SidedSweep,
   type StandoutLevel,
   type StandoutSweep,
   type StockCode,
@@ -48,14 +49,10 @@ interface Ranking {
   readonly counts: Array<number>
 }
 
-// A sweep with an aggressor side: an auction match's prints have none and
-// never rank.
-type SidedSweep = Sweep & { readonly side: AlertSide }
-
 // A sweep the rule found standing out, as the page lists it, with its
 // minute and whether it alerts.
 interface Decided {
-  readonly standout: StandoutSweep & { readonly sweep: SidedSweep }
+  readonly standout: StandoutSweep
   readonly minute: number
   readonly alerts: boolean
 }
