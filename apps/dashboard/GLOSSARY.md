@@ -504,8 +504,12 @@ The page that lists, across every stock, the holders that moved in one period: a
 _Avoid_: 5% holders page, block-holder feed
 
 **Holder move**:
-A holder's change against the period before: New, Up, Down or Off list. An unchanged holder has none.
+A holder's change against the period before: New, Up, Down, Transfer or Off list. An unchanged holder has none.
 _Avoid_: Move (that is how a hot day turns cold), exit, entry
+
+**Transfer**:
+The holder move of an above-5% holder whose total shares are unchanged against the trading day before while shares left some of its securities accounts for accounts at a different broker or custodian: the same owner, held through someone else. It names the brokers the shares went from and to, and how many moved. Shares moved between accounts at one broker or custodian are no Transfer. A holder whose total changed is Up or Down, whatever moved between its accounts. Never Monthly: the above-1% report has no accounts.
+_Avoid_: Shift, re-custody, Up or Down (the total did not change)
 
 **Through**:
 The broker codes of the securities accounts an above-5% holder moved through: those whose shares changed. One held at a bank or other custodian that is not an exchange member has no broker code and shows as Custodian.

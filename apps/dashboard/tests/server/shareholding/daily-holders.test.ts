@@ -51,6 +51,7 @@ describe("the stock page's Daily holders", () => {
         new: 0,
         up: 1,
         down: 1,
+        transfer: 0,
         offList: 0,
       })
       // Most % first.

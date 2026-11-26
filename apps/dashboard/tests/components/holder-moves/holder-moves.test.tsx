@@ -43,6 +43,7 @@ const line = (
     stake.before !== undefined && stake.now !== undefined
       ? stake.now - stake.before
       : undefined,
+  transfer: undefined,
   trend: [
     null,
     1000,
@@ -99,16 +100,16 @@ const MOVES: HolderMoves = {
   period: WibDate.make("2026-11-20"),
   against: WibDate.make("2026-11-19"),
   lines: LINES,
-  counts: { new: 1, up: 1, down: 1, offList: 1 },
+  counts: { new: 1, up: 1, down: 1, transfer: 0, offList: 1 },
   stockCount: 2,
   rail: [
     {
       period: WibDate.make("2026-11-19"),
-      counts: { new: 3, up: 6, down: 3, offList: 1 },
+      counts: { new: 3, up: 6, down: 3, transfer: 0, offList: 1 },
     },
     {
       period: WibDate.make("2026-11-20"),
-      counts: { new: 1, up: 1, down: 1, offList: 1 },
+      counts: { new: 1, up: 1, down: 1, transfer: 0, offList: 1 },
     },
   ],
 }
@@ -251,10 +252,57 @@ describe("Holder moves", () => {
           '[role="group"][aria-label="Move"] button'
         ),
       ].map((each) => each.textContent)
-    ).toEqual(["All4", "New1", "Up1", "Down1", "Off list1"])
+    ).toEqual(["All4", "New1", "Up1", "Down1", "Transfer0", "Off list1"])
     await act(() => button("Off list").click())
     expect(button("Off list").getAttribute("aria-pressed")).toBe("true")
     expect(rows().map((row) => row[1])).toEqual(["PARADISO RESOURCES LTD"])
+  })
+
+  // CMNP on 24 Nov 2026: Hamka's 290,000,000 shares left HSBC for
+  // Profindo (RG), his total unchanged.
+  test("shows a Transfer's brokers from and to, and the lots that moved", async () => {
+    const hamka: MoveLine = {
+      ...line(
+        "CMNP",
+        "MOHAMMAD JUSUF HAMKA",
+        "transfer",
+        ["RG", "custodian"],
+        { before: 922, now: 922 },
+        0
+      ),
+      transfer: {
+        from: ["custodian"],
+        to: [BrokerCode.make("RG")],
+        shares: 290_000_000,
+      },
+      trend: [null, "transfer"],
+    }
+    await render({
+      ...MOVES,
+      lines: [...LINES, hamka],
+      counts: { new: 1, up: 1, down: 1, transfer: 1, offList: 1 },
+    })
+    expect(button("All").textContent).toBe("All5")
+    await act(() => button("Transfer").click())
+    expect(rows()).toEqual([
+      [
+        "CMNPCMNP TBK",
+        "MOHAMMAD JUSUF HAMKA",
+        "Transfer",
+        "Custodian RG",
+        "2,900,000",
+        "9.22% → 9.22%",
+        "±0.00%",
+      ],
+    ])
+    expect(container.querySelector("[data-through]")?.textContent).toBe(
+      "Custodian→RG"
+    )
+    expect(
+      [...container.querySelectorAll("tbody rect[data-cell]")].map((rect) =>
+        rect.getAttribute("data-cell")
+      )
+    ).toEqual(["transfer"])
   })
 
   test("searches stock, issuer, holder and broker code", async () => {
@@ -281,7 +329,7 @@ describe("Holder moves", () => {
     await render({
       ...MOVES,
       lines,
-      counts: { new: 250, up: 0, down: 0, offList: 0 },
+      counts: { new: 250, up: 0, down: 0, transfer: 0, offList: 0 },
     })
     expect(rows()).toHaveLength(250)
     expect(button("New").textContent).toBe("New250")
@@ -337,7 +385,7 @@ describe("Holder moves", () => {
     await render({
       ...MOVES,
       lines: [],
-      counts: { new: 0, up: 0, down: 0, offList: 0 },
+      counts: { new: 0, up: 0, down: 0, transfer: 0, offList: 0 },
       stockCount: 0,
     })
     expect(text()).toContain("0 holders above 5% moved across 0 stocks")
@@ -404,16 +452,16 @@ const MONTHLY: HolderMoves = {
     ),
     line("TRUE", "DJONI", "off list", [], { before: 509 }, -200_000_000),
   ],
-  counts: { new: 1, up: 1, down: 0, offList: 1 },
+  counts: { new: 1, up: 1, down: 0, transfer: 0, offList: 1 },
   stockCount: 2,
   rail: [
     {
       period: WibDate.make("2026-04-30"),
-      counts: { new: 3, up: 3, down: 5, offList: 6 },
+      counts: { new: 3, up: 3, down: 5, transfer: 0, offList: 6 },
     },
     {
       period: WibDate.make("2026-08-31"),
-      counts: { new: 1, up: 1, down: 0, offList: 1 },
+      counts: { new: 1, up: 1, down: 0, transfer: 0, offList: 1 },
     },
   ],
 }

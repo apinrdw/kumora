@@ -16,6 +16,16 @@ import {
 import { decodeRows } from "../d1.ts"
 import { HoldingsDb, type HoldingsDbError } from "./db.ts"
 
+// A Transfer's custodians, from and to, and the shares that moved.
+//
+// Decision: a Transfer is shares crossing brokers with the total unchanged
+// (apps/dashboard/docs/adr/0135-a-transfer-is-shares-crossing-brokers-with-the-total-unchanged.md)
+const Transfer = Schema.Struct({
+  from: Schema.Array(Schema.String),
+  to: Schema.Array(Schema.String),
+  shares: Schema.Number,
+})
+
 // A holder that moved in the selected period, as Holder moves' derivation
 // stored it (derived-moves.ts).
 const DerivedMoveLine = Schema.Struct({
@@ -25,7 +35,7 @@ const DerivedMoveLine = Schema.Struct({
   name: Schema.String,
   aliases: Schema.Array(Schema.String),
   renamedFrom: Schema.UndefinedOr(Schema.String),
-  move: Schema.Literals(["new", "up", "down", "off list"]),
+  move: Schema.Literals(["new", "up", "down", "transfer", "off list"]),
   // The custodians of the securities accounts the move went through,
   // largest change first; the view model looks up their broker codes. None
   // on a month.
@@ -37,8 +47,16 @@ const DerivedMoveLine = Schema.Struct({
   }),
   percentageChange: Schema.UndefinedOr(Schema.Number),
   trend: Schema.Array(
-    Schema.Union([Schema.Number, Schema.Literals(["in", "out"]), Schema.Null])
+    Schema.Union([
+      Schema.Number,
+      Schema.Literals(["in", "out", "transfer"]),
+      Schema.Null,
+    ])
   ),
+  // On a Transfer, the custodians its shares left and reached, most shares
+  // first, and the shares that moved; the view model looks up their broker
+  // codes.
+  transfer: Schema.UndefinedOr(Transfer),
 })
 export type DerivedMoveLine = typeof DerivedMoveLine.Type
 
@@ -46,6 +64,7 @@ const MoveCounts = Schema.Struct({
   new: Schema.Number,
   up: Schema.Number,
   down: Schema.Number,
+  transfer: Schema.Number,
   offList: Schema.Number,
 })
 
@@ -79,6 +98,7 @@ const MoveRow = Schema.Struct({
   stake_now: Schema.NullOr(Schema.Number),
   percentage_change: Schema.NullOr(Schema.Number),
   trend: Schema.fromJsonString(DerivedMoveLine.fields.trend),
+  transfer: Schema.NullOr(Schema.fromJsonString(Transfer)),
 })
 
 const DerivedRow = Schema.Struct({
@@ -161,7 +181,7 @@ const derivedMovesRead = Effect.fnUntraced(function* (
         sql: `${withSelected}
         SELECT stock_code, holder, issuer_name, name, aliases, renamed_from,
           move, through, share_change, stake_before, stake_now,
-          percentage_change, trend
+          percentage_change, trend, transfer
         FROM ${lines} WHERE data_date = (SELECT data_date FROM selected)
         ORDER BY stock_code, holder`,
         params: [asked ?? null],
@@ -206,6 +226,7 @@ const derivedMovesRead = Effect.fnUntraced(function* (
         },
         percentageChange: row.percentage_change ?? undefined,
         trend: row.trend,
+        transfer: row.transfer ?? undefined,
       })
     ),
     rail: rows
@@ -217,6 +238,7 @@ const derivedMovesRead = Effect.fnUntraced(function* (
           new: countOf(data_date, "new"),
           up: countOf(data_date, "up"),
           down: countOf(data_date, "down"),
+          transfer: countOf(data_date, "transfer"),
           offList: countOf(data_date, "off list"),
         },
       })),

@@ -16,6 +16,7 @@ import {
   type DailyHolderLine,
   dailyHolders,
   movedCustodians,
+  transferredCustodians,
 } from "@/lib/daily-holders"
 
 import { decodeRows } from "../d1.ts"
@@ -136,6 +137,10 @@ const moveLine = Effect.fnUntraced(function* (line: DailyHolderLine) {
     shareChange: line.shareChange,
     stake: line.stake,
     percentageChange: line.percentageChange,
+    transfer:
+      move === "transfer"
+        ? yield* transferredCustodians(line.accounts)
+        : undefined,
     trend: line.trend,
   } satisfies StockMoveLine
 })
@@ -168,7 +173,11 @@ const dailyLines = Effect.fnUntraced(function* (
 const DAILY: MovesSource<StockRows> = {
   // Bumped whenever deriving changes what it stores: the run then derives
   // every day again.
-  version: 1,
+  // 2: a holder move may be a Transfer.
+  //
+  // Decision: a Transfer is shares crossing brokers with the total unchanged
+  // (apps/dashboard/docs/adr/0135-a-transfer-is-shares-crossing-brokers-with-the-total-unchanged.md)
+  version: 2,
   window: DAILY_WINDOW,
   lines: "above_5_move",
   derived: "above_5_move_day",

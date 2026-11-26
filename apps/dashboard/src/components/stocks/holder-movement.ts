@@ -9,6 +9,7 @@ export const MOVEMENT: Record<
   new: { label: "New", text: "text-info", chip: "bg-info/15" },
   up: { label: "Up", text: "text-up", chip: "bg-up/15" },
   down: { label: "Down", text: "text-down", chip: "bg-down/15" },
+  transfer: { label: "Transfer", text: "text-foreground", chip: "bg-muted" },
   unchanged: { label: "Unchanged", text: "text-muted-foreground", chip: "" },
   "off list": {
     label: "Off list",

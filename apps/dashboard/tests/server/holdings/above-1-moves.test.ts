@@ -74,7 +74,7 @@ describe("Holder moves' Monthly, in a month with two above-1% reports", () => {
           [
             {
               period: REPORTS[2],
-              counts: { new: 2, up: 0, down: 0, offList: 2 },
+              counts: { new: 2, up: 0, down: 0, transfer: 0, offList: 2 },
             },
           ]
         )

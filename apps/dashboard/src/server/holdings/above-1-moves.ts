@@ -124,6 +124,7 @@ const moveLine = (line: HolderLine) =>
               now: line.percentageHundredths,
             },
       percentageChange: line.percentageChange,
+      transfer: undefined,
       trend: line.trend,
     }
   })
