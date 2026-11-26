@@ -7,5 +7,6 @@ A backfill action or a separate cursor was the alternative: the spec wants one k
 Sites:
 - `apps/dashboard/src/server/disclosures/archive-run.ts`
 - `apps/dashboard/src/server/disclosures/disclosure-day.ts`
+- `apps/dashboard/src/server/disclosures/run-result.ts`
 
 Source: apinrdw/kumora#715, apinrdw/kumora#718

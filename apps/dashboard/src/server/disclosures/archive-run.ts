@@ -509,13 +509,6 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
         recordFailure(run, progress, message)
       )
     )
-  // What the recent days leave of the run's budget goes to the oldest days
-  // not complete: each listed whole already is taken up as it stands, each
-  // other listed first, until their waiting attachments fill the budget. An
-  // older day whose listing can't be read is left for the next run, named
-  // on the run's record, and the run takes up the day after it.
-  // Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
-  // (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
   // The waiting attachments of an older day it lists, or undefined when
   // its listing can't be read.
   const listOlder = (day: WibDate) =>
@@ -528,6 +521,13 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
         })
       )
     )
+  // What the recent days leave of the run's budget goes to the oldest days
+  // not complete: each listed whole already is taken up as it stands, each
+  // other listed first, until their waiting attachments fill the budget. An
+  // older day whose listing can't be read is left for the next run, named
+  // on the run's record, and the run takes up the day after it.
+  // Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
+  // (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
   const older = yield* steps.do("backfill", backfill(days))
   let budget = FILES_PER_RUN - older.recentWaiting
   for (const { day, listed, waiting } of older.days) {
