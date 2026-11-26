@@ -389,26 +389,42 @@ export async function startFakeBrokers() {
 }
 
 /**
- * A fake dashboard's ingest socket for the extra target: it accepts any
- * token, keeps what the relay sends up with when it arrived, and sends down
- * what the test tells it.
+ * A fake dashboard's ingest socket for the extra target, served under the
+ * dashboard base path as every dashboard is: it accepts any token, keeps what
+ * the relay sends up with when it arrived, and sends down what the test tells
+ * it. Off the base path it refuses a socket and answers a request 301, as the
+ * real dashboard's root redirect does.
  */
 export async function startFakeIngest() {
   // Its broker codes statuses; a test sets them. The extension holds no
   // host permission for an extra target, so the fake allows its origin.
   const brokerCodes: { statuses: DayStatuses } = { statuses: () => undefined }
+  const underBase = (path: string | undefined) =>
+    Option.isSome(Effect.runSync(pathUnderBase(path ?? "/")))
   const server = createHttpServer((request, response) => {
     response.setHeader("access-control-allow-origin", "*")
     response.setHeader("access-control-allow-headers", "authorization")
     if (request.method === "OPTIONS") return response.end()
-    answerStatus(brokerCodes.statuses, "", request.url ?? "/", response)
+    if (!underBase(request.url)) {
+      response.writeHead(301, { location: DashboardBasePath })
+      return response.end()
+    }
+    answerStatus(
+      brokerCodes.statuses,
+      DashboardBasePath,
+      request.url ?? "/",
+      response
+    )
   })
   const sockets: Array<WebSocket> = []
   // Stamped on arrival and decoded only when read, each once, so a busy
   // relay's envelopes are timed as they arrive.
   const received: Array<{ text: string; at: number }> = []
   const decoded: Array<{ message: IngestUp; at: number }> = []
-  new WebSocketServer({ server }).on("connection", (socket) => {
+  new WebSocketServer({
+    server,
+    verifyClient: ({ req }) => underBase(req.url),
+  }).on("connection", (socket) => {
     sockets.push(socket)
     socket.on("message", (data) =>
       received.push({ text: String(data), at: Date.now() })

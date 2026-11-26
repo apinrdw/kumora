@@ -27,9 +27,20 @@ describe("the options form's extra target", () => {
         yield* extraUrlOf(" https://staging.example/dashboard/?tab=1#top "),
         "https://staging.example/dashboard"
       )
+    })
+  )
+
+  it.effect("reads a dashboard's root as its base path", () =>
+    Effect.gen(function* () {
       assert.strictEqual(
         yield* extraUrlOf("http://localhost:3001/"),
-        "http://localhost:3001"
+        "http://localhost:3001/dashboard"
+      )
+      assert.strictEqual(
+        yield* extraUrlOf(
+          "https://kumora-dashboard-staging.kumora.workers.dev"
+        ),
+        "https://kumora-dashboard-staging.kumora.workers.dev/dashboard"
       )
     })
   )
