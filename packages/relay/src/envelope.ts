@@ -35,7 +35,9 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 8: book readings drop near depth, empty ticks and the spread (spec
 // apinrdw/kumora#605).
 // 9: snapshots and deltas carry order flow events (spec apinrdw/kumora#605).
-export const ViewerProtocolVersion = 9
+// 10: deltas carry standout sweeps (spec apinrdw/kumora#705).
+// 11: snapshots carry the day's standout sweeps (spec apinrdw/kumora#705).
+export const ViewerProtocolVersion = 11
 
 // Decision: 4403 refuses the token, 4426 a protocol; both stop ingest retries
 // (packages/relay/docs/adr/0003-ingest-socket-closes-4403-and-4426-stop-retries.md)
@@ -412,6 +414,16 @@ export type MinuteSweeps = typeof MinuteSweeps.Type
 const AlertSide = Schema.Literals(["buy", "sell"])
 export type AlertSide = typeof AlertSide.Type
 
+// A sweep with an aggressor side, the only kind that ranks: on the wire a
+// Sweep, whose side isn't `none`.
+const SidedSweep = Sweep.pipe(
+  Schema.refine(
+    (sweep): sweep is Sweep & { readonly side: AlertSide } =>
+      sweep.side !== "none"
+  )
+)
+export type SidedSweep = typeof SidedSweep.Type
+
 // A sweep that reached its stock code's top-1% cutoff for its side (the rule
 // is in the dashboard's sweep-alerts.ts): its code, side and lots, and the
 // trade numbers of its trades, which the page marks on the tape.
@@ -422,6 +434,29 @@ const SweepAlert = Schema.Struct({
   tradeNumbers: Schema.Array(TradeNumber),
 })
 export type SweepAlert = typeof SweepAlert.Type
+
+// The top-N% cutoffs a sweep can stand out at, smallest first: a standout
+// sweep's level is the first it reaches.
+export const STANDOUT_LEVELS = [1, 5, 10] as const
+
+// The smallest top-N% of its side's sweeps a standout sweep reached.
+const StandoutLevel = Schema.Literals(STANDOUT_LEVELS)
+export type StandoutLevel = typeof StandoutLevel.Type
+
+// The level whose standout sweeps alert: a sweep alert is a standout sweep
+// at it.
+export const ALERT_LEVEL: StandoutLevel = 1
+
+// A sweep that reached its stock code's top-1%, 5% or 10% cutoff for its
+// side (the rule is in the dashboard's sweep-alerts.ts), as the sweep was
+// when decided: a later regroup that grows it doesn't send it again. Its
+// code and first trade's number name it for the day.
+const StandoutSweep = Schema.Struct({
+  code: StockCode,
+  level: StandoutLevel,
+  sweep: SidedSweep,
+})
+export type StandoutSweep = typeof StandoutSweep.Type
 
 // When the trading-day object sent a message, on its clock: what the
 // message holds came from the trades that reached it before then. Market
@@ -453,6 +488,10 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   // The day's sweep alerts with a trade on this tape, which the page marks
   // and never plays. Absent when none has.
   sweepAlerts: Schema.optionalKey(Schema.Array(SweepAlert)),
+  // The day's standout sweeps of every code the object decided since it
+  // started, newest first, the newest STANDOUTS_PER_LEVEL
+  // (standout-sweeps.ts) at or under each level. Absent when there are none.
+  standoutSweeps: Schema.optionalKey(Schema.Array(StandoutSweep)),
   // Every code's latest book readings. Absent when no code has any yet.
   bookReadings: Schema.optionalKey(Schema.Array(BookReadings)),
   // The scanner's figures of every code with readings: its last price,
@@ -495,6 +534,10 @@ const Delta = Schema.TaggedStruct("Delta", {
   // The sweeps of any code that alerted since the last delta, each decided
   // once its second closed. Absent when none did.
   sweepAlerts: Schema.optionalKey(Schema.Array(SweepAlert)),
+  // The sweeps of any code that stood out since the last delta, in the order
+  // decided, each once. A sweep alert is one at ALERT_LEVEL. Absent when none
+  // did.
+  standoutSweeps: Schema.optionalKey(Schema.Array(StandoutSweep)),
   // Every changed Day state of a code some viewer selected or watches, each
   // whole. Absent when none changed.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),

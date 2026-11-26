@@ -9,6 +9,7 @@ import {
   IngestProtocolVersion,
   StockCode,
   TradeNumber,
+  STANDOUTS_PER_LEVEL,
   VIEWER_MESSAGE_LIMIT,
   ViewerCloseCode,
   ViewerProtocolVersion,
@@ -1271,11 +1272,11 @@ describe("candles", () => {
 // decides each code's sweep alerts once a sweep's second closes, whatever
 // viewers selected, sends them in the next delta and keeps them for
 // snapshots, and a restarted one ranks the stored sweeps before it alerts.
-describe("sweep alerts", () => {
-  // 09:00:00 WIB and `second` seconds, to the millisecond.
-  const secondWib = (second: number, ms = "000") =>
-    `09:0${Math.floor(second / 60)}:${String(second % 60).padStart(2, "0")}.${ms}`
+// 09:00:00 WIB and `second` seconds, to the millisecond.
+const secondWib = (second: number, ms = "000") =>
+  `09:0${Math.floor(second / 60)}:${String(second % 60).padStart(2, "0")}.${ms}`
 
+describe("sweep alerts", () => {
   // 100 one-lot buy sweeps of UNTR, one a second from 09:00:00 WIB, numbered
   // from `first`: its buy side's warm-up.
   const warmUntr = (first: number) =>
@@ -1522,6 +1523,306 @@ describe("sweep alerts", () => {
         // 200 sweeps cut at the 2nd largest, 1,000 lots: the 2-lot sweep
         // stays silent and the 1,000-lot one ties the cutoff.
         assert.deepStrictEqual(yield* alertedLots(page), [1000])
+      })
+  )
+})
+
+describe("standout sweeps", () => {
+  // `count` UNTR buy sweeps, one a second from 09:00:00 WIB, numbered from
+  // 41000; the one at `index` has `lots(index)` lots.
+  const warmUntr = (count: number, lots: (index: number) => number) =>
+    Array.from({ length: count }, (_, index) =>
+      untr(41000 + index, secondWib(index), 23300, lots(index) * 100)
+    )
+
+  // A BBCA trade at `wib`: its later second closes UNTR's sweeps before it.
+  const closer = (tradeNumber: number, wib: string) => ({
+    ...untr(tradeNumber, wib, 8000, 100),
+    code: "BBCA",
+  })
+
+  // What the deltas `page` received carried: the standout sweeps, each by
+  // code, side, lots and level, and the alerts' lots.
+  const heard = (page: FakeSocket) =>
+    Effect.map(page.received, (received) => {
+      const deltas = received.flatMap((message) =>
+        message._tag === "Delta" ? [message] : []
+      )
+      return {
+        standouts: deltas.flatMap((delta) =>
+          (delta.standoutSweeps ?? []).map(({ code, level, sweep }) => ({
+            code,
+            side: sweep.side,
+            lots: sweep.lots,
+            level,
+          }))
+        ),
+        alerts: deltas.flatMap((delta) =>
+          (delta.sweepAlerts ?? []).map((alert) => alert.lots)
+        ),
+      }
+    })
+
+  // A page that selected BBCA, never UNTR, on a fresh object, with `rows`
+  // ingested at `nowWib` and the next delta sent.
+  const ingested = (nowWib: string, rows: ReadonlyArray<StockbitRow>) =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(wibAt(nowWib)))
+      const { ingest, viewer, select } = yield* tradingDay()
+      const socket = yield* relay(ingest)
+      const page = yield* viewer()
+      yield* select(page, "BBCA")
+      yield* ingest(socket, yield* stockbit(rows, "A"))
+      yield* TestClock.adjust("250 millis")
+      return yield* heard(page)
+    })
+
+  it.effect(
+    "a side with 99 earlier sweeps lists none, at any level, however big",
+    () =>
+      Effect.gen(function* () {
+        const { standouts, alerts } = yield* ingested("09:01:40.500", [
+          ...warmUntr(99, () => 1),
+          untr(41200, "09:01:39.100", 23300, 90_000),
+          closer(41201, "09:01:40.000"),
+        ])
+        assert.deepStrictEqual(
+          { standouts, alerts },
+          { standouts: [], alerts: [] }
+        )
+      })
+  )
+
+  it.effect(
+    "each sweep's level is the smallest of 1%, 5% and 10% it reached, and only 1% alerts",
+    () =>
+      Effect.gen(function* () {
+        // 100 buy sweeps of 1 to 100 lots, then four more, each ranked
+        // against every sweep before it.
+        const { standouts, alerts } = yield* ingested("09:01:44.500", [
+          ...warmUntr(100, (index) => index + 1),
+          // n = 100: the 1st, 5th and 10th largest are 100, 96 and 91.
+          untr(41200, "09:01:40.100", 23300, 9500),
+          // n = 101: the 2nd, 6th and 11th largest are 99, 95 and 91.
+          untr(41201, "09:01:41.100", 23300, 9700),
+          // n = 102: the 2nd largest is 99, which the sweep ties.
+          untr(41202, "09:01:42.100", 23300, 9900),
+          // Under the 10% cutoff.
+          untr(41203, "09:01:43.100", 23300, 5000),
+          closer(41204, "09:01:44.000"),
+        ])
+        const untrBuy = { code: StockCode.make("UNTR"), side: "buy" }
+        assert.deepStrictEqual(
+          { standouts, alerts },
+          {
+            standouts: [
+              { ...untrBuy, lots: 95, level: 10 },
+              { ...untrBuy, lots: 97, level: 5 },
+              { ...untrBuy, lots: 99, level: 1 },
+            ],
+            alerts: [99],
+          }
+        )
+      })
+  )
+
+  it.effect(
+    "a sweep closed over 10 s before its decision is listed but doesn't alert",
+    () =>
+      Effect.gen(function* () {
+        const { standouts, alerts } = yield* ingested("09:02:00.500", [
+          ...warmUntr(100, () => 1),
+          untr(41200, "09:01:45.100", 23300, 4000),
+          closer(41201, "09:02:00.000"),
+        ])
+        assert.deepStrictEqual(
+          { standouts, alerts },
+          {
+            standouts: [
+              {
+                code: StockCode.make("UNTR"),
+                side: "buy",
+                lots: 40,
+                level: 1,
+              },
+            ],
+            alerts: [],
+          }
+        )
+      })
+  )
+
+  it.effect("a delta's standout sweep carries the whole sweep", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:01:42.500")))
+      const { ingest, viewer, select } = yield* tradingDay()
+      const socket = yield* relay(ingest)
+      const page = yield* viewer()
+      yield* select(page, "BBCA")
+      yield* ingest(
+        socket,
+        yield* stockbit(
+          [
+            ...warmUntr(100, () => 1),
+            untr(41101, "09:01:41.100", 23300, 4000),
+            untr(41102, "09:01:41.200", 23325, 6000),
+            closer(41103, "09:01:42.000"),
+          ],
+          "A"
+        )
+      )
+      yield* TestClock.adjust("250 millis")
+      const standouts = (yield* page.received).flatMap((message) =>
+        message._tag === "Delta" ? (message.standoutSweeps ?? []) : []
+      )
+      assert.deepStrictEqual(standouts, [
+        {
+          code: StockCode.make("UNTR"),
+          level: 1,
+          sweep: {
+            side: "buy",
+            firstTrade: TradeNumber.make("41101"),
+            time: wibAt("09:01:41.100"),
+            first: 23300,
+            last: 23325,
+            lots: 100,
+            value: 23300 * 4000 + 23325 * 6000,
+            trades: 2,
+          },
+        },
+      ])
+    })
+  )
+
+  // The standout sweeps the snapshot of a page newly opened on `day` carries,
+  // each by its first trade's number and level.
+  const snapshotted = (day: Effect.Success<ReturnType<typeof tradingDay>>) =>
+    Effect.gen(function* () {
+      const page = yield* day.viewer()
+      yield* day.select(page, "BBCA")
+      const [snapshot] = yield* page.received
+      assert.strictEqual(snapshot?._tag, "Snapshot")
+      return snapshot?._tag === "Snapshot"
+        ? (snapshot.standoutSweeps ?? []).map(({ level, sweep }) => ({
+            firstTrade: Number(sweep.firstTrade),
+            level,
+          }))
+        : []
+    })
+
+  it.effect(
+    "a new page's snapshot carries the day's standout sweeps, newest first",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:01:44.500")))
+        const day = yield* tradingDay()
+        yield* day.ingest(
+          yield* relay(day.ingest),
+          yield* stockbit(
+            [
+              ...warmUntr(100, (index) => index + 1),
+              untr(41200, "09:01:40.100", 23300, 9500),
+              untr(41201, "09:01:41.100", 23300, 9700),
+              untr(41202, "09:01:42.100", 23300, 9900),
+              closer(41203, "09:01:44.000"),
+            ],
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        assert.deepStrictEqual(yield* snapshotted(day), [
+          { firstTrade: 41202, level: 1 },
+          { firstTrade: 41201, level: 5 },
+          { firstTrade: 41200, level: 10 },
+        ])
+      })
+  )
+
+  it.effect(
+    "the snapshot keeps the newest 500 at each level, so 10% sweeps never push out an older 1% one",
+    () =>
+      Effect.gen(function* () {
+        // UNTR buy sweep `index`, numbered 50000 + index, one a second from
+        // 09:00:00 WIB.
+        const sweepAt = (index: number, lots: number) =>
+          untr(
+            50_000 + index,
+            `09:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.100`,
+            23300,
+            lots * 100
+          )
+        // 1,000 sweeps of 1,000 down to 1 lots, each under every earlier
+        // one, so none stands out. Then one of 2,000 lots, at 1%. Then 510
+        // of 920 lots: the 10% cutoff stays at 901 or below and the 5%
+        // cutoff above 920 while fewer than 620 of them ranked, so each is
+        // at 10%.
+        const rows = [
+          ...Array.from({ length: 1000 }, (_, index) =>
+            sweepAt(index, 1000 - index)
+          ),
+          sweepAt(1000, 2000),
+          ...Array.from({ length: 510 }, (_, index) =>
+            sweepAt(1001 + index, 920)
+          ),
+          closer(51511, "09:25:12.000"),
+        ]
+        yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:25:12.500")))
+        const day = yield* tradingDay()
+        yield* day.ingest(yield* relay(day.ingest), yield* stockbit(rows, "A"))
+        yield* TestClock.adjust("250 millis")
+        assert.deepStrictEqual(yield* snapshotted(day), [
+          ...Array.from({ length: STANDOUTS_PER_LEVEL }, (_, index) => ({
+            firstTrade: 51510 - index,
+            level: 10,
+          })),
+          { firstTrade: 51000, level: 1 },
+        ])
+      }),
+    { timeout: 10_000 }
+  )
+
+  it.effect(
+    "a restarted object snapshots none of the standout sweeps before it, only those it decides",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:01:42.500")))
+        const sql = memorySql()
+        const before = yield* tradingDay(undefined, sql)
+        yield* before.ingest(
+          yield* relay(before.ingest),
+          yield* stockbit(
+            [
+              ...warmUntr(100, (index) => index + 1),
+              untr(41200, "09:01:40.100", 23300, 20_000),
+              closer(41201, "09:01:42.000"),
+            ],
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        assert.deepStrictEqual(yield* snapshotted(before), [
+          { firstTrade: 41200, level: 1 },
+        ])
+        // Past the merge window, the flush stores the day's sweeps.
+        yield* TestClock.adjust("30 seconds")
+        yield* before.alarm
+
+        const after = yield* tradingDay(undefined, sql)
+        assert.deepStrictEqual(yield* snapshotted(after), [])
+        yield* after.ingest(
+          yield* relay(after.ingest),
+          yield* stockbit(
+            [
+              untr(41300, "09:02:12.100", 23300, 20_000),
+              closer(41301, "09:02:13.000"),
+            ],
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        assert.deepStrictEqual(yield* snapshotted(after), [
+          { firstTrade: 41300, level: 1 },
+        ])
       })
   )
 })

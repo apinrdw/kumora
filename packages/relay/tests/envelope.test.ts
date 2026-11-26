@@ -233,7 +233,7 @@ describe("viewer protocol", () => {
         // As the socket carries it: the object reads a message only up to
         // the limit.
         const wire = yield* encodeViewerUp(message)
-        assert.strictEqual(wire.length, 190_081)
+        assert.strictEqual(wire.length, 190_082)
         assert.isAtMost(wire.length, VIEWER_MESSAGE_LIMIT)
         // As the trading-day object stores a viewer's codes: one value, of
         // ASCII, so a character is a byte. Its storage holds 8 MB.
@@ -338,7 +338,7 @@ describe("viewer protocol, down", () => {
 
   it.effect("book readings round trip in a delta and a snapshot", () =>
     Effect.gen(function* () {
-      assert.strictEqual(ViewerProtocolVersion, 9)
+      assert.strictEqual(ViewerProtocolVersion, 11)
       const readings: BookReadings = {
         code: StockCode.make("ERAA"),
         at: DateTime.makeUnsafe("2026-11-18T03:00:00.125Z"),
@@ -581,6 +581,43 @@ describe("viewer protocol, down", () => {
           yield* decodeViewerDown(yield* encodeViewerDown(snapshot)),
           snapshot
         )
+      })
+  )
+
+  it.effect(
+    "a standout sweep round trips with its side, and one without a side is refused",
+    () =>
+      Effect.gen(function* () {
+        const delta: ViewerDown = {
+          _tag: "Delta",
+          at: DateTime.makeUnsafe("2026-11-26T02:00:00.250Z"),
+          tape: [],
+          candles: [],
+          standoutSweeps: [
+            {
+              code: StockCode.make("BBCA"),
+              level: 5,
+              sweep: {
+                side: "sell",
+                firstTrade: TradeNumber.make("4100"),
+                time: DateTime.makeUnsafe("2026-11-26T02:00:00.000Z"),
+                first: 7_550,
+                last: 7_525,
+                lots: 1_200,
+                value: 906_000_000,
+                trades: 4,
+              },
+            },
+          ],
+        }
+        const wire = yield* encodeViewerDown(delta)
+        assert.deepStrictEqual(yield* decodeViewerDown(wire), delta)
+        const sideless = JSON.parse(wire)
+        sideless.standoutSweeps[0].sweep[0] = "none"
+        const refused = yield* Effect.exit(
+          decodeViewerDown(JSON.stringify(sideless))
+        )
+        assert.isTrue(refused._tag === "Failure")
       })
   )
 

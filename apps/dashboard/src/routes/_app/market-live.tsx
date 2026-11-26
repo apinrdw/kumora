@@ -11,6 +11,7 @@ import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { useBookAlerts } from "@/components/book-alerts/use-book-alerts"
+import { useAllCodes } from "@/components/market-live/all-codes"
 import type { BookEventStore } from "@/components/market-live/book-event-store"
 import {
   BookEventList,
@@ -34,7 +35,7 @@ import {
 import { DayStrip } from "@/components/market-live/day-strip"
 import { LayoutB } from "@/components/market-live/layout-b"
 import { LiveChart } from "@/components/market-live/live-chart"
-import { LiveTape } from "@/components/market-live/live-tape"
+import { LiveTape, useNewVersion } from "@/components/market-live/live-tape"
 import {
   MarketConditionsBar,
   useRelayGaps,
@@ -194,8 +195,8 @@ function BookPanel({
 }
 
 // The running trades: live, whose socket feeds the page through
-// `onMessage` and the browser's book event alerts, or as of the cursor. A
-// recorded day never alerts.
+// `onMessage` and the browser's book event alerts and tells it of a new
+// version, or as of the cursor. A recorded day never alerts.
 function TapePanel({
   selected,
   watchlist,
@@ -203,6 +204,7 @@ function TapePanel({
   gaps,
   onSelect,
   onMessage,
+  onNewVersion,
 }: {
   selected: StockCode
   watchlist: ReadonlyArray<StockCode>
@@ -210,6 +212,7 @@ function TapePanel({
   gaps: ReadonlyArray<RelayGap>
   onSelect: (code: StockCode) => void
   onMessage: (message: ViewerDown) => void
+  onNewVersion: () => void
 }) {
   const tellAlerts = useBookAlerts(cursor === undefined)
   const heard = useCallback(
@@ -225,6 +228,7 @@ function TapePanel({
       watchlist={watchlist}
       onSelect={onSelect}
       onMessage={heard}
+      onNewVersion={onNewVersion}
     />
   ) : (
     <RecordedTape
@@ -237,7 +241,7 @@ function TapePanel({
 }
 
 // What the page keeps in its URL, so a shared link opens it: the selected
-// code, the phone's panel tab, the sweep log's Big only toggle, and the book
+// code, the panel tab, the sweep log's Big only toggle, and the book
 // event a link lands on. Picking a code adds a history entry and leaves the
 // event; switching a view replaces it and keeps the scroll.
 function useMarketLiveSearch() {
@@ -288,7 +292,6 @@ function DayCharts({
   pair,
   cursor,
   gaps,
-  shownGaps,
 }: {
   code: StockCode
   today: WibDate
@@ -312,9 +315,11 @@ function DayCharts({
     | undefined
   pair: ReturnType<typeof useChartPair>
   cursor: ReplayCursor | undefined
+  // The recorded day's gaps; the live page shows the relay's.
   gaps: ReadonlyArray<RelayGap>
-  shownGaps: ReadonlyArray<RelayGap>
 }) {
+  const liveGaps = useRelayGaps()
+  const shownGaps = cursor === undefined ? liveGaps : gaps
   return (
     <>
       <LiveChart
@@ -388,10 +393,18 @@ function MarketLiveDay({
   // browser's localStorage (use-watchlist.ts), so the server can't know which
   // codes' Day states to load. The server render shows no codes, and the
   // rows fill once the page hydrates and the viewer socket's snapshot arrives.
-  const [dayStates] = useState(() => clientRuntime.runSync(makeDayStateStore()))
   // Every code's book readings: a snapshot carries them all, whichever code
-  // it selected, so one store serves every code picked.
-  const [readings] = useState(() => Effect.runSync(makeBookReadingsStore))
+  // it selected, so one store serves every code picked. The live page's
+  // standout sweeps, every code's, likewise (`useAllCodes`).
+  const [{ dayStates, readings }] = useState(() => ({
+    dayStates: clientRuntime.runSync(makeDayStateStore()),
+    readings: Effect.runSync(makeBookReadingsStore),
+  }))
+  const { store: standouts, tab: allCodes } = useAllCodes({
+    day,
+    index: flow === undefined,
+    onSelect: select,
+  })
   const watchlist = useWatchlist()
   const cursor = useReplayCursor(day)
   const gaps = useRecordedDay({
@@ -403,9 +416,10 @@ function MarketLiveDay({
     book,
     dayStates,
   })
-  const liveGaps = useRelayGaps()
-  const shownGaps = cursor === undefined ? liveGaps : gaps
   const player = useSweepAlertPlayer(day)
+  // The viewer socket feeds the whole page, so its reload alert sits above
+  // the tabs, never inside the tape's, which may be hidden.
+  const newVersion = useNewVersion()
   const apply = useCallback(
     (message: ViewerDown) => {
       candles.apply(message)
@@ -415,14 +429,27 @@ function MarketLiveDay({
       dayStates.apply(message)
       readings.apply(message)
       bookEvents.apply(message)
+      standouts.apply(message)
       clientRuntime.runFork(player.hear(message))
     },
-    [candles, sweeps, book, heatmap, dayStates, readings, bookEvents, player]
+    [
+      candles,
+      sweeps,
+      book,
+      heatmap,
+      dayStates,
+      readings,
+      bookEvents,
+      standouts,
+      player,
+    ]
   )
   return (
     <>
       <h1 className="text-2xl font-bold">Market Live</h1>
+      {newVersion.alert}
       <LayoutB
+        code={selected}
         charts={
           <DayCharts
             code={selected}
@@ -436,7 +463,6 @@ function MarketLiveDay({
             pair={pair}
             cursor={cursor}
             gaps={gaps}
-            shownGaps={shownGaps}
           />
         }
         log={
@@ -449,6 +475,7 @@ function MarketLiveDay({
             />
           )
         }
+        allCodes={allCodes}
         withBrokers={withBrokers}
         panel={view.panel}
         onPanel={view.pickPanel}
@@ -479,6 +506,7 @@ function MarketLiveDay({
             gaps={gaps}
             onSelect={select}
             onMessage={apply}
+            onNewVersion={newVersion.outdated}
           />
         }
       />

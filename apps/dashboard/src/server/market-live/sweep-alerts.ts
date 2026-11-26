@@ -1,23 +1,35 @@
-// Sweep alerts (spec apinrdw/kumora#510, "Dashboard: the alert rule"): for
-// each stock code and aggressor side, the day's sweeps ranked by lots, and a
-// sweep that reaches its side's top-1% cutoff among the sweeps before it
-// alerts. The candle book hands each minute's sweeps in as it regroups them
+// Standout sweeps and sweep alerts (spec apinrdw/kumora#510, "Dashboard:
+// the alert rule", and apinrdw/kumora#705): for each stock code and aggressor
+// side, the day's sweeps ranked by lots. A sweep that reaches its side's
+// top-1%, 5% or 10% cutoff among the sweeps before it stands out, and one at
+// 1% alerts. The candle book hands each minute's sweeps in as it regroups them
 // (candles.ts, `takeChanged`). The rule keeps what it ranked of each minute,
 // so a regroup replaces the minute's entries rather than adding them again,
 // and it decides the minutes in trade order.
-import type { AlertSide, StockCode, Sweep, TradeNumber } from "@workspace/relay"
+import {
+  ALERT_LEVEL,
+  STANDOUT_LEVELS,
+  type AlertSide,
+  type SidedSweep,
+  type StandoutSweep,
+  type StockCode,
+  type Sweep,
+  type TradeNumber,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-// Decision: a side alerts nothing until it holds 100 sweeps, then its top 1%
+// Decision: a side lists and alerts nothing until it holds 100 sweeps, then its top 1%, 5% and 10%
 // (apps/dashboard/docs/adr/0097-a-side-alerts-nothing-until-it-holds-100-sweeps.md)
 //
-// apps/e2e/tests/market-live-sweep-alerts.spec.ts repeats the 100 (`WARM_UP`).
+// apps/e2e/tests/market-live-sweep-alerts.spec.ts and
+// market-live-all-codes.spec.ts repeat the 100 (`WARM_UP`).
 const WARM_UP = 100
-const TOP_PERCENT = 1
 
 // Decision: a sweep closed over 10 s before the decision ranks but stays silent
 // (apps/dashboard/docs/adr/0098-a-sweep-closed-over-10-s-ago-ranks-but-stays-silent.md)
 //
+// Only its alert stays silent: it still stands out and is listed in the All
+// codes tab, which shows everything that stood out (spec apinrdw/kumora#705).
 // tests/server/market-live/candles.test.ts repeats the 10 s (`reference`).
 const MAX_AGE = 10_000
 
@@ -36,9 +48,13 @@ interface Ranking {
   readonly counts: Array<number>
 }
 
-// A sweep with an aggressor side: an auction match's prints have none and
-// never rank.
-type SidedSweep = Sweep & { readonly side: AlertSide }
+// A sweep the rule found standing out, as the page lists it, with its
+// minute and whether it alerts.
+interface Decided {
+  readonly standout: StandoutSweep
+  readonly minute: number
+  readonly alerts: boolean
+}
 
 // A sweep as the candle book groups it, and the numbers its trades go by
 // (candles.ts, `knownSweeps`): two sweeps of a minute, grouped at different
@@ -142,15 +158,29 @@ const leave = Effect.fnUntraced(function* (ranking: Ranking, lots: number) {
   ranking.counts.splice(index, 1)
 })
 
-// The side's top-1% cutoff, or undefined while it is warming up.
-const cutoffOf = (ranking: Ranking) =>
+// The level `lots` reaches among the side's sweeps: the first of
+// STANDOUT_LEVELS whose cutoff, the ⌈n·N/100⌉-th largest of n (the top N%
+// as `sweepThreshold` in lib/sweeps.ts takes it), it reaches. Undefined
+// while the side is warming up or when it reaches none.
+// One walk largest-first takes all three cutoffs, whose ranks
+// only grow with the level, and stops at the sweep's own lots: a
+// ranking's 10% walk is ten times its 1% one (spec apinrdw/kumora#705).
+const levelOf = (ranking: Ranking, lots: number) =>
   Effect.sync(() => {
     if (ranking.size < WARM_UP) return undefined
-    const rank = Math.ceil((ranking.size * TOP_PERCENT) / 100)
+    let level = 0
+    let rank = Math.ceil((ranking.size * STANDOUT_LEVELS[level]!) / 100)
     let seen = 0
-    for (const [index, lots] of ranking.lots.entries()) {
+    for (let index = 0; index < ranking.lots.length; index++) {
+      // The level's cutoff is here or further down, no larger.
+      if (lots >= ranking.lots[index]!) return STANDOUT_LEVELS[level]
       seen += ranking.counts[index]!
-      if (seen >= rank) return lots
+      // The level's cutoff is here, larger than `lots`.
+      while (seen >= rank) {
+        level += 1
+        if (level === STANDOUT_LEVELS.length) return undefined
+        rank = Math.ceil((ranking.size * STANDOUT_LEVELS[level]!) / 100)
+      }
     }
     return undefined
   })
@@ -199,20 +229,21 @@ export const makeSweepAlerts = Effect.sync(() => {
       return ranking
     })
 
-  // Whether a sweep alerts against its side's earlier sweeps, decided at
-  // `now`; it joins them either way.
+  // The level a sweep reaches against its side's earlier sweeps, and
+  // whether it alerts, decided at `now`; it joins them either way.
   const check = Effect.fnUntraced(function* (
     code: StockCode,
     { sweep, second }: PlacedSweep,
     now: number
   ) {
     const ranking = yield* rankingOf(code, sweep.side)
-    const cutoff = yield* cutoffOf(ranking)
+    const level = yield* levelOf(ranking, sweep.lots)
     yield* join(ranking, sweep.lots)
     const closed = (second + 1) * SECOND
-    return (
-      cutoff !== undefined && sweep.lots >= cutoff && now - closed <= MAX_AGE
-    )
+    return {
+      level,
+      alerts: level === ALERT_LEVEL && now - closed <= MAX_AGE,
+    }
   })
 
   // One code's minute of sweeps as the book now groups them, whole and in
@@ -265,7 +296,8 @@ export const makeSweepAlerts = Effect.sync(() => {
   // sweep that regroups one of them joins again without a decision. A new
   // sweep is decided once its second is before `closedBefore`; until then it
   // waits. An auction match has no side and never ranks. Returns the sweeps
-  // that alert and whether one waits.
+  // that stand out, each with its level and whether it alerts, and whether
+  // one waits.
   const decideMinute = Effect.fnUntraced(function* (kept: Minute, now: number) {
     for (const { sweep } of kept.ranked)
       yield* leave(yield* rankingOf(kept.code, sweep.side), sweep.lots)
@@ -286,20 +318,27 @@ export const makeSweepAlerts = Effect.sync(() => {
       }
       ranked.push(entry)
     }
-    const alerts: Array<PlacedSweep> = []
-    for (const entry of fresh)
-      if (yield* check(kept.code, entry, now)) alerts.push(entry)
+    const standouts: Array<Decided> = []
+    for (const entry of fresh) {
+      const { level, alerts } = yield* check(kept.code, entry, now)
+      if (level !== undefined)
+        standouts.push({
+          standout: { code: kept.code, level, sweep: entry.sweep },
+          minute: kept.minute,
+          alerts,
+        })
+    }
     kept.ranked = ranked
     kept.regrouped = false
-    return { alerts, waits }
+    return { standouts, waits }
   })
 
   // Decides every sweep that can be decided once the object holds a trade
   // timed `latest` and the decision is made at `now`, both in epoch ms: a
   // sweep's second has closed once `latest` is in a later one. The minutes
   // go in order, so each code's sweeps are decided in trade order whichever
-  // the book regrouped first. Returns the sweeps that alert, each with its
-  // code and minute.
+  // the book regrouped first. Returns the sweeps that stand out, each with
+  // its code, minute, level and whether it alerts.
   const decide = Effect.fnUntraced(function* ({
     latest,
     now,
@@ -312,21 +351,16 @@ export const makeSweepAlerts = Effect.sync(() => {
     // another second closes.
     const closedMore = second !== closedBefore
     closedBefore = second
-    const alerts: Array<{
-      readonly code: StockCode
-      readonly minute: number
-      readonly sweep: SidedSweep
-    }> = []
+    const standouts: Array<Decided> = []
     for (const kept of [...undecided].sort((a, b) => a.minute - b.minute)) {
       if (!kept.regrouped && !closedMore) continue
       const decided = yield* decideMinute(kept, now)
-      for (const { sweep } of decided.alerts)
-        alerts.push({ code: kept.code, minute: kept.minute, sweep })
+      standouts.push(...decided.standouts)
       if (decided.waits) continue
       undecided.delete(kept)
       if (!kept.held) minutes.delete(`${kept.code} ${kept.minute}`)
     }
-    return alerts
+    return standouts
   })
 
   // Sweeps a restarted object stored, ranked without a decision: its

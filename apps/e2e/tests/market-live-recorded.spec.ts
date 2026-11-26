@@ -50,7 +50,7 @@ test("trades and order books the relay sent are read back from the store after t
   // the trade (candles.ts) and the book's chunk is the minute the object served
   // its frame in (book-chunks.ts), both after the spec sent them. See
   // apinrdw/kumora#191.
-  await page.goto(`${DASHBOARD}/market-live?code=${code}`)
+  await page.goto(`${DASHBOARD}/market-live?code=${code}&panel=tape`)
   await expect(
     page
       .getByRole("group", { name: "Market conditions" })

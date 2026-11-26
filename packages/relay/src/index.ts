@@ -59,6 +59,8 @@ export {
   TradeNumberOrder,
   TradeNumberValue,
   tradeNumberValue,
+  ALERT_LEVEL,
+  STANDOUT_LEVELS,
   VIEWER_MESSAGE_LIMIT,
   ViewerCloseCode,
   ViewerProtocolVersion,
@@ -83,6 +85,9 @@ export type {
   MinuteSweeps,
   Sweep,
   AlertSide,
+  SidedSweep,
+  StandoutLevel,
+  StandoutSweep,
   SweepAlert,
   ViewerDown,
   ViewerUp,
@@ -224,6 +229,12 @@ export type {
   OrderNumbers,
   TradeFields,
 } from "./broker-codes.ts"
+export {
+  STANDOUTS_PER_LEVEL,
+  keptStandouts,
+  shownStandouts,
+  standoutKey,
+} from "./standout-sweeps.ts"
 export type { RecordedSweeps } from "./sweeps.ts"
 export {
   decodeRecordedSweeps,

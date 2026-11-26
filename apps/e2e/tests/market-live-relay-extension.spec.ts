@@ -89,7 +89,7 @@ test("the built extension relays fake Stockbit and Ajaib tabs to the local tradi
     // Trades on A reach the trading-day object, and from it the tape.
     const base = freshTradeNumbers()
     for (const frame of session1Today(base).slice(20, 30)) a.socket.send(frame)
-    await page.goto(`${DASHBOARD}/market-live`)
+    await page.goto(`${DASHBOARD}/market-live?panel=tape`)
     const tape = page.getByRole("region", { name: "Running trades" })
     await expect(
       tape.locator(`tr[data-trade-number="${base + 22323}"]`)

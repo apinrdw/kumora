@@ -1,13 +1,20 @@
 // What /market-live reads from its URL (spec apinrdw/kumora#138, "Route and
-// nav"): the selected stock code, the recorded day, the phone's panel tab
-// and the sweep log's Big only toggle, so a reload or a shared link opens
+// nav"): the selected stock code, the recorded day, the panel tab and the
+// sweep log's Big only toggle, so a reload or a shared link opens
 // them; and the book event a link from the order book radar lands on.
 import { StockCode } from "@workspace/client"
 import { WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
-// The panels layout B shows beside the charts, as tabs on a phone.
-export const PANELS = ["sweeps", "watchlist", "book", "tape"] as const
+// The panels layout B shows beside the charts, in the phone's tab order.
+// From `lg`, the middle column's tabs are the ones it holds (layout-b.tsx).
+export const PANELS = [
+  "sweeps",
+  "allCodes",
+  "tape",
+  "watchlist",
+  "book",
+] as const
 const Panel = Schema.Literals(PANELS)
 export type Panel = typeof Panel.Type
 
@@ -21,7 +28,8 @@ export interface MarketLiveSearch {
   readonly code?: StockCode | undefined
   // The recorded day shown; none for the live page.
   readonly day?: WibDate | undefined
-  // The phone's panel tab; none for the first one there.
+  // The panel tab: the middle column's from `lg`, the phone's below it;
+  // none for the first one there.
   readonly panel?: Panel | undefined
   readonly big?: true | undefined
   // The book event the readout's list picks and scrolls to once it lands.

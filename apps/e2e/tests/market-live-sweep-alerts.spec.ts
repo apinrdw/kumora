@@ -70,7 +70,7 @@ test("a sweep that reaches its code's top-1% cutoff marks its rows on the live t
   // A code of its own: today's object ranks every code's sweeps all day.
   const code = freshCode("SL")
   await page.addInitScript(recordNotes)
-  await page.goto(`${DASHBOARD}${PAGE}`)
+  await page.goto(`${DASHBOARD}${PAGE}?panel=tape`)
   const tape = page.getByRole("region", { name: "Running trades" })
   const row = (seq: number) =>
     tape.locator(`tr[data-trade-number="${base + seq}"]`)

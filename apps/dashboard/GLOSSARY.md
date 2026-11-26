@@ -99,10 +99,14 @@ A stock code's running trades in one second that share an aggressor side, taken 
 _Avoid_: Group, burst
 
 **Sweep alert**:
-A sweep that reached its stock code's top-1% cutoff for its side, among at least 100 earlier sweeps of that side today, decided live. Market Live plays its side's sound and marks its trades on the tape.
+A standout sweep at 1%. Market Live plays its side's sound and marks its trades on the tape. Picking 5% or 10% in the All codes tab never makes a sweep alert.
+
+**Standout sweep**:
+A sweep that reached its stock code's top-1%, 5% or 10% cutoff for its side, among at least 100 earlier sweeps of that side today, decided live. Its level is the smallest of the three it reached. Market Live's All codes tab lists the day's standout sweeps of every code at or under the picked level, newest first.
+_Avoid_: Top sweep (top names the top-N filter), big sweep (big names a Big trade), market sweep (the cutoff is the code's own, never the market's)
 
 **Top-1% cutoff**:
-The lots that a side's biggest 1% of sweeps so far reach.
+The lots that a side's biggest 1% of sweeps so far reach. The top-5% and top-10% cutoffs are the same at 5% and 10%.
 
 **Speaker toggle**:
 The button in the live Running trades header that turns Sweep alert sounds on for this browser. Off until turned on, and remembered per browser.

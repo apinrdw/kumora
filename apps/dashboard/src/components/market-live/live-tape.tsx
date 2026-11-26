@@ -7,7 +7,7 @@ import {
   type ViewerUp,
 } from "@workspace/relay"
 import { Effect, Fiber, Stream, SubscriptionRef } from "effect"
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { KButton } from "@/components/k/button"
 import { KStatusPill } from "@/components/k/status-pill"
@@ -43,10 +43,9 @@ const selectOf = (
 
 const NO_CODES: ReadonlyArray<StockCode> = []
 
-type Status = "live" | "new-version"
-
 // The whole-market tape from the viewer socket. A 4401 close sends the
-// visitor to sign in and back; a 4426 close asks for a reload; any other close
+// visitor to sign in and back; a 4426 close calls `onNewVersion`, and the
+// page shows `useNewVersion`'s alert whichever tab is open; any other close
 // reconnects and starts over from a fresh snapshot. Clicking a trade selects
 // its code; each change of `selected` or `watchlist` is sent down the open
 // socket.
@@ -56,14 +55,15 @@ export function LiveTape({
   watchlist = NO_CODES,
   onSelect,
   onMessage,
+  onNewVersion,
 }: {
   selected: StockCode
   watchlist?: ReadonlyArray<StockCode>
   onSelect: (code: StockCode) => void
   onMessage?: (message: ViewerDown) => void
+  onNewVersion: () => void
 }) {
   const { tape, frame, apply } = useFramedTape()
-  const [status, setStatus] = useState<Status>("live")
   const stale = useMergedStale()
   const gaps = useRelayGaps()
   const [select] = useState(() =>
@@ -78,6 +78,10 @@ export function LiveTape({
   useEffect(() => {
     listener.current = onMessage
   }, [onMessage])
+  const newVersion = useRef(onNewVersion)
+  useEffect(() => {
+    newVersion.current = onNewVersion
+  }, [onNewVersion])
 
   // The code the socket last sent.
   const sent = useRef({ selected, watchlist })
@@ -122,7 +126,7 @@ export function LiveTape({
       ).pipe(
         Effect.catchTags({
           SignInRequired: () => signInAgain,
-          NewVersion: () => Effect.sync(() => setStatus("new-version")),
+          NewVersion: () => Effect.sync(() => newVersion.current()),
         })
       )
     )
@@ -135,14 +139,6 @@ export function LiveTape({
 
   return (
     <TapeSection stale={stale} controls={<SpeakerToggle />}>
-      {status === "new-version" && (
-        <div role="alert" className="flex items-center gap-3 text-[13px]">
-          <span>A new version of Market Live is out. Reload to continue.</span>
-          <KButton size="sm" onClick={() => window.location.reload()}>
-            Reload
-          </KButton>
-        </div>
-      )}
       <TapeList
         tape={tape}
         frame={frame}
@@ -154,6 +150,22 @@ export function LiveTape({
       />
     </TapeSection>
   )
+}
+
+// The reload alert, shown once `outdated` is called: the viewer socket closed
+// with 4426 and the page stops updating until reloaded.
+export function useNewVersion() {
+  const [newVersion, setNewVersion] = useState(false)
+  const outdated = useCallback(() => setNewVersion(true), [])
+  const alert = newVersion && (
+    <div role="alert" className="flex items-center gap-3 text-[13px]">
+      <span>A new version of Market Live is out. Reload to continue.</span>
+      <KButton size="sm" onClick={() => window.location.reload()}>
+        Reload
+      </KButton>
+    </div>
+  )
+  return { alert, outdated }
 }
 
 export const TAPE_HEIGHT = "h-[min(70vh,640px)]"

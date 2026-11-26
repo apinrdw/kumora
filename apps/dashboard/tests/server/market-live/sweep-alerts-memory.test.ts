@@ -6,9 +6,12 @@
 // its own lots, so each is an entry of its ranking.
 import { assert, describe, it } from "@effect/vitest"
 import {
+  STANDOUTS_PER_LEVEL,
   StockCode,
   TradeNumber,
+  keptStandouts,
   type RunningTrade,
+  type StandoutSweep,
   type Sweep,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
@@ -199,16 +202,18 @@ describe("the alert rule at the worst day", () => {
   )
 
   it.effect(
-    "a live day of them leaves the rule holding its rankings and the minutes still waiting, not the day's minutes",
+    "a live day of them leaves the rule holding its rankings and the minutes still waiting, and the object its capped standout backlog, not the day's minutes",
     () =>
       Effect.gen(function* () {
         assert.strictEqual(SWEEPS, 665_760)
         const before = yield* retainedHeap
         const rule = yield* makeSweepAlerts
         let alerts = 0
+        let standouts = 0
+        let backlog: ReadonlyArray<StandoutSweep> = []
         // Each minute's sweeps regrouped, each known by its one trade,
-        // decided with its last second still open, then let go, as a flush
-        // does.
+        // decided with its last second still open and kept in the snapshot
+        // backlog as the object keeps them, then let go, as a flush does.
         for (let minute = 0; minute < FULL_DAY_MINUTES; minute++) {
           for (let code = 0; code < FULL_DAY_CODES; code++) {
             const sweeps = sweepsOf(code, minute)
@@ -224,7 +229,13 @@ describe("the alert rule at the worst day", () => {
               })
           }
           const latest = FIRST + minute * MINUTE + 59_000
-          alerts += (yield* rule.decide({ latest, now: latest })).length
+          const decided = yield* rule.decide({ latest, now: latest })
+          for (const { alerts: alerting } of decided) if (alerting) alerts += 1
+          standouts += decided.length
+          backlog = yield* keptStandouts(
+            backlog,
+            decided.map(({ standout }) => standout)
+          )
           for (const code of codes) yield* rule.release(code, minute)
         }
         const held = (yield* retainedHeap) - before
@@ -233,8 +244,11 @@ describe("the alert rule at the worst day", () => {
           BOUND,
           `${(held / 2 ** 20).toFixed(1)} MiB retained`
         )
-        // The rule decided them: about 1% of a busy code's sweeps alert.
+        // The rule decided them: about 1% of a busy code's sweeps alert,
+        // and about 10% stand out, far more than the backlog keeps.
         assert.isAbove(alerts, 1000)
+        assert.isAbove(standouts, 10 * STANDOUTS_PER_LEVEL)
+        assert.isAtMost(backlog.length, 3 * STANDOUTS_PER_LEVEL)
         // Keeps `rule` alive past the measurement.
         yield* rule.release(codes[0]!, 0)
       }),

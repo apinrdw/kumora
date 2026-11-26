@@ -195,7 +195,7 @@ test("a cold day replays, is never rechecked, and reloads from the browser's cac
   await page.context().unrouteAll()
   const gets = await dayGets(page, day)
   await page.setViewportSize({ width: 1920, height: 1080 })
-  await page.goto(`${DASHBOARD}/market-live?code=${code}&day=${day}`)
+  await page.goto(`${DASHBOARD}/market-live?code=${code}&day=${day}&panel=tape`)
   await expect(
     page.getByRole("group", { name: "Market conditions" })
   ).toContainText("RECORDED")
@@ -206,7 +206,12 @@ test("a cold day replays, is never rechecked, and reloads from the browser's cac
   const last = tape.locator(`tr[data-trade-number="${N - 1}"]`).locator("td")
   await expect(last.nth(5)).toHaveText("YP [D]")
   await expect(last.nth(6)).toHaveText("CC [D]")
-  // The sweeps, newest first, with their lead brokers.
+  // The sweeps, newest first, with their lead brokers, in the tab beside the
+  // tape's.
+  await page
+    .getByRole("tablist", { name: "Trades" })
+    .getByRole("tab", { name: `Buy/Sell sweeps · ${code}` })
+    .click()
   const log = page.getByRole("region", { name: "Sweep log" })
   const rows = log.locator("[data-sweep-id]")
   await expect(rows).toHaveCount(2)
