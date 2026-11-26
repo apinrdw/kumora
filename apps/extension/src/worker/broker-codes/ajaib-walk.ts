@@ -180,7 +180,7 @@ const pageRows = Effect.fnUntraced(function* (answer: Answer) {
 })
 
 // The batch rows of `rows` on `day` with valid codes, their places on the
-// page, and each row on `day` with a stock code as the Done Details walk
+// page (each row's `at`, not its tape offset), and each row on `day` with a stock code as the Done Details walk
 // keeps it: with its key when its codes and fields are valid, else unkeyed.
 const dayRows = Effect.fnUntraced(function* (
   day: WibDate,
