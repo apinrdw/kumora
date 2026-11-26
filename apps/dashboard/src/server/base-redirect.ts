@@ -19,7 +19,9 @@ import { Effect, Option, Schema } from "effect"
 export const CLOUDFLARE_PATH = "/cdn-cgi/"
 
 // The bindings the entry's redirects read, as Cloudflare hands them to
-// `fetch`.
+// `fetch`, not through `WorkerEnv`: vite.config.ts loads this file, and
+// pulling `@workspace/server` into the dev server broke Market Live's sockets
+// in e2e.
 export interface RedirectEnv {
   readonly DASHBOARD_URL: string
   readonly REDIRECT_TO_STAGE_URL?: "on"

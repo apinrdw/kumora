@@ -195,7 +195,7 @@ Then publish the Release (step 14), after 16:35 WIB or on a non-trading day. The
    | `kumora.pusat.ai/probe` | `200`, web's probe, whose `secretSha256Prefix` matches `prod` (step 8). |
    | `kumora.pusat.ai/dashboard/sign-in` | `200`, the dashboard's sign-in page. A `404` means the dashboard's routes are missing and web answered. |
    | `kumora.pusat.ai/dashboard/` | `307` to `https://kumora.pusat.ai/dashboard/sign-in?...` (signed out). |
-| `kumora.pusat.ai/dashboard?tab=brokers` | `301` to `https://kumora.pusat.ai/dashboard/?tab=brokers`, answered by web. A `404` means web runs a build without the redirect. |
+   | `kumora.pusat.ai/dashboard?tab=brokers` | `301` to `https://kumora.pusat.ai/dashboard/?tab=brokers`, answered by web. A `404` means web runs a build without the redirect. |
    | `kumora-dashboard.kumora.workers.dev/stocks/BBCA?tab=brokers` | `301` to `https://kumora.pusat.ai/dashboard/stocks/BBCA?tab=brokers`. |
    | `kumora-dashboard.kumora.workers.dev/dashboard/sign-in` | `301` to `https://kumora.pusat.ai/dashboard/sign-in`. |
    | `kumora-web.kumora.workers.dev/` | `200`, the web landing page. |
