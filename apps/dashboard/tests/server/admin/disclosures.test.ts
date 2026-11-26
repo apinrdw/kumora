@@ -14,6 +14,7 @@ import {
   MAX_UNAVAILABLE_BYTES,
   MAX_UNAVAILABLE_SHOWN,
 } from "@/server/disclosures/disclosure-index"
+import { DisclosureKey } from "@/server/disclosures/key"
 import { MAX_KEY_LENGTH, MAX_PATH_LENGTH } from "@/server/disclosures/listing"
 import type { DisclosureRunResult } from "@/server/disclosures/run-result"
 
@@ -298,7 +299,7 @@ describe("the Disclosures admin page", () => {
           total: 2,
           attachments: [
             {
-              disclosure: "20261102090000-B/2",
+              disclosure: DisclosureKey.make("20261102090000-B/2"),
               path: "/d.pdf",
               day: "2026-11-02",
               firstFailedAt: "2026-11-05T03:00:00.000Z",
@@ -306,7 +307,7 @@ describe("the Disclosures admin page", () => {
               lastError: "IDX answered 404",
             },
             {
-              disclosure: "20261101090000-A/1",
+              disclosure: DisclosureKey.make("20261101090000-A/1"),
               path: "/c.pdf",
               day: "2026-11-01",
               firstFailedAt: "2026-11-03T03:00:00.000Z",
