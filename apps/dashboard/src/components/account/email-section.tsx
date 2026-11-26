@@ -1,5 +1,5 @@
 import { useHydrated } from "@tanstack/react-router"
-import { clientRuntime } from "@workspace/client"
+import { clientRuntime, formFields } from "@workspace/client"
 import { Effect } from "effect"
 import type { FormEvent } from "react"
 
@@ -25,11 +25,14 @@ const LINK_FAILED: Outcome = {
 
 const changeEmail = Effect.fnUntraced(function* (
   form: HTMLFormElement,
-  newEmail: string,
   email: string
 ): Effect.fn.Return<Outcome> {
+  const { newEmail } = yield* formFields(form, ["newEmail"])
   const { error } = yield* Effect.promise(() =>
-    authClient.changeEmail({ newEmail, callbackURL: ACCOUNT_PATH })
+    authClient.changeEmail({
+      newEmail: newEmail.trim(),
+      callbackURL: ACCOUNT_PATH,
+    })
   )
   if (error)
     return {
@@ -66,17 +69,7 @@ export function EmailSection({
   const { pending, outcome, run } = useAccountAction()
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const form = event.currentTarget
-    const newEmail = new FormData(form).get("newEmail")
-    clientRuntime.runFork(
-      run(
-        changeEmail(
-          form,
-          typeof newEmail === "string" ? newEmail.trim() : "",
-          email
-        )
-      )
-    )
+    clientRuntime.runFork(run(changeEmail(event.currentTarget, email)))
   }
   return (
     <AccountSection

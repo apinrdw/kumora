@@ -1,4 +1,5 @@
 import { useHydrated } from "@tanstack/react-router"
+import { formFields } from "@workspace/client"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import { useId } from "react"
@@ -82,9 +83,8 @@ function SlipForm({
   const busy = state._tag === "Sending"
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    // A text field, so never a File.
-    const email = new FormData(event.currentTarget).get("email")
-    onSubmit(typeof email === "string" ? email : "", id)
+    const { email } = Effect.runSync(formFields(event.currentTarget, ["email"]))
+    onSubmit(email, id)
   }
   return (
     <form

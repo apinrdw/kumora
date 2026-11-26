@@ -4,7 +4,7 @@ import {
   IconMailCheck,
 } from "@tabler/icons-react"
 import { Link, useHydrated } from "@tanstack/react-router"
-import { clientRuntime } from "@workspace/client"
+import { clientRuntime, formFields } from "@workspace/client"
 import { Effect } from "effect"
 import { useState, type FormEvent } from "react"
 
@@ -14,7 +14,7 @@ import { linkLifetime } from "@/lib/link-lifetime"
 import { MIN_PASSWORD_LENGTH, resetPasswordPage } from "@/lib/password"
 import { retryAfter } from "@/lib/retry-after"
 
-import { FormError, Notice, formFields, linkClass } from "./auth-page"
+import { FormError, Notice, linkClass } from "./auth-page"
 import { CAPTCHA_HEADER, useTurnstile } from "./turnstile"
 
 function BackToSignIn({ redirect }: { redirect: string }) {

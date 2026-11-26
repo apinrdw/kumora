@@ -1,5 +1,5 @@
 import { useHydrated } from "@tanstack/react-router"
-import { clientRuntime } from "@workspace/client"
+import { clientRuntime, formFields } from "@workspace/client"
 import { Effect } from "effect"
 import type { FormEvent } from "react"
 
@@ -18,17 +18,19 @@ import {
 const changePassword = Effect.fnUntraced(function* (
   form: HTMLFormElement
 ): Effect.fn.Return<Outcome> {
-  const data = new FormData(form)
-  const currentPassword = data.get("currentPassword")
-  const newPassword = data.get("newPassword")
+  const { currentPassword, newPassword, revokeOtherSessions } =
+    yield* formFields(form, [
+      "currentPassword",
+      "newPassword",
+      "revokeOtherSessions",
+    ])
   const retry = yield* retryAfter()
   const { error } = yield* Effect.promise(() =>
     authClient.changePassword(
       {
-        currentPassword:
-          typeof currentPassword === "string" ? currentPassword : "",
-        newPassword: typeof newPassword === "string" ? newPassword : "",
-        revokeOtherSessions: data.get("revokeOtherSessions") === "on",
+        currentPassword,
+        newPassword,
+        revokeOtherSessions: revokeOtherSessions === "on",
       },
       { onError: retry.onError }
     )

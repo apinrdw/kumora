@@ -1,5 +1,5 @@
 import { useHydrated } from "@tanstack/react-router"
-import { clientRuntime } from "@workspace/client"
+import { clientRuntime, formFields } from "@workspace/client"
 import { Effect } from "effect"
 import type { FormEvent } from "react"
 
@@ -37,9 +37,12 @@ export function DetailsSection({
   const { pending, outcome, run } = useAccountAction()
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const name = new FormData(event.currentTarget).get("name")
     clientRuntime.runFork(
-      run(saveName(typeof name === "string" ? name.trim() : ""))
+      run(
+        Effect.flatMap(formFields(event.currentTarget, ["name"]), ({ name }) =>
+          saveName(name.trim())
+        )
+      )
     )
   }
   return (
