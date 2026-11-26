@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ConfigProvider, Effect } from "effect"
+import { CommandLine } from "effect/process"
 import { TestConsole } from "effect/testing"
 
 import { baseRef, checkExtensionVersion } from "./extension-version.mts"
@@ -19,7 +20,10 @@ const repo = (changed: ReadonlyArray<string>, before: string, after: string) =>
       return { stdout: pkg(before) }
     if (args[1] === "HEAD:apps/extension/package.json")
       return { stdout: pkg(after) }
-    return { exitCode: 128, stderr: `unexpected git ${args.join(" ")}` }
+    return {
+      exitCode: 128,
+      stderr: `unexpected git ${CommandLine.display(args)}`,
+    }
   })
 
 describe("checkExtensionVersion", () => {
