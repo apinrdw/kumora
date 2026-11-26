@@ -146,12 +146,14 @@ export interface RunBase extends RunSummaryBase {
   readonly error: string | null
 }
 
-// Which archive a run is of, as the report index names it
-// (report-index.ts): each has its own bucket and run machinery.
-export type RunArchive = IndexedArchiveName
+// Which archive a run is of: each has its own bucket and run machinery. The
+// shareholding and KSEI archives are named as the report index
+// (report-index.ts) names them; the disclosure archive has an index of its
+// own (../disclosures/disclosure-index.ts).
+export type RunArchive = IndexedArchiveName | "disclosure"
 
-// Which of an archive's runs: its archive run (IDX's) or KSEI archive run,
-// or one of its parse runs (../holdings/parse-runs.ts). One run of each
+// Which of an archive's runs: its archive run (IDX's), KSEI archive run or
+// disclosure run, or one of its parse runs (../holdings/parse-runs.ts). One run of each
 // kind is in progress at a time.
 export type RunKind =
   | "archive"

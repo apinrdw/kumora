@@ -242,6 +242,18 @@ export const Website = Cloudflare.Website.Vite(
         KSEI_ARCHIVE: Cloudflare.Workflow<RunParams>("KseiArchive", {
           className: "KseiArchive",
         }),
+        // The disclosure archive and its disclosure run, on every stage like
+        // the other archives, in a bucket of their own.
+        DISCLOSURE_ARCHIVE_BUCKET: Cloudflare.R2.Bucket(
+          "DisclosureArchiveBucket",
+          // Decision: one bucket per stage; only Production's survives a stack destroy
+          // (apps/dashboard/docs/adr/0006-only-production-s-buckets-survive-a-stack-destroy.md)
+          { forceDestroy: (yield* stageKind(stage)) !== "production" }
+        ),
+        DISCLOSURE_ARCHIVE: Cloudflare.Workflow<RunParams>(
+          "DisclosureArchive",
+          { className: "DisclosureArchive" }
+        ),
         // The KSEI parse run, which parses the KSEI archive's Kepemilikan
         // Efek files into HoldingsDb, on every stage like the archive runs.
         KSEI_PARSE: Cloudflare.Workflow<RunParams>("KseiParse", {
