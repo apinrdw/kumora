@@ -1,7 +1,7 @@
 // Disclosure days: the WIB date IDX publishes a disclosure on, and the day
 // arithmetic the runs and the coverage share.
 import { WibDate, wibDateAt } from "@workspace/relay"
-import { DateTime, Effect } from "effect"
+import { DateTime, Duration, Effect } from "effect"
 
 import type { DisclosureKey } from "./key.ts"
 
@@ -11,6 +11,15 @@ import type { DisclosureKey } from "./key.ts"
 // Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
 // (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
 export const FIRST_DISCLOSURE_DAY = WibDate.make("2023-07-03")
+
+// The disclosure days each run lists again: today in WIB and the 6 before,
+// so a version or attachment IDX adds within a week is stored.
+export const RECENT_DAYS = 7
+
+// How long an attachment's failures span before it is unavailable.
+// Decision: an attachment whose failures span 7 days is unavailable
+// (apps/dashboard/docs/adr/0139-an-attachment-failing-for-7-days-is-unavailable.md)
+export const UNAVAILABLE_AFTER = Duration.days(7)
 
 // The day after `day`.
 export const dayAfter = Effect.fnUntraced(function* (day: WibDate) {

@@ -10,9 +10,9 @@ import {
 import { count } from "@/lib/format"
 import type {
   DisclosureCoverage,
-  DisclosureCoverageDay,
   DisclosureCoverageState,
 } from "@/server/disclosures/coverage"
+import { RECENT_DAYS } from "@/server/disclosures/disclosure-day"
 
 // Each state differs in shape as well as color: a filled square with a
 // check, a filled square with a clock, an empty dashed square.
@@ -33,12 +33,6 @@ const STATE = {
     Icon: null,
   },
 } as const satisfies Record<DisclosureCoverageState, MarkStyle>
-
-// A day's tooltip after its date and state: what it waits for, if anything.
-const waitingNote = ({ waiting }: DisclosureCoverageDay) =>
-  waiting === 0
-    ? ""
-    : `(${Effect.runSync(count(waiting, "attachment waits", "attachments wait"))})`
 
 /**
  * Each disclosure day from IDX's first to today
@@ -68,14 +62,20 @@ export function DisclosureCoverageCard({
         )}{" "}
         {Effect.runSync(count(complete, "day complete", "days complete"))},{" "}
         {incomplete} incomplete, {notListed} not yet listed. Each run takes up
-        the oldest incomplete days after the last 7.
+        the oldest incomplete days after the last {RECENT_DAYS}.
       </p>
       <DayGrid
         title="Disclosure days"
         label="Disclosure coverage"
         months={months}
         mark={({ state }) => STATE[state]}
-        describe={waitingNote}
+        // A day's tooltip after its date and state: what it waits for, if
+        // anything.
+        describe={({ waiting }) =>
+          waiting === 0
+            ? ""
+            : `(${Effect.runSync(count(waiting, "attachment waits", "attachments wait"))})`
+        }
       />
     </ArchiveCard>
   )

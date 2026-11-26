@@ -1,7 +1,7 @@
 // One disclosure run: `plan`, one `list:<day>` step per disclosure day of
-// the last 7, newest first, `backfill`, a `list:<day>` step per older day it
-// takes up that isn't listed whole, `waiting`, one `files:<n>` step per
-// FILES_PER_STEP waiting attachments, then `summary`. Each step's body is an
+// the last RECENT_DAYS, newest first, `backfill`, a `list:<day>` step per
+// older day it takes up that isn't listed whole, `waiting`, one `files:<n>`
+// step per FILES_PER_STEP waiting attachments, then `summary`. Each step's body is an
 // Effect; the run itself only orders the steps, so it holds nothing a
 // Workflow replay could change. Spec apinrdw/kumora#715, #716 and #718.
 //
@@ -29,6 +29,7 @@ import {
   disclosureDayOf,
   FIRST_DISCLOSURE_DAY,
   listedWhole,
+  RECENT_DAYS,
 } from "./disclosure-day.ts"
 import {
   indexVersions,
@@ -65,13 +66,9 @@ type DisclosureRun = Run<DisclosureTrigger>
 
 type StepServices = ArchiveBucket | ArchiveDb | HttpClient.HttpClient
 
-// The disclosure days each run lists again: today in WIB and the 6 before,
-// so a version or attachment IDX adds within a week is stored.
-const RECENT_DAYS = 7
-
 // The most days older than the recent ones one run takes up. A day of
 // ~200 disclosures waits ~500 attachments, so the budget stops a run after
-// two or three; the cap bounds a run's steps (at most 7 + 31 `list:`, 40
+// two or three; the cap bounds a run's steps (at most RECENT_DAYS + 31 `list:`, 40
 // `files:` and 4 more, against a Workflow's default 10,000) where days hold
 // nothing, as before IDX's first disclosure or on a holiday.
 const MAX_BACKFILL_DAYS = 31

@@ -7,6 +7,7 @@ import { DisclosureLastRunCard } from "@/components/admin/disclosures/last-run-c
 import { DisclosureRecentRunsCard } from "@/components/admin/disclosures/recent-runs-card"
 import { DisclosureUnavailableCard } from "@/components/admin/disclosures/unavailable-card"
 import { disclosureArchiveFn } from "@/server/admin/disclosures.functions"
+import { RECENT_DAYS } from "@/server/disclosures/disclosure-day"
 
 export const Route = createFileRoute("/_app/admin/disclosures")({
   staticData: {
@@ -31,8 +32,8 @@ function DisclosuresPage() {
         <p className="text-secondary-text max-w-[70ch] text-pretty">
           Every disclosure IDX publishes on its Keterbukaan Informasi page, in
           Indonesian and English, with every attachment, kept as published. Run
-          now stores what the last 7 days added on this stage, then backfills
-          the oldest days not yet complete.
+          now stores what the last {RECENT_DAYS} days added on this stage, then
+          backfills the oldest days not yet complete.
         </p>
       </header>
       <DisclosureLastRunCard lastRun={lastRun} nextRun={nextRun} now={now} />

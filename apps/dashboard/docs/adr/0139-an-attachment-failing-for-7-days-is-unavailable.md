@@ -6,5 +6,6 @@ Counting failed runs was the alternative: at one run every 15 minutes a count sa
 
 Sites:
 - `apps/dashboard/src/server/disclosures/disclosure-index.ts`
+- `apps/dashboard/src/server/disclosures/disclosure-day.ts`
 
 Source: apinrdw/kumora#715, apinrdw/kumora#719

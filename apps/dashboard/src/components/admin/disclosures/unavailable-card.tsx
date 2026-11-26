@@ -1,16 +1,21 @@
-import { Effect } from "effect"
+import { Duration, Effect } from "effect"
 
 import { ArchiveCard } from "@/components/admin/archive/archive-card"
 import { FLUSH } from "@/components/admin/archive/history-cards"
 import { KDataTable, type KColumn } from "@/components/k"
 import { count, dateTime } from "@/lib/format"
+import { UNAVAILABLE_AFTER } from "@/server/disclosures/disclosure-day"
 import type { UnavailableAttachments } from "@/server/disclosures/disclosure-index"
 
 type Row = UnavailableAttachments["attachments"][number]
 
-const data = (text: string) => (
-  <span className="font-data text-xs break-all">{text}</span>
-)
+// How long a run tries an attachment before it is unavailable, as the
+// card's copy says it.
+const SPAN = `${Duration.toDays(UNAVAILABLE_AFTER)} days`
+
+function Data({ text }: { text: string }) {
+  return <span className="font-data text-xs break-all">{text}</span>
+}
 
 const COLUMNS: ReadonlyArray<KColumn<Row>> = [
   {
@@ -21,9 +26,13 @@ const COLUMNS: ReadonlyArray<KColumn<Row>> = [
   {
     key: "disclosure",
     label: "Disclosure",
-    cell: (row) => data(row.disclosure),
+    cell: (row) => <Data text={row.disclosure} />,
   },
-  { key: "path", label: "Attachment", cell: (row) => data(row.path) },
+  {
+    key: "path",
+    label: "Attachment",
+    cell: (row) => <Data text={row.path} />,
+  },
   {
     key: "firstFailedAt",
     label: "First failed (WIB)",
@@ -33,7 +42,7 @@ const COLUMNS: ReadonlyArray<KColumn<Row>> = [
 ]
 
 /**
- * The attachments IDX lists that no run could download for 7 days, newest
+ * The attachments IDX lists that no run could download for UNAVAILABLE_AFTER, newest
  * first: no run tries them again, and their days may be complete without
  * them (server/disclosures/disclosure-index.ts).
  */
@@ -62,8 +71,7 @@ export function DisclosureUnavailableCard({
             ? {
                 status: "empty",
                 title: "No attachment is unavailable.",
-                description:
-                  "An attachment no run could download for 7 days shows here.",
+                description: `An attachment no run could download for ${SPAN} shows here.`,
               }
             : { status: "ready" }
         }

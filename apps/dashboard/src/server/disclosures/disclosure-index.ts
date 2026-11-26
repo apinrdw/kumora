@@ -5,7 +5,7 @@
 // when the day became complete. A run decides from it what the archive
 // lacks, and never lists the bucket.
 import { WibDate } from "@workspace/relay"
-import { DateTime, Duration, Effect, Schema } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 
 import { ArchiveDb } from "../archive/archive-db.ts"
 import type { PageRead } from "../archive/page-read.ts"
@@ -16,6 +16,7 @@ import {
   type DisclosureLanguage,
   versionKey,
 } from "./key.ts"
+import { UNAVAILABLE_AFTER } from "./disclosure-day.ts"
 
 // The most statements one batch sends: 10 chunks of at most 90,000 bytes.
 const STATEMENTS_A_BATCH = 10
@@ -324,9 +325,6 @@ export const unavailableAttachmentsRead = {
       })
     }),
 } satisfies PageRead<UnavailableAttachments>
-
-// How long an attachment's failures span before it is unavailable.
-const UNAVAILABLE_AFTER = Duration.days(7)
 
 // Records a failed download: when the first was, and the last's message.
 // A failure UNAVAILABLE_AFTER or more after the first makes it unavailable.

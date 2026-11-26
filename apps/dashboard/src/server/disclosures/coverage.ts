@@ -15,7 +15,7 @@ import {
 } from "./disclosure-index.ts"
 
 // complete: no run lists the day again. incomplete: a run listed it, and
-// it is in the last 7 days, wasn't listed after it ended, or has
+// it is in the last RECENT_DAYS, wasn't listed after it ended, or has
 // attachments waiting. not-listed: no run has listed it yet.
 const DisclosureCoverageState = Schema.Literals([
   "complete",
@@ -30,7 +30,7 @@ const DisclosureCoverageDay = Schema.Struct({
   // Its attachments waiting to be stored.
   waiting: Schema.Number,
 })
-export type DisclosureCoverageDay = typeof DisclosureCoverageDay.Type
+type DisclosureCoverageDay = typeof DisclosureCoverageDay.Type
 
 const DisclosureCoverage = Schema.Struct({
   // The oldest disclosure day the archive holds a version of; null before
