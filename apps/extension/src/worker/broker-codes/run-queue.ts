@@ -94,10 +94,21 @@ export interface CatchUpWalk {
 // Ajaib's walk also says what it is doing and since when (epoch ms):
 // waiting for Ajaib's close, waiting for a usable token with the tab
 // reloads so far, or fetching since its first page.
+// While a call retries in place, the first two carry its stall cause: what
+// the last call met, how many calls in a row failed, and whether the walk
+// token changed since the first of them. Never the token itself.
+const StallCause = Schema.Struct({
+  kind: Schema.Literals(["refused-token", "no-answer", "timeout"]),
+  failures: Schema.Finite,
+  tokenChanged: Schema.Boolean,
+})
+export type StallCause = typeof StallCause.Type
+
 const WalkPhase = Schema.Union([
   Schema.Struct({
     step: Schema.Literals(["awaiting-close", "fetching"]),
     since: Schema.Finite,
+    stall: Schema.optionalKey(StallCause),
   }),
   Schema.Struct({
     step: Schema.Literal("awaiting-token"),

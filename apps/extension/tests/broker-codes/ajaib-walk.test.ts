@@ -705,10 +705,18 @@ describe("Ajaib's walk: when it starts", () => {
         yield* TestClock.adjust("0 millis")
         yield* TestClock.adjust("5 minutes")
         assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        const refused = {
+          step: "awaiting-close",
+          since: start,
+          stall: { kind: "refused-token", failures: 1, tokenChanged: false },
+        } as const
         assert.deepStrictEqual(phases, [
           { step: "awaiting-close", since: start },
+          refused,
           { step: "awaiting-token", since: start, reloads: 0 },
           { step: "awaiting-token", since: start, reloads: 1 },
+          // Back from the token wait, its call still retrying, then answered.
+          refused,
           { step: "awaiting-close", since: start },
           // The close is seen on the minute's poll after the token wait.
           { step: "fetching", since: start + 150_000 },
@@ -1050,6 +1058,23 @@ const signedTab = (
   return { tab, bearers }
 }
 
+// A walk of `tab` that keeps every phase it reports.
+const phasedWalk = Effect.fnUntraced(function* (
+  tab: ReturnType<typeof fakeAjaib>
+) {
+  const phases: Array<WalkPhase> = []
+  const walk = yield* makeAjaibWalk({
+    tab,
+    post: fakeProduction().post,
+    store: memoryStore().store,
+    phase: (phase) =>
+      Effect.sync(() => {
+        phases.push(phase)
+      }),
+  })
+  return { walk, phases }
+})
+
 describe("Ajaib's walk: its walk token", () => {
   it.effect(
     "signs each call with the cookie's token read at that call, a new one on the very next call",
@@ -1188,6 +1213,107 @@ describe("Ajaib's walk: its walk token", () => {
           STATUS_PATH,
         ])
         assert.isTrue(bearers.every((bearer) => bearer === cookie))
+      })
+  )
+
+  it.effect(
+    "reports a refused token's stall cause while it retries, and clears it once a call answers",
+    () =>
+      Effect.gen(function* () {
+        const start = wib("2026-11-12", "17:30:00")
+        yield* TestClock.setTime(start)
+        const cookie = jwt("cookie")
+        const { tab } = signedTab({
+          cookie: () => cookie,
+          token: () => jwt("page"),
+          answer: (bearer) =>
+            bearer === cookie ? Effect.succeed(STATUS(401)) : undefined,
+        })
+        const { walk, phases } = yield* phasedWalk(tab)
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        assert.deepStrictEqual(phases.slice(0, 3), [
+          { step: "awaiting-close", since: start },
+          {
+            step: "awaiting-close",
+            since: start,
+            stall: { kind: "refused-token", failures: 1, tokenChanged: false },
+          },
+          { step: "awaiting-close", since: start },
+        ])
+      })
+  )
+
+  it.effect(
+    "reports unanswered calls' stall cause with their count, then the next token's answer clears it",
+    () =>
+      Effect.gen(function* () {
+        const start = wib("2026-11-12", "17:30:00")
+        yield* TestClock.setTime(start)
+        const cookie = jwt("cookie")
+        const { tab } = signedTab({
+          cookie: () => cookie,
+          token: () => jwt("page"),
+          answer: (bearer) =>
+            bearer === cookie ? Effect.succeed(undefined) : undefined,
+        })
+        const { walk, phases } = yield* phasedWalk(tab)
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("0 millis")
+        yield* TestClock.adjust("10 seconds")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.deepStrictEqual(phases.slice(0, 4), [
+          { step: "awaiting-close", since: start },
+          {
+            step: "awaiting-close",
+            since: start,
+            stall: { kind: "no-answer", failures: 1, tokenChanged: false },
+          },
+          {
+            step: "awaiting-close",
+            since: start,
+            stall: { kind: "no-answer", failures: 2, tokenChanged: false },
+          },
+          { step: "awaiting-close", since: start },
+        ])
+      })
+  )
+
+  it.effect(
+    "reports timed-out calls' stall cause, and whether the walk token changed since the first",
+    () =>
+      Effect.gen(function* () {
+        const start = wib("2026-11-12", "17:30:00")
+        yield* TestClock.setTime(start)
+        const first = jwt("first")
+        const second = jwt("second")
+        const { tab } = signedTab({
+          // Ajaib rotates the cookie's token 20 s in.
+          cookie: (now) => (now >= start + 20_000 ? second : first),
+          token: () => jwt("page"),
+          answer: (_, call) =>
+            call <= 2
+              ? Effect.as(Effect.sleep("15 seconds"), undefined)
+              : undefined,
+        })
+        const { walk, phases } = yield* phasedWalk(tab)
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("0 millis")
+        yield* TestClock.adjust("1 minute")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.deepStrictEqual(phases.slice(0, 4), [
+          { step: "awaiting-close", since: start },
+          {
+            step: "awaiting-close",
+            since: start,
+            stall: { kind: "timeout", failures: 1, tokenChanged: false },
+          },
+          {
+            step: "awaiting-close",
+            since: start,
+            stall: { kind: "timeout", failures: 2, tokenChanged: true },
+          },
+          { step: "awaiting-close", since: start },
+        ])
       })
   )
 

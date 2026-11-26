@@ -21,6 +21,7 @@ import {
   type TapeTrade,
 } from "../../src/worker/broker-codes/done-details-walk.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
+import type { WalkPhase } from "../../src/worker/broker-codes/run-queue.ts"
 import type { Answer, TabRequest } from "../../src/worker/broker.ts"
 import hope from "./fixtures/done-details-hope-2026-11-20.json"
 
@@ -959,6 +960,54 @@ describe("the Done Details walk's walk token", () => {
           "token",
         ])
         assert.strictEqual(production.orders().size, 1_230)
+      })
+  )
+
+  it.effect(
+    "reports each retrying call's stall cause on its fetching phase, cleared once the call answers",
+    () =>
+      Effect.gen(function* () {
+        yield* evening
+        const { store } = yield* keptStore()
+        const cookie = jwt("cookie")
+        // The first page gets no answer once; the second, every time.
+        const tab = fakeAjaib({
+          cookie: () => cookie,
+          answer: (call, bearer) =>
+            call === 1 || (call >= 3 && bearer === cookie)
+              ? Option.none()
+              : undefined,
+        })
+        const phases: Array<WalkPhase> = []
+        const walk = yield* makeDoneDetailsWalk({
+          tab,
+          post: fakeProduction().post,
+          store,
+          phase: (phase) =>
+            Effect.sync(() => {
+              phases.push(phase)
+            }),
+        })
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("0 millis")
+        yield* TestClock.adjust("10 seconds")
+        yield* TestClock.adjust("10 seconds")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        const since = wib("17:30:00")
+        const stalled = (failures: number) => ({
+          step: "fetching" as const,
+          since,
+          stall: { kind: "no-answer" as const, failures, tokenChanged: false },
+        })
+        assert.deepStrictEqual(phases, [
+          { step: "fetching", since },
+          stalled(1),
+          { step: "fetching", since },
+          // The next page's own failures count from one again.
+          stalled(1),
+          stalled(2),
+          { step: "fetching", since },
+        ])
       })
   )
 })
