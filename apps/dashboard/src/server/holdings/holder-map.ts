@@ -52,6 +52,7 @@ import {
   PERIODS_SQL,
   PeriodsRow,
   type StockLink,
+  storedRows,
 } from "./holder-map-schema.ts"
 
 // The stocks the landing view lists.
@@ -450,20 +451,20 @@ const linksInView = Effect.fnUntraced(function* (
     firstListedRows = [],
   ] = rest
   const stocks = yield* byStock({
-    holders: yield* decodeRows(Above5MapRow)(holderRows),
-    accounts: yield* decodeRows(Above5AccountMapRow)(accountRows),
-    month: yield* decodeRows(Above1MapRow)(monthRows),
-    holdersBefore: yield* decodeRows(Above5MapRow)(holderBeforeRows),
-    accountsBefore: yield* decodeRows(Above5AccountMapRow)(accountBeforeRows),
+    holders: yield* storedRows(Above5MapRow)(holderRows),
+    accounts: yield* storedRows(Above5AccountMapRow)(accountRows),
+    month: yield* storedRows(Above1MapRow)(monthRows),
+    holdersBefore: yield* storedRows(Above5MapRow)(holderBeforeRows),
+    accountsBefore: yield* storedRows(Above5AccountMapRow)(accountBeforeRows),
   })
   const firstListed = new Set(
-    (yield* decodeRows(FirstListedRow)(firstListedRows)).map(
+    (yield* storedRows(FirstListedRow)(firstListedRows)).map(
       ({ stock_code }) => stock_code
     )
   )
-  const moves = yield* storedMoves(yield* decodeRows(MoveRow)(moveRows))
+  const moves = yield* storedMoves(yield* storedRows(MoveRow)(moveRows))
   const down = yield* crossingsDown(
-    yield* decodeRows(CrossingRow)(crossingRows)
+    yield* storedRows(CrossingRow)(crossingRows)
   )
   const links: Array<HolderMapLink> = []
   const accounts: Array<HoldingAccounts> = []
@@ -599,7 +600,7 @@ const focusStatements = Effect.fnUntraced(function* (
 const mostHeldOf = Effect.fnUntraced(function* (
   rows: ReadonlyArray<Record<string, unknown>>
 ) {
-  return (yield* decodeRows(MostHeldRow)(rows)).map(
+  return (yield* storedRows(MostHeldRow)(rows)).map(
     ({ stock_code, issuer_name, holders }) => ({
       code: stock_code,
       issuerName: issuer_name,

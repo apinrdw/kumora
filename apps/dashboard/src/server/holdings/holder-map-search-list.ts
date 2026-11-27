@@ -25,6 +25,7 @@ import {
   PERIODS,
   PERIODS_SQL,
   PeriodsRow,
+  storedRows,
 } from "./holder-map-schema.ts"
 import { byStock, linkRows, stockLinks } from "./holder-map.ts"
 
@@ -73,9 +74,9 @@ const holdersOf = Effect.fnUntraced(function* ([
 ]: ReadonlyArray<ReadonlyArray<Record<string, unknown>>>) {
   const [periods] = yield* decodeRows(PeriodsRow)(periodRow)
   const stocks = yield* byStock({
-    holders: yield* decodeRows(Above5MapRow)(holderRows),
-    accounts: yield* decodeRows(Above5AccountMapRow)(accountRows),
-    month: yield* decodeRows(Above1MapRow)(monthRows),
+    holders: yield* storedRows(Above5MapRow)(holderRows),
+    accounts: yield* storedRows(Above5AccountMapRow)(accountRows),
+    month: yield* storedRows(Above1MapRow)(monthRows),
     holdersBefore: [],
     accountsBefore: [],
   })

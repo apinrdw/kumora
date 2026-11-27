@@ -10,7 +10,6 @@ import { Effect, Schema } from "effect"
 import { type CustodianId, HolderKey } from "@/domain/holdings"
 import { placeOf } from "@/lib/holder-map-ids"
 
-import { holderKey } from "./holder-key.ts"
 import { type Account, custodianOf } from "./holder-map-custodians.ts"
 import {
   type KeyHolder,
@@ -22,6 +21,7 @@ import {
   HolderMapMove,
   type HolderMapOffList,
   type StockLink,
+  nameKey,
 } from "./holder-map-schema.ts"
 
 // The 5% band's threshold, % × 100.
@@ -113,7 +113,8 @@ export const storedMoves = Effect.fnUntraced(function* (
 ) {
   const moves = new Map<string, typeof HolderMapMove.Type>()
   for (const row of rows) {
-    const key = HolderKey.make(yield* holderKey(row.name))
+    const key = yield* nameKey(row.name)
+    if (key === undefined) continue
     const place = yield* movePlace(row.band, row.stock_code, key)
     if (moves.has(place)) continue
     moves.set(place, {

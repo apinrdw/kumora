@@ -21,6 +21,7 @@ import {
   type HolderMapLink,
   type HolderMapOffList,
   PERIODS,
+  storedRows,
 } from "./holder-map-schema.ts"
 
 // The most rows of each kind a focus's Off list returns: one day's
@@ -224,7 +225,7 @@ const OffListRow = Schema.Struct({
 
 const ThroughRow = Schema.Struct({
   stock_code: StockCode,
-  holder_key: Schema.String,
+  holder_key: HolderKey,
   last_day: WibDate,
   left_on: WibDate,
 })
@@ -242,7 +243,7 @@ const linesRead = Effect.fnUntraced(function* (
   rows: ReadonlyArray<Record<string, unknown>>,
   cut: boolean
 ) {
-  const read = yield* decodeRows(OffListRow)(rows)
+  const read = yield* storedRows(OffListRow)(rows)
   return {
     leavings: yield* leavings(read),
     issuers: read.map((row) => [row.stock_code, row.issuer_name] as const),
@@ -269,9 +270,9 @@ const blocksByDay = Effect.fnUntraced(function* (
     days.set(id, known)
     return known
   }
-  for (const row of yield* decodeRows(Above5MapRow)(blockRows))
+  for (const row of yield* storedRows(Above5MapRow)(blockRows))
     dayOf(row.stock_code, row.data_date).holders.push(row)
-  for (const row of yield* decodeRows(Above5AccountMapRow)(accountRows))
+  for (const row of yield* storedRows(Above5AccountMapRow)(accountRows))
     dayOf(row.stock_code, row.data_date).accounts.push(row)
   return days
 })
@@ -316,12 +317,12 @@ const throughRead = Effect.fnUntraced(function* (
   accountRows: ReadonlyArray<Record<string, unknown>>,
   cut: boolean
 ) {
-  const read = yield* decodeRows(ThroughRow)(holdingRows)
+  const read = yield* storedRows(ThroughRow)(holdingRows)
   const days = yield* lastDays(blockRows, accountRows)
   const out = new Map<string, HolderMapOffList>()
   const issuers: Array<readonly [StockCode, string]> = []
   for (const holding of read) {
-    const key = HolderKey.make(holding.holder_key)
+    const key = holding.holder_key
     const day = days.get(`${holding.stock_code} ${holding.last_day}`)
     // None when its every block repeats another key's: that key holds it.
     const held = day?.holders.get(key)

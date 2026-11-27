@@ -1,7 +1,7 @@
 // What the Holder map's read returns (spec apinrdw/kumora#733, "Holder map
 // read"), and the day and month it is drawn as of.
 import { BrokerCode, StockCode, WibDate } from "@workspace/relay"
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 
 import {
   CustodianId,
@@ -11,8 +11,10 @@ import {
   SplitOrigin,
 } from "@/domain/holdings"
 
+import { decodeRows } from "../d1.ts"
 import { MAX_HOLDING_ROWS } from "./above-1.ts"
 import { MAX_ROWS } from "./above-5.ts"
+import { holderKey } from "./holder-key.ts"
 
 export type Focus = NonNullable<HolderMapQuery["focus"]>
 
@@ -227,3 +229,28 @@ export const PeriodsRow = Schema.Struct({
   day: Schema.NullOr(WibDate),
   month: Schema.NullOr(WibDate),
 })
+
+const isStockCode = Schema.is(StockCode)
+const isHolderKey = Schema.is(HolderKey)
+
+// A statement's rows as `row`s, each whose stored `stock_code` or
+// `holder_key` isn't of its shape left out. The parsers only trim a code
+// and cap its length, and key a name of legal-form words blank, so one
+// report's bad row must not fail a read of every other. Every Holder map
+// statement that returns a stored code or key is read through this.
+export const storedRows = <A, I>(row: Schema.Codec<A, I>) => {
+  const decode = decodeRows(row)
+  return (rows: ReadonlyArray<Record<string, unknown>>) =>
+    decode(
+      rows.filter(
+        ({ stock_code: code, holder_key: key }) =>
+          (code === undefined || isStockCode(code)) &&
+          (key === undefined || isHolderKey(key))
+      )
+    )
+}
+
+// A name's holder key, or none for a name that keys blank (legal-form
+// words only): no holder is matched by it.
+export const nameKey = (name: string) =>
+  Effect.map(holderKey(name), (key) => (isHolderKey(key) ? key : undefined))

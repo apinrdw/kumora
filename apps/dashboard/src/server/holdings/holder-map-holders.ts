@@ -20,9 +20,8 @@ import { HolderKey, type KseiType, type SplitOrigin } from "@/domain/holdings"
 import { dayHolders } from "@/lib/daily-holders"
 import { placeOf } from "@/lib/holder-map-ids"
 
-import { holderKey } from "./holder-key.ts"
 import type { Account } from "./holder-map-custodians.ts"
-import type { HolderMapLink } from "./holder-map-schema.ts"
+import { type HolderMapLink, nameKey } from "./holder-map-schema.ts"
 import {
   above5Days,
   Above1HoldingRow,
@@ -36,6 +35,7 @@ type Band = HolderMapLink["band"]
 export const Above5MapRow = Schema.Struct({
   ...Above5HolderRow.fields,
   stock_code: StockCode,
+  holder_key: HolderKey,
 })
 export const Above5AccountMapRow = Schema.Struct({
   ...Above5SecuritiesAccountRow.fields,
@@ -44,6 +44,7 @@ export const Above5AccountMapRow = Schema.Struct({
 export const Above1MapRow = Schema.Struct({
   ...Above1HoldingRow.fields,
   stock_code: StockCode,
+  holder_key: HolderKey,
   issuer_name: Schema.String,
 })
 
@@ -70,17 +71,18 @@ const keyPeriodId = (at: KeyPeriod) =>
   )
 
 // The step: `blocks`, no two of them one listing, summed by KeyPeriod,
-// each holder in the order of its first block. `add` may grow the sum
-// `of` made for a holder's first block.
+// each holder in the order of its first block, a block with none left out.
+// `add` may grow the sum `of` made for a holder's first block.
 const holdersByKey = Effect.fnUntraced(function* <B, S>(
   blocks: Iterable<B>,
-  at: (block: B) => Effect.Effect<KeyPeriod>,
+  at: (block: B) => Effect.Effect<KeyPeriod | undefined>,
   of: (block: B) => S,
   add: (sum: S, block: B) => S
 ) {
   const holders = new Map<string, { at: KeyPeriod; blocks: number; sum: S }>()
   for (const block of blocks) {
     const where = yield* at(block)
+    if (where === undefined) continue
     const id = yield* keyPeriodId(where)
     const known = holders.get(id)
     if (known === undefined)
@@ -119,8 +121,9 @@ const aliasKeys = Effect.fnUntraced(function* (
 ) {
   const keys: Array<HolderKey> = []
   for (const name of names) {
-    const alias = HolderKey.make(yield* holderKey(name))
-    if (alias !== key && !keys.includes(alias)) keys.push(alias)
+    const alias = yield* nameKey(name)
+    if (alias !== undefined && alias !== key && !keys.includes(alias))
+      keys.push(alias)
   }
   return keys
 })
@@ -198,7 +201,7 @@ export const monthHolders = (
         code,
         band: "1%" as const,
         period: month,
-        key: HolderKey.make(row.holder_key),
+        key: row.holder_key,
       }),
     (row): MonthHolder => ({
       name: row.investor_name,
@@ -217,18 +220,20 @@ export const monthHolders = (
   )
 
 // A leaving's KeyPeriod, by its name's key, as the map matches Holder
-// moves' lines to holders.
+// moves' lines to holders: none for a name that keys blank.
 const leavingAt = Effect.fnUntraced(function* (line: {
   readonly stock_code: StockCode
   readonly band: Band
   readonly name: string
   readonly data_date: string
 }) {
+  const key = yield* nameKey(line.name)
+  if (key === undefined) return undefined
   return {
     code: line.stock_code,
     band: line.band,
     period: line.data_date,
-    key: HolderKey.make(yield* holderKey(line.name)),
+    key,
   } satisfies KeyPeriod
 })
 
