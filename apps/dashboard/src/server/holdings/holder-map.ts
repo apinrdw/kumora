@@ -231,6 +231,35 @@ const stockLinks = Effect.fnUntraced(function* (
   return links
 })
 
+const SearchRow = Schema.Struct({
+  stock_code: StockCode,
+  issuer_name: Schema.String,
+})
+
+// The stocks the map's search offers: those the newest above-5% day or the
+// newest above-1% month lists, by code, a code that isn't a stock code's
+// shape left out. The stock page's list comes from the classification,
+// KSEI and investor-type reports, which can miss a stock with holders.
+export const holderMapStocks = Effect.gen(function* () {
+  const [rows = []] = yield* (yield* HoldingsDb).batch([
+    {
+      sql: `SELECT stock_code, MAX(issuer_name) AS issuer_name FROM (
+          SELECT stock_code, issuer_name FROM above_5_holder
+          WHERE data_date = (SELECT MAX(data_date) FROM above_5_day)
+          UNION ALL
+          SELECT stock_code, issuer_name FROM above_1_holding
+          WHERE data_date = (SELECT MAX(data_date) FROM above_1_month)
+        )
+        GROUP BY stock_code ORDER BY stock_code`,
+      params: [],
+    },
+  ])
+  const isRow = Schema.is(SearchRow)
+  return rows.flatMap((row) =>
+    isRow(row) ? [{ code: row.stock_code, issuerName: row.issuer_name }] : []
+  )
+})
+
 // The map of `query`, in one batch, so a parse run replacing a period
 // mid-read can't mix two versions of it.
 export const holderMapRead = Effect.fnUntraced(function* ({

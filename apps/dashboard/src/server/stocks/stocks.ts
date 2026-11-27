@@ -12,7 +12,7 @@ import { refusal } from "@/server/auth/refusal"
 import { accountOf } from "@/server/auth/session-account"
 import type { HolderMapQuery, MovesSelection } from "@/domain/holdings"
 import { brokerInventory } from "@/server/broker-totals/inventory"
-import { holderMapRead } from "@/server/holdings/holder-map"
+import { holderMapRead, holderMapStocks } from "@/server/holdings/holder-map"
 import { holderMovesRead } from "@/server/holdings/holder-moves"
 import { stockList, stockPage } from "@/server/holdings/stock-page"
 import { marketToday } from "@/server/market-live/market-clock"
@@ -72,6 +72,16 @@ export const holderMapPageView = Effect.fn("holderMapPageView")(function* (
 ) {
   yield* authorize(headers, "/holder-map")
   return yield* holderMapRead(query)
+})
+
+// The Holder map search's stocks; `href` is the page the visitor returns
+// to after signing in again.
+export const holderMapStocksView = Effect.fn("holderMapStocksView")(function* (
+  headers: Headers,
+  href: string
+) {
+  yield* authorize(headers, href)
+  return yield* holderMapStocks
 })
 
 export const holderMovesPageView = Effect.fn("holderMovesPageView")(function* (

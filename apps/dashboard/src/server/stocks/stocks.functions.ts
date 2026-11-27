@@ -14,6 +14,7 @@ import { holdingsDbD1 } from "@/server/holdings/db"
 import {
   brokerInventoryView,
   holderMapPageView,
+  holderMapStocksView,
   holderMovesPageView,
   stockListView,
   stockPageView,
@@ -78,6 +79,18 @@ export const holderMapFn = createServerFn({ method: "GET" })
   .handler(({ data }) =>
     runServerEffect(
       holderMapPageView(getRequest().headers, data).pipe(
+        Effect.provide(services)
+      )
+    )
+  )
+
+// The Holder map search's stocks; `data` is the page the visitor returns to
+// after signing in again.
+export const holderMapStocksFn = createServerFn({ method: "GET" })
+  .validator((href: unknown) => Effect.runSync(safeRedirect(href)))
+  .handler(({ data }) =>
+    runServerEffect(
+      holderMapStocksView(getRequest().headers, data).pipe(
         Effect.provide(services)
       )
     )

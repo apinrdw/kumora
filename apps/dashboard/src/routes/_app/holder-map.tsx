@@ -8,7 +8,10 @@ import { useStockList } from "@/components/stocks/use-stock-list"
 import { holderMapView } from "@/lib/holder-map"
 import { parseHolderMapSearch, queryOf } from "@/lib/holder-map-search"
 import type { HolderMapRead } from "@/server/holdings/holder-map"
-import { holderMapFn } from "@/server/stocks/stocks.functions"
+import {
+  holderMapFn,
+  holderMapStocksFn,
+} from "@/server/stocks/stocks.functions"
 
 export const Route = createFileRoute("/_app/holder-map")({
   staticData: {
@@ -34,7 +37,8 @@ function HolderMapRoute() {
   const list = useStockList(
     search.stock === undefined
       ? "/holder-map"
-      : `/holder-map?stock=${encodeURIComponent(search.stock)}`
+      : `/holder-map?stock=${encodeURIComponent(search.stock)}`,
+    holderMapStocksFn
   )
   return (
     <HolderMapPage

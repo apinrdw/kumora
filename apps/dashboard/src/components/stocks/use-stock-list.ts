@@ -5,17 +5,31 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import { signInAgain } from "@/components/market-live/sign-in-again"
 import type { StockCodeList } from "@/components/market-live/use-stock-code-list"
+import type { StockCode } from "@workspace/relay"
+
 import { stockListFn } from "@/server/stocks/stocks.functions"
 
 const LOADING: StockCodeList = { _tag: "Loading" }
 
-// The stocks with parsed holdings, in the pickers' shape. `href` is the page
-// the visitor returns to after signing in again: a 401 arrives as the
-// router's redirect, and sends them there, the list still loading. Fails as
-// the call does, with a warning logged.
-export const loadStockList = (href: string) =>
+// A server function listing stocks for a picker, given the page to return
+// to after signing in again.
+type StockListSource = (options: { data: string }) => Promise<
+  ReadonlyArray<{
+    readonly code: StockCode
+    readonly issuerName?: string | undefined
+  }>
+>
+
+// The stocks with parsed holdings, or `source`'s, in the pickers' shape.
+// `href` is the page the visitor returns to after signing in again: a 401
+// arrives as the router's redirect, and sends them there, the list still
+// loading. Fails as the call does, with a warning logged.
+export const loadStockList = (
+  href: string,
+  source: StockListSource = stockListFn
+) =>
   Effect.tryPromise({
-    try: () => stockListFn({ data: href }),
+    try: () => source({ data: href }),
     catch: (thrown) => thrown,
   }).pipe(
     Effect.map((stocks): StockCodeList => ({
@@ -32,13 +46,17 @@ export const loadStockList = (href: string) =>
     )
   )
 
-// The stock page picker's stocks, loaded once the page opens. A failed load
-// keeps the picker loading; the page itself still shows.
-export function useStockList(href: string): StockCodeList {
+// A page picker's stocks, the stock page's unless `source` says, loaded
+// once the page opens. A failed load keeps the picker loading; the page
+// itself still shows.
+export function useStockList(
+  href: string,
+  source?: StockListSource
+): StockCodeList {
   const [list, setList] = useState<StockCodeList>(LOADING)
   useEffect(() => {
     const fiber = clientRuntime.runFork(
-      loadStockList(href).pipe(
+      loadStockList(href, source).pipe(
         Effect.tap((loaded) => Effect.sync(() => setList(loaded))),
         Effect.ignore
       )
@@ -46,7 +64,7 @@ export function useStockList(href: string): StockCodeList {
     return () => {
       clientRuntime.runFork(Fiber.interrupt(fiber))
     }
-  }, [href])
+  }, [href, source])
   return list
 }
 

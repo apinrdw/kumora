@@ -8,7 +8,7 @@ import { StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { holderMapView } from "@/lib/holder-map"
-import { holderMapRead } from "@/server/holdings/holder-map"
+import { holderMapRead, holderMapStocks } from "@/server/holdings/holder-map"
 import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 
 import {
@@ -184,5 +184,37 @@ describe("Holder map, no focus", () => {
         ]
       )
     })
+  )
+
+  it.effect(
+    "searches every stock of the newest day's and month's reports",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        const stocks = yield* holderMapStocks.pipe(
+          Effect.provide(w.holdings.layer)
+        )
+        assert.deepStrictEqual(
+          stocks.map(({ code }) => code),
+          [
+            "AADI",
+            "ASRI",
+            "BIKE",
+            "BSDE",
+            "CPGT",
+            "ENRG",
+            "FLMC",
+            "MAMIP",
+            "NSSS",
+            "RALS",
+            "TLKM",
+            "TRUE",
+          ]
+        )
+        assert.strictEqual(
+          stocks.find(({ code }) => code === "TRUE")?.issuerName,
+          "TRINITI DINAMIK Tbk, PT"
+        )
+      })
   )
 })
