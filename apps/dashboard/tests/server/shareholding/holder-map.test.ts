@@ -11,6 +11,7 @@ import { CustodianId, HolderKey } from "@/domain/holdings"
 import { holderMapView } from "@/lib/holder-map"
 import { holderKey } from "@/server/holdings/holder-key"
 import { holderMapRead } from "@/server/holdings/holder-map"
+import { custodianOf } from "@/server/holdings/holder-map-custodians"
 import type {
   HolderMapLink,
   HolderMapRead,
@@ -983,6 +984,136 @@ describe("Holder map, custodians", () => {
         [[], [], []]
       )
     })
+  )
+})
+
+// CPGT lists two blocks of one key, ASIA ARGENTUM ASSETS HONG KONG LIMITED
+// at 8.17% (Deutsche Bank) and 20.95% (Trimegah): every part of the map
+// that turns blocks into a holder shows the one holder at their 29.12%.
+describe("Holder map, one key's blocks", () => {
+  const ARGENTUM = "ASIA ARGENTUM ASSETS HONG KONG LIMITED"
+  const DEUTSCHE = "BUT DEUTSCHE BANK AG"
+  const TRIMEGAH = "PT. TRIMEGAH SEKURITAS INDONESIA TBK"
+  const BOTH = 2912
+
+  // Each read's holdings of Argentum's key in CPGT: links, hops, Off list
+  // and custodian links, as [where, %] or [where, shares].
+  const argentumIn = Effect.fnUntraced(function* (read: HolderMapRead) {
+    const key = yield* holderKey(ARGENTUM)
+    const mine = <H extends { readonly code: string; readonly holder: string }>(
+      of: ReadonlyArray<H>
+    ) => of.filter(({ code, holder }) => code === "CPGT" && holder === key)
+    return {
+      links: mine(read.links).map(({ band, percentageHundredths }) => [
+        band,
+        percentageHundredths,
+      ]),
+      hops: mine(read.hops).map(({ band, percentageHundredths }) => [
+        band,
+        percentageHundredths,
+      ]),
+      offList: mine(read.offList).map(
+        ({ band, percentageHundredths, since }) => [
+          band,
+          percentageHundredths,
+          since,
+        ]
+      ),
+      custodians: mine(read.custodians).map(({ name, shares }) => [
+        name,
+        shares,
+      ]),
+    }
+  })
+
+  const custodianIdOf = (spelling: string) =>
+    Effect.map(custodianOf(spelling), ({ id }) => id)
+
+  it.effect(
+    "draws the key as one holder at its blocks' sum in every focus",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        const atBoth = [["5%", BOTH]]
+        // Stock focus: a link; the other holder's focus: a hop; its own
+        // focus: a link; each custodian's focus: a link.
+        const stock = yield* argentumIn(yield* stockReadOf(w, "CPGT"))
+        assert.deepStrictEqual(stock.links, atBoth)
+        assert.deepStrictEqual(
+          stock.custodians.map(([, shares]) => shares).sort(),
+          [324_374_252, 832_312_874]
+        )
+        const reckson = yield* argentumIn(
+          yield* holderReadOf(w, "RECKSON LIMITED")
+        )
+        assert.deepStrictEqual(reckson.hops, atBoth)
+        assert.deepStrictEqual(
+          (yield* argentumIn(yield* holderReadOf(w, ARGENTUM))).links,
+          atBoth
+        )
+        for (const spelling of [DEUTSCHE, TRIMEGAH])
+          assert.deepStrictEqual(
+            (yield* argentumIn(
+              yield* custodianReadOf(w, yield* custodianIdOf(spelling))
+            )).links,
+            atBoth
+          )
+      })
+  )
+
+  it.effect(
+    "lists the key Off list at its blocks' summed last stake when they leave together",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        // 20 Nov republished without either block: both leave that day.
+        republish(w, "2026-11-20", "argentum-left-2026-11-20")
+        yield* archive(w, "cron-2026-11-26T13")
+        yield* parse(w, "cron-2026-11-26")
+        const left = [["5%", BOTH, "2026-11-20"]]
+        const stock = yield* argentumIn(yield* stockReadOf(w, "CPGT"))
+        assert.deepStrictEqual([stock.links, stock.offList], [[], left])
+        const holder = yield* argentumIn(yield* holderReadOf(w, ARGENTUM))
+        assert.deepStrictEqual([holder.links, holder.offList], [[], left])
+        // Each custodian it held a block through lists the holding at the
+        // key's last stake, not its block's.
+        for (const spelling of [DEUTSCHE, TRIMEGAH]) {
+          const custodian = yield* argentumIn(
+            yield* custodianReadOf(w, yield* custodianIdOf(spelling))
+          )
+          assert.deepStrictEqual(
+            [custodian.links, custodian.offList],
+            [[], left]
+          )
+        }
+      })
+  )
+
+  it.effect(
+    "lists the key Off list at a custodian its one block left at its summed last stake",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        // 20 Nov republished without the Trimegah block: the key stays
+        // listed through Deutsche Bank alone.
+        republish(w, "2026-11-20", "argentum-gone-2026-11-20")
+        yield* archive(w, "cron-2026-11-26T13")
+        yield* parse(w, "cron-2026-11-26")
+        const trimegah = yield* argentumIn(
+          yield* custodianReadOf(w, yield* custodianIdOf(TRIMEGAH))
+        )
+        assert.deepStrictEqual(
+          [trimegah.links, trimegah.offList],
+          [[], [["5%", BOTH, "2026-11-20"]]]
+        )
+        const deutsche = yield* argentumIn(
+          yield* custodianReadOf(w, yield* custodianIdOf(DEUTSCHE))
+        )
+        assert.deepStrictEqual(
+          [deutsche.links, deutsche.offList],
+          [[["5%", 817]], []]
+        )
+      })
   )
 })
 

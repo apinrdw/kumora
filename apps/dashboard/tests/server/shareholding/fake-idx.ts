@@ -250,14 +250,15 @@ export type BrokenAbove5Fixture =
   | "below-5"
   | "missing-legend"
 
-// Versions IDX republishes in place: 20 Nov's trimmed to BIKE alone, and
+// Versions IDX republishes in place: 20 Nov's trimmed to BIKE alone,
 // 19 or 20 Nov's without CPGT's ASIA ARGENTUM ASSETS HONG KONG LIMITED block
-// held at Trimegah, its other block of that name kept
-// (~/.t3/notes/kumora/733/drop-above-5-block-xlsx.py).
+// held at Trimegah, its other block of that name kept, and 20 Nov's without
+// either (~/.t3/notes/kumora/733/drop-above-5-block-xlsx.py).
 export type RepublishedAbove5Fixture =
   | "republished"
   | "argentum-gone-2026-11-19"
   | "argentum-gone-2026-11-20"
+  | "argentum-left-2026-11-20"
 
 export const above5Fixture = (
   name: Above5Fixture | BrokenAbove5Fixture | RepublishedAbove5Fixture
