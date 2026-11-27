@@ -46,9 +46,7 @@ class FakeWorker extends EventTarget {
         request.graph.nodes.map(({ id }) => [id, { x: 0, y: 0 }])
       ),
     }
-    this.dispatchEvent(
-      new MessageEvent("message", { data: { id: request.id, layout } })
-    )
+    this.dispatchEvent(new MessageEvent("message", { data: { layout } }))
   }
   terminate() {
     this.terminated = true
@@ -146,6 +144,9 @@ test("lays out a refocus as soon as one layout's time passes, not behind the gra
   act(() => {
     for (const worker of workers) worker.work()
   })
-  expect(Object.keys(seen.at(-1)?.positions ?? {})).toEqual(["TRUE", "D"])
+  expect(Object.keys(seen.at(-1)?.positions ?? {})).toEqual([
+    "stock:TRUE",
+    "holder:D",
+  ])
   act(() => root.unmount())
 })
