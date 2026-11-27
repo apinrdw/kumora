@@ -12,6 +12,17 @@ import type {
 
 export type Band = HolderMapLink["band"]
 
+// What a holder's link shows, and the graph colours it by: its crossing of
+// 5% between the bands' periods, else its stored move, else Unchanged.
+export type ShownMove =
+  | NonNullable<HolderMapLink["move"]>["kind"]
+  | NonNullable<HolderMapLink["crossing"]>["kind"]
+  | "unchanged"
+
+export interface MapHolder extends HolderMapLink {
+  readonly shownMove: ShownMove
+}
+
 // One band's section of the side panel.
 export interface BandSection {
   readonly band: Band
@@ -19,7 +30,7 @@ export interface BandSection {
   // report; undefined when none is parsed.
   readonly date: WibDate | undefined
   // Most % first, then by name.
-  readonly holders: ReadonlyArray<HolderMapLink>
+  readonly holders: ReadonlyArray<MapHolder>
   // Their summed % × 100.
   readonly totalHundredths: number
 }
@@ -48,6 +59,10 @@ const section = (
   Effect.sync((): BandSection => {
     const holders = links
       .filter((link) => link.band === band)
+      .map((link): MapHolder => ({
+        ...link,
+        shownMove: link.crossing?.kind ?? link.move?.kind ?? "unchanged",
+      }))
       .sort(
         (a, b) =>
           b.percentageHundredths - a.percentageHundredths ||
