@@ -48,6 +48,10 @@ function HolderMapRoute() {
       onStock={(stock) =>
         void navigate({ search: (previous) => ({ ...previous, stock }) })
       }
+      // A new day is a new entry too, and keeps the focus.
+      onDay={(day) =>
+        void navigate({ search: (previous) => ({ ...previous, day }) })
+      }
     />
   )
 }
