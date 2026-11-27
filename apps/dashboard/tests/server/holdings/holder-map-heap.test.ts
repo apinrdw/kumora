@@ -38,6 +38,9 @@ const PREV = "2026-01-02"
 const MONTH = "2025-12-31"
 const HUB = "HUB NOMINEE"
 const HUB_CUSTODIAN = "PT HUB CUSTODIAN"
+// A stock's former holders after years of churn (codex review of
+// apinrdw/kumora#741: 80,000 retained about 119 MiB unbounded).
+const CHURNED = 80_000
 
 // A day and a month at the caps, the first block and row of every stock
 // the hub's, and a stored line for every block and row.
@@ -164,6 +167,41 @@ describe("the Holder map's read of a hub", () => {
         // stored keys aren't its names' keys, so the block still held
         // through it isn't matched off here (the fixture test holds that).
         assert.strictEqual(read.links.length, 1)
+        assert.strictEqual(read.offList.length, ABOVE_5_DAY_ROWS)
+        assert.strictEqual(view.focus?.offList.length, ABOVE_5_DAY_ROWS)
+        assert.isBelow(
+          retained,
+          HEAP_LIMIT_MIB,
+          `${retained.toFixed(1)} MiB retained`
+        )
+      }),
+    { timeout: 120_000 }
+  )
+
+  it.effect(
+    "focuses a stock with years of churned holders, in 40 MiB",
+    () =>
+      Effect.gen(function* () {
+        const db = hub()
+        // A holder off the list each day across years: every stored
+        // leaving the Off list could read, ten times its budget.
+        db.database.exec(`WITH RECURSIVE n(at) AS (
+            SELECT 1 UNION ALL SELECT at + 1 FROM n WHERE at < ${CHURNED}
+          )
+          INSERT INTO above_5_move
+          SELECT date('2020-01-01', '+' || (at % 1500) || ' days'), 'S0000',
+            'FORMER HOLDER ' || at || '#1', 'ISSUER S0000',
+            'FORMER HOLDER ' || at, '[]', NULL, 'off list', '[]', NULL, 600,
+            NULL, NULL, '[]', NULL
+          FROM n`)
+        const before = yield* retainedHeap
+        const read = yield* holderMapRead({
+          focus: { kind: "stock", code: StockCode.make("S0000") },
+          day: undefined,
+        }).pipe(Effect.provide(db.layer))
+        const view = yield* holderMapView(read)
+        const retained = ((yield* retainedHeap) - before) / 2 ** 20
+        // The newest leavings, a day's accounts at the cap.
         assert.strictEqual(read.offList.length, ABOVE_5_DAY_ROWS)
         assert.strictEqual(view.focus?.offList.length, ABOVE_5_DAY_ROWS)
         assert.isBelow(
