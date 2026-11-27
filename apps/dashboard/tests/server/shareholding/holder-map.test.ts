@@ -1154,6 +1154,84 @@ describe("Holder map, one key's blocks", () => {
         assert.isTrue(read.offListCut)
       })
   )
+
+  // Two blocks of PT CONTOH in a stock of its own on 19 and 20 Nov, each
+  // a block of one account, and the lines Holder moves stores of each
+  // block on 20 Nov (codex review of apinrdw/kumora#741, round 7).
+  const HSBC = "THE HONGKONG AND SHANGHAI BANKING CORP. LTD"
+  const PROFINDO = "PT PROFINDO SEKURITAS INDONESIA"
+  interface Block {
+    readonly custodian: string
+    readonly shares: number
+    readonly hundredths: number
+  }
+  const contohOf = Effect.fnUntraced(function* (
+    w: World,
+    days: Readonly<Record<"2026-11-19" | "2026-11-20", ReadonlyArray<Block>>>
+  ) {
+    const db = w.holdings.database
+    const key = yield* holderKey("PT CONTOH")
+    const block = db.prepare(
+      `INSERT INTO above_5_holder VALUES (?, 'CNTH', ?, 'CONTOH TBK',
+        'PT CONTOH', ?, ?, ?)`
+    )
+    const account = db.prepare(
+      `INSERT INTO above_5_account VALUES (?, 'CNTH', ?, 1, ?, 'PT CONTOH',
+        'local', NULL, NULL, ?)`
+    )
+    for (const [day, blocks] of Object.entries(days))
+      blocks.forEach(({ custodian, shares, hundredths }, at) => {
+        block.run(day, at + 1, key, shares, hundredths)
+        account.run(day, at + 1, custodian, shares)
+      })
+    const line = db.prepare(
+      `INSERT INTO above_5_move VALUES ('2026-11-20', 'CNTH', ?,
+        'CONTOH TBK', 'PT CONTOH', '[]', NULL, ?, '[]', ?, ?, ?, ?, '[]',
+        NULL)`
+    )
+    const before = days["2026-11-19"]
+    days["2026-11-20"].forEach((held, at) => {
+      const last = before[at]
+      if (last === undefined || last.shares === held.shares) return
+      line.run(
+        `${key}#${at + 1}`,
+        held.shares > last.shares ? "up" : "down",
+        held.shares - last.shares,
+        last.hundredths,
+        held.hundredths,
+        held.hundredths - last.hundredths
+      )
+    })
+    const [above5] = (yield* mapOf(w, "CNTH")).focus?.bands ?? []
+    return above5?.holders.map(({ name, move }) => [name, move])
+  })
+
+  it.effect(
+    "moves a key whose shares crossed custodians between its blocks as a Transfer",
+    () =>
+      Effect.gen(function* () {
+        // 200 shares left the HSBC block for the Profindo block: the key's
+        // total is unchanged, held through someone else.
+        assert.deepStrictEqual(
+          yield* contohOf(yield* parsed, {
+            "2026-11-19": [
+              { custodian: HSBC, shares: 1_000, hundredths: 1000 },
+              { custodian: PROFINDO, shares: 2_000, hundredths: 2000 },
+            ],
+            "2026-11-20": [
+              { custodian: HSBC, shares: 800, hundredths: 800 },
+              { custodian: PROFINDO, shares: 2_200, hundredths: 2200 },
+            ],
+          }),
+          [
+            [
+              "PT CONTOH",
+              { kind: "transfer", shareChange: 0, percentageChange: 0 },
+            ],
+          ]
+        )
+      })
+  )
 })
 
 describe("Holder map, no focus", () => {
