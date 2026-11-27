@@ -29,6 +29,7 @@ const mount = () => {
 const at = (x: number, y: number, buttons: number) => {
   const frame = document.createElement("div")
   frame.setPointerCapture = () => {}
+  frame.hasPointerCapture = () => false
   return {
     button: 0,
     buttons,

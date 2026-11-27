@@ -114,6 +114,11 @@ export function useMapViewport(
       onPointerMove: (event: PointerEvent<HTMLDivElement>) => {
         const start = drag.current
         if (start === undefined) return
+        // The button came up where the frame never heard it: no drag.
+        if ((event.buttons & 1) === 0) {
+          drag.current = undefined
+          return
+        }
         const by = { x: event.clientX - start.x, y: event.clientY - start.y }
         if (!start.dragging && Math.hypot(by.x, by.y) <= CLICK_SLOP) return
         if (!start.dragging) {
@@ -130,6 +135,12 @@ export function useMapViewport(
       },
       onPointerCancel: () => {
         drag.current = undefined
+      },
+      // A press not yet a drag isn't captured, so its pointerup may land
+      // outside the frame: it ends on leaving.
+      onPointerLeave: (event: PointerEvent<HTMLDivElement>) => {
+        if (!event.currentTarget.hasPointerCapture(event.pointerId))
+          drag.current = undefined
       },
     },
   }
