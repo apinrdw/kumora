@@ -19,6 +19,8 @@ const link = (
   origin: "local",
   investorType: "CP",
   move: undefined,
+  gap: false,
+  crossing: undefined,
 })
 
 const read = (links: ReadonlyArray<HolderMapLink>): HolderMapRead => ({

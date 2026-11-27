@@ -16,7 +16,10 @@ import {
 import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 
 import {
+  archive,
   archiveAndParse,
+  parse,
+  republish,
   runParse,
   type World,
   world,
@@ -222,6 +225,113 @@ describe("Holder map, holder moves", () => {
         assert.strictEqual(april?.holders[1]?.move?.shareChange, -28_512_300)
         assert.strictEqual(april?.holders[1]?.move?.percentageChange, -37)
       })
+  )
+})
+
+describe("Holder map, gap holders", () => {
+  it.effect(
+    "marks a 1%-band holder at 5% or more that the day's above-5% list misses",
+    () =>
+      Effect.gen(function* () {
+        const [, april] =
+          (yield* mapOf(yield* parsed, "TRUE", "2026-06-25")).focus?.bands ?? []
+        assert.deepStrictEqual(
+          (april?.holders ?? []).map(({ name, gap }) => [name, gap]),
+          [
+            ["PT PERINTIS TRINITI PROPERTI TBK", true],
+            ["PT PANCA AGUNG GEMILANG", true],
+            ["DJONI", true],
+            ["VALTOS GLOBALINDO PT", false],
+            ["VINCENT YO", false],
+          ]
+        )
+      })
+  )
+
+  it.effect("marks no holder the day lists", () =>
+    Effect.gen(function* () {
+      const bands = (yield* mapOf(yield* parsed, "TRUE")).focus?.bands ?? []
+      assert.isTrue(
+        bands.every(({ holders }) => holders.every(({ gap }) => !gap))
+      )
+    })
+  )
+})
+
+describe("Holder map, band crossing", () => {
+  it.effect("moves a 5%-band holder under 5% in the month Up into 5%", () =>
+    Effect.gen(function* () {
+      const w = yield* parsed
+      // Oct's report printing Perintis at 4.50%, not 9.93%: it crossed
+      // 5% between the month and 20 Nov.
+      w.holdings.database
+        .prepare(
+          `UPDATE above_1_holding SET percentage_hundredths = 450
+            WHERE data_date = '2026-10-30' AND stock_code = 'TRUE'
+              AND holder_key = 'PERINTIS PROPERTI TRINITI'`
+        )
+        .run()
+      const map = yield* mapOf(w, "TRUE")
+      const [above5] = map.focus?.bands ?? []
+      assert.deepStrictEqual(
+        (above5?.holders ?? []).map(({ name, crossing }) => [name, crossing]),
+        [
+          ["PT AGUNG PERKASA INVESTINDO", undefined],
+          [
+            "PT PERINTIS TRINITI PROPERTI TBK",
+            { kind: "up into 5%", monthHundredths: 450 },
+          ],
+        ]
+      )
+    })
+  )
+
+  it.effect(
+    "moves a 1%-band holder that left the above-5% list after the month Down out of 5%, never Off list",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        // 20 Nov republished as BIKE's alone: TRUE's two above-5% holders
+        // leave the list that day, after Oct's report.
+        republish(w, "2026-11-20", "republished")
+        yield* archive(w, "cron-2026-11-26T13")
+        yield* parse(w, "cron-2026-11-26")
+        const map = yield* mapOf(w, "TRUE")
+        const [above5, above1] = map.focus?.bands ?? []
+        assert.deepStrictEqual(above5?.holders, [])
+        const down = {
+          kind: "down out of 5%" as const,
+          since: WibDate.make("2026-11-20"),
+        }
+        assert.deepStrictEqual(
+          (above1?.holders ?? []).map(({ name, crossing, gap }) => [
+            name,
+            crossing,
+            gap,
+          ]),
+          [
+            ["PT AGUNG PERKASA INVESTINDO", down, true],
+            ["PT PERINTIS TRINITI PROPERTI TBK", down, true],
+            ["VALTOS GLOBALINDO PT", undefined, false],
+            ["VINCENT YO", undefined, false],
+          ]
+        )
+        assert.deepStrictEqual(
+          map.focus?.offList.map(({ name }) => name),
+          ["PT PANCA AGUNG GEMILANG", "DJONI"]
+        )
+      })
+  )
+
+  it.effect("crosses nothing for a holder that left before the month", () =>
+    Effect.gen(function* () {
+      const map = yield* mapOf(yield* parsed, "TRUE")
+      assert.isTrue(
+        (map.focus?.bands ?? []).every(({ holders }) =>
+          holders.every(({ crossing }) => crossing === undefined)
+        )
+      )
+    })
   )
 })
 

@@ -19,6 +19,9 @@ import {
   Above5SecuritiesAccountRow,
 } from "./stock-page.ts"
 
+// The 5% band's threshold, % × 100.
+const FIVE_PERCENT = 500
+
 // The stocks the landing view lists.
 const MOST_HELD = 20
 
@@ -32,6 +35,22 @@ const HolderMapMove = Schema.Struct({
   // % × 100; undefined on a New holder.
   percentageChange: Schema.UndefinedOr(Schema.Number),
 })
+
+// A holder that crossed 5% between the bands' periods: under 5% in the
+// month and on the day's above-5% list, or off that list since a day after
+// the month and still a ≥1% holder of it. It shows this, not its move.
+const HolderMapCrossing = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("up into 5%"),
+    // Its % × 100 in the month.
+    monthHundredths: Schema.Number,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("down out of 5%"),
+    // The trading day it left the above-5% list.
+    since: WibDate,
+  }),
+])
 
 const HolderMapLink = Schema.Struct({
   code: StockCode,
@@ -56,6 +75,10 @@ const HolderMapLink = Schema.Struct({
   investorType: Schema.UndefinedOr(KseiType),
   // Undefined when it holds as it did, or nothing is compared.
   move: Schema.UndefinedOr(HolderMapMove),
+  // A gap holder: in the 1% band at 5% or more in the month, with no
+  // above-5% holder of its key on the day.
+  gap: Schema.Boolean,
+  crossing: Schema.UndefinedOr(HolderMapCrossing),
 })
 export type HolderMapLink = typeof HolderMapLink.Type
 
@@ -317,8 +340,7 @@ const stockLinks = Effect.fnUntraced(function* (
   month: WibDate | undefined,
   holderRows: ReadonlyArray<typeof Above5HolderRow.Type>,
   accountRows: ReadonlyArray<typeof Above5SecuritiesAccountRow.Type>,
-  monthRows: ReadonlyArray<typeof Above1MapRow.Type>,
-  moves: ReadonlyMap<string, typeof HolderMapMove.Type>
+  monthRows: ReadonlyArray<typeof Above1MapRow.Type>
 ) {
   const [blocks] =
     day === undefined
@@ -364,7 +386,7 @@ const stockLinks = Effect.fnUntraced(function* (
     }
   }
   const inAbove5 = new Set((blocks?.holders ?? []).map(({ key }) => key))
-  const links: Array<HolderMapLink> = []
+  const links: Array<StockLink> = []
   for (const [key, holder] of above5)
     links.push({
       code,
@@ -375,7 +397,6 @@ const stockLinks = Effect.fnUntraced(function* (
       shares: holder.shares,
       origin: yield* originOf(holder.origins),
       investorType: typeOf(key),
-      move: moves.get(`5% ${key}`),
     })
   for (const holder of held?.holders ?? []) {
     if (inAbove5.has(holder.key)) continue
@@ -388,11 +409,75 @@ const stockLinks = Effect.fnUntraced(function* (
       shares: holder.total,
       origin: yield* originOf(holder.rows.map(({ origin }) => origin)),
       investorType: typeOf(holder.key),
-      move: moves.get(`1% ${holder.key}`),
     })
   }
-  return links
+  return {
+    links,
+    inMonth: new Map(
+      [...monthHolders].map(([key, holder]) => [
+        key,
+        holder.percentageHundredths,
+      ])
+    ),
+  }
 })
+
+// A link before its changes are read.
+type StockLink = Omit<HolderMapLink, "move" | "gap" | "crossing">
+
+// What changed since each band's period before, and across the bands'
+// periods (spec apinrdw/kumora#733, "Moves"): each link's stored move, the
+// gap-holder mark, and a crossing of 5%.
+const changesOf = Effect.fnUntraced(function* (
+  periods: {
+    readonly day: WibDate | undefined
+    readonly month: WibDate | undefined
+  },
+  { links, inMonth }: Effect.Success<ReturnType<typeof stockLinks>>,
+  moves: ReadonlyMap<string, typeof HolderMapMove.Type>,
+  leftAbove5: ReadonlyMap<string, HolderMapOffList>
+) {
+  const out: Array<HolderMapLink> = []
+  for (const link of links)
+    out.push({
+      ...link,
+      move: moves.get(`${link.band} ${link.holder}`),
+      gap:
+        link.band === "1%" &&
+        periods.day !== undefined &&
+        link.percentageHundredths >= FIVE_PERCENT,
+      crossing: yield* crossingOf(
+        link,
+        periods.month,
+        inMonth.get(link.holder),
+        leftAbove5.get(link.holder)
+      ),
+    })
+  return out
+})
+
+const crossingOf = (
+  link: StockLink,
+  month: WibDate | undefined,
+  monthHundredths: number | undefined,
+  left: HolderMapOffList | undefined
+) =>
+  Effect.sync((): HolderMapLink["crossing"] => {
+    if (
+      link.band === "5%" &&
+      monthHundredths !== undefined &&
+      monthHundredths < FIVE_PERCENT
+    )
+      return { kind: "up into 5%", monthHundredths }
+    if (
+      link.band === "1%" &&
+      left !== undefined &&
+      month !== undefined &&
+      left.since > month
+    )
+      return { kind: "down out of 5%", since: left.since }
+    return undefined
+  })
 
 const SearchRow = Schema.Struct({
   stock_code: StockCode,
@@ -472,20 +557,27 @@ export const holderMapRead = Effect.fnUntraced(function* ({
   ] = rest
   const holders = yield* decodeRows(Above5HolderRow)(holderRows)
   const months = yield* decodeRows(Above1MapRow)(monthRows)
-  const links = yield* stockLinks(
-    focus.code,
-    shownDay,
-    month,
-    holders,
-    yield* decodeRows(Above5SecuritiesAccountRow)(accountRows),
-    months,
-    yield* movesByKey(yield* decodeRows(MoveRow)(moveRows))
+  const offRows = yield* decodeRows(OffListRow)(offListRows)
+  const links = yield* changesOf(
+    { day: shownDay, month },
+    yield* stockLinks(
+      focus.code,
+      shownDay,
+      month,
+      holders,
+      yield* decodeRows(Above5SecuritiesAccountRow)(accountRows),
+      months
+    ),
+    yield* movesByKey(yield* decodeRows(MoveRow)(moveRows)),
+    yield* earlierHolders(
+      focus.code,
+      offRows.filter(({ band }) => band === "5%")
+    )
   )
+  // A holder in either band now is no earlier holder: one that left the
+  // above-5% list for the 1% band crossed down out of 5%.
   const linked = new Set(links.map(({ holder }) => holder))
-  const earlier = yield* earlierHolders(
-    focus.code,
-    yield* decodeRows(OffListRow)(offListRows)
-  )
+  const earlier = yield* earlierHolders(focus.code, offRows)
   return HolderMapRead.make({
     day: shownDay,
     month,
