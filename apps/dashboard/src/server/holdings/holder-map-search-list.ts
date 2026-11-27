@@ -4,7 +4,7 @@ import type { BrokerCode } from "@workspace/relay"
 import { StockCode } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
-import type { CustodianId } from "@/domain/holdings"
+import { type CustodianId, HolderKey } from "@/domain/holdings"
 
 import { HoldingsDb } from "./db.ts"
 import {
@@ -26,7 +26,7 @@ const SearchStockRow = Schema.Struct({
 })
 
 const SearchHolderRow = Schema.Struct({
-  holder_key: Schema.String,
+  holder_key: HolderKey,
   name: Schema.String,
 })
 

@@ -25,7 +25,7 @@ import {
   percentOf,
 } from "@/components/stocks/holder-cells"
 import { MOVEMENT } from "@/components/stocks/holder-movement"
-import { HolderKey, KSEI_TYPE_LABELS } from "@/domain/holdings"
+import { KSEI_TYPE_LABELS } from "@/domain/holdings"
 import { count, lotsOfShares } from "@/lib/format"
 import {
   BAND_TITLE,
@@ -591,7 +591,7 @@ function HolderRow({
       <th scope="row" className="text-left font-normal">
         <div className="font-medium">
           {focus === "stock" ? (
-            <RefocusLink to={{ holder: HolderKey.make(holder.holder) }}>
+            <RefocusLink to={{ holder: holder.holder }}>
               {holder.name}
             </RefocusLink>
           ) : (
@@ -722,7 +722,7 @@ function OffListRow({
     <li className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border py-1.5 text-muted-foreground opacity-80 last:border-0">
       <span className="font-medium">
         {focus === "stock" ? (
-          <RefocusLink to={{ holder: HolderKey.make(holder.holder) }}>
+          <RefocusLink to={{ holder: holder.holder }}>
             {holder.name}
           </RefocusLink>
         ) : (

@@ -5,7 +5,7 @@
 import type { BrokerCode, StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { type CustodianId, HolderKey, type KseiType } from "@/domain/holdings"
+import type { CustodianId, HolderKey, KseiType } from "@/domain/holdings"
 import type {
   HolderMapCustodianLink,
   HolderMapLink,
@@ -333,7 +333,7 @@ const heldNode = (
     end === "holder"
       ? {
           ...bare("holder", link.holder, {
-            holder: HolderKey.make(link.holder),
+            holder: link.holder,
           }),
           name: link.name,
           label: labelOf(link.name),
@@ -368,7 +368,7 @@ const offListNode = (
 ): MapNode => ({
   ...(end === "holder"
     ? {
-        ...bare("holder", left.holder, { holder: HolderKey.make(left.holder) }),
+        ...bare("holder", left.holder, { holder: left.holder }),
         name: left.name,
         label: labelOf(left.name),
       }
@@ -534,12 +534,12 @@ const bookOf = (
       holdings.map((holding) => [holding.holder, holding.name])
     )
     const holders = new Map<
-      string,
+      HolderKey,
       { shares: number; stocks: Set<StockCode> }
     >()
     const stocks = new Map<
       StockCode,
-      { shares: number; holders: Set<string> }
+      { shares: number; holders: Set<HolderKey> }
     >()
     for (const link of custodians) {
       if (link.custodian !== id) continue
@@ -552,7 +552,7 @@ const bookOf = (
       holders.set(link.holder, holder)
       const stock = stocks.get(link.code) ?? {
         shares: 0,
-        holders: new Set<string>(),
+        holders: new Set<HolderKey>(),
       }
       stock.shares += link.shares
       stock.holders.add(link.holder)
@@ -561,7 +561,7 @@ const bookOf = (
     return {
       holders: [...holders]
         .map(([key, { shares, stocks: of }]) => ({
-          key: HolderKey.make(key),
+          key,
           name: names.get(key) ?? key,
           shares,
           stocks: [...of].sort(),
@@ -783,7 +783,7 @@ const focusOf = Effect.fnUntraced(function* (
   if (focus.kind === "holder")
     return {
       kind: "holder" as const,
-      key: HolderKey.make(focus.key),
+      key: focus.key,
       name: focus.name,
       title: focus.name ?? focus.key,
     }

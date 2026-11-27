@@ -207,19 +207,22 @@ describe("findFoci", () => {
     ],
     holders: [
       {
-        key: "INDONESIA MAYBANK SEKURITAS",
+        key: HolderKey.make("INDONESIA MAYBANK SEKURITAS"),
         name: "MAYBANK SEKURITAS INDONESIA",
       },
-      { key: "AGUNG INVESTINDO PERKASA", name: "PT AGUNG PERKASA INVESTINDO" },
+      {
+        key: HolderKey.make("AGUNG INVESTINDO PERKASA"),
+        name: "PT AGUNG PERKASA INVESTINDO",
+      },
     ],
     custodians: [
       {
-        id: "A CITIBANK N",
+        id: CustodianId.make("A CITIBANK N"),
         broker: undefined,
         name: "CITIBANK, N. A",
       },
       {
-        id: "ZP",
+        id: CustodianId.make("ZP"),
         broker: BrokerCode.make("ZP"),
         name: "MAYBANK SEKURITAS INDONESIA",
       },

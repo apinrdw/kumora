@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { BrokerCode, StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { CustodianId } from "@/domain/holdings"
+import { CustodianId, HolderKey } from "@/domain/holdings"
 import { type HolderMapView, holderMapView } from "@/lib/holder-map"
 import type {
   HolderMapCustodianLink,
@@ -18,7 +18,7 @@ const link = (
 ): HolderMapLink => ({
   code: StockCode.make("TRUE"),
   band,
-  holder: name,
+  holder: HolderKey.make(name),
   name,
   percentageHundredths: hundredths,
   shares: hundredths * 1000,
@@ -56,7 +56,7 @@ const through = (
     : undefined
   return {
     code: StockCode.make(code),
-    holder,
+    holder: HolderKey.make(holder),
     custodian: CustodianId.make(custodian),
     broker,
     name: broker === undefined ? custodian : `BROKER ${custodian}`,
@@ -71,7 +71,7 @@ const off = (
 ): HolderMapOffList => ({
   code: StockCode.make("TRUE"),
   band,
-  holder: name,
+  holder: HolderKey.make(name),
   name,
   since: WibDate.make(since),
   percentageHundredths: 300,
@@ -403,7 +403,7 @@ describe("holderMapView", () => {
         })
         const view = yield* holderMapView({
           ...read([]),
-          focus: { kind: "holder", key: "A", name: "PT A" },
+          focus: { kind: "holder", key: HolderKey.make("A"), name: "PT A" },
           links: [
             at("TLKM", { ...link("1%", "A", 240), name: "PT A" }),
             at("BSDE", { ...link("5%", "A", 900), name: "PT A" }),

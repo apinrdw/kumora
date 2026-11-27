@@ -8,7 +8,7 @@
 import type { StockCode, WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
-import { CustodianId } from "@/domain/holdings"
+import { CustodianId, type HolderKey } from "@/domain/holdings"
 import { brokerOf, memberName } from "@/lib/broker-code"
 import { placeOf } from "@/lib/holder-map-ids"
 
@@ -31,7 +31,7 @@ export interface Account {
 // A 5%-band holding's securities accounts.
 export interface HoldingAccounts {
   readonly code: StockCode
-  readonly holder: string
+  readonly holder: HolderKey
   readonly accounts: ReadonlyArray<Account>
 }
 

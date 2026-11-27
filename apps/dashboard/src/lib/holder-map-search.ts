@@ -97,11 +97,11 @@ export interface FocusList {
     readonly issuerName: string
   }>
   readonly holders: ReadonlyArray<{
-    readonly key: string
+    readonly key: HolderKey
     readonly name: string
   }>
   readonly custodians: ReadonlyArray<{
-    readonly id: string
+    readonly id: CustodianId
     readonly broker: BrokerCode | undefined
     readonly name: string
   }>
@@ -164,7 +164,7 @@ export const findFoci = (list: FocusList, query: string, shown: number) =>
       )
         matches.push({
           kind: "custodian",
-          id: CustodianId.make(custodian.id),
+          id: custodian.id,
           broker: custodian.broker,
           name: custodian.name,
         })
@@ -173,7 +173,7 @@ export const findFoci = (list: FocusList, query: string, shown: number) =>
       if (holds(holder.name))
         matches.push({
           kind: "holder",
-          key: HolderKey.make(holder.key),
+          key: holder.key,
           name: holder.name,
         })
     }

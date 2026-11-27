@@ -7,6 +7,7 @@
 import { StockCode, WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
+import { HolderKey } from "@/domain/holdings"
 import { placeOf } from "@/lib/holder-map-ids"
 
 import { holderKey } from "./holder-key.ts"
@@ -55,7 +56,7 @@ export const leavings = Effect.fnUntraced(function* (
     byPlace.set(place, {
       code: row.stock_code,
       band: row.band,
-      holder: key,
+      holder: HolderKey.make(key),
       name: row.name,
       since: row.data_date,
       percentageHundredths: row.stake_before,
@@ -149,7 +150,7 @@ export const changesOf = Effect.fnUntraced(function* (
   stock: {
     readonly links: ReadonlyArray<StockLink>
     // Each month holder's %, by key.
-    readonly inMonth: ReadonlyMap<string, number>
+    readonly inMonth: ReadonlyMap<HolderKey, number>
   },
   moves: ReadonlyMap<string, typeof HolderMapMove.Type>,
   leftAbove5: ReadonlyMap<string, HolderMapOffList>

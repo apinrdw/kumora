@@ -8,7 +8,7 @@ import { StockCode, WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
 import {
-  type HolderKey,
+  HolderKey,
   type HolderMapQuery,
   type SplitOrigin,
 } from "@/domain/holdings"
@@ -298,14 +298,15 @@ const stockLinks = Effect.fnUntraced(function* (
     month === undefined
       ? []
       : yield* above1Months([{ data_date: month }], rows.month)
+  // Keys as the map's: the read's boundary.
   const monthHolders = new Map(
-    (held?.holders ?? []).map((holder) => [holder.key, holder])
+    (held?.holders ?? []).map((holder) => [HolderKey.make(holder.key), holder])
   )
-  const typeOf = (key: string) =>
+  const typeOf = (key: HolderKey) =>
     monthHolders.get(key)?.rows.find(({ type }) => type !== undefined)?.type
 
   const above5 = new Map<
-    string,
+    HolderKey,
     {
       name: string
       hundredths: number
@@ -315,10 +316,11 @@ const stockLinks = Effect.fnUntraced(function* (
     }
   >()
   for (const holder of yield* dayHolders(blocks?.holders ?? [])) {
-    const summed = above5.get(holder.key)
+    const key = HolderKey.make(holder.key)
+    const summed = above5.get(key)
     const origins = holder.accounts.map(({ origin }) => origin)
     if (summed === undefined)
-      above5.set(holder.key, {
+      above5.set(key, {
         name: holder.name,
         hundredths: holder.percentageHundredths,
         shares: holder.scripless,
@@ -345,17 +347,17 @@ const stockLinks = Effect.fnUntraced(function* (
       origin: yield* originOf(holder.origins),
       investorType: typeOf(key),
     })
-  for (const holder of held?.holders ?? []) {
-    if (inAbove5.has(holder.key)) continue
+  for (const [key, holder] of monthHolders) {
+    if (inAbove5.has(key)) continue
     links.push({
       code,
       band: "1%",
-      holder: holder.key,
-      name: holder.rows[0]?.name ?? holder.key,
+      holder: key,
+      name: holder.rows[0]?.name ?? key,
       percentageHundredths: holder.percentageHundredths,
       shares: holder.total,
       origin: yield* originOf(holder.rows.map(({ origin }) => origin)),
-      investorType: typeOf(holder.key),
+      investorType: typeOf(key),
     })
   }
   return {
@@ -422,7 +424,7 @@ const linksInView = Effect.fnUntraced(function* (
 
 // The places of `links`.
 const placesOf = Effect.fnUntraced(function* (
-  links: Iterable<{ readonly code: string; readonly holder: string }>
+  links: Iterable<{ readonly code: string; readonly holder: HolderKey }>
 ) {
   const places = new Set<string>()
   for (const { code, holder } of links) places.add(yield* placeOf(code, holder))

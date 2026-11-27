@@ -302,23 +302,23 @@ export const RAIL_PERIODS = 10
 // with the period before them.
 export const TREND_PERIODS = 20
 
-// A holder's name as matched across periods, stocks and reports
-// (server/holdings/holder-key.ts): its words upper-cased, sorted, with
-// punctuation and legal-form words dropped. A name is at most 256
-// characters (ADR 0045), and so is its key.
-export const HolderKey = Schema.String.check(
+// A key made of a published name: never blank, and at most 256
+// characters, as the name is (ADR 0045).
+const NameKey = Schema.String.check(
   Schema.isPattern(/\S/),
   Schema.isMaxLength(256)
-).pipe(Schema.brand("HolderKey"))
+)
+
+// A holder's name as matched across periods, stocks and reports
+// (server/holdings/holder-key.ts): its words upper-cased, sorted, with
+// punctuation and legal-form words dropped.
+export const HolderKey = NameKey.pipe(Schema.brand("HolderKey"))
 export type HolderKey = typeof HolderKey.Type
 
 // A custodian as one Holder map node across stocks
-// (server/holdings/holder-map-custodians.ts, `custodianOf`): its broker code, or, with
-// none, its name keyed as a holder's name is.
-export const CustodianId = Schema.String.check(
-  Schema.isPattern(/\S/),
-  Schema.isMaxLength(256)
-).pipe(Schema.brand("CustodianId"))
+// (server/holdings/holder-map-custodians.ts, `custodianOf`): its broker
+// code, or, with none, its name keyed as a holder's name is.
+export const CustodianId = NameKey.pipe(Schema.brand("CustodianId"))
 export type CustodianId = typeof CustodianId.Type
 
 // What the Holder map is drawn around, and as of which trading day: a

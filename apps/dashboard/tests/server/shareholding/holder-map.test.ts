@@ -454,7 +454,7 @@ describe("Holder map, holder focus", () => {
       const read = yield* holderReadOf(yield* parsed, BPJS)
       assert.deepStrictEqual(read.focus, {
         kind: "holder",
-        key: "DJS HARI JAMINAN KETENAGAKERJAAN PROGRAM TUA",
+        key: HolderKey.make("DJS HARI JAMINAN KETENAGAKERJAAN PROGRAM TUA"),
         name: BPJS,
       })
       assert.deepStrictEqual(linksOf(read.links), [
@@ -521,7 +521,7 @@ describe("Holder map, holder focus", () => {
       const read = yield* holderReadOf(yield* parsed, "DJONI")
       assert.deepStrictEqual(read.focus, {
         kind: "holder",
-        key: "DJONI",
+        key: HolderKey.make("DJONI"),
         name: "DJONI",
       })
       assert.deepStrictEqual(read.links, [])
@@ -829,7 +829,7 @@ describe("Holder map, no focus", () => {
         const keys = holders.map(({ key }) => key)
         assert.strictEqual(new Set(keys).size, keys.length)
         assert.deepInclude(holders, {
-          key: "DJS HARI JAMINAN KETENAGAKERJAAN PROGRAM TUA",
+          key: HolderKey.make("DJS HARI JAMINAN KETENAGAKERJAAN PROGRAM TUA"),
           name: BPJS,
         })
         // Agung, in both of TRUE's reports, is one holder.
@@ -838,7 +838,7 @@ describe("Holder map, no focus", () => {
           1
         )
         // Djoni left every list before Oct.
-        assert.notInclude(keys, "DJONI")
+        assert.notInclude(keys, HolderKey.make("DJONI"))
       })
   )
 

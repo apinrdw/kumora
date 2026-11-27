@@ -5,6 +5,7 @@ import { Schema } from "effect"
 
 import {
   CustodianId,
+  HolderKey,
   type HolderMapQuery,
   KseiType,
   SplitOrigin,
@@ -46,7 +47,7 @@ export const HolderMapLink = Schema.Struct({
   // (the month's ≥1% holders that aren't).
   band: Schema.Literals(["5%", "1%"]),
   // Its holder key: one holder across stocks and reports.
-  holder: Schema.String,
+  holder: HolderKey,
   // Its first block's or row's name as published.
   name: Schema.String,
   // % of listed shares × 100.
@@ -79,7 +80,7 @@ const HolderMapOffList = Schema.Struct({
   code: StockCode,
   // The report it left: the 5% band's or the 1% band's.
   band: HolderMapLink.fields.band,
-  holder: Schema.String,
+  holder: HolderKey,
   // Its last listing's name.
   name: Schema.String,
   // The period it left, the first it was missing from: a trading day or an
@@ -95,7 +96,7 @@ export type HolderMapOffList = typeof HolderMapOffList.Type
 const HolderMapCustodianLink = Schema.Struct({
   // The holding's stock and holder key.
   code: StockCode,
-  holder: Schema.String,
+  holder: HolderKey,
   custodian: CustodianId,
   // Undefined for a bank or other custodian no exchange member is.
   broker: Schema.UndefinedOr(BrokerCode),
@@ -116,7 +117,7 @@ const HolderMapFocus = Schema.Union([
   }),
   Schema.Struct({
     kind: Schema.Literal("holder"),
-    key: Schema.String,
+    key: HolderKey,
     // Its largest holding's name as published, else its latest Off list
     // name; undefined when neither report lists the key.
     name: Schema.UndefinedOr(Schema.String),
