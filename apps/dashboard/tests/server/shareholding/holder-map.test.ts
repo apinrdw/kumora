@@ -1259,6 +1259,40 @@ describe("Holder map, one key's blocks", () => {
         )
       })
   )
+  it.effect(
+    "gives a key of several blocks New only when its stock was listed the day before",
+    () =>
+      Effect.gen(function* () {
+        const blocks = [
+          { custodian: HSBC, shares: 1_000, hundredths: 1000 },
+          { custodian: PROFINDO, shares: 2_000, hundredths: 2000 },
+        ]
+        // The stock's first listed day: Holder moves compares nothing.
+        assert.deepStrictEqual(
+          yield* contohOf(yield* parsed, {
+            "2026-11-19": [],
+            "2026-11-20": blocks,
+          }),
+          [["PT CONTOH", undefined]]
+        )
+        const w = yield* parsed
+        w.holdings.database
+          .prepare(
+            `INSERT INTO above_5_holder VALUES ('2026-11-19', 'CNTH', 9,
+              'CONTOH TBK', 'PT LAIN', 'LAIN', 500, 500)`
+          )
+          .run()
+        assert.deepStrictEqual(
+          yield* contohOf(w, { "2026-11-19": [], "2026-11-20": blocks }),
+          [
+            [
+              "PT CONTOH",
+              { kind: "new", shareChange: 3_000, percentageChange: undefined },
+            ],
+          ]
+        )
+      })
+  )
 })
 
 describe("Holder map, no focus", () => {

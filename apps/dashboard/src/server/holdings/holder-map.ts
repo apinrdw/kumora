@@ -35,7 +35,7 @@ import {
   CrossingRow,
   crossingsDown,
   MoveRow,
-  movesByKey,
+  storedMoves,
 } from "./holder-map-moves.ts"
 import { OFF_LIST, offListOf, offListRead } from "./holder-map-off-list.ts"
 import {
@@ -107,6 +107,31 @@ const IN_VIEW: Record<Focus["kind"], string> = {
 
 const STOCKS_IN_VIEW = "stock_code IN (SELECT stock_code FROM in_view)"
 
+// The trading day before the day drawn as of: the 5% band's moves are
+// against it.
+const DAY_BEFORE = `(SELECT MAX(data_date) FROM above_5_day
+  WHERE data_date < (SELECT day FROM asof))`
+
+// The day before's blocks `h` of the stocks in view whose key has another
+// block that day or several on the day.
+const BEFORE_SEVERAL = `FROM above_5_holder AS h
+    WHERE h.stock_code IN (SELECT stock_code FROM in_view)
+      AND h.data_date = ${DAY_BEFORE}
+      AND (
+        EXISTS (
+          SELECT 1 FROM above_5_holder AS other
+          WHERE other.data_date = h.data_date
+            AND other.stock_code = h.stock_code
+            AND other.holder_key = h.holder_key AND other.no <> h.no
+        )
+        OR (
+          SELECT COUNT(*) FROM above_5_holder AS listed
+          WHERE listed.data_date = (SELECT day FROM asof)
+            AND listed.stock_code = h.stock_code
+            AND listed.holder_key = h.holder_key
+        ) > 1
+      )`
+
 // The stocks in view's day and month. A focus has no cap, so a nominee hub
 // reads every stock: at most one whole day and one whole month, each
 // within its report's parse cap (ADR 0045), and their stored lines.
@@ -139,24 +164,25 @@ const IN_VIEW_ROWS: ReadonlyArray<Budgeted> = [
     ORDER BY stock_code, seq`,
     rows: MONTH_ROWS,
   },
-  // Their stored moves: the day's against the trading day before, the
-  // month's against the month before, Off list too, as a key still listed
-  // can have a block that left. A period's lines of a stock are at most
-  // its holders of the period and the one before.
+  // Their stored moves of the identities listed now: the day's against
+  // the trading day before, the month's against the month before. A
+  // period's lines of a stock listed now are at most its holders.
   //
   // Decision: Holder moves are derived at parse time
   // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
   {
-    sql: `SELECT stock_code, '5%' AS band, name, data_date, move,
-      share_change, percentage_change, stake_before, stake_now
+    sql: `SELECT stock_code, '5%' AS band, name, move, share_change,
+      percentage_change
     FROM above_5_move
     WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
+      AND move <> 'off list'
     UNION ALL
-    SELECT stock_code, '1%' AS band, name, data_date, move, share_change,
-      percentage_change, stake_before, stake_now
+    SELECT stock_code, '1%' AS band, name, move, share_change,
+      percentage_change
     FROM above_1_move
-    WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT month FROM band_month)`,
-    rows: 2 * DAY_ROWS + 2 * MONTH_ROWS,
+    WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT month FROM band_month)
+      AND move <> 'off list'`,
+    rows: DAY_ROWS + MONTH_ROWS,
   },
   // The month's ≥1% holders that left the above-5% list after the month:
   // each key's newest leaving between the month and the day of an identity
@@ -189,9 +215,47 @@ const IN_VIEW_ROWS: ReadonlyArray<Budgeted> = [
     GROUP BY stock_code, holder_key`,
     rows: MONTH_ROWS,
   },
+  // The day before's blocks of each key with several blocks on the day or
+  // on the day before, and their securities accounts: such a key moves by
+  // its blocks summed on both days (`dayMove`). One day's, at most its
+  // rows.
+  //
+  // Decision: the Holder map matches holders across stocks and reports by
+  // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+  {
+    sql: `SELECT h.stock_code, h.data_date, h.no, h.issuer_name,
+      h.holder_name, h.holder_key, h.scripless, h.percentage_hundredths
+    ${BEFORE_SEVERAL}
+    ORDER BY h.stock_code, h.no`,
+    rows: DAY_ROWS,
+  },
+  {
+    sql: `SELECT a.stock_code, a.data_date, a.no, a.custodian,
+      a.account_name, a.origin, a.domicile, a.scripless
+    FROM above_5_account AS a
+    JOIN (SELECT h.stock_code, h.data_date, h.no ${BEFORE_SEVERAL}) AS b
+      ON b.stock_code = a.stock_code AND b.data_date = a.data_date
+        AND b.no = a.no
+    ORDER BY a.stock_code, a.no, a.ordinal`,
+    rows: DAY_ROWS,
+  },
+  // The stocks in view first listed on the day, whose holders Holder moves
+  // compares with no day: at most the day's blocks.
+  {
+    sql: `SELECT DISTINCT stock_code FROM above_5_holder AS h
+    WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
+      AND NOT EXISTS (
+        SELECT 1 FROM above_5_holder AS earlier
+        WHERE earlier.stock_code = h.stock_code
+          AND earlier.data_date < h.data_date
+      )`,
+    rows: DAY_ROWS,
+  },
 ]
 
 const DayRow = Schema.Struct({ data_date: WibDate })
+
+const FirstListedRow = Schema.Struct({ stock_code: StockCode })
 
 const MostHeldRow = Schema.Struct({
   stock_code: StockCode,
@@ -227,31 +291,42 @@ const originOf = (origins: ReadonlyArray<SplitOrigin | undefined>) =>
     return [...set][0]
   })
 
-// One stock's rows of the day and the month.
+// One stock's rows of the day and the month, and of the day before its
+// keys of several blocks'.
 interface StockRows {
   readonly holders: Array<typeof Above5MapRow.Type>
   readonly accounts: Array<typeof Above5AccountMapRow.Type>
   readonly month: Array<typeof Above1MapRow.Type>
+  readonly holdersBefore: Array<typeof Above5MapRow.Type>
+  readonly accountsBefore: Array<typeof Above5AccountMapRow.Type>
 }
 
 // The rows of each stock in view, by code, in the order read.
-const byStock = (
-  holders: ReadonlyArray<typeof Above5MapRow.Type>,
-  accounts: ReadonlyArray<typeof Above5AccountMapRow.Type>,
-  month: ReadonlyArray<typeof Above1MapRow.Type>
-) =>
+const byStock = (read: {
+  readonly [K in keyof StockRows]: ReadonlyArray<StockRows[K][number]>
+}) =>
   Effect.sync(() => {
     const stocks = new Map<StockCode, StockRows>()
     const of = (code: StockCode) => {
       const known = stocks.get(code)
       if (known !== undefined) return known
-      const rows: StockRows = { holders: [], accounts: [], month: [] }
+      const rows: StockRows = {
+        holders: [],
+        accounts: [],
+        month: [],
+        holdersBefore: [],
+        accountsBefore: [],
+      }
       stocks.set(code, rows)
       return rows
     }
-    for (const row of holders) of(row.stock_code).holders.push(row)
-    for (const row of accounts) of(row.stock_code).accounts.push(row)
-    for (const row of month) of(row.stock_code).month.push(row)
+    for (const row of read.holders) of(row.stock_code).holders.push(row)
+    for (const row of read.accounts) of(row.stock_code).accounts.push(row)
+    for (const row of read.month) of(row.stock_code).month.push(row)
+    for (const row of read.holdersBefore)
+      of(row.stock_code).holdersBefore.push(row)
+    for (const row of read.accountsBefore)
+      of(row.stock_code).accountsBefore.push(row)
     return stocks
   })
 
@@ -271,6 +346,16 @@ const stockLinks = Effect.fnUntraced(function* (
     day === undefined
       ? []
       : yield* listedHolders(code, day, rows.holders, rows.accounts)
+  const dayBefore = rows.holdersBefore[0]?.data_date
+  const before =
+    dayBefore === undefined
+      ? []
+      : yield* listedHolders(
+          code,
+          WibDate.make(dayBefore),
+          rows.holdersBefore,
+          rows.accountsBefore
+        )
   const above1 =
     month === undefined ? [] : yield* monthHolders(code, month, rows.month)
   const typeOf = new Map(above1.map(({ key, sum }) => [key, sum.type]))
@@ -304,10 +389,10 @@ const stockLinks = Effect.fnUntraced(function* (
   }
   return {
     links,
-    // Each 5%-band holder's blocks, repeats collapsed, by key.
-    blocks: new Map(above5.map(({ key, blocks }) => [key, blocks])),
-    // Each 5%-band holder's securities accounts, by key.
-    accounts: new Map(above5.map(({ key, sum }) => [key, sum.accounts])),
+    // Each 5%-band holder of the day, and of the day before of a key of
+    // several blocks, repeats collapsed, by key.
+    now: new Map(above5.map((holder) => [holder.key, holder])),
+    before: new Map(before.map((holder) => [holder.key, holder])),
     inMonth: new Map(above1.map(({ key, sum }) => [key, sum.hundredths])),
   }
 })
@@ -337,13 +422,23 @@ const linksInView = Effect.fnUntraced(function* (
     monthRows = [],
     moveRows = [],
     crossingRows = [],
+    holderBeforeRows = [],
+    accountBeforeRows = [],
+    firstListedRows = [],
   ] = rest
-  const stocks = yield* byStock(
-    yield* decodeRows(Above5MapRow)(holderRows),
-    yield* decodeRows(Above5AccountMapRow)(accountRows),
-    yield* decodeRows(Above1MapRow)(monthRows)
+  const stocks = yield* byStock({
+    holders: yield* decodeRows(Above5MapRow)(holderRows),
+    accounts: yield* decodeRows(Above5AccountMapRow)(accountRows),
+    month: yield* decodeRows(Above1MapRow)(monthRows),
+    holdersBefore: yield* decodeRows(Above5MapRow)(holderBeforeRows),
+    accountsBefore: yield* decodeRows(Above5AccountMapRow)(accountBeforeRows),
+  })
+  const firstListed = new Set(
+    (yield* decodeRows(FirstListedRow)(firstListedRows)).map(
+      ({ stock_code }) => stock_code
+    )
   )
-  const moves = yield* movesByKey(yield* decodeRows(MoveRow)(moveRows))
+  const moves = yield* storedMoves(yield* decodeRows(MoveRow)(moveRows))
   const down = yield* crossingsDown(
     yield* decodeRows(CrossingRow)(crossingRows)
   )
@@ -353,10 +448,26 @@ const linksInView = Effect.fnUntraced(function* (
   for (const [code, rows] of stocks) {
     const issuer = rows.holders[0]?.issuer_name ?? rows.month[0]?.issuer_name
     if (issuer !== undefined) issuers.set(code, issuer)
-    const stock = yield* stockLinks(code, periods.day, periods.month, rows)
-    for (const [holder, of] of stock.accounts)
-      accounts.push({ code, holder, accounts: of })
-    links.push(...(yield* changesOf(periods, stock, moves, down)))
+    const {
+      links: stockOf,
+      now,
+      before,
+      inMonth,
+    } = yield* stockLinks(code, periods.day, periods.month, rows)
+    for (const [holder, { sum }] of now)
+      accounts.push({ code, holder, accounts: sum.accounts })
+    links.push(
+      ...(yield* changesOf(
+        periods,
+        {
+          links: stockOf,
+          day: { now, before, compared: !firstListed.has(code) },
+          inMonth,
+        },
+        moves,
+        down
+      ))
+    )
   }
   return { links, issuers, custodians: yield* custodianLinks(accounts) }
 })

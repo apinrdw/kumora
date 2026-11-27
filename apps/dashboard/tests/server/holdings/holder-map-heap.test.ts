@@ -23,11 +23,12 @@ import {
 // Decision: a stock's holders are read from its newest periods that fit a
 // row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
 //
-// The holder focus retained 32.4 MiB on 27 Nov 2026, its 20,005 nodes,
-// 8,000 custodian links and its side panel's hop beyond with it; the
-// custodian focus 13.7 MiB, and 8.9 MiB with 7,999 Off list holdings;
-// the stock focus 1.8 MiB, and 9.1 MiB with 80,000 stored leavings. In
-// every case no statement returns more rows than its budget.
+// The holder focus retained 32.3 MiB on 27 Nov 2026, its 20,005 nodes,
+// 8,000 custodian links and its side panel's hop beyond with it, and
+// 19.8 MiB holding every block of the day and the day before; the
+// custodian focus 14.0 MiB, and 9.0 MiB with 7,999 Off list holdings; the
+// stock focus 3.0 MiB, and 7.9 MiB with 80,000 stored leavings. In every
+// case no statement returns more rows than its budget.
 const HEAP_LIMIT_MIB = 40
 
 // The most stocks a report lists (ADR 0045), each with the day's blocks
@@ -137,6 +138,34 @@ describe("the Holder map's read of a hub", () => {
           view.focus?.graph.nodes.length,
           1 + 2_000 + 18_000 + BLOCKS
         )
+        assert.deepStrictEqual(over, [])
+        assert.isBelow(
+          retained,
+          HEAP_LIMIT_MIB,
+          `${retained.toFixed(1)} MiB retained`
+        )
+      }),
+    { timeout: 120_000 }
+  )
+
+  it.effect(
+    "focuses a holder of every block on the day and the day before, in 40 MiB",
+    () =>
+      Effect.gen(function* () {
+        // Every block of both days at the cap the hub's: each stock's key
+        // of several blocks reads the day before's blocks and accounts,
+        // a day's at the cap (codex review of apinrdw/kumora#741, round 7).
+        const db = hub([PREV, DAY])
+        db.database.prepare("UPDATE above_5_holder SET holder_key = ?").run(HUB)
+        const { over, layer } = budgeted(db)
+        const before = yield* retainedHeap
+        const read = yield* holderMapRead({
+          focus: { kind: "holder", key: HolderKey.make(HUB) },
+          day: undefined,
+        }).pipe(Effect.provide(layer))
+        yield* holderMapView(read)
+        const retained = ((yield* retainedHeap) - before) / 2 ** 20
+        assert.strictEqual(read.links.length, STOCKS.length)
         assert.deepStrictEqual(over, [])
         assert.isBelow(
           retained,

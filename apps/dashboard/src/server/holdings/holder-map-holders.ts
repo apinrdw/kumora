@@ -1,10 +1,12 @@
 // The Holder map's holders (spec apinrdw/kumora#733): a holder is one
 // holder key's blocks of one stock, report and period, summed. The read
-// takes rows per block or per identity: a day's blocks, a month's rows,
-// Holder moves' stored lines and leavings, a custodian's earlier blocks.
-// Each kind becomes holders through `holdersByKey` here and nowhere else,
-// so no part of the map (the bands, moves, crossings, hops, Off lists,
-// custodian links and books) sees one block of a key that has two. A
+// takes rows per block or per identity: a day's blocks, the day before's
+// blocks of a key of several, a month's rows, Holder moves' leavings, a
+// custodian's earlier blocks. Each kind becomes holders through
+// `holdersByKey` here and nowhere else, so no part of the map (the bands,
+// moves, crossings, hops, Off lists, custodian links and books) sees one
+// block of a key that has two. A key's stored move is one identity's line,
+// taken only for a key of one block on both days (`holder-map-moves.ts`). A
 // crossing Down out of 5% needs only its key's newest leaving, so its
 // statement groups by the month's stored key and returns one row a key
 // (`holder-map.ts`).
@@ -20,7 +22,7 @@ import { placeOf } from "@/lib/holder-map-ids"
 
 import { holderKey } from "./holder-key.ts"
 import type { Account } from "./holder-map-custodians.ts"
-import type { HolderMapLink, HolderMapMove } from "./holder-map-schema.ts"
+import type { HolderMapLink } from "./holder-map-schema.ts"
 import {
   above5Days,
   Above1HoldingRow,
@@ -99,7 +101,7 @@ const holdersByKey = Effect.fnUntraced(function* <B, S>(
 
 // An above-5% holder of a day: its first block's name, and its blocks' %,
 // shares and securities accounts.
-interface Listed {
+export interface Listed {
   readonly name: string
   hundredths: number
   shares: number
@@ -189,32 +191,8 @@ export const monthHolders = (
     }
   )
 
-// A Holder moves line as the map reads it: one identity's move in one
-// stock, report and period.
-export interface Line {
-  readonly stock_code: StockCode
-  readonly band: Band
-  readonly name: string
-  readonly data_date: string
-  readonly move: (typeof HolderMapMove.Type)["kind"] | "off list"
-  readonly share_change: number | null
-  readonly percentage_change: number | null
-  readonly stake_before: number | null
-  readonly stake_now: number | null
-}
-
-// A holder's lines: their moves, their summed changes, null when a line
-// has none, and their stakes, a side a line isn't listed on counting 0.
-export interface Lines {
-  readonly moves: Array<Line["move"]>
-  shareChange: number | null
-  percentageChange: number | null
-  stakeBefore: number
-  stakeNow: number
-}
-
-// A line's or a leaving's KeyPeriod, by its name's key, as the map
-// matches lines to holders.
+// A leaving's KeyPeriod, by its name's key, as the map matches Holder
+// moves' lines to holders.
 const leavingAt = Effect.fnUntraced(function* (line: {
   readonly stock_code: StockCode
   readonly band: Band
@@ -228,32 +206,6 @@ const leavingAt = Effect.fnUntraced(function* (line: {
     key: HolderKey.make(yield* holderKey(line.name)),
   } satisfies KeyPeriod
 })
-
-const plus = (a: number | null, b: number | null) =>
-  a === null || b === null ? null : a + b
-
-// Holder moves' stored lines summed by key. Each line is one identity,
-// whose repeat blocks Holder moves folded before storing it.
-export const lineHolders = (lines: Iterable<Line>) =>
-  holdersByKey(
-    lines,
-    leavingAt,
-    (line): Lines => ({
-      moves: [line.move],
-      shareChange: line.share_change,
-      percentageChange: line.percentage_change,
-      stakeBefore: line.stake_before ?? 0,
-      stakeNow: line.stake_now ?? 0,
-    }),
-    (sum, line) => {
-      sum.moves.push(line.move)
-      sum.shareChange = plus(sum.shareChange, line.share_change)
-      sum.percentageChange = plus(sum.percentageChange, line.percentage_change)
-      sum.stakeBefore += line.stake_before ?? 0
-      sum.stakeNow += line.stake_now ?? 0
-      return sum
-    }
-  )
 
 // A leaving as the map reads it: one identity's Off list line, its
 // period the one it left.

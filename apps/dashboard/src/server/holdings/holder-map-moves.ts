@@ -1,20 +1,21 @@
 // What changed on the Holder map (spec apinrdw/kumora#733, "Moves"): each
-// link's stored move, its gap-holder mark and its crossing of 5%, and the
-// leavings its Off list comes from.
+// link's move, stored or its key's blocks summed, its gap-holder mark and
+// its crossing of 5%, and the leavings its Off list comes from.
 //
 // Decision: Holder moves are derived at parse time
 // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
 import { StockCode, WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
-import { HolderKey } from "@/domain/holdings"
+import { type CustodianId, HolderKey } from "@/domain/holdings"
 import { placeOf } from "@/lib/holder-map-ids"
 
+import { holderKey } from "./holder-key.ts"
+import { type Account, custodianOf } from "./holder-map-custodians.ts"
 import {
   type KeyHolder,
   leftHolders,
-  lineHolders,
-  type Lines,
+  type Listed,
 } from "./holder-map-holders.ts"
 import {
   HolderMapLink,
@@ -44,16 +45,14 @@ export const CrossingRow = Schema.Struct({
   data_date: WibDate,
 })
 
+// A stored move of an identity listed in its band's period.
 export const MoveRow = Schema.Struct({
   stock_code: StockCode,
   band: HolderMapLink.fields.band,
   name: Schema.String,
-  data_date: WibDate,
-  move: Schema.Literals([...HolderMapMove.fields.kind.literals, "off list"]),
+  move: HolderMapMove.fields.kind,
   share_change: Schema.NullOr(Schema.Number),
   percentage_change: Schema.NullOr(Schema.Number),
-  stake_before: Schema.NullOr(Schema.Number),
-  stake_now: Schema.NullOr(Schema.Number),
 })
 
 // Each holding's latest leaving of either list, by its place: its key's
@@ -99,73 +98,105 @@ const movePlace = (
   holder: HolderKey
 ) => Effect.map(placeOf(code, holder), (place) => `${band} ${place}`)
 
-// Each stock's bands' stored lines summed by holder key (`lineHolders`).
-// Holder moves follows a holder by its identity within the stock (ADR
-// 0129), the map by key, so a key whose blocks are two identities, as
-// CPGT's two ASIA ARGENTUM ASSETS HONG KONG LIMITED blocks, moves by their
-// lines together (`keyMove`). Each band's lines are of its one period.
-export const movesByKey = Effect.fnUntraced(function* (
+// Each stored move of an identity listed in its band's period, by its
+// band and the place of its name's key: a key of one block on the day and
+// on the day before, or any key of a month, is one identity (Major holders
+// follows a month's holder by its key, ADR 0129), so its line is its move.
+//
+// Decision: Holder moves are derived at parse time
+// (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
+export const storedMoves = Effect.fnUntraced(function* (
   rows: ReadonlyArray<typeof MoveRow.Type>
 ) {
-  const moves = new Map<string, KeyHolder<Lines>>()
-  for (const holder of yield* lineHolders(rows))
-    moves.set(yield* movePlace(holder.band, holder.code, holder.key), holder)
+  const moves = new Map<string, typeof HolderMapMove.Type>()
+  for (const row of rows) {
+    const key = HolderKey.make(yield* holderKey(row.name))
+    const place = yield* movePlace(row.band, row.stock_code, key)
+    if (moves.has(place)) continue
+    moves.set(place, {
+      kind: row.move,
+      shareChange: row.share_change ?? undefined,
+      percentageChange: row.percentage_change ?? undefined,
+    })
+  }
   return moves
 })
 
-// A listed key's move from its lines, `blocks` its identities listed now.
-// A block that holds as it did has no line, so the lines alone can't tell
-// a key's total: one line of its only block is that block's stored move.
-// Else the key moved by its lines' summed change, as its unchanged blocks
-// add nothing: New only when every block listed now is New and none left,
-// and a block's leaving, its whole last holding out, counts toward Down,
-// never Off list, as the key is still listed.
-const keyMove = Effect.fnUntraced(function* (
-  lines: KeyHolder<Lines> | undefined,
-  blocks: number
+// A stock's 5%-band holders of the day and the day before, by key: the
+// day before's only of keys with several blocks on either day.
+interface DayHolders {
+  readonly now: ReadonlyMap<HolderKey, KeyHolder<Listed>>
+  readonly before: ReadonlyMap<HolderKey, KeyHolder<Listed>>
+  // Whether the stock had a block on a day before: on its first, nothing
+  // is compared, as Holder moves compares nothing there.
+  readonly compared: boolean
+}
+
+// A 5%-band link's move. A key of one block on the day and at most one on
+// the day before is one identity: its stored move (ADR 0134). A key of
+// several blocks on either day moves by its blocks summed on both days, as
+// one holder: New with none the day before, else Up or Down by its shares,
+// its % change every block's on both days, else a Transfer when shares
+// crossed custodians between its accounts, whichever blocks they sit in.
+//
+// Decision: the Holder map matches holders across stocks and reports by
+// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+const dayMove = Effect.fnUntraced(function* (
+  key: HolderKey,
+  day: DayHolders,
+  stored: typeof HolderMapMove.Type | undefined
 ) {
-  if (lines === undefined) return undefined
-  const { moves, shareChange, percentageChange, stakeBefore, stakeNow } =
-    lines.sum
-  const [only] = moves
-  if (only === undefined) return undefined
-  if (lines.blocks === 1 && blocks === 1 && only !== "off list")
+  const now = day.now.get(key)
+  const before = day.before.get(key)
+  if (now === undefined || (now.blocks === 1 && (before?.blocks ?? 0) <= 1))
+    return stored
+  if (before === undefined)
+    return day.compared
+      ? ({
+          kind: "new",
+          shareChange: now.sum.shares,
+          percentageChange: undefined,
+        } satisfies typeof HolderMapMove.Type)
+      : undefined
+  const shareChange = now.sum.shares - before.sum.shares
+  const percentageChange = now.sum.hundredths - before.sum.hundredths
+  if (shareChange !== 0)
     return {
-      kind: only,
-      shareChange: shareChange ?? undefined,
-      percentageChange: percentageChange ?? undefined,
+      kind: shareChange > 0 ? "up" : "down",
+      shareChange,
+      percentageChange,
     } satisfies typeof HolderMapMove.Type
-  if (lines.blocks === blocks && moves.every((move) => move === "new"))
-    return {
-      kind: "new",
-      shareChange: shareChange ?? undefined,
-      percentageChange: undefined,
-    } satisfies typeof HolderMapMove.Type
-  const kind = yield* summedKind(
-    lines.band === "5%" ? (shareChange ?? undefined) : stakeNow - stakeBefore,
-    moves.includes("transfer")
-  )
-  return kind === undefined
-    ? undefined
-    : ({
-        kind,
-        shareChange: shareChange ?? undefined,
-        percentageChange: stakeNow - stakeBefore,
+  return (yield* crossedCustodians(before.sum.accounts, now.sum.accounts))
+    ? ({
+        kind: "transfer",
+        shareChange,
+        percentageChange,
       } satisfies typeof HolderMapMove.Type)
+    : undefined
 })
 
-// A key's summed move, by shares on a day and by % on a month, as each
-// report's moves go.
-const summedKind = (change: number | undefined, transfer: boolean) =>
-  Effect.succeed<typeof HolderMapMove.Type.kind | undefined>(
-    change === undefined || change === 0
-      ? transfer
-        ? "transfer"
-        : undefined
-      : change > 0
-        ? "up"
-        : "down"
-  )
+// Whether shares left some custodians for others between two days'
+// securities accounts: each custodian's accounts netted, a custodian as
+// one by its broker code, else its name (`custodianOf`), so shares moved
+// between accounts at one custodian cancel out.
+//
+// Decision: broker codes are looked up on read
+// (apps/dashboard/docs/adr/0132-broker-codes-are-looked-up-on-read.md)
+const crossedCustodians = Effect.fnUntraced(function* (
+  before: ReadonlyArray<Account>,
+  now: ReadonlyArray<Account>
+) {
+  const net = new Map<CustodianId, number>()
+  for (const [accounts, sign] of [
+    [before, -1],
+    [now, 1],
+  ] as const)
+    for (const { custodian, scripless } of accounts) {
+      const { id } = yield* custodianOf(custodian)
+      net.set(id, (net.get(id) ?? 0) + sign * scripless)
+    }
+  return [...net.values()].some((change) => change !== 0)
+})
 
 // What changed since each band's period before, and across the bands'
 // periods: a stock's links' stored moves, the gap-holder mark, and a
@@ -177,24 +208,26 @@ export const changesOf = Effect.fnUntraced(function* (
   },
   stock: {
     readonly links: ReadonlyArray<StockLink>
-    // Each 5%-band holder's blocks listed on the day, by key.
-    readonly blocks: ReadonlyMap<HolderKey, number>
+    readonly day: DayHolders
     // Each month holder's %, by key.
     readonly inMonth: ReadonlyMap<HolderKey, number>
   },
-  moves: ReadonlyMap<string, KeyHolder<Lines>>,
+  moves: ReadonlyMap<string, typeof HolderMapMove.Type>,
   // Each month holder's day it left the above-5% list, by place.
   downSince: ReadonlyMap<string, WibDate>
 ) {
   const out: Array<HolderMapLink> = []
   for (const link of stock.links) {
     const place = yield* placeOf(link.code, link.holder)
+    const stored = moves.get(
+      yield* movePlace(link.band, link.code, link.holder)
+    )
     out.push({
       ...link,
-      move: yield* keyMove(
-        moves.get(yield* movePlace(link.band, link.code, link.holder)),
-        link.band === "5%" ? (stock.blocks.get(link.holder) ?? 1) : 1
-      ),
+      move:
+        link.band === "5%"
+          ? yield* dayMove(link.holder, stock.day, stored)
+          : stored,
       gap:
         link.band === "1%" &&
         periods.day !== undefined &&
