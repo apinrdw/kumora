@@ -1,6 +1,6 @@
 # Deploy
 
-Deploy-time code shared by both apps' stacks, the Workers Builds install and deploy scripts and the teardown job. Never bundled into a Worker. The deploy script and the teardown job drive alchemy in-process through `alchemy/Alchemist`, loading each app's `alchemy.run.ts` by path; they never run the alchemy CLI.
+Deploy-time code shared by both apps' stacks, the Workers Builds deploy script and the teardown job. Never bundled into a Worker. The deploy script and the teardown job drive alchemy in-process through `alchemy/Alchemist`, loading each app's `alchemy.run.ts` by path; they never run the alchemy CLI.
 
 ## Language
 
@@ -25,7 +25,7 @@ _Avoid_: Preview environment
 A developer's local Stage, `dev_$USER`, run by `bun alchemy dev` with local emulation and local state. It reads Infisical `staging` through the developer's Alchemy profile.
 
 **Builds connection**:
-An app's Workers Builds connection, on its anchor Worker (`kumora-web-builds`, `kumora-dashboard-builds`) that Alchemy never deploys. Its build command runs this package's `workers-builds-install.sh`, and its deploy command then runs this package's deploy script. It builds every push whose changes touch its watch paths: its own app's directory (`apps/web/**` or `apps/dashboard/**`), `packages/**`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json` and `.bun-version`. A connection watching the other app's directory deploys nothing when only its own app changes: on 2026-11-11 `kumora-dashboard-builds` watched `apps/web/**`, so three merges to `main` (#161, #162, #172) never reached Production.
+An app's Workers Builds connection, on its anchor Worker (`kumora-web-builds`, `kumora-dashboard-builds`) that Alchemy never deploys. It runs this package's deploy script for every push whose changes touch its watch paths: its own app's directory (`apps/web/**` or `apps/dashboard/**`), `packages/**`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json` and `.bun-version`. A connection watching the other app's directory deploys nothing when only its own app changes: on 2026-11-11 `kumora-dashboard-builds` watched `apps/web/**`, so three merges to `main` (#161, #162, #172) never reached Production.
 _Avoid_: Build trigger, pipeline
 
 **Release version**:

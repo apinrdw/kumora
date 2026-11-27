@@ -1,7 +1,6 @@
 // Fails when a place that installs vp names a version other than the root
-// `vite-plus` devDependency, so a vite-plus bump can't leave CI or deploys on
-// an older vp. Those are each workflow's setup-vp step and the Workers Builds
-// installer script.
+// `vite-plus` devDependency, so a vite-plus bump can't leave CI on an older vp.
+// That is each workflow's setup-vp step; Workers Builds installs no vp.
 import { Console, Effect, FileSystem, Path, Schema } from "effect"
 import { parse } from "yaml"
 
@@ -77,32 +76,6 @@ const setupVpSteps = Effect.fn("setupVpSteps")(function* (root: string) {
   ).pipe(Effect.map((perFile) => perFile.flat()))
 })
 
-// Both apps' Workers Builds build command runs this script, which installs vp
-// with the official installer at the version its VP_VERSION names.
-const workersBuildsInstaller = "packages/deploy/workers-builds-install.sh"
-const installerVersion = /\bVP_VERSION=(\S+)/g
-
-const installerVersions = Effect.fn("installerVersions")(function* (
-  root: string
-) {
-  const fs = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const file = path.join(root, workersBuildsInstaller)
-  if (!(yield* fs.exists(file)))
-    return yield* new CheckFailed({
-      summary:
-        "The Workers Builds build command's installer script is missing, so this check reads no deploy vp version. Point it at the script that installs vp now:",
-      findings: [workersBuildsInstaller],
-    })
-  const text = yield* fs.readFileString(file)
-  const versions = [...text.matchAll(installerVersion)].map(
-    ([, version]): Install => ({ site: workersBuildsInstaller, version })
-  )
-  return versions.length > 0
-    ? versions
-    : [{ site: workersBuildsInstaller, version: undefined }]
-})
-
 export const checkVpVersion = Effect.fn("checkVpVersion")(function* (
   root: string
 ) {
@@ -117,23 +90,22 @@ export const checkVpVersion = Effect.fn("checkVpVersion")(function* (
       summary: `package.json needs an exact vite-plus devDependency, such as "1.8.0", for vp's version to follow. It has:`,
       findings: [pin ?? "none"],
     })
-  const steps = yield* setupVpSteps(root)
-  if (steps.length === 0)
+  const installs = yield* setupVpSteps(root)
+  if (installs.length === 0)
     return yield* new CheckFailed({
       summary:
         "No workflow step uses setup-vp, so this check reads no vp version. Point it at the step that installs vp now:",
       findings: [".github/workflows"],
     })
-  const installs = [...steps, ...(yield* installerVersions(root))]
   const drifted = installs.filter(({ version }) => version !== pin)
   if (drifted.length > 0)
     return yield* new CheckFailed({
-      summary: `Each setup-vp step and the Workers Builds installer must name the root vite-plus devDependency (${pin}). Differs:`,
+      summary: `Each setup-vp step's version must equal the root vite-plus devDependency (${pin}). Differs:`,
       findings: drifted.map(
         ({ site, version }) => `${site}: ${version ?? "no version"}`
       ),
     })
   yield* Console.log(
-    `vp ${pin} in package.json, ${steps.length} setup-vp steps and the Workers Builds installer.`
+    `vp ${pin} in package.json and ${installs.length} setup-vp steps.`
   )
 })

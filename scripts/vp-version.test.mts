@@ -27,21 +27,12 @@ const workflow = (jobs: Record<string, string>) =>
     ]),
   ].join("\n")
 
-// The Workers Builds build script, installing vp at `version`.
-const installer = (version: string) =>
-  [
-    "#!/usr/bin/env bash",
-    "set -euo pipefail",
-    `curl -fsSL https://vite.plus | VP_VERSION=${version} bash`,
-    "vp install --frozen-lockfile",
-  ].join("\n")
-
 describe("checkVpVersion", () => {
   it.effect("passes when every setup-vp step names the pinned version", () =>
     Effect.gen(function* () {
       yield* checkVpVersion("/repo")
       assert.deepStrictEqual(yield* TestConsole.logLines, [
-        "vp 1.8.0 in package.json, 3 setup-vp steps and the Workers Builds installer.",
+        "vp 1.8.0 in package.json and 3 setup-vp steps.",
       ])
     }).pipe(
       Effect.provide(
@@ -55,7 +46,6 @@ describe("checkVpVersion", () => {
             release: "1.8.0",
           }),
           "/repo/.github/workflows/notes.md": "setup-vp version: 0.1.0",
-          "/repo/packages/deploy/workers-builds-install.sh": installer("1.8.0"),
         })
       )
     )
@@ -84,66 +74,6 @@ describe("checkVpVersion", () => {
             "    steps:",
             "      - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76",
           ].join("\n"),
-          "/repo/packages/deploy/workers-builds-install.sh": installer("1.8.0"),
-        })
-      )
-    )
-  )
-
-  it.effect(
-    "fails naming the Workers Builds installer on another version",
-    () =>
-      Effect.gen(function* () {
-        const error = yield* Effect.flip(checkVpVersion("/repo"))
-        assert.instanceOf(error, CheckFailed)
-        assert.include(error.summary, "1.8.0")
-        assert.deepStrictEqual(error.findings, [
-          "packages/deploy/workers-builds-install.sh: 1.7.2",
-        ])
-      }).pipe(
-        Effect.provide(
-          repo({
-            "/repo/package.json": manifest({ "vite-plus": "1.8.0" }),
-            "/repo/.github/workflows/ci.yml": workflow({ static: "1.8.0" }),
-            "/repo/packages/deploy/workers-builds-install.sh":
-              installer("1.7.2"),
-          })
-        )
-      )
-  )
-
-  it.effect("fails when the Workers Builds installer names no version", () =>
-    Effect.gen(function* () {
-      const error = yield* Effect.flip(checkVpVersion("/repo"))
-      assert.instanceOf(error, CheckFailed)
-      assert.deepStrictEqual(error.findings, [
-        "packages/deploy/workers-builds-install.sh: no version",
-      ])
-    }).pipe(
-      Effect.provide(
-        repo({
-          "/repo/package.json": manifest({ "vite-plus": "1.8.0" }),
-          "/repo/.github/workflows/ci.yml": workflow({ static: "1.8.0" }),
-          "/repo/packages/deploy/workers-builds-install.sh":
-            "curl -fsSL https://vite.plus | bash\n",
-        })
-      )
-    )
-  )
-
-  it.effect("fails when the Workers Builds installer is missing", () =>
-    Effect.gen(function* () {
-      const error = yield* Effect.flip(checkVpVersion("/repo"))
-      assert.instanceOf(error, CheckFailed)
-      assert.include(error.summary, "Workers Builds")
-      assert.deepStrictEqual(error.findings, [
-        "packages/deploy/workers-builds-install.sh",
-      ])
-    }).pipe(
-      Effect.provide(
-        repo({
-          "/repo/package.json": manifest({ "vite-plus": "1.8.0" }),
-          "/repo/.github/workflows/ci.yml": workflow({ static: "1.8.0" }),
         })
       )
     )
