@@ -399,6 +399,36 @@ describe("Holder map, band crossing", () => {
       })
   )
 
+  it.effect(
+    "moves a holder whose name holds a # Down out of 5% by its identity's key",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        const db = w.holdings.database
+        // `FUND #1` keys `#1 FUND`, so its identity is `#1 FUND#1`: a
+        // ≥1% holder of Oct that left the above-5% list on 20 Nov.
+        const key = yield* holderKey("FUND #1")
+        db.prepare(
+          `INSERT INTO above_1_holding VALUES ('2026-10-30', 'TRUE', 999,
+            'TRUE TBK', 'FUND #1', ?, NULL, 'MF', 'local', NULL, NULL, NULL,
+            300000000, 0, 300000000, 300)`
+        ).run(key)
+        db.prepare(
+          `INSERT INTO above_5_move VALUES ('2026-11-20', 'TRUE', ?,
+            'TRUE TBK', 'FUND #1', '[]', NULL, 'off list', '[]', NULL, 600,
+            NULL, NULL, '[]', NULL)`
+        ).run(`${key}#1`)
+        const map = yield* mapOf(w, "TRUE")
+        const [, above1] = map.focus?.bands ?? []
+        assert.deepStrictEqual(
+          (above1?.holders ?? [])
+            .filter(({ name }) => name === "FUND #1")
+            .map(({ crossing }) => crossing),
+          [{ kind: "down out of 5%", since: WibDate.make("2026-11-20") }]
+        )
+      })
+  )
+
   it.effect("crosses nothing for a holder that left before the month", () =>
     Effect.gen(function* () {
       const map = yield* mapOf(yield* parsed, "TRUE")
