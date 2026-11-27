@@ -639,6 +639,51 @@ describe("the Done Details walk", () => {
       })
   )
 
+  // The three tied trades' rows come first, then 999 rows of 11:00:00: two
+  // pages at 1,000. The walk at 1,000 can't read trade 2's row on its first
+  // page; the walk at 999 reads it.
+  it.effect(
+    "pairs a row the first walk couldn't read with the copy the walk at 999 read",
+    () =>
+      Effect.gen(function* () {
+        yield* evening
+        const rows = [
+          tiedDetail(300, 50),
+          tiedDetail(200, 50),
+          tiedDetail(100, 50),
+          ...Array.from({ length: 999 }, (_, at) => ({
+            ...tiedDetail(1_000 + at, 50),
+            time: "11:00:00",
+          })),
+        ]
+        const { store } = yield* keptStore([tied("1"), tied("2"), tied("3")])
+        const production = fakeProduction()
+        const tab = fakeAjaib({
+          details: { BBCA: rows },
+          answer: (call) =>
+            call === 1
+              ? Option.some(
+                  OK({
+                    err_code: "EC0000000",
+                    result: {
+                      has_next: true,
+                      transactions: rows
+                        .slice(0, 1_000)
+                        .map((row, at) => (at === 1 ? {} : row)),
+                    },
+                  })
+                )
+              : undefined,
+        })
+        const walk = yield* walkWith(tab, store, production)
+        yield* walk.walk(DAY)
+        const orders = production.orders()
+        assert.deepStrictEqual(orders.get("3"), orderPair(300, 50))
+        assert.deepStrictEqual(orders.get("2"), orderPair(200, 50))
+        assert.deepStrictEqual(orders.get("1"), orderPair(100, 50))
+      })
+  )
+
   // An NG trade of a fractional lot reads 1 lot on the tape and 0 in Done
   // Details. Trade 2, of 1 lot on both, takes the 1-lot row first.
   it.effect(

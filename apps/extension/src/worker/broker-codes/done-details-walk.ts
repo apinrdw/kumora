@@ -382,12 +382,17 @@ const detailsPath = (
     `${DETAILS_PATH}?code=${code}&group=BS&type=TRADE&market_date=${day}&start_time=00:00&end_time=23:59:59&page=${page}&page_size=${size}`
   )
 
-// Both walks' rows, each offset once (the first walk's), in offset order:
-// Ajaib's order.
+// Both walks' rows, each offset once, in offset order: Ajaib's order. A
+// copy either walk read wins over one it couldn't, so only an offset
+// neither walk read stays unread; else the first walk's.
 const byOffset = (rows: ReadonlyArray<DetailRow>) =>
   Effect.sync(() => {
     const at = new Map<number, DetailRow>()
-    for (const row of rows) if (!at.has(row.offset)) at.set(row.offset, row)
+    for (const row of rows) {
+      const held = at.get(row.offset)
+      if (held === undefined || (held._tag === "Unread" && row._tag === "Read"))
+        at.set(row.offset, row)
+    }
     return [...at.values()].sort((a, b) => a.offset - b.offset)
   })
 
