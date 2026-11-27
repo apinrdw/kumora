@@ -169,6 +169,20 @@ const tradingDay = Effect.fnUntraced(function* (
   const orderNumbers = Effect.map(status, (each) => each.orderNumbers)
   const heldOrders = (number: number) =>
     day.brokerCodes.heldOrders(TradeNumber.make(String(number)))
+  // The held order numbers GET's answer, with the GET's query.
+  const orderNumbersAnswer = Effect.fnUntraced(function* (search = "") {
+    const response = yield* day.brokerCodes.orderNumbers(
+      new URLSearchParams(search)
+    )
+    assert.strictEqual(
+      response.headers.get("Cache-Control"),
+      "private, no-store"
+    )
+    return {
+      code: response.status,
+      body: yield* Effect.promise(() => response.json()),
+    }
+  })
   const missing = Effect.map(status, (each) =>
     each.missing.map(([from, to]) => [Number(from), Number(to)])
   )
@@ -230,6 +244,7 @@ const tradingDay = Effect.fnUntraced(function* (
     held,
     orderNumbers,
     heldOrders,
+    orderNumbersAnswer,
     missing,
     alarms,
     indexed,
@@ -676,6 +691,112 @@ describe("a day's order numbers", () => {
         yield* day.post("Stockbit", [[1, YP_CC, FIELDS, HOPE_8799]])
         assert.include(tables(), "order_number_chunks")
       })
+  )
+})
+
+// The held order numbers an admin reads for research (ADR 0141): each held
+// trade's buy and sell order numbers and its source byte's letter, a page at
+// a time by trade number.
+describe("a day's held order numbers page", () => {
+  const orders = (buy: number, sell: number): OrderNumbers => [
+    OrderNumber.make(buy),
+    OrderNumber.make(sell),
+  ]
+
+  it.effect(
+    "answers each held trade with its source's letter: a D record carries Ajaib's numbers, Stockbit's not being kept",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* tradingDay()
+        yield* day.post("Ajaib", [
+          [1, YP_CC, null, orders(276_574, 53_352)],
+          [2, YP_CC, null, orders(276_574, 125_666)],
+          [3, YP_CC],
+          [4, YP_CC, null, orders(11, 12)],
+        ])
+        yield* day.post("Stockbit", [
+          [1, YP_CC, FIELDS, orders(276_574, 53_352)],
+          [2, YP_CC, FIELDS, orders(276_574, 79_327)],
+          [3, YP_CC, FIELDS, orders(276_574, 79_327)],
+          [5, YP_CC, FIELDS],
+        ])
+        assert.deepStrictEqual(yield* day.orderNumbersAnswer(), {
+          code: 200,
+          body: {
+            day: "2026-11-09",
+            after: 0,
+            next: null,
+            rows: [
+              [1, 276_574, 53_352, "B"],
+              [2, 276_574, 125_666, "D"],
+              [3, 276_574, 79_327, "S"],
+              [4, 11, 12, "A"],
+            ],
+          },
+        })
+      })
+  )
+
+  it.effect(
+    "pages by trade number across chunks, `next` the cursor until the last chunk is read",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* tradingDay()
+        yield* day.post(
+          "Stockbit",
+          [998, 999, 1_000, 1_001, 2_500].map(
+            (number) =>
+              [number, YP_CC, FIELDS, orders(number, number + 1)] as const
+          )
+        )
+        const page = (search: string) =>
+          Effect.map(day.orderNumbersAnswer(search), ({ body }) => body)
+        assert.deepStrictEqual(yield* page("limit=3"), {
+          day: "2026-11-09",
+          after: 0,
+          next: 1_000,
+          rows: [
+            [998, 998, 999, "S"],
+            [999, 999, 1_000, "S"],
+            [1_000, 1_000, 1_001, "S"],
+          ],
+        })
+        assert.deepStrictEqual(yield* page("after=1000&limit=3"), {
+          day: "2026-11-09",
+          after: 1_000,
+          next: null,
+          rows: [
+            [1_001, 1_001, 1_002, "S"],
+            [2_500, 2_500, 2_501, "S"],
+          ],
+        })
+        assert.deepStrictEqual((yield* page("after=2500")).rows, [])
+      })
+  )
+
+  it.effect("answers no rows on a day whose batches carried none", () =>
+    Effect.gen(function* () {
+      const day = yield* tradingDay()
+      yield* day.post("Ajaib", [[1, YP_CC]], 1)
+      assert.deepStrictEqual((yield* day.orderNumbersAnswer()).body, {
+        day: "2026-11-09",
+        after: 0,
+        next: null,
+        rows: [],
+      })
+    })
+  )
+
+  it.effect("refuses a bad cursor or limit with 400", () =>
+    Effect.gen(function* () {
+      const day = yield* tradingDay()
+      for (const search of ["after=x", "limit=0", "limit=50001", "limit=2.5"])
+        assert.strictEqual(
+          (yield* day.orderNumbersAnswer(search)).code,
+          400,
+          search
+        )
+    })
   )
 })
 

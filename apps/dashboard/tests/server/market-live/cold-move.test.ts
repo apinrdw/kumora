@@ -193,10 +193,31 @@ describe("a sealed day's move to R2", () => {
           false
         )
 
+        const held = yield* day.orderNumbers()
+        assert.deepStrictEqual(
+          (yield* Effect.promise(() => held.json())).rows,
+          [
+            [1, 900, 1001, "A"],
+            [2, 900, 1002, "A"],
+            [3, 901, 1003, "S"],
+          ]
+        )
+
         yield* dueAlarms(day)
         assert.isTrue(yield* day.emptied)
         assert.isTrue(yield* cold)
         assert.deepStrictEqual((yield* statusOf(day)).orderNumbers, counts)
+        // The cold archive keeps no order numbers.
+        const moved = yield* day.orderNumbers()
+        assert.strictEqual(moved.status, 404)
+        assert.strictEqual(
+          moved.headers.get("Cache-Control"),
+          "private, no-store"
+        )
+        assert.strictEqual(
+          (yield* Effect.promise(() => moved.json())).error,
+          "NotAvailable"
+        )
       })
   )
 

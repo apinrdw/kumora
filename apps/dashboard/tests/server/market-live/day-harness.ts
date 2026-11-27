@@ -311,6 +311,11 @@ export const tradingDay = Effect.fnUntraced(function* (
     day.brokerCodes
       .status(new URLSearchParams(search))
       .pipe(Effect.provide(env))
+  // The held order numbers GET's answer, with the GET's query.
+  const orderNumbers = (search = "") =>
+    day.brokerCodes
+      .orderNumbers(new URLSearchParams(search))
+      .pipe(Effect.provide(env))
   // A code's recorded day candles answer, decoded, with its Cache-Control.
   const recordedCandles = Effect.fnUntraced(function* (code: string) {
     const response = yield* recorded({
@@ -406,6 +411,7 @@ export const tradingDay = Effect.fnUntraced(function* (
     left,
     recorded,
     status,
+    orderNumbers,
     recordedCandles,
     recordedSweeps,
     alarm: day.alarm.pipe(Effect.provide(env)),
