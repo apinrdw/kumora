@@ -13,6 +13,16 @@ const search = (page: Page) =>
 const band = (page: Page, name: "5% and above" | "1% to 5%") =>
   page.getByRole("table", { name }).locator("tbody tr")
 
+// The map's chart, named by its focus and how many holders it draws; never
+// its pixels.
+const mapOf = (page: Page, code: string, holders?: number) =>
+  page.getByRole("img", {
+    name:
+      holders === undefined
+        ? new RegExp(`^Holder map of ${code}: `)
+        : `Holder map of ${code}: ${holders} holders. The tables below list each.`,
+  })
+
 // Retried until `then` holds, since input before hydration does nothing.
 async function until(act: () => Promise<void>, then: () => Promise<void>) {
   await expect(async () => {
@@ -113,6 +123,58 @@ test.describe.serial("Holder map", () => {
       await expect(
         page.getByRole("region", { name: "1% to 5%" })
       ).toContainText("2 holders · 4.14% · Oct 2026")
+    })
+
+    test("draws the focus and its holders as a map with a legend", async ({
+      page,
+    }) => {
+      await page.goto(`${HOLDER_MAP}?stock=TRUE&day=2026-11-20`)
+      // One node per holder the side panel lists.
+      const map = mapOf(page, "TRUE", 4)
+      await expect(map).toBeVisible()
+      await expect(
+        page.getByRole("list", { name: "Legend" }).getByRole("listitem")
+      ).toHaveText([
+        /^Stock/,
+        /^Holder/,
+        /^5% and above/,
+        /^1% to 5%/,
+        /^Local/,
+      ])
+      await expect(
+        page.getByRole("button", { name: "Fit to view" })
+      ).toBeEnabled()
+
+      // The keyboard steps through the nodes, and the tooltip names each.
+      await map.focus()
+      await page.keyboard.press("ArrowRight")
+      await expect(page.getByRole("status")).toContainText(
+        /TRUE|AGUNG|PERINTIS|VALTOS|VINCENT/
+      )
+    })
+
+    test("refocuses from the stocks most held and the search, and back and forward restore each focus", async ({
+      page,
+    }) => {
+      await page.goto(HOLDER_MAP)
+      await page
+        .getByRole("list", { name: "Most held stocks" })
+        .getByRole("link")
+        .filter({ hasText: /^FLMC/ })
+        .click()
+      await expect(page).toHaveURL(/\/holder-map\?stock=FLMC$/)
+      await expect(mapOf(page, "FLMC", 13)).toBeVisible()
+
+      await pick(page, "TRUE", page.getByRole("option", { name: /^TRUE/ }))
+      await expect(page).toHaveURL(/\/holder-map\?stock=TRUE$/)
+      await expect(mapOf(page, "TRUE")).toBeVisible()
+
+      await page.goBack()
+      await expect(page).toHaveURL(/\/holder-map\?stock=FLMC$/)
+      await expect(mapOf(page, "FLMC", 13)).toBeVisible()
+      await page.goForward()
+      await expect(page).toHaveURL(/\/holder-map\?stock=TRUE$/)
+      await expect(mapOf(page, "TRUE")).toBeVisible()
     })
 
     test("shows an empty state for a code no report lists", async ({

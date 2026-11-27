@@ -78,6 +78,108 @@ describe("holderMapView", () => {
     })
   )
 
+  it.effect(
+    "draws the focus stock linked to each holder the side panel lists, one node each",
+    () =>
+      Effect.gen(function* () {
+        const view = yield* holderMapView(
+          read([
+            link("1%", "C", 200),
+            link("5%", "A", 900),
+            link("1%", "D", 150),
+          ])
+        )
+        const graph = view.focus?.graph
+        expect(
+          graph?.nodes.map(({ kind, name, band }) => [kind, name, band])
+        ).toEqual([
+          ["stock", "TRUE", undefined],
+          ["holder", "A", "5%"],
+          ["holder", "C", "1%"],
+          ["holder", "D", "1%"],
+        ])
+        expect(
+          graph?.links.map(({ source, target, band }) => [source, target, band])
+        ).toEqual([
+          ["stock:TRUE", "holder:A", "5%"],
+          ["stock:TRUE", "holder:C", "1%"],
+          ["stock:TRUE", "holder:D", "1%"],
+        ])
+      })
+  )
+
+  it.effect("sizes a holder's node and link by its stake", () =>
+    Effect.gen(function* () {
+      const view = yield* holderMapView(
+        read([link("5%", "A", 5283), link("1%", "B", 142)])
+      )
+      const [, big, small] = view.focus?.graph.nodes ?? []
+      const [bigLink, smallLink] = view.focus?.graph.links ?? []
+      expect(big?.radius).toBeGreaterThan(small?.radius ?? Infinity)
+      expect(bigLink?.width).toBeGreaterThan(smallLink?.width ?? Infinity)
+    })
+  )
+
+  it.effect(
+    "marks the focus, labels it and its holders, and refocuses only on a stock",
+    () =>
+      Effect.gen(function* () {
+        const view = yield* holderMapView(read([link("5%", "A", 900)]))
+        const [stock, holder] = view.focus?.graph.nodes ?? []
+        expect(stock).toMatchObject({
+          focus: true,
+          labelled: true,
+          refocus: { stock: "TRUE" },
+        })
+        expect(holder).toMatchObject({
+          focus: false,
+          labelled: true,
+          refocus: undefined,
+        })
+      })
+  )
+
+  it.effect("shortens a long holder name for its label", () =>
+    Effect.gen(function* () {
+      const name =
+        "DJS HARI TUA BADAN PENYELENGGARA JAMINAN SOSIAL KETENAGAKERJAAN"
+      const view = yield* holderMapView(read([link("1%", name, 200)]))
+      const holder = view.focus?.graph.nodes[1]
+      expect(holder?.name).toBe(name)
+      expect(holder?.label).toBe("DJS HARI TUA BADAN PENYELENG…")
+    })
+  )
+
+  it.effect(
+    "names in the legend each node kind, band and origin the map draws",
+    () =>
+      Effect.gen(function* () {
+        const view = yield* holderMapView(
+          read([
+            link("5%", "A", 900),
+            { ...link("1%", "B", 200), origin: "foreign" },
+            { ...link("1%", "C", 150), origin: undefined },
+          ])
+        )
+        expect(view.focus?.legend.map(({ label }) => label)).toEqual([
+          "Stock",
+          "Holder",
+          "5% and above",
+          "1% to 5%",
+          "Local",
+          "Foreign",
+          "Origin unknown",
+        ])
+        const only5 = yield* holderMapView(read([link("5%", "A", 900)]))
+        expect(only5.focus?.legend.map(({ label }) => label)).toEqual([
+          "Stock",
+          "Holder",
+          "5% and above",
+          "Local",
+        ])
+      })
+  )
+
   it.effect("has no focus on the landing view, only the stocks most held", () =>
     Effect.gen(function* () {
       const mostHeld = [
