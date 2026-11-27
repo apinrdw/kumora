@@ -47,7 +47,6 @@ const tradeOf = (trade: HopeTrade): KeptTrade => ({
   board: trade[2] as KeptTrade["board"],
   price: Number(trade[3]),
   lots: Number(trade[4]),
-  side: trade[11] as KeptTrade["side"],
   codes: {
     buyer: BrokerCode.make(String(trade[5])),
     buyerType: trade[6] as "D" | "F",
@@ -105,7 +104,8 @@ const paramOf = (path: string, name: string) =>
   new URL(path, "https://ht2.ajaib.co.id/api/").searchParams.get(name)
 
 // Ajaib's Done Details route: each code's rows, `page_size` at a time, with
-// `has_next` while more follow.
+// `has_next` while more follow by its count. Like Ajaib's, page k starts at
+// offset (k - 1)(page_size + 1), so the row at each page boundary is skipped.
 const fakeAjaib = (
   options: {
     readonly details?: Readonly<Record<string, ReadonlyArray<unknown>>>
@@ -141,7 +141,8 @@ const fakeAjaib = (
         const rows = details[paramOf(request.path, "code") ?? ""] ?? []
         const page = Number(paramOf(request.path, "page"))
         const size = Number(paramOf(request.path, "page_size"))
-        const answered = rows.slice((page - 1) * size, page * size)
+        const start = (page - 1) * (size + 1)
+        const answered = rows.slice(start, start + size)
         return Option.some(
           OK({
             err_code: "EC0000000",
@@ -158,9 +159,8 @@ const fakeAjaib = (
 }
 
 // The browser's kept trades and the walk's place, as the worker keeps them
-// across restarts. The tape walk read every other trade of the day with a
-// stock code, kept or another code's, but those numbered in `unread`.
-const memoryStore = (unread: ReadonlyArray<number> = []) => {
+// across restarts.
+const memoryStore = () => {
   let day = Option.none<WibDate>()
   let trades: Array<TapeTrade> = []
   let position = Option.none<DoneDetailsPosition>()
@@ -197,15 +197,6 @@ const memoryStore = (unread: ReadonlyArray<number> = []) => {
           ? trades.filter((trade) => trade.code === code)
           : []
       ),
-    read: (of, from, to) =>
-      Effect.sync(() =>
-        Option.contains(day, of)
-          ? Number(to) -
-            Number(from) +
-            1 -
-            unread.filter((n) => n >= Number(from) && n <= Number(to)).length
-          : 0
-      ),
     position: (of) =>
       Effect.sync(() => (Option.contains(day, of) ? position : Option.none())),
     rows: (of, code) =>
@@ -221,7 +212,11 @@ const memoryStore = (unread: ReadonlyArray<number> = []) => {
     page: (of, next, fetched) =>
       Effect.sync(() => {
         if (!Option.contains(day, of)) return
-        if (next._tag !== "Walking" || next.page === 1) rows = []
+        if (
+          next._tag !== "Walking" ||
+          (next.pass === "first" && next.page === 1)
+        )
+          rows = []
         if (next._tag === "Posted") trades = []
         rows = [...rows, ...fetched]
         position = Option.some(next)
@@ -254,12 +249,9 @@ const memoryStore = (unread: ReadonlyArray<number> = []) => {
   return { store, position: () => position }
 }
 
-const keptStore = (
-  trades: ReadonlyArray<TapeTrade> = HOPE_TRADES,
-  unread: ReadonlyArray<number> = []
-) =>
+const keptStore = (trades: ReadonlyArray<TapeTrade> = HOPE_TRADES) =>
   Effect.gen(function* () {
-    const memory = memoryStore(unread)
+    const memory = memoryStore()
     yield* memory.store.keep(DAY, trades)
     return memory
   })
@@ -311,15 +303,13 @@ const MARKET_TRADES = Array.from({ length: 20_000 }, (_, at): KeptTrade => {
     second: clock,
     price: 1_000 + (n % MARKET_CODES.length),
     lots: 1 + (n % 7),
-    side: n % 2 === 0 ? "buy" : "sell",
   }
 })
 const marketDetails = () => {
   const details: Record<string, Array<unknown>> = {}
   for (const trade of MARKET_TRADES) {
     const n = Number(trade.number)
-    const [buy, sell] =
-      trade.side === "buy" ? [2 * n + 1, 2 * n] : [2 * n, 2 * n + 1]
+    const [buy, sell] = n % 2 === 0 ? [2 * n + 1, 2 * n] : [2 * n, 2 * n + 1]
     const id = (order: number) => `20261120${String(order).padStart(10, "0")}`
     details[trade.code] = [
       ...(details[trade.code] ?? []),
@@ -349,14 +339,13 @@ const marketDetails = () => {
 }
 
 // BBCA's trades at 10:23:18 tied on one key (board, price, lots and
-// brokers), each numbered and sided, and their Done Details rows by buy and
-// sell order.
-const tied = (number: string, side: KeptTrade["side"]): KeptTrade => ({
+// brokers), each numbered, and their Done Details rows by buy and sell
+// order.
+const tied = (number: string): KeptTrade => ({
   ...HOPE_TRADES[1]!,
   number: TradeNumber.make(number),
   code: StockCode.make("BBCA"),
   second: "10:23:18",
-  side,
 })
 const tiedDetail = (
   buy: number,
@@ -383,15 +372,13 @@ const tiedDetail = (
   qty: HOPE_TRADES[1]!.lots,
 })
 // The order numbers the walk posts for kept `trades` from BBCA's `rows`, by
-// trade number. The tape walk read every other trade of the day but those
-// numbered in `unread`.
+// trade number.
 const tiedOrders = Effect.fnUntraced(function* (
   trades: ReadonlyArray<TapeTrade>,
-  rows: ReadonlyArray<unknown>,
-  unread: ReadonlyArray<number> = []
+  rows: ReadonlyArray<unknown>
 ) {
   yield* evening
-  const { store } = yield* keptStore(trades, unread)
+  const { store } = yield* keptStore(trades)
   const production = fakeProduction()
   const walk = yield* walkWith(
     fakeAjaib({ details: { BBCA: rows } }),
@@ -404,7 +391,7 @@ const tiedOrders = Effect.fnUntraced(function* (
 
 describe("the Done Details walk", () => {
   it.effect(
-    "gives 1,230 of HOPE's 1,312 trades Ajaib's order numbers, each as Stockbit reads it",
+    "gives 1,311 of HOPE's 1,312 trades Ajaib's order numbers, each as Stockbit reads it",
     () =>
       Effect.gen(function* () {
         yield* evening
@@ -414,35 +401,17 @@ describe("the Done Details walk", () => {
         const walk = yield* walkWith(tab, store, production)
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
         const orders = production.orders()
-        assert.strictEqual(orders.size, 1_230)
+        assert.strictEqual(orders.size, 1_311)
         for (const [number, posted] of orders)
           assert.deepStrictEqual(posted, STOCKBIT.get(number)?.orders)
-        // The one RG trade Ajaib's route doesn't list, and 81 trades tied on
-        // their second, board, price, lots, codes and side with another that
-        // a trade of HOPE falls between.
-        const tieOf = (trade: KeptTrade) =>
-          JSON.stringify([
-            trade.second,
-            trade.board,
-            trade.price,
-            trade.lots,
-            trade.codes,
-            trade.side,
-          ])
-        const ties = new Map<string, number>()
-        for (const trade of HOPE_TRADES)
-          ties.set(tieOf(trade), (ties.get(tieOf(trade)) ?? 0) + 1)
-        const unmatched = HOPE_TRADES.filter(
-          (trade) => !orders.has(trade.number)
-        )
+        // The one RG trade Ajaib's route doesn't list.
         assert.deepStrictEqual(
-          unmatched
-            .filter((trade) => ties.get(tieOf(trade)) === 1)
-            .map((trade) => trade.second),
+          HOPE_TRADES.filter((trade) => !orders.has(trade.number)).map(
+            (trade) => trade.second
+          ),
           ["09:47:59"]
         )
-        assert.lengthOf(unmatched, 82)
-        // Two pages of 1,000 for HOPE.
+        // Two pages of 1,000 for HOPE, then two of 999.
         assert.deepStrictEqual(
           tab.paths.map((path) => [
             path.split("?")[0],
@@ -454,6 +423,8 @@ describe("the Done Details walk", () => {
           [
             [DETAILS_PATH, "HOPE", DAY, "1", "1000"],
             [DETAILS_PATH, "HOPE", DAY, "2", "1000"],
+            [DETAILS_PATH, "HOPE", DAY, "1", "999"],
+            [DETAILS_PATH, "HOPE", DAY, "2", "999"],
           ]
         )
       })
@@ -503,30 +474,18 @@ describe("the Done Details walk", () => {
     })
   )
 
+  // Ajaib answers a code's rows newest first: its first row is trade 2's,
+  // though its order numbers are the smaller.
   it.effect(
-    "gives tied trades on opposite sides the orders whose larger number is their aggressor's, whatever Ajaib's order",
-    () =>
-      Effect.gen(function* () {
-        // The sell's row first: buy order 102 hit by sell order 105.
-        const orders = yield* tiedOrders(
-          [tied("1", "buy"), tied("2", "sell")],
-          [tiedDetail(102, 105), tiedDetail(100, 90)]
-        )
-        assert.deepStrictEqual(orders.get("1"), orderPair(100, 90))
-        assert.deepStrictEqual(orders.get("2"), orderPair(102, 105))
-      })
-  )
-
-  it.effect(
-    "gives one side's tied trades with no other trade of the code between them its rows in order of their aggressor orders",
+    "gives tied trades its rows in Ajaib's order, the first row the highest trade number, whatever their order numbers",
     () =>
       Effect.gen(function* () {
         const orders = yield* tiedOrders(
-          [tied("1", "buy"), tied("2", "buy")],
-          [tiedDetail(102, 50), tiedDetail(100, 50)]
+          [tied("1"), tied("2")],
+          [tiedDetail(100, 50), tiedDetail(102, 50)]
         )
-        assert.deepStrictEqual(orders.get("1"), orderPair(100, 50))
-        assert.deepStrictEqual(orders.get("2"), orderPair(102, 50))
+        assert.deepStrictEqual(orders.get("2"), orderPair(100, 50))
+        assert.deepStrictEqual(orders.get("1"), orderPair(102, 50))
       })
   )
 
@@ -536,8 +495,8 @@ describe("the Done Details walk", () => {
     "pairs a trade only with a row whose investor types are its own",
     () =>
       Effect.gen(function* () {
-        const foreign = tied("1", "buy")
-        const domestic = tied("2", "buy")
+        const foreign = tied("1")
+        const domestic = tied("2")
         const orders = yield* tiedOrders(
           [
             { ...foreign, codes: { ...foreign.codes, buyerType: "F" } },
@@ -558,7 +517,7 @@ describe("the Done Details walk", () => {
       Effect.gen(function* () {
         const unread = tiedDetail(100, 50)
         const orders = yield* tiedOrders(
-          [tied("1", "buy"), tied("2", "buy")],
+          [tied("1"), tied("2")],
           [
             {
               ...unread,
@@ -572,19 +531,14 @@ describe("the Done Details walk", () => {
       })
   )
 
-  // Trades 1 and 2 are one whole sweep, 4 another: their rows can't be told
-  // apart by key, so none of them is given one.
+  // Trades 1, 2 and 4 were buys and 3 a sell on the tape; the key has no
+  // side, so Ajaib's row order alone places them.
   it.effect(
-    "leaves one side's tied trades unmatched when another trade of the code falls between them",
+    "gives tied trades with other trades of the code between them its rows in Ajaib's order",
     () =>
       Effect.gen(function* () {
         const orders = yield* tiedOrders(
-          [
-            tied("1", "buy"),
-            tied("2", "buy"),
-            tied("3", "sell"),
-            tied("4", "buy"),
-          ],
+          [tied("1"), tied("2"), tied("3"), tied("4")],
           [
             tiedDetail(900, 50),
             tiedDetail(101, 905),
@@ -592,58 +546,166 @@ describe("the Done Details walk", () => {
             tiedDetail(100, 50),
           ]
         )
-        assert.deepStrictEqual([...orders.keys()], ["3"])
+        assert.deepStrictEqual(orders.get("4"), orderPair(900, 50))
         assert.deepStrictEqual(orders.get("3"), orderPair(101, 905))
-      })
-  )
-
-  // Trade 2, a sell between buys 1 and 3, came without valid fields, so
-  // the tape walk kept it unkeyed: 1 and 3 may be two whole sweeps.
-  it.effect(
-    "leaves tied trades unmatched when a trade of the code the tape walk read without its fields falls between them",
-    () =>
-      Effect.gen(function* () {
-        const orders = yield* tiedOrders(
-          [
-            tied("1", "buy"),
-            {
-              _tag: "Unkeyed",
-              number: TradeNumber.make("2"),
-              code: StockCode.make("BBCA"),
-            },
-            tied("3", "buy"),
-          ],
-          [tiedDetail(900, 50), tiedDetail(101, 905), tiedDetail(100, 50)]
-        )
-        assert.strictEqual(orders.size, 0)
-      })
-  )
-
-  // Trade 2's row on the tape had no stock code: it may be BBCA's.
-  it.effect(
-    "leaves tied trades unmatched when a trade the tape walk couldn't read falls between them",
-    () =>
-      Effect.gen(function* () {
-        const orders = yield* tiedOrders(
-          [tied("1", "buy"), tied("3", "buy")],
-          [tiedDetail(900, 50), tiedDetail(101, 905), tiedDetail(100, 50)],
-          [2]
-        )
-        assert.strictEqual(orders.size, 0)
-      })
-  )
-
-  it.effect(
-    "still gives tied trades their rows when the trade the tape walk couldn't read lies after them",
-    () =>
-      Effect.gen(function* () {
-        const orders = yield* tiedOrders(
-          [tied("1", "buy"), tied("2", "buy")],
-          [tiedDetail(101, 905), tiedDetail(102, 50), tiedDetail(100, 50)],
-          [3]
-        )
-        assert.deepStrictEqual(orders.get("1"), orderPair(100, 50))
         assert.deepStrictEqual(orders.get("2"), orderPair(102, 50))
+        assert.deepStrictEqual(orders.get("1"), orderPair(100, 50))
+      })
+  )
+
+  // An auction trade has no aggressor: whichever order number is the
+  // larger, its HH:mm row places it.
+  it.effect("places auction trades whatever their order numbers", () =>
+    Effect.gen(function* () {
+      const auction = (number: string) => ({
+        ...tied(number),
+        second: "16:00:00",
+      })
+      const orders = yield* tiedOrders(
+        [auction("1"), auction("2")],
+        [
+          { ...tiedDetail(300, 50), time: "16:00" },
+          { ...tiedDetail(40, 300), time: "16:00" },
+        ]
+      )
+      assert.deepStrictEqual(orders.get("2"), orderPair(300, 50))
+      assert.deepStrictEqual(orders.get("1"), orderPair(40, 300))
+    })
+  )
+
+  it.effect(
+    "leaves a key's oldest rows unpaired when it has more rows than trades",
+    () =>
+      Effect.gen(function* () {
+        const orders = yield* tiedOrders(
+          [tied("1"), tied("2")],
+          [tiedDetail(102, 50), tiedDetail(101, 50), tiedDetail(100, 50)]
+        )
+        assert.deepStrictEqual(orders.get("2"), orderPair(102, 50))
+        assert.deepStrictEqual(orders.get("1"), orderPair(101, 50))
+        assert.strictEqual(orders.size, 2)
+      })
+  )
+
+  it.effect(
+    "leaves a key's lowest-numbered trades unplaced when it has more trades than rows",
+    () =>
+      Effect.gen(function* () {
+        const orders = yield* tiedOrders(
+          [tied("1"), tied("2"), tied("3")],
+          [tiedDetail(102, 50), tiedDetail(101, 50)]
+        )
+        assert.deepStrictEqual(orders.get("3"), orderPair(102, 50))
+        assert.deepStrictEqual(orders.get("2"), orderPair(101, 50))
+        assert.isFalse(orders.has("1"))
+      })
+  )
+
+  // Ajaib lists trade 2's row twice, then trade 1's.
+  it.effect("counts rows alike in every field and both orders once", () =>
+    Effect.gen(function* () {
+      const orders = yield* tiedOrders(
+        [tied("1"), tied("2")],
+        [tiedDetail(102, 50), tiedDetail(102, 50), tiedDetail(101, 50)]
+      )
+      assert.deepStrictEqual(orders.get("2"), orderPair(102, 50))
+      assert.deepStrictEqual(orders.get("1"), orderPair(101, 50))
+    })
+  )
+
+  // 999 rows of 11:00:00 come first, newest first, then the three tied
+  // trades' rows at offsets 999 to 1,001: the first pass, at 1,000 a page,
+  // skips the middle one, at offset 1,000, and the second, at 999, the first.
+  it.effect(
+    "gives a tie straddling a page boundary its rows in Ajaib's order, the row the boundary skipped included",
+    () =>
+      Effect.gen(function* () {
+        const earlier = Array.from({ length: 999 }, (_, at) => ({
+          ...tiedDetail(1_000 + at, 50),
+          time: "11:00:00",
+        }))
+        const orders = yield* tiedOrders(
+          [tied("1"), tied("2"), tied("3")],
+          [
+            ...earlier,
+            tiedDetail(300, 50),
+            tiedDetail(200, 50),
+            tiedDetail(100, 50),
+          ]
+        )
+        assert.deepStrictEqual(orders.get("3"), orderPair(300, 50))
+        assert.deepStrictEqual(orders.get("2"), orderPair(200, 50))
+        assert.deepStrictEqual(orders.get("1"), orderPair(100, 50))
+      })
+  )
+
+  // The three tied trades' rows come first, then 999 rows of 11:00:00: two
+  // pages at 1,000. The first pass can't read trade 2's row on its first
+  // page; the second pass reads it.
+  it.effect(
+    "pairs a row the first pass couldn't read with the copy the second pass read",
+    () =>
+      Effect.gen(function* () {
+        yield* evening
+        const rows = [
+          tiedDetail(300, 50),
+          tiedDetail(200, 50),
+          tiedDetail(100, 50),
+          ...Array.from({ length: 999 }, (_, at) => ({
+            ...tiedDetail(1_000 + at, 50),
+            time: "11:00:00",
+          })),
+        ]
+        const { store } = yield* keptStore([tied("1"), tied("2"), tied("3")])
+        const production = fakeProduction()
+        const tab = fakeAjaib({
+          details: { BBCA: rows },
+          answer: (call) =>
+            call === 1
+              ? Option.some(
+                  OK({
+                    err_code: "EC0000000",
+                    result: {
+                      has_next: true,
+                      transactions: rows
+                        .slice(0, 1_000)
+                        .map((row, at) => (at === 1 ? {} : row)),
+                    },
+                  })
+                )
+              : undefined,
+        })
+        const walk = yield* walkWith(tab, store, production)
+        yield* walk.walk(DAY)
+        const orders = production.orders()
+        assert.deepStrictEqual(orders.get("3"), orderPair(300, 50))
+        assert.deepStrictEqual(orders.get("2"), orderPair(200, 50))
+        assert.deepStrictEqual(orders.get("1"), orderPair(100, 50))
+      })
+  )
+
+  // An NG trade of a fractional lot reads 1 lot on the tape and 0 in Done
+  // Details. Trade 2, of 1 lot on both, takes the 1-lot row first.
+  it.effect(
+    "pairs the rows and trades the first round of pairing left without their lots",
+    () =>
+      Effect.gen(function* () {
+        const negotiated = (number: string): KeptTrade => ({
+          ...tied(number),
+          board: "NG",
+          lots: 1,
+        })
+        const row = (buy: number, qty: number) => ({
+          ...tiedDetail(buy, 50),
+          board: "NG",
+          qty,
+        })
+        const orders = yield* tiedOrders(
+          [negotiated("1"), negotiated("2")],
+          [row(102, 0), row(101, 1)]
+        )
+        assert.deepStrictEqual(orders.get("2"), orderPair(101, 50))
+        assert.deepStrictEqual(orders.get("1"), orderPair(102, 50))
       })
   )
 
@@ -719,34 +781,6 @@ describe("the Done Details walk", () => {
       })
   )
 
-  it.effect("assigns nothing to a key whose row and trade counts differ", () =>
-    Effect.gen(function* () {
-      yield* evening
-      // 15:48:34's XL from YP at 170 for 213 lots is one trade; Ajaib lists
-      // it twice.
-      const at = HOPE_DETAILS.findIndex(
-        (row) => row.time === "15:48:34" && row.qty === 213
-      )
-      assert.isAtLeast(at, 0)
-      const twice = [...HOPE_DETAILS, HOPE_DETAILS[at]]
-      const { store } = yield* keptStore()
-      const production = fakeProduction()
-      const walk = yield* walkWith(
-        fakeAjaib({ details: { HOPE: twice } }),
-        store,
-        production
-      )
-      yield* walk.walk(DAY)
-      const orders = production.orders()
-      assert.strictEqual(orders.size, 1_229)
-      const doubled = HOPE_TRADES.filter(
-        (trade) => trade.second === "15:48:34" && trade.lots === 213
-      )
-      assert.lengthOf(doubled, 1)
-      assert.isFalse(orders.has(doubled[0]!.number))
-    })
-  )
-
   it.effect(
     "walks every kept code, says how many it has done, then forgets the kept trades",
     () =>
@@ -772,7 +806,7 @@ describe("the Done Details walk", () => {
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
         assert.deepStrictEqual(
           tab.paths.map((path) => paramOf(path, "code")),
-          ["BBCA", "HOPE", "HOPE"]
+          ["BBCA", "HOPE", "HOPE", "HOPE", "HOPE"]
         )
         assert.deepStrictEqual(done, [
           [0, 2],
@@ -818,10 +852,12 @@ describe("the Done Details walk", () => {
           Option.some({
             _tag: "Walking",
             code: StockCode.make("HOPE"),
+            pass: "first",
             page: 2,
           })
         )
-        // A restarted worker's walk asks HOPE's second page first.
+        // A restarted worker's walk asks HOPE's second page first, then
+        // walks it at 999.
         const production = fakeProduction()
         const second = fakeAjaib()
         const secondWalk = yield* walkWith(second, memory.store, production)
@@ -829,10 +865,59 @@ describe("the Done Details walk", () => {
           _tag: "walked",
         })
         assert.deepStrictEqual(
-          second.paths.map((path) => paramOf(path, "page")),
-          ["2"]
+          second.paths.map((path) => [
+            paramOf(path, "page"),
+            paramOf(path, "page_size"),
+          ]),
+          [
+            ["2", "1000"],
+            ["1", "999"],
+            ["2", "999"],
+          ]
         )
-        assert.strictEqual(production.orders().size, 1_230)
+        assert.strictEqual(production.orders().size, 1_311)
+      })
+  )
+
+  it.effect(
+    "resumes its second pass at its stored page after a restart, with both passes' rows",
+    () =>
+      Effect.gen(function* () {
+        yield* evening
+        const memory = yield* keptStore()
+        // The first worker's tab stops answering after HOPE's first page at
+        // 999.
+        const first = fakeAjaib({
+          answer: (call) => (call >= 4 ? Option.none() : undefined),
+        })
+        const firstWalk = yield* walkWith(first, memory.store)
+        const fiber = yield* Effect.forkChild(firstWalk.walk(DAY))
+        for (let turn = 0; turn < 100 && first.paths.length < 4; turn++)
+          yield* Effect.yieldNow
+        yield* Fiber.interrupt(fiber)
+        assert.deepStrictEqual(
+          memory.position(),
+          Option.some({
+            _tag: "Walking",
+            code: StockCode.make("HOPE"),
+            pass: "second",
+            page: 2,
+          })
+        )
+        const production = fakeProduction()
+        const second = fakeAjaib()
+        const secondWalk = yield* walkWith(second, memory.store, production)
+        assert.deepStrictEqual(yield* secondWalk.walk(DAY), {
+          _tag: "walked",
+        })
+        assert.deepStrictEqual(
+          second.paths.map((path) => [
+            paramOf(path, "page"),
+            paramOf(path, "page_size"),
+          ]),
+          [["2", "999"]]
+        )
+        assert.strictEqual(production.orders().size, 1_311)
       })
   )
 
@@ -869,9 +954,9 @@ describe("the Done Details walk", () => {
       assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
       assert.deepStrictEqual(
         tab.paths.map((path) => paramOf(path, "page")),
-        ["1", "1", "2"]
+        ["1", "1", "2", "1", "2"]
       )
-      assert.strictEqual(production.orders().size, 1_230)
+      assert.strictEqual(production.orders().size, 1_311)
       assert.isAtLeast(yield* Clock.currentTimeMillis, wib("17:30:10"))
     })
   )
@@ -900,7 +985,7 @@ describe("the Done Details walk's walk token", () => {
         })
         const walk = yield* walkWith(tab, store, fakeProduction())
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
-        assert.deepStrictEqual(tab.bearers, [first, second])
+        assert.deepStrictEqual(tab.bearers, [first, second, second, second])
       })
   )
 
@@ -911,7 +996,7 @@ describe("the Done Details walk's walk token", () => {
       const tab = fakeAjaib({ cookie: () => "" })
       const walk = yield* walkWith(tab, store, fakeProduction())
       assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
-      assert.deepStrictEqual(tab.bearers, ["token", "token"])
+      assert.deepStrictEqual(tab.bearers, ["token", "token", "token", "token"])
     })
   )
 
@@ -930,8 +1015,14 @@ describe("the Done Details walk's walk token", () => {
       })
       const walk = yield* walkWith(tab, store, production)
       assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
-      assert.deepStrictEqual(tab.bearers, [cookie, "token", "token"])
-      assert.strictEqual(production.orders().size, 1_230)
+      assert.deepStrictEqual(tab.bearers, [
+        cookie,
+        "token",
+        "token",
+        "token",
+        "token",
+      ])
+      assert.strictEqual(production.orders().size, 1_311)
     })
   )
 
@@ -963,8 +1054,10 @@ describe("the Done Details walk's walk token", () => {
           cookie,
           cookie,
           "token",
+          "token",
+          "token",
         ])
-        assert.strictEqual(production.orders().size, 1_230)
+        assert.strictEqual(production.orders().size, 1_311)
       })
   )
 
@@ -1017,7 +1110,7 @@ describe("the Done Details walk's walk token", () => {
   )
 
   it.effect(
-    "keeps a stall record of each stall, with its code and page, from its first failure to the call that answered",
+    "keeps a stall record of each stall, with its code, pass and page, from its first failure to the call that answered",
     () =>
       Effect.gen(function* () {
         yield* evening
@@ -1052,6 +1145,7 @@ describe("the Done Details walk's walk token", () => {
           walk: "done-details",
           day: DAY,
           code: StockCode.make("HOPE"),
+          pass: "first",
           kind: "no-answer",
           tokenChanged: false,
           reloads: 0,
@@ -1086,5 +1180,36 @@ describe("the Done Details walk's walk token", () => {
         })
         assert.notInclude(JSON.stringify(writes), cookie)
       })
+  )
+
+  // HOPE's first page at 999, its third call, gets no answer once.
+  it.effect("names the second pass in the record of a stall of that pass", () =>
+    Effect.gen(function* () {
+      yield* evening
+      const { store } = yield* keptStore()
+      const tab = fakeAjaib({
+        answer: (call) => (call === 3 ? Option.none() : undefined),
+      })
+      const writes: Array<StallRecord> = []
+      const walk = yield* makeDoneDetailsWalk({
+        tab,
+        post: fakeProduction().post,
+        store,
+        stalls: (record) =>
+          Effect.sync(() => {
+            writes.push(record)
+          }),
+      })
+      const fiber = yield* Effect.forkChild(walk.walk(DAY))
+      yield* TestClock.adjust("0 millis")
+      yield* TestClock.adjust("10 seconds")
+      assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+      assert.deepStrictEqual(
+        writes
+          .reduce(withStallRecord, [])
+          .map(({ code, pass, page }) => ({ code, pass, page })),
+        [{ code: StockCode.make("HOPE"), pass: "second", page: 1 }]
+      )
+    })
   )
 })

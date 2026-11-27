@@ -93,7 +93,7 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
   })
 
   // Where the walk is: its day, and the tape's pass and page or the Done
-  // Details code and page. A tape page also shows in the fetching phase.
+  // Details code, pass and page. A tape page also shows in the fetching phase.
   let place = Option.none<StallPlace>()
   const locate = (where: StallPlace) =>
     Effect.suspend(() => {
