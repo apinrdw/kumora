@@ -40,7 +40,7 @@ Source: [Configuration](https://developers.cloudflare.com/workers/ci-cd/builds/c
 Source: [Build image](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/) (last updated Oct 29, 2026).
 
 - The image is Ubuntu 24.04 on x86_64. It ships **Bun 1.4.4**, Node 24.22.1 (Node 22.23.4 is also installed), and pnpm 9.10.0.
-- You can pin versions with the `BUN_VERSION`, `NODE_VERSION` and `PNPM_VERSION` build variables. pnpm and Bun can also be pinned with the `packageManager` field in `package.json`. Workers Builds runs pnpm through Corepack. A top-level `packageManager` field wins over `PNPM_VERSION`. This repo's root `package.json` sets `"packageManager": "pnpm@11.25.0"`, so the install runs pnpm 11.25.0.
+- You can pin versions with the `BUN_VERSION`, `NODE_VERSION` and `PNPM_VERSION` build variables. pnpm and Bun can also be pinned with the `packageManager` field in `package.json`. Workers Builds runs pnpm through Corepack. A top-level `packageManager` field wins over `PNPM_VERSION`. This repo's root `package.json` sets `"packageManager": "pnpm@12.23.0"`, so the install runs pnpm 12.23.0.
 - Dependencies install automatically, and the lockfile picks the package manager. So `pnpm install` runs first, and then `bun alchemy …` runs the CLI from `node_modules`. This fits the map's rule that Bun runs the deploy tool while the workspace stays on pnpm.
 - Bun does not follow semver, so Cloudflare promises 3 months' notice before a Bun update that may break builds. Pin `BUN_VERSION` to avoid surprises.
 
