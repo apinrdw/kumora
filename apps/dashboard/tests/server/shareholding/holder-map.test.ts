@@ -7,11 +7,13 @@ import { assert, describe, it } from "@effect/vitest"
 import { StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
+import { HolderKey } from "@/domain/holdings"
 import { holderMapView } from "@/lib/holder-map"
+import { holderKey } from "@/server/holdings/holder-key"
 import {
   type HolderMapLink,
   holderMapRead,
-  holderMapStocks,
+  holderMapSearchList,
 } from "@/server/holdings/holder-map"
 import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 
@@ -87,8 +89,11 @@ describe("Holder map, stock focus", () => {
         assert.strictEqual(map.day, "2026-11-20")
         assert.strictEqual(map.month, "2026-10-30")
         assert.isDefined(map.focus)
-        assert.strictEqual(map.focus?.code, "TRUE")
-        assert.strictEqual(map.focus?.issuerName, "TRINITI DINAMIK Tbk, PT")
+        assert.deepInclude(map.focus, {
+          kind: "stock",
+          code: StockCode.make("TRUE"),
+          issuerName: "TRINITI DINAMIK Tbk, PT",
+        })
         const [above5, above1] = map.focus?.bands ?? []
         // Its above-5% holders that day, their KSEI type from their ≥1%
         // rows of the month.
@@ -172,8 +177,11 @@ describe("Holder map, stock focus", () => {
   it.effect("finds no holder of a code no report lists", () =>
     Effect.gen(function* () {
       const map = yield* mapOf(yield* parsed, "ZZZZ")
-      assert.strictEqual(map.focus?.code, "ZZZZ")
-      assert.isUndefined(map.focus?.issuerName)
+      assert.deepInclude(map.focus, {
+        kind: "stock",
+        code: StockCode.make("ZZZZ"),
+        issuerName: undefined,
+      })
       assert.isTrue(
         map.focus?.bands.every(({ holders }) => holders.length === 0)
       )
@@ -373,6 +381,175 @@ describe("Holder map, Off list", () => {
   )
 })
 
+// The read of a holder focus, by the key of `name`.
+const holderReadOf = Effect.fnUntraced(function* (
+  w: World,
+  name: string,
+  day?: string
+) {
+  return yield* holderMapRead({
+    focus: { kind: "holder", key: HolderKey.make(yield* holderKey(name)) },
+    day: day === undefined ? undefined : WibDate.make(day),
+  }).pipe(Effect.provide(w.holdings.layer))
+})
+
+const stockReadOf = (w: World, code: string) =>
+  holderMapRead({
+    focus: { kind: "stock", code: StockCode.make(code) },
+    day: undefined,
+  }).pipe(Effect.provide(w.holdings.layer))
+
+// Links as a reader sees them: stock, band, name, %.
+const linksOf = (links: ReadonlyArray<HolderMapLink>) =>
+  links.map(({ code, band, name, percentageHundredths }) => [
+    code,
+    band,
+    name,
+    percentageHundredths,
+  ])
+
+const BPJS = "DJS KETENAGAKERJAAN PROGRAM JAMINAN HARI TUA"
+
+describe("Holder map, second hop", () => {
+  it.effect("links each holder of a focus stock to its other stocks", () =>
+    Effect.gen(function* () {
+      const w = yield* parsed
+      // BPJS holds BSDE and TLKM in Oct's report.
+      assert.deepStrictEqual(linksOf((yield* stockReadOf(w, "BSDE")).hops), [
+        ["TLKM", "1%", BPJS, 240],
+      ])
+      // Maybank is above 5% of ASRI and ENRG on 20 Nov, and up in ENRG
+      // since the day before.
+      const asri = yield* stockReadOf(w, "ASRI")
+      assert.deepStrictEqual(
+        asri.hops.map(({ code, band, name, move }) => [
+          code,
+          band,
+          name,
+          move?.kind,
+        ]),
+        [["ENRG", "5%", "MAYBANK SEKURITAS INDONESIA", "up"]]
+      )
+      assert.deepStrictEqual(
+        asri.issuers.map(({ code }) => code),
+        ["ASRI", "ENRG"]
+      )
+    })
+  )
+
+  it.effect("draws no second hop for holders of no other stock", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        (yield* stockReadOf(yield* parsed, "TRUE")).hops,
+        []
+      )
+    })
+  )
+})
+
+describe("Holder map, holder focus", () => {
+  it.effect("links a holder to its stocks and their other holders", () =>
+    Effect.gen(function* () {
+      const read = yield* holderReadOf(yield* parsed, BPJS)
+      assert.deepStrictEqual(read.focus, {
+        kind: "holder",
+        key: "DJS HARI JAMINAN KETENAGAKERJAAN PROGRAM TUA",
+        name: BPJS,
+      })
+      assert.deepStrictEqual(linksOf(read.links), [
+        ["BSDE", "1%", BPJS, 270],
+        ["TLKM", "1%", BPJS, 240],
+      ])
+      // BSDE's six other ≥1% holders and TLKM's four, each with its move.
+      assert.deepStrictEqual(
+        read.hops.map(({ code, name, move }) => [code, name, move?.kind]),
+        [
+          ["BSDE", "METROPOLITAN TRANSCITIES INDONESIA, PT", undefined],
+          ["BSDE", "PT EKACENTRA USAHAMAJU", undefined],
+          ["BSDE", "PT PARAGA ARTAMIDA", undefined],
+          ["BSDE", "PT. BUMI SERPONG DAMAI Tbk", undefined],
+          ["BSDE", "PT. SIMAS TUNGGAL CENTER", undefined],
+          ["BSDE", "TASPEN", undefined],
+          ["TLKM", "DANANTARA ASSET MANAGEMENT", "new"],
+          ["TLKM", "THE BANK OF NEW YORK MELLON", "up"],
+          ["TLKM", "THE PRUDENTIAL ASSURANCE COMPANY LIMITED", "up"],
+          ["TLKM", "EMPLOYEES PROVIDENT FUND BOARD", "down"],
+        ]
+      )
+      assert.deepStrictEqual(
+        read.issuers.map(({ code, issuerName }) => [code, issuerName]),
+        [
+          ["BSDE", "BUMI SERPONG DAMAI Tbk"],
+          ["TLKM", "TELKOM INDONESIA (PERSERO) Tbk"],
+        ]
+      )
+      assert.deepStrictEqual(read.offList, [])
+    })
+  )
+
+  it.effect(
+    "shows a holder in both reports of one stock once, in the 5% band, beside its 1% holding of another",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        // Agung, above 5% of TRUE on 20 Nov and in TRUE's Oct report too,
+        // also holds 2.00% of TLKM in Oct.
+        w.holdings.database
+          .prepare(
+            `INSERT INTO above_1_holding VALUES ('2026-10-30', 'TLKM', 999,
+              'TELKOM INDONESIA (PERSERO) Tbk', 'AGUNG PERKASA INVESTINDO, PT',
+              ?, NULL, 'CP', 'local', NULL, NULL, NULL, 2000000, 0, 2000000,
+              200)`
+          )
+          .run(yield* holderKey("PT AGUNG PERKASA INVESTINDO"))
+        const agung = yield* holderReadOf(w, "PT AGUNG PERKASA INVESTINDO")
+        assert.sameDeepMembers(linksOf(agung.links), [
+          ["TRUE", "5%", "PT AGUNG PERKASA INVESTINDO", 5283],
+          ["TLKM", "1%", "AGUNG PERKASA INVESTINDO, PT", 200],
+        ])
+        // TRUE's focus reaches TLKM through Agung.
+        assert.deepStrictEqual(linksOf((yield* stockReadOf(w, "TRUE")).hops), [
+          ["TLKM", "1%", "AGUNG PERKASA INVESTINDO, PT", 200],
+        ])
+      })
+  )
+
+  it.effect("lists the stocks a holder left as its Off list", () =>
+    Effect.gen(function* () {
+      // Djoni left TRUE's ≥1% list in Aug and holds nothing since.
+      const read = yield* holderReadOf(yield* parsed, "DJONI")
+      assert.deepStrictEqual(read.focus, {
+        kind: "holder",
+        key: "DJONI",
+        name: "DJONI",
+      })
+      assert.deepStrictEqual(read.links, [])
+      assert.deepStrictEqual(
+        read.offList.map(({ code, band, since }) => [code, band, since]),
+        [["TRUE", "1%", "2026-08-31"]]
+      )
+      assert.deepStrictEqual(
+        read.issuers.map(({ code }) => code),
+        ["TRUE"]
+      )
+    })
+  )
+
+  it.effect("finds nothing for a key no report lists", () =>
+    Effect.gen(function* () {
+      const read = yield* holderReadOf(yield* parsed, "NOBODY AT ALL")
+      assert.strictEqual(read.focus?.kind, "holder")
+      assert.isUndefined(
+        read.focus?.kind === "holder" ? read.focus.name : "a stock"
+      )
+      assert.deepStrictEqual(
+        [read.links, read.hops, read.offList],
+        [[], [], []]
+      )
+    })
+  )
+})
+
 describe("Holder map, no focus", () => {
   it.effect("lists the stocks with the most ≥1% holders", () =>
     Effect.gen(function* () {
@@ -398,7 +575,7 @@ describe("Holder map, no focus", () => {
     () =>
       Effect.gen(function* () {
         const w = yield* parsed
-        const stocks = yield* holderMapStocks.pipe(
+        const { stocks } = yield* holderMapSearchList.pipe(
           Effect.provide(w.holdings.layer)
         )
         assert.deepStrictEqual(
@@ -422,6 +599,29 @@ describe("Holder map, no focus", () => {
           stocks.find(({ code }) => code === "TRUE")?.issuerName,
           "TRINITI DINAMIK Tbk, PT"
         )
+      })
+  )
+
+  it.effect(
+    "searches every holder of the newest day's and month's reports, once a key",
+    () =>
+      Effect.gen(function* () {
+        const { holders } = yield* holderMapSearchList.pipe(
+          Effect.provide((yield* parsed).holdings.layer)
+        )
+        const keys = holders.map(({ key }) => key)
+        assert.strictEqual(new Set(keys).size, keys.length)
+        assert.deepInclude(holders, {
+          key: "DJS HARI JAMINAN KETENAGAKERJAAN PROGRAM TUA",
+          name: BPJS,
+        })
+        // Agung, in both of TRUE's reports, is one holder.
+        assert.lengthOf(
+          holders.filter(({ name }) => name.includes("AGUNG PERKASA")),
+          1
+        )
+        // Djoni left every list before Oct.
+        assert.notInclude(keys, "DJONI")
       })
   )
 })
@@ -449,7 +649,7 @@ describe("Holder map, as-of day", () => {
       assert.strictEqual(map.refused, "2026-06-13")
       assert.isUndefined(map.day)
       assert.isUndefined(map.month)
-      assert.strictEqual(map.focus?.code, "TRUE")
+      assert.strictEqual(map.focus?.title, "TRUE")
       assert.deepStrictEqual(map.focus?.bands, [])
       assert.lengthOf(map.days, 6)
     })

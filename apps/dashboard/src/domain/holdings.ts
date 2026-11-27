@@ -302,12 +302,25 @@ export const RAIL_PERIODS = 10
 // with the period before them.
 export const TREND_PERIODS = 20
 
+// A holder's name as matched across periods, stocks and reports
+// (server/holdings/holder-key.ts): its words upper-cased, sorted, with
+// punctuation and legal-form words dropped. A name is at most 256
+// characters (ADR 0045), and so is its key.
+export const HolderKey = Schema.String.check(
+  Schema.isPattern(/\S/),
+  Schema.isMaxLength(256)
+).pipe(Schema.brand("HolderKey"))
+export type HolderKey = typeof HolderKey.Type
+
 // What the Holder map is drawn around, and as of which trading day: a
-// stock, or nothing for the landing view; the day absent for the newest
-// parsed.
+// stock, a holder, or nothing for the landing view; the day absent for the
+// newest parsed.
 export const HolderMapQuery = Schema.Struct({
   focus: Schema.UndefinedOr(
-    Schema.Struct({ kind: Schema.Literal("stock"), code: StockCode })
+    Schema.Union([
+      Schema.Struct({ kind: Schema.Literal("stock"), code: StockCode }),
+      Schema.Struct({ kind: Schema.Literal("holder"), key: HolderKey }),
+    ])
   ),
   day: Schema.UndefinedOr(WibDate),
 })
