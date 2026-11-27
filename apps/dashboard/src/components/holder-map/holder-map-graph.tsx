@@ -97,12 +97,17 @@ export type HolderMapGraphProps = {
   // The page's Off list toggle, which hides the Off list holders' nodes.
   showOffList: boolean
   onRefocus: (refocus: Refocus) => void
+  // The node a search highlighted: labelled, and named above the map.
+  searched: string | undefined
+  onClearSearched: () => void
 }
 
 export function HolderMapGraph({
   focus,
   showOffList,
   onRefocus,
+  searched,
+  onClearSearched,
 }: HolderMapGraphProps) {
   const { graph, legend } = focus
   const frame = useRef<HTMLDivElement>(null)
@@ -139,12 +144,15 @@ export function HolderMapGraph({
           view,
           size,
           hovered,
+          searched,
           showOffList,
           nodeOf,
         })
       ),
-    [layout, view, size, graph, hovered, showOffList, nodeOf]
+    [layout, view, size, graph, hovered, searched, showOffList, nodeOf]
   )
+  const searchedNode =
+    searched === undefined ? undefined : nodeById.get(searched)
   const ariaLabel = useMemo(
     () => Effect.runSync(mapLabel(focus, showOffList)),
     [focus, showOffList]
@@ -179,6 +187,33 @@ export function HolderMapGraph({
           </KButton>
         </div>
       </div>
+      {searchedNode !== undefined && (
+        <p
+          role="status"
+          className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground"
+        >
+          <span>
+            <span className="font-medium text-foreground">
+              {searchedNode.name}
+            </span>{" "}
+            is labelled on the map.
+          </span>
+          {searchedNode.refocus !== undefined && (
+            <KButton
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                searchedNode.refocus && onRefocus(searchedNode.refocus)
+              }
+            >
+              Focus it
+            </KButton>
+          )}
+          <KButton variant="ghost" size="sm" onClick={onClearSearched}>
+            Clear
+          </KButton>
+        </p>
+      )}
       <div
         ref={frame}
         className="relative cursor-grab touch-none overflow-hidden rounded-md border border-border select-none active:cursor-grabbing"

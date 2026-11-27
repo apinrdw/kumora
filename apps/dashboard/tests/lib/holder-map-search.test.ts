@@ -7,6 +7,7 @@ import { CustodianId, HolderKey } from "@/domain/holdings"
 import {
   holderMapMoveSearch,
   parseHolderMapSearch,
+  pickOf,
   findFoci,
   queryOf,
   refocused,
@@ -299,5 +300,52 @@ describe("findFoci", () => {
       Effect.gen(function* () {
         expect(yield* found("  ", 2)).toEqual(["BSDE", "MAYA"])
       })
+  )
+})
+
+describe("pickOf", () => {
+  // A map of TRUE: its focus, a holder, and a custodian.
+  const nodes = ["stock:TRUE", "holder:DJONI", "custodian:YP"].map((id) => ({
+    id,
+    focus: id === "stock:TRUE",
+  }))
+  const TRUE = StockCode.make("TRUE")
+
+  it.effect("highlights a match the map draws, in place", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* pickOf(nodes, {
+          kind: "holder",
+          key: HolderKey.make("DJONI"),
+          name: "DJONI",
+        })
+      ).toEqual({ highlight: "holder:DJONI" })
+      expect(
+        yield* pickOf(nodes, {
+          kind: "custodian",
+          id: CustodianId.make("YP"),
+          broker: undefined,
+          name: "MIRAE",
+        })
+      ).toEqual({ highlight: "custodian:YP" })
+    })
+  )
+
+  it.effect("refocuses on a match the map doesn't draw, or its focus", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* pickOf(nodes, {
+          kind: "stock",
+          code: StockCode.make("BSDE"),
+          name: "BUMI",
+        })
+      ).toEqual({ refocus: { stock: "BSDE" } })
+      expect(
+        yield* pickOf(nodes, { kind: "stock", code: TRUE, name: "TRUE" })
+      ).toEqual({ refocus: { stock: "TRUE" } })
+      expect(
+        yield* pickOf(undefined, { kind: "stock", code: TRUE, name: "TRUE" })
+      ).toEqual({ refocus: { stock: "TRUE" } })
+    })
   )
 })

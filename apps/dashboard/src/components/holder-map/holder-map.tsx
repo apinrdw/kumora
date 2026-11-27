@@ -9,7 +9,7 @@ import { Link } from "@tanstack/react-router"
 import type { WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
-import type { ReactNode } from "react"
+import { type ReactNode, useState } from "react"
 
 import { BoundedRows } from "@/components/k/bounded-rows"
 import { KChip } from "@/components/k/chip"
@@ -41,7 +41,7 @@ import {
   type Refocus,
   type ShownMove,
 } from "@/lib/holder-map-graph"
-import { type FocusMatch, refocused } from "@/lib/holder-map-search"
+import { pickOf, refocused } from "@/lib/holder-map-search"
 import { dayDateLabel, monthLabel } from "@/lib/stock-page-display"
 import type { HolderMapOffList } from "@/server/holdings/holder-map-schema"
 
@@ -58,16 +58,6 @@ export type HolderMapPageProps = {
   showOffList: boolean
   onShowOffList: (shown: boolean) => void
 }
-
-// A search match's refocus.
-const refocusOf = (match: FocusMatch) =>
-  Effect.succeed<Refocus>(
-    match.kind === "stock"
-      ? { stock: match.code }
-      : match.kind === "holder"
-        ? { holder: match.key }
-        : { custodian: match.id }
-  )
 
 // What a focus's heading says it is.
 const kindLabel = (focus: FocusView) =>
@@ -164,6 +154,9 @@ export function HolderMapPage({
   onShowOffList,
 }: HolderMapPageProps) {
   const shown = map.day ?? map.refused
+  // The node a search highlighted, on the map it was picked on.
+  const [searched, setSearched] = useState<{ map: string; node: string }>()
+  const graph = map.focus?.graph
   return (
     <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 py-2">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -184,7 +177,12 @@ export function HolderMapPage({
           <FocusPicker
             state={list}
             className="w-full sm:w-80"
-            onPick={(match) => onRefocus(Effect.runSync(refocusOf(match)))}
+            onPick={(match) => {
+              const pick = Effect.runSync(pickOf(graph?.nodes, match))
+              if ("refocus" in pick) onRefocus(pick.refocus)
+              else if (graph !== undefined)
+                setSearched({ map: graph.key, node: pick.highlight })
+            }}
           />
         </div>
       </header>
@@ -200,6 +198,10 @@ export function HolderMapPage({
           onRefocus={onRefocus}
           showOffList={showOffList}
           onShowOffList={onShowOffList}
+          searched={
+            searched?.map === map.focus.graph.key ? searched.node : undefined
+          }
+          onClearSearched={() => setSearched(undefined)}
         />
       )}
     </div>
@@ -269,6 +271,8 @@ function Focus({
   onRefocus,
   showOffList,
   onShowOffList,
+  searched,
+  onClearSearched,
 }: {
   focus: FocusView
   day: WibDate | undefined
@@ -276,6 +280,8 @@ function Focus({
   onRefocus: (refocus: Refocus) => void
   showOffList: boolean
   onShowOffList: (shown: boolean) => void
+  searched: string | undefined
+  onClearSearched: () => void
 }) {
   const empty =
     focus.kind === "custodian"
@@ -322,6 +328,8 @@ function Focus({
             focus={focus}
             showOffList={showOffList}
             onRefocus={onRefocus}
+            searched={searched}
+            onClearSearched={onClearSearched}
           />
           {focus.bands.map((band) => (
             <Band key={band.band} band={band} day={day} focus={focus} />

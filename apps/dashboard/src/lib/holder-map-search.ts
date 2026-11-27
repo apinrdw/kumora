@@ -11,6 +11,8 @@ import {
   type MoveKind,
 } from "@/domain/holdings"
 
+import type { Refocus } from "./holder-map-graph"
+import { nodeId } from "./holder-map-ids"
 import { field } from "./search-field"
 
 // At most one is set: the map has one focus.
@@ -187,6 +189,38 @@ export const findFoci = (list: FocusList, query: string, shown: number) =>
     }
     return matches.slice(0, shown)
   })
+
+// A match's node key, and the refocus onto it.
+const matchKey = (match: FocusMatch) =>
+  Effect.succeed<{ readonly key: string; readonly refocus: Refocus }>(
+    match.kind === "stock"
+      ? { key: match.code, refocus: { stock: match.code } }
+      : match.kind === "holder"
+        ? { key: match.key, refocus: { holder: match.key } }
+        : { key: match.id, refocus: { custodian: match.id } }
+  )
+
+/**
+ * What picking a search match does (spec apinrdw/kumora#733, "a label
+ * flag: focus and first hop always, others on hover or search"): a match
+ * the map draws, but its focus, is highlighted in place, labelled; any
+ * other refocuses the map on it, so the search still reaches what is out
+ * of view.
+ */
+export const pickOf = Effect.fnUntraced(function* (
+  nodes:
+    | ReadonlyArray<{ readonly id: string; readonly focus: boolean }>
+    | undefined,
+  match: FocusMatch
+): Effect.fn.Return<
+  { readonly highlight: string } | { readonly refocus: Refocus }
+> {
+  const { key, refocus } = yield* matchKey(match)
+  const id = yield* nodeId(match.kind, key)
+  return nodes?.some((node) => node.id === id && !node.focus)
+    ? { highlight: id }
+    : { refocus }
+})
 
 export const queryOf = ({ stock, holder, custodian, day }: HolderMapSearch) =>
   Effect.succeed<HolderMapQuery>({

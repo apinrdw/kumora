@@ -252,10 +252,13 @@ export const mapDefinition = Effect.fnUntraced(function* (options: {
   readonly view: Viewport
   readonly size: { readonly width: number; readonly height: number }
   readonly hovered: string | undefined
+  // The node a search highlighted.
+  readonly searched: string | undefined
   readonly showOffList: boolean
   readonly nodeOf: (datum: unknown) => MapNode | undefined
 }) {
-  const { graph, layout, view, size, hovered, showOffList, nodeOf } = options
+  const { graph, layout, view, size, hovered, searched, showOffList, nodeOf } =
+    options
   const domains = yield* viewportDomains(view, size)
   const { nodes, links } = yield* placed(graph, layout, view, showOffList)
   const held = links.flatMap((each) =>
@@ -268,11 +271,13 @@ export const mapDefinition = Effect.fnUntraced(function* (options: {
   const through = links.filter(({ move }) => move === undefined)
   const inside = yield* insideOf(nodes)
   // Labelled: the focus and its neighbours, and the node hovered. A stock
-  // whose code is printed inside needs no label beside it.
+  // whose code is printed inside needs no label beside it, but the node a
+  // search picked is labelled whatever it prints, to be found.
   const labelled = nodes.filter(
     (node) =>
-      (node.labelled || node.id === hovered) &&
-      !(node.label === node.inside && node.r >= INSIDE_FROM)
+      node.id === searched ||
+      ((node.labelled || node.id === hovered) &&
+        !(node.label === node.inside && node.r >= INSIDE_FROM))
   )
   return defineChart({
     // Links and text are decorative: the dots alone take the pointer and
