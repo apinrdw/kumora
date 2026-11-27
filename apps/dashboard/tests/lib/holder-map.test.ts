@@ -26,6 +26,8 @@ const link = (
 const read = (links: ReadonlyArray<HolderMapLink>): HolderMapRead => ({
   day: WibDate.make("2026-11-20"),
   month: WibDate.make("2026-10-30"),
+  refused: undefined,
+  days: [WibDate.make("2026-11-20")],
   focus: { kind: "stock", code: StockCode.make("TRUE"), issuerName: "TRUE" },
   links,
   offList: [],
@@ -59,7 +61,7 @@ describe("holderMapView", () => {
       const view = yield* holderMapView(
         read([link("5%", "B", 600), link("5%", "Z", 700), link("5%", "A", 600)])
       )
-      expect(view.focus?.bands[0].holders.map(({ name }) => name)).toEqual([
+      expect(view.focus?.bands[0]?.holders.map(({ name }) => name)).toEqual([
         "Z",
         "A",
         "B",

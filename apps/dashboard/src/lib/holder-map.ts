@@ -91,12 +91,15 @@ export interface LegendEntry {
 export interface HolderMapView {
   readonly day: WibDate | undefined
   readonly month: WibDate | undefined
+  readonly refused: WibDate | undefined
+  readonly days: ReadonlyArray<WibDate>
   readonly focus:
     | {
         readonly code: StockCode
         readonly issuerName: string | undefined
-        // The 5% band, then the 1% band.
-        readonly bands: readonly [BandSection, BandSection]
+        // The 5% band, then the 1% band; the 5% band only for a day before
+        // any above-1% month, none for a refused day.
+        readonly bands: ReadonlyArray<BandSection>
         // The focus first, then the side panel's holders in its order.
         readonly graph: {
           readonly nodes: ReadonlyArray<MapNode>
@@ -190,7 +193,7 @@ const holderNode = Effect.fnUntraced(function* (holder: HolderMapLink) {
 
 const graphOf = Effect.fnUntraced(function* (
   code: StockCode,
-  bands: readonly [BandSection, BandSection]
+  bands: ReadonlyArray<BandSection>
 ) {
   const holders = bands.flatMap((band) => band.holders)
   const focus: MapNode = {
@@ -253,16 +256,18 @@ const legendOf = (nodes: ReadonlyArray<MapNode>) =>
 export const holderMapView = Effect.fnUntraced(function* (
   read: HolderMapRead
 ): Effect.fn.Return<HolderMapView> {
-  const { day, month, focus, links, offList, mostHeld } = read
-  if (focus === undefined) return { day, month, focus: undefined, mostHeld }
-  const bands = [
-    yield* section("5%", day, links),
-    yield* section("1%", month, links),
-  ] as const
+  const { day, month, refused, days, focus, links, offList, mostHeld } = read
+  if (focus === undefined)
+    return { day, month, refused, days, focus: undefined, mostHeld }
+  const bands: Array<BandSection> = []
+  if (day !== undefined) bands.push(yield* section("5%", day, links))
+  if (month !== undefined) bands.push(yield* section("1%", month, links))
   const graph = yield* graphOf(focus.code, bands)
   return {
     day,
     month,
+    refused,
+    days,
     focus: {
       code: focus.code,
       issuerName: focus.issuerName,

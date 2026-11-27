@@ -218,6 +218,70 @@ test.describe.serial("Holder map", () => {
       )
     })
 
+    test("picks the as-of day, keeping the focus, and restores it on back", async ({
+      page,
+    }) => {
+      await page.goto(`${HOLDER_MAP}?stock=TRUE`)
+      const day = page.getByRole("combobox", { name: "Trading day" })
+      await expect(day).toHaveValue("2026-11-20")
+      await until(
+        () => day.selectOption("2026-06-25").then(() => undefined),
+        () => expect(page).toHaveURL(/day=2026-06-25/, { timeout: 1000 })
+      )
+      await expect(page).toHaveURL(
+        /\/holder-map\?(?=.*stock=TRUE)(?=.*day=2026-06-25)/
+      )
+      await expect(
+        page.getByText(
+          "5% band as of 25 Jun 2026 · 1% band from Apr 2026's report"
+        )
+      ).toBeVisible()
+      await expect(band(page, "5% and above")).toHaveCount(1)
+      await expect(band(page, "5% and above").nth(0)).toContainText(
+        "PT AGUNG PERKASA INVESTINDO"
+      )
+
+      await page.getByRole("button", { name: "Next trading day" }).click()
+      await expect(page).toHaveURL(
+        /\/holder-map\?(?=.*stock=TRUE)(?=.*day=2026-11-19)/
+      )
+      await expect(day).toHaveValue("2026-11-19")
+
+      await page.goBack()
+      await expect(page).toHaveURL(/day=2026-06-25/)
+      await expect(day).toHaveValue("2026-06-25")
+      await expect(
+        page.getByRole("heading", { name: /^TRUE TRINITI DINAMIK/ })
+      ).toBeVisible()
+      await page.goBack()
+      await expect(page).toHaveURL(`${HOLDER_MAP}?stock=TRUE`)
+      await expect(day).toHaveValue("2026-11-20")
+      await page.goForward()
+      await expect(page).toHaveURL(/day=2026-06-25/)
+      await expect(day).toHaveValue("2026-06-25")
+    })
+
+    test("refuses a day without an above-5% report", async ({ page }) => {
+      await page.goto(`${HOLDER_MAP}?stock=TRUE&day=2026-06-13`)
+      await expect(
+        page.getByText("No above-5% report on 13 Jun 2026")
+      ).toBeVisible()
+      await expect(page.getByRole("table")).toHaveCount(0)
+      const day = page.getByRole("combobox", { name: "Trading day" })
+      await expect(day).toHaveValue("2026-06-13")
+      await until(
+        () => day.selectOption("2026-06-12").then(() => undefined),
+        () => expect(page).toHaveURL(/day=2026-06-12/, { timeout: 1000 })
+      )
+      await expect(page).toHaveURL(/stock=TRUE/)
+      await expect(
+        page.getByText("No above-5% report on 13 Jun 2026")
+      ).toHaveCount(0)
+      await expect(
+        page.getByRole("heading", { name: /^TRUE TRINITI DINAMIK/ })
+      ).toBeVisible()
+    })
+
     test("shows an empty state for a code no report lists", async ({
       page,
     }) => {

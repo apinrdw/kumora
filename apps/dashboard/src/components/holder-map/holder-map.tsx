@@ -1,10 +1,10 @@
 // The Holder map page (spec apinrdw/kumora#733; apinrdw/kumora#734,
-// #735, #736): a stock search, then the focus stock's holders as of one
-// trading day, drawn as a map above a side panel of two bands, each with its
-// move, and its Off list holders, or, with no focus, the stocks with the
-// most ≥1% holders.
+// #735, #736, #737): a stock search and an as-of day picker, then the focus
+// stock's holders as of one trading day, drawn as a map above a side panel
+// of two bands, each with its move, and its Off list holders, or, with no
+// focus, the stocks with the most ≥1% holders.
 import { Link } from "@tanstack/react-router"
-import type { StockCode, WibDate } from "@workspace/relay"
+import { type StockCode, WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import { useState } from "react"
@@ -15,6 +15,7 @@ import { KEmptyState } from "@/components/k/empty-state"
 import { kCard, kFocus } from "@/components/k/styles"
 import type { StockCodeList } from "@/components/market-live/use-stock-code-list"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
+import { DayPicker } from "@/components/stocks/day-picker"
 import {
   Delta,
   lotsChangeText,
@@ -45,6 +46,7 @@ export type HolderMapPageProps = {
   list: StockCodeList
   onStock: (code: StockCode) => void
   onRefocus: (refocus: Refocus) => void
+  onDay: (day: WibDate) => void
 }
 
 // A link's move as the side panel's chip shows it: Holder moves' chips,
@@ -87,7 +89,9 @@ export function HolderMapPage({
   list,
   onStock,
   onRefocus,
+  onDay,
 }: HolderMapPageProps) {
+  const shown = map.day ?? map.refused
   return (
     <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 py-2">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -95,24 +99,56 @@ export function HolderMapPage({
           <h1 className="text-[22px] font-semibold tracking-tight">
             Holder map
           </h1>
-          <p className="text-[13px] text-muted-foreground">
-            {Effect.runSync(datesLine(map.day, map.month))}
-          </p>
+          {map.refused === undefined && (
+            <p className="text-[13px] text-muted-foreground">
+              {Effect.runSync(datesLine(map.day, map.month))}
+            </p>
+          )}
         </div>
-        <StockCodePicker
-          list={list}
-          label="Focus stock"
-          placeholder="Search stock code or name"
-          className="w-full sm:w-72"
-          onPick={onStock}
-        />
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          {shown !== undefined && (
+            <DayPicker
+              days={map.days}
+              day={shown}
+              onDay={(day) => onDay(WibDate.make(day))}
+            />
+          )}
+          <StockCodePicker
+            list={list}
+            label="Focus stock"
+            placeholder="Search stock code or name"
+            className="w-full sm:w-72"
+            onPick={onStock}
+          />
+        </div>
       </header>
-      {map.focus === undefined ? (
+      {map.refused !== undefined ? (
+        <Refused day={map.refused} />
+      ) : map.focus === undefined ? (
         <MostHeld map={map} />
       ) : (
-        <Focus focus={map.focus} day={map.day} onRefocus={onRefocus} />
+        <Focus
+          focus={map.focus}
+          day={map.day}
+          month={map.month}
+          onRefocus={onRefocus}
+        />
       )}
     </div>
+  )
+}
+
+// A day asked for in the URL that has no above-5% report.
+function Refused({ day }: { day: WibDate }) {
+  return (
+    <section className={kCard}>
+      <KEmptyState
+        bare
+        kind="no-data"
+        title={`No above-5% report on ${Effect.runSync(dayDateLabel(day))}`}
+        description="IDX publishes the above-5% report on trading days only, and the map is drawn as of one. Pick a day from the list."
+      />
+    </section>
   )
 }
 
@@ -129,7 +165,10 @@ function MostHeld({ map }: { map: HolderMapView }) {
       </h2>
       {map.mostHeld.length === 0 ? (
         <p className="text-muted-foreground">
-          No above-1% report is parsed yet. Search a stock to start.
+          {map.day === undefined
+            ? "No above-1% report is parsed yet."
+            : `No above-1% report is parsed on or before ${Effect.runSync(dayDateLabel(map.day))}.`}{" "}
+          Search a stock to start.
         </p>
       ) : (
         <ol aria-label="Most held stocks" className="flex flex-col">
@@ -162,10 +201,12 @@ function MostHeld({ map }: { map: HolderMapView }) {
 function Focus({
   focus,
   day,
+  month,
   onRefocus,
 }: {
   focus: NonNullable<HolderMapView["focus"]>
   day: WibDate | undefined
+  month: WibDate | undefined
   onRefocus: (refocus: Refocus) => void
 }) {
   const empty = focus.bands.every(({ holders }) => holders.length === 0)
@@ -191,6 +232,11 @@ function Focus({
           Open stock page
         </Link>
       </div>
+      {day !== undefined && month === undefined && (
+        <p role="note" className="text-[13px] text-muted-foreground">
+          {`No above-1% report is parsed on or before ${Effect.runSync(dayDateLabel(day))}, so the map shows the 5% band only.`}
+        </p>
+      )}
       {empty ? (
         <KEmptyState
           bare

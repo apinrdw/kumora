@@ -51,6 +51,10 @@ function HolderMapRoute() {
       onRefocus={(refocus) =>
         void navigate({ search: (previous) => ({ ...previous, ...refocus }) })
       }
+      // A new day is a new entry too, and keeps the focus.
+      onDay={(day) =>
+        void navigate({ search: (previous) => ({ ...previous, day }) })
+      }
     />
   )
 }

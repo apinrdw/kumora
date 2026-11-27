@@ -100,9 +100,14 @@ const HolderMapOffList = Schema.Struct({
 export type HolderMapOffList = typeof HolderMapOffList.Type
 
 const HolderMapRead = Schema.Struct({
-  // The 5% band's trading day: the one asked for when parsed, else the
-  // newest; undefined when no above-5% day is parsed.
+  // The 5% band's trading day: the one asked for, else the newest;
+  // undefined when it is refused or no above-5% day is parsed.
   day: Schema.UndefinedOr(WibDate),
+  // The day asked for when no above-5% report of it is parsed: the map is
+  // then drawn as of no day, with no links and no stocks.
+  refused: Schema.UndefinedOr(WibDate),
+  // Every parsed above-5% day, oldest first: the as-of picker's days.
+  days: Schema.Array(WibDate),
   // The 1% band's above-1% report: the newest on or before the day.
   month: Schema.UndefinedOr(WibDate),
   focus: Schema.UndefinedOr(
@@ -133,22 +138,27 @@ const HolderMapRead = Schema.Struct({
 export type HolderMapRead = typeof HolderMapRead.Type
 
 // The day the map is drawn as of, `asof`, and the 1% band's month,
-// `band_month`. ?1 is the day asked for.
+// `band_month`. ?1 is the day asked for, null for the newest; a day asked
+// for that has no above-5% report leaves both null, so nothing is read.
+// With no above-5% day parsed, the newest month is the 1% band's.
 const PERIODS = `WITH asof AS (
-    SELECT COALESCE(
-      (SELECT data_date FROM above_5_day WHERE data_date = ?1),
-      (SELECT MAX(data_date) FROM above_5_day)
-    ) AS day
+    SELECT CASE WHEN ?1 IS NULL
+      THEN (SELECT MAX(data_date) FROM above_5_day)
+      ELSE (SELECT data_date FROM above_5_day WHERE data_date = ?1)
+    END AS day
   ),
   band_month AS (
     SELECT MAX(data_date) AS month FROM above_1_month
-    WHERE (SELECT day FROM asof) IS NULL OR data_date <= (SELECT day FROM asof)
+    WHERE data_date <= (SELECT day FROM asof)
+      OR (?1 IS NULL AND (SELECT day FROM asof) IS NULL)
   )`
 
 const PeriodsRow = Schema.Struct({
   day: Schema.NullOr(WibDate),
   month: Schema.NullOr(WibDate),
 })
+
+const DayRow = Schema.Struct({ data_date: WibDate })
 
 const Above1MapRow = Schema.Struct({
   ...Above1HoldingRow.fields,
@@ -519,23 +529,34 @@ export const holderMapRead = Effect.fnUntraced(function* ({
   HoldingsDb
 > {
   const asked = day ?? null
-  const [periodRows = [], ...rest] = yield* (yield* HoldingsDb).batch([
-    {
-      sql: `${PERIODS}
+  const [periodRows = [], dayRows = [], ...rest] =
+    yield* (yield* HoldingsDb).batch([
+      {
+        sql: `${PERIODS}
       SELECT (SELECT day FROM asof) AS day,
         (SELECT month FROM band_month) AS month`,
-      params: [asked],
-    },
-    ...(focus === undefined
-      ? [{ sql: MOST_HELD_SQL, params: [asked] }]
-      : STOCK.map((sql) => ({ sql, params: [asked, focus.code] }))),
-  ])
+        params: [asked],
+      },
+      {
+        sql: "SELECT data_date FROM above_5_day ORDER BY data_date",
+        params: [],
+      },
+      ...(focus === undefined
+        ? [{ sql: MOST_HELD_SQL, params: [asked] }]
+        : STOCK.map((sql) => ({ sql, params: [asked, focus.code] }))),
+    ])
   const [periods] = yield* decodeRows(PeriodsRow)(periodRows)
   const shownDay = periods?.day ?? undefined
   const month = periods?.month ?? undefined
+  const refused = shownDay === undefined ? day : undefined
+  const days = (yield* decodeRows(DayRow)(dayRows)).map(
+    ({ data_date }) => data_date
+  )
   if (focus === undefined)
     return HolderMapRead.make({
       day: shownDay,
+      refused,
+      days,
       month,
       focus: undefined,
       links: [],
@@ -580,6 +601,8 @@ export const holderMapRead = Effect.fnUntraced(function* ({
   const earlier = yield* earlierHolders(focus.code, offRows)
   return HolderMapRead.make({
     day: shownDay,
+    refused,
+    days,
     month,
     focus: {
       kind: "stock",
