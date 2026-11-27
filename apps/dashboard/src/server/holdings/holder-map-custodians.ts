@@ -16,6 +16,8 @@ import { decodeRows } from "../d1.ts"
 import { HoldingsDb } from "./db.ts"
 import { holderKey } from "./holder-key.ts"
 import {
+  type Budgeted,
+  DAY_ROWS,
   type HolderMapCustodianLink,
   PERIODS,
   PERIODS_SQL,
@@ -107,6 +109,14 @@ export const custodianLinks = Effect.fnUntraced(function* (
     )
 })
 
+// The custodian names of the map's day: at most its accounts.
+export const DAY_SPELLINGS_SQL = {
+  sql: `${PERIODS}
+  SELECT DISTINCT custodian FROM above_5_account
+  WHERE data_date = (SELECT day FROM asof)`,
+  rows: DAY_ROWS,
+} satisfies Budgeted
+
 // A custodian focus's spellings: the day's custodian names whose id is
 // the focus's, and the day the map is drawn as of, so the read that uses
 // them reads that day. The rest of the map is read in a batch after, so a
@@ -118,14 +128,9 @@ export const custodianSpellings = Effect.fnUntraced(function* (
 ) {
   const [periodRows = [], spellingRows = []] = yield* (yield* HoldingsDb).batch(
     [
-      { sql: PERIODS_SQL, params: [asked] },
+      { ...PERIODS_SQL, params: [asked] },
       // A day's rows, within its parse cap (ADR 0045), by its key.
-      {
-        sql: `${PERIODS}
-      SELECT DISTINCT custodian FROM above_5_account
-      WHERE data_date = (SELECT day FROM asof)`,
-        params: [asked],
-      },
+      { ...DAY_SPELLINGS_SQL, params: [asked] },
     ]
   )
   const [periods] = yield* decodeRows(PeriodsRow)(periodRows)

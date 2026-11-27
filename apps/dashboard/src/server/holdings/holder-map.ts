@@ -39,12 +39,15 @@ import {
 } from "./holder-map-moves.ts"
 import { OFF_LIST, offListOf, offListRead } from "./holder-map-off-list.ts"
 import {
+  type Budgeted,
+  DAY_ROWS,
   type Focus,
   type HolderMapCustodianLink,
   type HolderMapFocus,
   type HolderMapLink,
   type HolderMapOffList,
   HolderMapRead,
+  MONTH_ROWS,
   PERIODS,
   PERIODS_SQL,
   PeriodsRow,
@@ -110,23 +113,32 @@ const STOCKS_IN_VIEW = "stock_code IN (SELECT stock_code FROM in_view)"
 //
 // Decision: a stock's holders are read from its newest periods that fit a
 // row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
-const IN_VIEW_ROWS = [
-  `SELECT stock_code, data_date, no, issuer_name, holder_name, holder_key,
-    scripless, percentage_hundredths
-  FROM above_5_holder
-  WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
-  ORDER BY stock_code, no`,
-  `SELECT stock_code, data_date, no, custodian, account_name, origin,
-    domicile, scripless
-  FROM above_5_account
-  WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
-  ORDER BY stock_code, no, ordinal`,
-  `SELECT stock_code, data_date, holder_key, investor_name, classification,
-    investor_type, origin, domicile, controller, scripless, scrip, total,
-    percentage_hundredths, issuer_name
-  FROM above_1_holding
-  WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT month FROM band_month)
-  ORDER BY stock_code, seq`,
+const IN_VIEW_ROWS: ReadonlyArray<Budgeted> = [
+  {
+    sql: `SELECT stock_code, data_date, no, issuer_name, holder_name,
+      holder_key, scripless, percentage_hundredths
+    FROM above_5_holder
+    WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
+    ORDER BY stock_code, no`,
+    rows: DAY_ROWS,
+  },
+  {
+    sql: `SELECT stock_code, data_date, no, custodian, account_name, origin,
+      domicile, scripless
+    FROM above_5_account
+    WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
+    ORDER BY stock_code, no, ordinal`,
+    rows: DAY_ROWS,
+  },
+  {
+    sql: `SELECT stock_code, data_date, holder_key, investor_name,
+      classification, investor_type, origin, domicile, controller,
+      scripless, scrip, total, percentage_hundredths, issuer_name
+    FROM above_1_holding
+    WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT month FROM band_month)
+    ORDER BY stock_code, seq`,
+    rows: MONTH_ROWS,
+  },
   // Their stored moves: the day's against the trading day before, the
   // month's against the month before, Off list too, as a key still listed
   // can have a block that left. A period's lines of a stock are at most
@@ -134,22 +146,26 @@ const IN_VIEW_ROWS = [
   //
   // Decision: Holder moves are derived at parse time
   // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
-  `SELECT stock_code, '5%' AS band, name, data_date, move, share_change,
-    percentage_change, stake_before, stake_now
-  FROM above_5_move
-  WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
-  UNION ALL
-  SELECT stock_code, '1%' AS band, name, data_date, move, share_change,
-    percentage_change, stake_before, stake_now
-  FROM above_1_move
-  WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT month FROM band_month)`,
+  {
+    sql: `SELECT stock_code, '5%' AS band, name, data_date, move,
+      share_change, percentage_change, stake_before, stake_now
+    FROM above_5_move
+    WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
+    UNION ALL
+    SELECT stock_code, '1%' AS band, name, data_date, move, share_change,
+      percentage_change, stake_before, stake_now
+    FROM above_1_move
+    WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT month FROM band_month)`,
+    rows: 2 * DAY_ROWS + 2 * MONTH_ROWS,
+  },
   // The month's ≥1% holders that left the above-5% list after the month:
   // each identity's newest leaving between the month and the day, unless
   // it came back since. An identity starts with the key it was first
   // listed under (lib/holder-identity.ts), so matching it to the month's
   // keys keeps this to at most the month's holders; one renamed since is
   // missed, and shows its move, not Down out of 5%.
-  `SELECT stock_code, '5%' AS band, name, data_date, stake_before FROM (
+  {
+    sql: `SELECT stock_code, '5%' AS band, name, data_date, stake_before FROM (
     SELECT stock_code, name, move, data_date, stake_before,
       ROW_NUMBER() OVER (
         PARTITION BY stock_code, holder ORDER BY data_date DESC
@@ -165,6 +181,8 @@ const IN_VIEW_ROWS = [
       )
   )
   WHERE nth = 1 AND move = 'off list'`,
+    rows: MONTH_ROWS,
+  },
 ]
 
 const DayRow = Schema.Struct({ data_date: WibDate })
@@ -175,13 +193,22 @@ const MostHeldRow = Schema.Struct({
   holders: Schema.Number,
 })
 
-const MOST_HELD_SQL = `${PERIODS}
+const MOST_HELD_SQL = {
+  sql: `${PERIODS}
   SELECT stock_code, MAX(issuer_name) AS issuer_name,
     COUNT(DISTINCT holder_key) AS holders
   FROM above_1_holding WHERE data_date = (SELECT month FROM band_month)
   GROUP BY stock_code
   ORDER BY holders DESC, stock_code
-  LIMIT ${MOST_HELD}`
+  LIMIT ${MOST_HELD}`,
+  rows: MOST_HELD,
+} satisfies Budgeted
+
+// The as-of picker's days.
+const DAYS_SQL = {
+  sql: "SELECT data_date FROM above_5_day ORDER BY data_date",
+  rows: DAY_ROWS,
+} satisfies Budgeted
 
 const originOf = (origins: ReadonlyArray<SplitOrigin | undefined>) =>
   Effect.sync((): HolderMapLink["origin"] => {
@@ -396,14 +423,15 @@ const focusStatements = Effect.fnUntraced(function* (
   asked: WibDate | null,
   spellings: ReadonlyArray<string>
 ) {
-  if (focus === undefined) return [{ sql: MOST_HELD_SQL, params: [asked] }]
+  if (focus === undefined) return [{ ...MOST_HELD_SQL, params: [asked] }]
   const params = [asked, yield* focusParam(focus, spellings)]
   return [
-    ...IN_VIEW_ROWS.map((sql) => ({
+    ...IN_VIEW_ROWS.map(({ sql, rows }) => ({
       sql: `${IN_VIEW[focus.kind]} ${sql}`,
       params,
+      rows,
     })),
-    ...OFF_LIST[focus.kind].map((sql) => ({ sql, params })),
+    ...OFF_LIST[focus.kind].map((statement) => ({ ...statement, params })),
   ]
 })
 
@@ -433,11 +461,8 @@ export const holderMapRead = Effect.fnUntraced(function* ({
   const { asked, spellings } = yield* askOf(focus, day)
   const [periodRows = [], dayRows = [], ...rest] =
     yield* (yield* HoldingsDb).batch([
-      { sql: PERIODS_SQL, params: [asked] },
-      {
-        sql: "SELECT data_date FROM above_5_day ORDER BY data_date",
-        params: [],
-      },
+      { ...PERIODS_SQL, params: [asked] },
+      { ...DAYS_SQL, params: [] },
       ...(yield* focusStatements(focus, asked, spellings)),
     ])
   const [periods] = yield* decodeRows(PeriodsRow)(periodRows)

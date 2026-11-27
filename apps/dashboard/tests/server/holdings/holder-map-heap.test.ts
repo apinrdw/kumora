@@ -3,13 +3,14 @@
 // stock, or a custodian of every account, reads one whole day and one whole
 // month, each at its parse's cap (ADR 0045), and every stored line of them.
 import { assert, describe, it } from "@effect/vitest"
-import { StockCode } from "@workspace/relay"
-import { Effect, Layer } from "effect"
+import { StockCode, WibDate } from "@workspace/relay"
+import { Effect, Layer, Schema } from "effect"
 
 import { CustodianId, HolderKey } from "@/domain/holdings"
 import { holderMapView } from "@/lib/holder-map"
 import { HoldingsDb } from "@/server/holdings/db"
 import { holderMapRead } from "@/server/holdings/holder-map"
+import { holderMapSearchList } from "@/server/holdings/holder-map-search-list"
 
 import { retainedHeap } from "../../support/retained-heap.ts"
 import { seedAbove1AtCap } from "./above-1-at-cap.ts"
@@ -44,6 +45,10 @@ const PREV = "2026-01-02"
 const MONTH = "2025-12-31"
 const HUB = "HUB NOMINEE"
 const HUB_CUSTODIAN = "PT HUB CUSTODIAN"
+// The month holders of a stock whose keys each left the above-5% list
+// 4,000 times since (codex review of apinrdw/kumora#741, round 6).
+const CROSSING_HOLDERS = 20
+const LEAVINGS_PER_KEY = 4_000
 // A stock's former holders after years of churn (codex review of
 // apinrdw/kumora#741: 80,000 retained about 119 MiB unbounded).
 const CHURNED = 80_000
@@ -75,9 +80,14 @@ const hub = (days: ReadonlyArray<string> = [DAY]) => {
   return db
 }
 
-// `db`, and the most rows one of its statements returned.
-const counted = (db: MemoryHoldingsDb) => {
-  const count = { rows: 0 }
+const isBudgeted = Schema.is(
+  Schema.Struct({ sql: Schema.String, rows: Schema.Number })
+)
+
+// `db`, and each statement it ran that has no row budget or returned more
+// rows than it (`Budgeted` in holder-map-schema.ts), by its SQL's end.
+const budgeted = (db: MemoryHoldingsDb) => {
+  const over: Array<string> = []
   const layer = Layer.effect(
     HoldingsDb,
     Effect.gen(function* () {
@@ -86,14 +96,22 @@ const counted = (db: MemoryHoldingsDb) => {
         batch: (statements) =>
           Effect.tap(inner.batch(statements), (rows) =>
             Effect.sync(() => {
-              for (const statement of rows)
-                count.rows = Math.max(count.rows, statement.length)
+              statements.forEach((statement, at) => {
+                const returned = rows[at]?.length ?? 0
+                const budget = isBudgeted(statement)
+                  ? statement.rows
+                  : undefined
+                if (budget === undefined || returned > budget)
+                  over.push(
+                    `…${statement.sql.replaceAll(/\s+/g, " ").slice(-60)}: ${returned} rows, budget ${budget ?? "none"}`
+                  )
+              })
             })
           ),
       })
     })
   ).pipe(Layer.provide(db.layer))
-  return { count, layer }
+  return { over, layer }
 }
 
 describe("the Holder map's read of a hub", () => {
@@ -101,12 +119,12 @@ describe("the Holder map's read of a hub", () => {
     "focuses a holder of every stock at the parse's caps, in 40 MiB",
     () =>
       Effect.gen(function* () {
-        const db = hub()
+        const { over, layer } = budgeted(hub())
         const before = yield* retainedHeap
         const read = yield* holderMapRead({
           focus: { kind: "holder", key: HolderKey.make(HUB) },
           day: undefined,
-        }).pipe(Effect.provide(db.layer))
+        }).pipe(Effect.provide(layer))
         const view = yield* holderMapView(read)
         const retained = ((yield* retainedHeap) - before) / 2 ** 20
         // Every stock, in the 5% band, and every other block and row.
@@ -120,6 +138,7 @@ describe("the Holder map's read of a hub", () => {
           view.focus?.graph.nodes.length,
           1 + 2_000 + 18_000 + BLOCKS
         )
+        assert.deepStrictEqual(over, [])
         assert.isBelow(
           retained,
           HEAP_LIMIT_MIB,
@@ -137,6 +156,7 @@ describe("the Holder map's read of a hub", () => {
         db.database
           .prepare("UPDATE above_5_account SET custodian = ?")
           .run(HUB_CUSTODIAN)
+        const { over, layer } = budgeted(db)
         const before = yield* retainedHeap
         const read = yield* holderMapRead({
           focus: {
@@ -144,7 +164,7 @@ describe("the Holder map's read of a hub", () => {
             id: CustodianId.make("NAME:CUSTODIAN HUB"),
           },
           day: undefined,
-        }).pipe(Effect.provide(db.layer))
+        }).pipe(Effect.provide(layer))
         const view = yield* holderMapView(read)
         const retained = ((yield* retainedHeap) - before) / 2 ** 20
         // Every block of the day, through it.
@@ -155,6 +175,7 @@ describe("the Holder map's read of a hub", () => {
           view.focus?.graph.nodes.length,
           1 + 1 + (ABOVE_5_DAY_ROWS - STOCKS.length) + STOCKS.length
         )
+        assert.deepStrictEqual(over, [])
         assert.isBelow(
           retained,
           HEAP_LIMIT_MIB,
@@ -180,6 +201,7 @@ describe("the Holder map's read of a hub", () => {
             "UPDATE above_5_account SET custodian = ? WHERE data_date = ? AND no = 1"
           )
           .run(HUB_CUSTODIAN, DAY)
+        const { over, layer } = budgeted(db)
         const before = yield* retainedHeap
         const read = yield* holderMapRead({
           focus: {
@@ -187,7 +209,7 @@ describe("the Holder map's read of a hub", () => {
             id: CustodianId.make("NAME:CUSTODIAN HUB"),
           },
           day: undefined,
-        }).pipe(Effect.provide(db.layer))
+        }).pipe(Effect.provide(layer))
         const view = yield* holderMapView(read)
         const retained = ((yield* retainedHeap) - before) / 2 ** 20
         // Every block of the day before, a day's at the cap, but the one
@@ -195,6 +217,7 @@ describe("the Holder map's read of a hub", () => {
         assert.strictEqual(read.links.length, 1)
         assert.strictEqual(read.offList.length, ABOVE_5_DAY_ROWS - 1)
         assert.strictEqual(view.focus?.offList.length, ABOVE_5_DAY_ROWS - 1)
+        assert.deepStrictEqual(over, [])
         assert.isBelow(
           retained,
           HEAP_LIMIT_MIB,
@@ -220,11 +243,12 @@ describe("the Holder map's read of a hub", () => {
             'FORMER HOLDER ' || at, '[]', NULL, 'off list', '[]', NULL, 600,
             NULL, NULL, '[]', NULL
           FROM n`)
+        const { over, layer } = budgeted(db)
         const before = yield* retainedHeap
         const read = yield* holderMapRead({
           focus: { kind: "stock", code: StockCode.make("S0000") },
           day: undefined,
-        }).pipe(Effect.provide(db.layer))
+        }).pipe(Effect.provide(layer))
         const view = yield* holderMapView(read)
         const retained = ((yield* retainedHeap) - before) / 2 ** 20
         // The newest whole days' leavings that fit a day's accounts at the
@@ -232,6 +256,7 @@ describe("the Holder map's read of a hub", () => {
         assert.strictEqual(read.offList.length, 7_950)
         assert.strictEqual(view.focus?.offList.length, 7_950)
         assert.isTrue(view.focus?.offListCut)
+        assert.deepStrictEqual(over, [])
         assert.isBelow(
           retained,
           HEAP_LIMIT_MIB,
@@ -246,11 +271,12 @@ describe("the Holder map's read of a hub", () => {
     () =>
       Effect.gen(function* () {
         const db = hub()
+        const { over, layer } = budgeted(db)
         const before = yield* retainedHeap
         const read = yield* holderMapRead({
           focus: { kind: "stock", code: StockCode.make("S0000") },
           day: undefined,
-        }).pipe(Effect.provide(db.layer))
+        }).pipe(Effect.provide(layer))
         const view = yield* holderMapView(read)
         const retained = ((yield* retainedHeap) - before) / 2 ** 20
         // The hub's 1,999 other stocks, a link each.
@@ -259,6 +285,7 @@ describe("the Holder map's read of a hub", () => {
           view.focus?.graph.nodes.filter(({ kind }) => kind === "stock").length,
           STOCKS.length
         )
+        assert.deepStrictEqual(over, [])
         assert.isBelow(
           retained,
           HEAP_LIMIT_MIB,
@@ -294,7 +321,7 @@ describe("the Holder map's read of a hub", () => {
             at === days.length - 1 ? ABOVE_5_DAY_ROWS : at + 1
           )
         )
-        const { count, layer } = counted(db)
+        const { over, layer } = budgeted(db)
         const before = yield* retainedHeap
         const read = yield* holderMapRead({
           focus: {
@@ -305,13 +332,9 @@ describe("the Holder map's read of a hub", () => {
         }).pipe(Effect.provide(layer))
         const view = yield* holderMapView(read)
         const retained = ((yield* retainedHeap) - before) / 2 ** 20
-        // No statement returns more than a day at the cap: the Off list
-        // keeps the newest day whose blocks and accounts fit.
-        assert.isAtMost(
-          count.rows,
-          ABOVE_5_DAY_ROWS,
-          `${count.rows} rows from one statement`
-        )
+        // No statement passes its budget, the Off list's a day at the cap:
+        // it keeps the newest day whose blocks and accounts fit.
+        assert.deepStrictEqual(over, [])
         // The newest holding left, and older ones said to be left out.
         assert.strictEqual(read.links.length, 1)
         assert.strictEqual(view.focus?.offList.length, 1)
@@ -323,5 +346,93 @@ describe("the Holder map's read of a hub", () => {
         )
       }),
     { timeout: 240_000 }
+  )
+
+  it.effect(
+    "focuses a stock whose month holders each left the list 4,000 times, in each statement's budget",
+    () =>
+      Effect.gen(function* () {
+        // 20 holders of the month, each key with 4,000 earlier identities
+        // that left the above-5% list after the month (codex review of
+        // apinrdw/kumora#741, round 6: 80,000 crossing rows).
+        const db = memoryHoldingsDb()
+        seedAbove5AtCap(db, [DAY], ["S0000"], 1)
+        seedAbove1AtCap(db, [MONTH], ["S0000"], CROSSING_HOLDERS)
+        db.database.exec(`WITH RECURSIVE n(at) AS (
+            SELECT 1 UNION ALL SELECT at + 1 FROM n WHERE at < ${LEAVINGS_PER_KEY}
+          )
+          INSERT INTO above_5_move
+          SELECT '${PREV}', stock_code, holder_key || '#' || at, issuer_name,
+            investor_name, '[]', NULL, 'off list', '[]', NULL, 600, NULL,
+            NULL, '[]', NULL
+          FROM above_1_holding, n`)
+        const { over, layer } = budgeted(db)
+        const before = yield* retainedHeap
+        const read = yield* holderMapRead({
+          focus: { kind: "stock", code: StockCode.make("S0000") },
+          day: undefined,
+        }).pipe(Effect.provide(layer))
+        const view = yield* holderMapView(read)
+        const held = yield* holderMapRead({
+          focus: {
+            kind: "holder",
+            key: HolderKey.make(read.links[1]?.holder ?? ""),
+          },
+          day: undefined,
+        }).pipe(Effect.provide(layer))
+        const retained = ((yield* retainedHeap) - before) / 2 ** 20
+        assert.deepStrictEqual(over, [])
+        // Each month holder Down out of 5% since its newest leaving.
+        assert.deepStrictEqual(
+          read.links
+            .filter(({ band }) => band === "1%")
+            .map(({ crossing }) => crossing),
+          Array.from({ length: CROSSING_HOLDERS }, () => ({
+            kind: "down out of 5%" as const,
+            since: WibDate.make(PREV),
+          }))
+        )
+        assert.strictEqual(view.focus?.offList.length, 0)
+        assert.deepStrictEqual(
+          held.links.map(({ crossing }) => crossing?.kind),
+          ["down out of 5%"]
+        )
+        assert.isBelow(
+          retained,
+          HEAP_LIMIT_MIB,
+          `${retained.toFixed(1)} MiB retained`
+        )
+      }),
+    { timeout: 120_000 }
+  )
+
+  it.effect(
+    "lists the picker's days and the search's stocks, holders and custodians in each statement's budget",
+    () =>
+      Effect.gen(function* () {
+        const db = hub()
+        // More parsed days than a day's rows at the cap, all before DAY.
+        db.database.exec(`WITH RECURSIVE n(at) AS (
+            SELECT 1 UNION ALL SELECT at + 1 FROM n WHERE at < ${ABOVE_5_DAY_ROWS}
+          )
+          INSERT INTO above_5_day
+          SELECT date('2000-01-01', '+' || at || ' days'), 'sha', 1,
+            '2026-11-25T00:00:00Z'
+          FROM n`)
+        const { over, layer } = budgeted(db)
+        const read = yield* holderMapRead({
+          focus: undefined,
+          day: undefined,
+        }).pipe(Effect.provide(layer))
+        const list = yield* holderMapSearchList(undefined).pipe(
+          Effect.provide(layer)
+        )
+        assert.deepStrictEqual(over, [])
+        // The newest days that fit, oldest first, up to the map's.
+        assert.strictEqual(read.days.length, ABOVE_5_DAY_ROWS)
+        assert.strictEqual(read.days.at(-1), DAY)
+        assert.strictEqual(list.stocks.length, STOCKS.length)
+      }),
+    { timeout: 120_000 }
   )
 })

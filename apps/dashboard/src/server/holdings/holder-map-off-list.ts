@@ -16,6 +16,7 @@ import {
 } from "./holder-map-holders.ts"
 import { LeavingRow, leavings } from "./holder-map-moves.ts"
 import {
+  type Budgeted,
   type Focus,
   type HolderMapLink,
   type HolderMapOffList,
@@ -78,14 +79,20 @@ const LEFT = (where: string) => `${PERIODS},
     FROM left_lines GROUP BY stock_code, band, data_date
   )`
 
-const leftStatements = (where: string) => [
-  `${LEFT(where)} ${cutOf("left_periods", `upto > ${OFF_LIST_ROWS}`)}`,
-  `${LEFT(where)}
+const leftStatements = (where: string): ReadonlyArray<Budgeted> => [
+  {
+    sql: `${LEFT(where)} ${cutOf("left_periods", `upto > ${OFF_LIST_ROWS}`)}`,
+    rows: 1,
+  },
+  {
+    sql: `${LEFT(where)}
   SELECT stock_code, issuer_name, band, name, data_date, stake_before
   FROM left_lines JOIN left_periods USING (stock_code, band, data_date)
   WHERE upto <= ${OFF_LIST_ROWS}
   ORDER BY data_date DESC, stock_code, band, name
   LIMIT ${OFF_LIST_ROWS}`,
+    rows: OFF_LIST_ROWS,
+  },
 ]
 
 // A custodian's earlier holdings: each above-5% holding with shares in an
@@ -160,17 +167,21 @@ const THROUGH = `${PERIODS},
 
 // Decision: the Holder map matches holders across stocks and reports by
 // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
-export const OFF_LIST: Record<Focus["kind"], ReadonlyArray<string>> = {
+export const OFF_LIST: Record<Focus["kind"], ReadonlyArray<Budgeted>> = {
   stock: leftStatements("stock_code = ?2"),
   // An identity is `<key>#<n>`: those of the key sort from `<key>#` up to,
   // not including, `<key>$`.
   holder: leftStatements("holder >= ?2 || '#' AND holder < ?2 || '$'"),
   custodian: [
-    `${THROUGH} ${cutOf(
-      "read_days",
-      `blocks_upto > ${OFF_LIST_ROWS} OR accounts_upto > ${OFF_LIST_ROWS}`
-    )}`,
-    `${THROUGH}
+    {
+      sql: `${THROUGH} ${cutOf(
+        "read_days",
+        `blocks_upto > ${OFF_LIST_ROWS} OR accounts_upto > ${OFF_LIST_ROWS}`
+      )}`,
+      rows: 1,
+    },
+    {
+      sql: `${THROUGH}
   SELECT last_through.stock_code, holder_key, last_day,
     (SELECT MIN(data_date) FROM above_5_day
       WHERE data_date > last_through.last_day) AS left_on
@@ -179,20 +190,28 @@ export const OFF_LIST: Record<Focus["kind"], ReadonlyArray<string>> = {
       AND kept.stock_code = last_through.stock_code
   ORDER BY last_day DESC, last_through.stock_code, holder_key
   LIMIT ${OFF_LIST_ROWS}`,
-    `${THROUGH}
+      rows: OFF_LIST_ROWS,
+    },
+    {
+      sql: `${THROUGH}
   SELECT stock_code, data_date, no, issuer_name, holder_name, holder_key,
     scripless, percentage_hundredths
   FROM candidates JOIN kept USING (data_date, stock_code)
     JOIN above_5_holder USING (data_date, stock_code, no)
   ORDER BY stock_code, data_date, no
   LIMIT ${OFF_LIST_ROWS}`,
-    `${THROUGH}
+      rows: OFF_LIST_ROWS,
+    },
+    {
+      sql: `${THROUGH}
   SELECT stock_code, data_date, no, custodian, account_name, origin,
     domicile, scripless
   FROM candidates JOIN kept USING (data_date, stock_code)
     JOIN above_5_account USING (data_date, stock_code, no)
   ORDER BY stock_code, data_date, no, ordinal
   LIMIT ${OFF_LIST_ROWS}`,
+      rows: OFF_LIST_ROWS,
+    },
   ],
 }
 

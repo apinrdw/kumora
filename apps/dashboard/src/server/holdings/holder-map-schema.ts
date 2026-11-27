@@ -11,6 +11,9 @@ import {
   SplitOrigin,
 } from "@/domain/holdings"
 
+import { MAX_HOLDING_ROWS } from "./above-1.ts"
+import { MAX_ROWS } from "./above-5.ts"
+
 export type Focus = NonNullable<HolderMapQuery["focus"]>
 
 // A holder's move against its band's period before: the trading day before
@@ -177,6 +180,26 @@ export const HolderMapRead = Schema.Struct({
 })
 export type HolderMapRead = typeof HolderMapRead.Type
 
+// A statement of the Holder map's reads and the most rows it returns: a
+// budget in the parse caps (ADR 0045), which no number of periods parsed
+// raises. Rows the Worker decodes are at most the budgets' sum, however
+// the statement's scans grow. tests/server/holdings/holder-map-heap.test.ts
+// holds each statement to its budget.
+//
+// Decision: a stock's holders are read from its newest periods that fit a
+// row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
+export interface Budgeted {
+  readonly sql: string
+  readonly rows: number
+}
+
+// An above-5% day's rows at the parse's cap: its blocks, or its
+// securities accounts.
+export const DAY_ROWS = MAX_ROWS
+
+// An above-1% month's rows at the parse's cap.
+export const MONTH_ROWS = MAX_HOLDING_ROWS
+
 // The day the map is drawn as of, `asof`, and the 1% band's month,
 // `band_month`. ?1 is the day asked for, null for the newest; a day asked
 // for that has no above-5% report leaves both null, so nothing is read.
@@ -194,8 +217,11 @@ export const PERIODS = `WITH asof AS (
   )`
 
 // The day and the month the map is drawn as of.
-export const PERIODS_SQL = `${PERIODS}
-  SELECT (SELECT day FROM asof) AS day, (SELECT month FROM band_month) AS month`
+export const PERIODS_SQL = {
+  sql: `${PERIODS}
+  SELECT (SELECT day FROM asof) AS day, (SELECT month FROM band_month) AS month`,
+  rows: 1,
+} satisfies Budgeted
 
 export const PeriodsRow = Schema.Struct({
   day: Schema.NullOr(WibDate),
