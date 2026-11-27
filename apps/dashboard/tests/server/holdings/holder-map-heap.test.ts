@@ -4,16 +4,20 @@
 // month, each at its parse's cap (ADR 0045), and every stored line of them.
 import { assert, describe, it } from "@effect/vitest"
 import { StockCode } from "@workspace/relay"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 
 import { CustodianId, HolderKey } from "@/domain/holdings"
 import { holderMapView } from "@/lib/holder-map"
+import { HoldingsDb } from "@/server/holdings/db"
 import { holderMapRead } from "@/server/holdings/holder-map"
 
 import { retainedHeap } from "../../support/retained-heap.ts"
 import { seedAbove1AtCap } from "./above-1-at-cap.ts"
 import { ABOVE_5_DAY_ROWS, seedAbove5AtCap } from "./above-5-at-cap.ts"
-import { memoryHoldingsDb } from "./memory-holdings-db.ts"
+import {
+  memoryHoldingsDb,
+  type MemoryHoldingsDb,
+} from "./memory-holdings-db.ts"
 
 // Decision: a stock's holders are read from its newest periods that fit a
 // row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
@@ -67,6 +71,26 @@ const hub = (days: ReadonlyArray<string> = [DAY]) => {
       investor_name, '[]', NULL, 'up', '[]', 1, 100, 101, 1, '[]', NULL
     FROM above_1_holding`)
   return db
+}
+
+// `db`, and the rows its batches return, counted.
+const counted = (db: MemoryHoldingsDb) => {
+  const count = { rows: 0 }
+  const layer = Layer.effect(
+    HoldingsDb,
+    Effect.gen(function* () {
+      const inner = yield* HoldingsDb
+      return HoldingsDb.of({
+        batch: (statements) =>
+          Effect.tap(inner.batch(statements), (rows) =>
+            Effect.sync(() => {
+              for (const statement of rows) count.rows += statement.length
+            })
+          ),
+      })
+    })
+  ).pipe(Layer.provide(db.layer))
+  return { count, layer }
 }
 
 describe("the Holder map's read of a hub", () => {
@@ -238,5 +262,62 @@ describe("the Holder map's read of a hub", () => {
         )
       }),
     { timeout: 120_000 }
+  )
+
+  it.effect(
+    "focuses a custodian that left a holding on each of 30 days, in 40 MiB",
+    () =>
+      Effect.gen(function* () {
+        // One stock, each day a cap's blocks all listing the same shares,
+        // so each is one a holding of its day could repeat (codex review of
+        // apinrdw/kumora#741, round 4). The custodian held block n through
+        // day n, and holds the last block on the as-of day.
+        const days = Array.from({ length: 31 }, (_, at) =>
+          new Date(Date.UTC(2025, 11, 1 + at)).toISOString().slice(0, 10)
+        )
+        const db = memoryHoldingsDb()
+        seedAbove5AtCap(db, days, ["S0000"], ABOVE_5_DAY_ROWS)
+        const { database } = db
+        database.exec("UPDATE above_5_holder SET scripless = 1000")
+        database.exec("UPDATE above_5_account SET scripless = 1000")
+        const through = database.prepare(
+          "UPDATE above_5_account SET custodian = ? WHERE data_date = ? AND no = ?"
+        )
+        days.forEach((date, at) =>
+          through.run(
+            HUB_CUSTODIAN,
+            date,
+            at === days.length - 1 ? ABOVE_5_DAY_ROWS : at + 1
+          )
+        )
+        const { count, layer } = counted(db)
+        const before = yield* retainedHeap
+        const read = yield* holderMapRead({
+          focus: {
+            kind: "custodian",
+            id: CustodianId.make("NAME:CUSTODIAN HUB"),
+          },
+          day: undefined,
+        }).pipe(Effect.provide(layer))
+        const view = yield* holderMapView(read)
+        const retained = ((yield* retainedHeap) - before) / 2 ** 20
+        // At most a day at the cap of each: the custodian names, and the
+        // Off list's blocks and accounts.
+        assert.isAtMost(
+          count.rows,
+          4 * ABOVE_5_DAY_ROWS,
+          `${count.rows} rows returned`
+        )
+        // The newest holding left, and older ones said to be left out.
+        assert.strictEqual(read.links.length, 1)
+        assert.strictEqual(view.focus?.offList.length, 1)
+        assert.isTrue(view.focus?.offListCut)
+        assert.isBelow(
+          retained,
+          HEAP_LIMIT_MIB,
+          `${retained.toFixed(1)} MiB retained`
+        )
+      }),
+    { timeout: 240_000 }
   )
 })
