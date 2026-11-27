@@ -1293,6 +1293,48 @@ describe("Holder map, one key's blocks", () => {
         )
       })
   )
+
+  it.effect(
+    "folds the day before's repeat of another key's block as the day's",
+    () =>
+      Effect.gen(function* () {
+        // On 19 and 20 Nov alike: PT ALPHA's block, a PT BETA-named repeat
+        // of it, and PT BETA's own block. Folded on both days, PT BETA
+        // holds its own 2,000 shares unchanged (codex review of
+        // apinrdw/kumora#741, round 10).
+        const w = yield* parsed
+        const db = w.holdings.database
+        const block = db.prepare(
+          `INSERT INTO above_5_holder VALUES (?, 'CNTH', ?, 'CONTOH TBK',
+            ?, ?, ?, ?)`
+        )
+        const account = db.prepare(
+          `INSERT INTO above_5_account VALUES (?, 'CNTH', ?, 1, ?, ?,
+            'local', NULL, NULL, ?)`
+        )
+        const blocks = [
+          ["PT ALPHA", HSBC, "PT ALPHA", 1_000],
+          ["PT BETA", HSBC, "PT ALPHA", 1_000],
+          ["PT BETA", PROFINDO, "PT BETA", 2_000],
+        ] as const
+        for (const day of ["2026-11-19", "2026-11-20"])
+          for (const [
+            at,
+            [name, custodian, holds, shares],
+          ] of blocks.entries()) {
+            block.run(day, at + 1, name, yield* holderKey(name), shares, shares)
+            account.run(day, at + 1, custodian, holds, shares)
+          }
+        const [above5] = (yield* mapOf(w, "CNTH")).focus?.bands ?? []
+        assert.deepStrictEqual(
+          above5?.holders.map(({ name, shares, move }) => [name, shares, move]),
+          [
+            ["PT BETA", 2_000, undefined],
+            ["PT ALPHA", 1_000, undefined],
+          ]
+        )
+      })
+  )
 })
 
 describe("Holder map, a repeat block of another key", () => {
