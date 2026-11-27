@@ -99,7 +99,7 @@ test("a reconnect's snapshot loads the heatmap again, its slices replacing the o
     return null
   }
   const root = createRoot(document.createElement("div"))
-  await act(() => root.render(<Harness />))
+  await act<void>(() => root.render(<Harness />))
   act(() => store!.apply(snapshot(book(now, 50))))
   await settle()
   expect(shown(store!)).toEqual([
@@ -139,5 +139,5 @@ test("a reconnect's snapshot loads the heatmap again, its slices replacing the o
     ["14:20:30", 3],
     ["14:20:40", 90],
   ])
-  await act(() => root.unmount())
+  await act<void>(() => root.unmount())
 })

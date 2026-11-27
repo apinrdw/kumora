@@ -215,7 +215,10 @@ const repeatSignature = ({ scripless, accounts }: Above5Holder) =>
       scripless,
       accounts
         .map((account) => [account.custodian, account.name, account.scripless])
-        .sort(),
+        .sort((a, b) => {
+          const [x, y] = [a.join(), b.join()]
+          return x < y ? -1 : x > y ? 1 : 0
+        }),
     ])
   )
 

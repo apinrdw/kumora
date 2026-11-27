@@ -1904,7 +1904,7 @@ test.describe.serial("the Broker inventory tab", () => {
     page,
   }) => {
     const days = tradingDaysBeforeToday(80)
-    const [first = "", second = "", third = ""] = [days[60], days[65], days[70]]
+    const [first, second, third] = [days[60], days[65], days[70]]
     const url = `${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y`
     await page.goto(url)
     // With nothing hovered, the newest day.
@@ -1958,7 +1958,7 @@ test.describe.serial("the Broker inventory tab", () => {
     page,
   }) => {
     const days = tradingDaysBeforeToday(80)
-    const [from = "", to = ""] = [days[60], days[69]]
+    const [from, to] = [days[60], days[69]]
     await page.goto(`${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y`)
     await expect(candleOf(page, from)).toHaveCount(1)
     // From one candle's body to another's: a drag, which opens neither.
@@ -2024,7 +2024,7 @@ test.describe.serial("the Broker inventory tab", () => {
   }) => {
     const days = tradingDaysBeforeToday(80)
     // 2W holds only the newest days; these are months back.
-    const [from = "", to = ""] = [days[10], days[19]]
+    const [from, to] = [days[10], days[19]]
     await page.goto(
       `${DASHBOARD}/stocks/BBCA?tab=brokers&range=2W&selFrom=${from}&selTo=${to}`
     )

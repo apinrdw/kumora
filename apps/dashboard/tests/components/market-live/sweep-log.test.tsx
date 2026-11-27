@@ -83,7 +83,7 @@ async function renderLog(pieces: ReadonlyArray<SweepPiece>) {
   const root = createRoot(
     document.body.appendChild(document.createElement("div"))
   )
-  await act(() =>
+  await act<void>(() =>
     root.render(
       <SweepLog
         store={store}

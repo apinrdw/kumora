@@ -5,6 +5,7 @@ When a minute's sweeps change, every delta sends that minute's sweeps whole, and
 If that proves too heavy, the fallback is to send a minute's sweeps at most once a second.
 
 Sites:
+
 - `apps/dashboard/src/server/market-live/candles.ts`
 
 Source: apinrdw/kumora#279

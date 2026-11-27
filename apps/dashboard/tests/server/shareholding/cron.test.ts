@@ -33,7 +33,9 @@ describe("the archive cron", () => {
       const settled = yield* Effect.tryPromise({
         try: () => runArchiveCron(Date.parse("2026-11-14T13:00:00Z")),
         catch: (error) =>
-          assert.fail(`expected the cron to settle, but it rejected: ${error}`),
+          assert.fail(
+            `expected the cron to settle, but it rejected: ${String(error)}`
+          ),
       })
 
       assert.isTrue(Result.isFailure(settled), "the cron's run failed")

@@ -281,7 +281,7 @@ describe("an archive run", () => {
         )
         const records = recordsOf(bucket, daily.Prospectus)
         assert.deepStrictEqual(
-          records.map((key) => json(bucket, key).etag).sort(),
+          records.map((key): string => json(bucket, key).etag).sort(),
           [`"etag-0:0"`, `"etag-0:1"`]
         )
 

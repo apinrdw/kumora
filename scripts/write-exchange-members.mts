@@ -1,4 +1,4 @@
-// `pnpm idx:exchange-members`: rewrites the dashboard's exchange-member table
+// `vp run idx:exchange-members`: rewrites the dashboard's exchange-member table
 // from IDX's list (exchange-members.mts).
 //
 // Decision: broker codes come from a checked-in table of IDX's member list,

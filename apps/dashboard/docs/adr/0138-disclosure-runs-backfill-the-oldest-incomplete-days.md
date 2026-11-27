@@ -5,6 +5,7 @@ The disclosure archive reaches back to IDX's first disclosure day, 3 July 2023 (
 A backfill action or a separate cursor was the alternative: the spec wants one kind of run, and the index already says which days are complete. Reporting a run out of budget as complete would hide that the archive is still behind; the coverage by day shows how far behind.
 
 Sites:
+
 - `apps/dashboard/src/server/disclosures/archive-run.ts`
 - `apps/dashboard/src/server/disclosures/disclosure-day.ts`
 - `apps/dashboard/src/server/disclosures/run-result.ts`

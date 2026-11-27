@@ -1,6 +1,5 @@
 import type { TablerIcon } from "@tabler/icons-react"
 import { cn } from "@workspace/ui/lib/utils"
-import { Effect } from "effect"
 import type { ReactNode } from "react"
 
 // Variant A of the sign-in prototype (branch prototype/sign-in-flow): a page
@@ -63,18 +62,6 @@ export function Notice({
 }
 
 export const linkClass = "text-primary hover:underline"
-
-/** The named fields of a submitted form, as text. */
-export const formFields = <K extends string>(
-  form: HTMLFormElement,
-  names: ReadonlyArray<K>
-): Effect.Effect<Record<K, string>> =>
-  Effect.sync(() => {
-    const data = new FormData(form)
-    return Object.fromEntries(
-      names.map((name) => [name, String(data.get(name) ?? "")])
-    ) as Record<K, string>
-  })
 
 /** An error from Better Auth, said in words a visitor can act on. */
 export function FormError({ children }: { children: ReactNode }) {

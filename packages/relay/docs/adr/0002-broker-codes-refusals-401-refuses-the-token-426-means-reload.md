@@ -5,6 +5,7 @@ The extension POSTs broker codes to Production and to an optional extra target, 
 The broker codes protocol version is what produces the 426, and each bump gives older extensions one: 2 when the status started listing at most `MISSING_RANGES` ranges, 3 when rows carried trade fields (#425), 4 when they carried time and side, which a walk day takes as its tape, after 0.0.29 sent 3 without them (#437), and 5 when a row may carry order numbers and the status counts them (#627).
 
 Sites:
+
 - `apps/extension/src/worker/broker-codes/status.ts`
 - `apps/extension/src/worker/broker-codes/extra-target.ts`
 - `apps/extension/src/worker/broker-codes/production-target.ts`

@@ -103,7 +103,7 @@ describe("book readings after a restart", () => {
         assert.deepStrictEqual(
           (snapshot.bookReadings ?? [])
             .map((readings) => [readings.code, wibTime(readings.at)])
-            .sort(),
+            .sort(([a], [b]) => (a < b ? -1 : 1)),
           [
             ["BBCA", "11:58:00"],
             ["UNTR", "11:59:30"],

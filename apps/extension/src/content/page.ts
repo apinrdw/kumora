@@ -53,18 +53,18 @@ new MutationObserver(() => {
 
 // Each box gets its digit through the native value setter and an
 // `input` event, so React's own change tracking sees it, as typing would.
-const setValue = Object.getOwnPropertyDescriptor(
+const valueDescriptor = Object.getOwnPropertyDescriptor(
   HTMLInputElement.prototype,
   "value"
-)?.set
+)
 const typePin = (pin: string) => {
   const boxes = pinBoxes()
-  if (boxes === undefined || setValue === undefined) return false
-  boxes.forEach((box, at) => {
+  if (boxes === undefined || valueDescriptor?.set === undefined) return false
+  for (const [at, box] of boxes.entries()) {
     box.focus()
-    setValue.call(box, pin[at] ?? "")
+    valueDescriptor.set.call(box, pin[at] ?? "")
     box.dispatchEvent(new Event("input", { bubbles: true }))
-  })
+  }
   return true
 }
 
@@ -118,7 +118,7 @@ window.fetch = function (input, init) {
   let url = ""
   try {
     const request = input instanceof Request ? input : undefined
-    url = request?.url ?? String(input)
+    url = input instanceof Request ? input.url : String(input)
     report(url, new Headers(init?.headers ?? request?.headers))
   } catch {
     // Never break the page's request.
@@ -134,18 +134,36 @@ window.fetch = function (input, init) {
 
 const opened = new WeakMap<XMLHttpRequest, { url: string; headers: Headers }>()
 const pageXhr = XMLHttpRequest.prototype
-const { open: pageOpen, setRequestHeader, send } = pageXhr
-pageXhr.open = function (
+type Open = (
   this: XMLHttpRequest,
   method: string,
   url: string | URL,
-  async: boolean = true,
+  async?: boolean,
   username?: string | null,
   password?: string | null
+) => void
+// The page's own methods, kept as functions each wrapper calls with its
+// request as `this`.
+const pageMethods: {
+  open: Open
+  setRequestHeader: (this: XMLHttpRequest, name: string, value: string) => void
+  send: (
+    this: XMLHttpRequest,
+    body?: Document | XMLHttpRequestBodyInit | null
+  ) => void
+} = pageXhr
+const { open: pageOpen, setRequestHeader, send } = pageMethods
+const wrappedOpen: Open = function (
+  method,
+  url,
+  async = true,
+  username,
+  password
 ) {
   opened.set(this, { url: String(url), headers: new Headers() })
   pageOpen.call(this, method, url, async, username, password)
 }
+pageXhr.open = wrappedOpen
 pageXhr.setRequestHeader = function (name, value) {
   try {
     opened.get(this)?.headers.append(name, value)

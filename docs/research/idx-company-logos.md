@@ -18,31 +18,31 @@ I am not a lawyer. The terms-of-use readings below quote each source's own text.
 
 ## Sources
 
-| Tag | Source | Read |
-|---|---|---|
-| **[idx-list]** | `GET https://www.idx.id/primary/ListedCompany/GetCompanyProfiles?emitenType=s&start=0&length=9999`, which returns `recordsTotal: 944` and a `Logo` and `Website` field per code | 2026-11-16 |
-| **[idx-tou]** | IDX Terms of Use, `GET https://www.idx.id/primary/page/en/terms-of-use/` (CMS record of `/en/terms-of-use/`) | 2026-11-16 |
-| **[sb-bundle]** | stockbit.com Next.js bundle, `buildId` `v3.56.0`, chunk `61450-0c18e847babf8835.js` and others | 2026-11-16 |
-| **[sb-terms]** | Stockbit Terms, rendered from `/_next/static/chunks/pages/terms-f4b7890fe61d05de.js` (the page at `https://stockbit.com/terms`) | 2026-11-16 |
-| **[aj-bundle]** | Ajaib Trade bundle, entry `index-BZJGQdhq.js`, chunk `useStockIcon-s8xZ4NZu.js` | 2026-11-16 |
-| **[fmp-tos]** | [FMP Terms of Service](https://site.financialmodelingprep.com/terms-of-service), "Last updated: August 1, 2023" | 2026-11-16 |
-| **[logodev]** | Logo.dev docs: [ticker](https://www.logo.dev/docs/logo-images/ticker), [self-hosting](https://www.logo.dev/docs/platform/self-hosting), [caching](https://www.logo.dev/docs/platform/caching), [fair use](https://www.logo.dev/docs/platform/fair-use), [pricing](https://www.logo.dev/pricing) | 2026-11-16 |
-| **[brandfetch]** | [Brandfetch Logo API guidelines](https://docs.brandfetch.com/logo-api/guidelines) | 2026-11-16 |
-| **[uu-merek]** | UU No. 20 Tahun 2016 tentang Merek dan Indikasi Geografis, PDF from [peraturan.bpk.go.id](https://peraturan.bpk.go.id/Details/37595/uu-no-20-tahun-2016) | 2026-11-16 |
+| Tag              | Source                                                                                                                                                                                                                                                                                          | Read       |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| **[idx-list]**   | `GET https://www.idx.id/primary/ListedCompany/GetCompanyProfiles?emitenType=s&start=0&length=9999`, which returns `recordsTotal: 944` and a `Logo` and `Website` field per code                                                                                                                 | 2026-11-16 |
+| **[idx-tou]**    | IDX Terms of Use, `GET https://www.idx.id/primary/page/en/terms-of-use/` (CMS record of `/en/terms-of-use/`)                                                                                                                                                                                    | 2026-11-16 |
+| **[sb-bundle]**  | stockbit.com Next.js bundle, `buildId` `v3.56.0`, chunk `61450-0c18e847babf8835.js` and others                                                                                                                                                                                                  | 2026-11-16 |
+| **[sb-terms]**   | Stockbit Terms, rendered from `/_next/static/chunks/pages/terms-f4b7890fe61d05de.js` (the page at `https://stockbit.com/terms`)                                                                                                                                                                 | 2026-11-16 |
+| **[aj-bundle]**  | Ajaib Trade bundle, entry `index-BZJGQdhq.js`, chunk `useStockIcon-s8xZ4NZu.js`                                                                                                                                                                                                                 | 2026-11-16 |
+| **[fmp-tos]**    | [FMP Terms of Service](https://site.financialmodelingprep.com/terms-of-service), "Last updated: August 1, 2023"                                                                                                                                                                                 | 2026-11-16 |
+| **[logodev]**    | Logo.dev docs: [ticker](https://www.logo.dev/docs/logo-images/ticker), [self-hosting](https://www.logo.dev/docs/platform/self-hosting), [caching](https://www.logo.dev/docs/platform/caching), [fair use](https://www.logo.dev/docs/platform/fair-use), [pricing](https://www.logo.dev/pricing) | 2026-11-16 |
+| **[brandfetch]** | [Brandfetch Logo API guidelines](https://docs.brandfetch.com/logo-api/guidelines)                                                                                                                                                                                                               | 2026-11-16 |
+| **[uu-merek]**   | UU No. 20 Tahun 2016 tentang Merek dan Indikasi Geografis, PDF from [peraturan.bpk.go.id](https://peraturan.bpk.go.id/Details/37595/uu-no-20-tahun-2016)                                                                                                                                        | 2026-11-16 |
 
 ## Coverage and format
 
 Each row is one `GET` per code for all 944 codes in **[idx-list]**.
 
-| Source | URL per code | Found | Format | Size | Last-Modified |
-|---|---|---|---|---|---|
-| Stockbit | `https://assets.stockbit.com/logos/companies/{CODE}.png` | **944** | PNG, RGBA, a filled circle on a transparent square | 160 or 161 px square for 935; median 5.1 KB; 5.1 MB in all | 738 from 2022, then 75 / 60 / 31 / 40 for 2023–2026 |
-| IDX | `https://www.idx.id/Portals/0/StaticData/ListedCompanies/LogoEmiten/{CODE}.jpg` | 419 (525 are 404) | JPEG (2 are PNGs named `.jpg`), mostly on white | any size: 271 are wider than 1.5 : 1; one is ~99 megapixels (886 KB) | 165 from 2010, a few dozen a year since |
-| Financial Modeling Prep | `https://financialmodelingprep.com/image-stock/{CODE}.JK.png` | 828 (116 are 404) | PNG | 100 × 100 or 128 × 128 | not sent |
-| EODHD | `https://eodhd.com/img/logos/JK/{CODE}.png` | 271 | PNG | mostly 200 × 200 or 180 × 180 | 268 from 2024 |
-| Ajaib | list from `GET ht2.ajaib.co.id/api/v1/stock/data/company/logo/` | not probed (sign-in) | `icon_url` per code on `cdn-stock.ajaib.co.id` | unknown | unknown |
-| Logo.dev | `https://img.logo.dev/ticker/{CODE}.JK?token=…`, or the API by domain | **not measured** | WebP or PNG, size chosen per request | | |
-| Issuer sites | none in common | 60-code sample: 51 sites answered, 27 had an `apple-touch-icon`, 47 a favicon | mixed | mixed | |
+| Source                  | URL per code                                                                    | Found                                                                         | Format                                             | Size                                                                 | Last-Modified                                       |
+| ----------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------- |
+| Stockbit                | `https://assets.stockbit.com/logos/companies/{CODE}.png`                        | **944**                                                                       | PNG, RGBA, a filled circle on a transparent square | 160 or 161 px square for 935; median 5.1 KB; 5.1 MB in all           | 738 from 2022, then 75 / 60 / 31 / 40 for 2023–2026 |
+| IDX                     | `https://www.idx.id/Portals/0/StaticData/ListedCompanies/LogoEmiten/{CODE}.jpg` | 419 (525 are 404)                                                             | JPEG (2 are PNGs named `.jpg`), mostly on white    | any size: 271 are wider than 1.5 : 1; one is ~99 megapixels (886 KB) | 165 from 2010, a few dozen a year since             |
+| Financial Modeling Prep | `https://financialmodelingprep.com/image-stock/{CODE}.JK.png`                   | 828 (116 are 404)                                                             | PNG                                                | 100 × 100 or 128 × 128                                               | not sent                                            |
+| EODHD                   | `https://eodhd.com/img/logos/JK/{CODE}.png`                                     | 271                                                                           | PNG                                                | mostly 200 × 200 or 180 × 180                                        | 268 from 2024                                       |
+| Ajaib                   | list from `GET ht2.ajaib.co.id/api/v1/stock/data/company/logo/`                 | not probed (sign-in)                                                          | `icon_url` per code on `cdn-stock.ajaib.co.id`     | unknown                                                              | unknown                                             |
+| Logo.dev                | `https://img.logo.dev/ticker/{CODE}.JK?token=…`, or the API by domain           | **not measured**                                                              | WebP or PNG, size chosen per request               |                                                                      |                                                     |
+| Issuer sites            | none in common                                                                  | 60-code sample: 51 sites answered, 27 had an `apple-touch-icon`, 47 a favicon | mixed                                              | mixed                                                                |                                                     |
 
 What the numbers mean:
 

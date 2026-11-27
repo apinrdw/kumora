@@ -46,9 +46,11 @@ const since = (
 const tablesOf = (storage: DurableObjectStorage) =>
   Effect.sync(() =>
     storage.sql
-      .exec("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+      .exec<{ name: string }>(
+        "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"
+      )
       .toArray()
-      .map((row) => String(row.name))
+      .map((row) => row.name)
   )
 
 // A broker totals DB no operation reaches: a build runs on the alarm.
@@ -128,12 +130,12 @@ const emptyMeasured = (
     const held = yield* Effect.sync(() => {
       let rows = 0
       for (const { name } of storage.sql
-        .exec("SELECT name FROM sqlite_schema WHERE type = 'table'")
+        .exec<{ name: string }>(
+          "SELECT name FROM sqlite_schema WHERE type = 'table'"
+        )
         .toArray())
         rows += Number(
-          storage.sql
-            .exec(`SELECT count(*) AS rows FROM "${String(name)}"`)
-            .one().rows
+          storage.sql.exec(`SELECT count(*) AS rows FROM "${name}"`).one().rows
         )
       return { rows, bytes: storage.sql.databaseSize, usage: sql.usage!() }
     })

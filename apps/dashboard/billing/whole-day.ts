@@ -367,22 +367,22 @@ const recordDay = Effect.fnUntraced(function* (sql: Sql) {
 const tableBytes = (storage: DurableObjectStorage) => {
   const sizes: Array<readonly [string, number]> = []
   const tables = storage.sql
-    .exec(
+    .exec<{ name: string }>(
       "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE '\\_%' ESCAPE '\\'"
     )
     .toArray()
   for (const { name } of tables) {
     const columns = storage.sql
-      .exec(`PRAGMA table_info(${String(name)})`)
+      .exec<{ name: string }>(`PRAGMA table_info(${name})`)
       .toArray()
       .map(
         ({ name: column }) =>
-          `COALESCE(SUM(CASE typeof(${String(column)}) WHEN 'integer' THEN 8 WHEN 'real' THEN 8 ELSE length(CAST(${String(column)} AS BLOB)) END), 0)`
+          `COALESCE(SUM(CASE typeof(${column}) WHEN 'integer' THEN 8 WHEN 'real' THEN 8 ELSE length(CAST(${column} AS BLOB)) END), 0)`
       )
     const bytes = storage.sql
-      .exec(`SELECT ${columns.join(" + ")} AS n FROM ${String(name)}`)
+      .exec(`SELECT ${columns.join(" + ")} AS n FROM ${name}`)
       .one().n
-    sizes.push([String(name), Number(bytes)])
+    sizes.push([name, Number(bytes)])
   }
   return Object.fromEntries(sizes.sort(([, a], [, b]) => b - a))
 }

@@ -18,11 +18,11 @@ Harness: the built extension in Playwright Chromium, a fake Stockbit socket on b
 
 The frames were 600 B of opaque bytes, which the relay doesn't parse.
 
-| Load per connection, two connections | Result |
-|---|---|
-| 200–4,000 f/s, steady | p99 ≈ 255–270 ms (the 250 ms batch). No backlog. |
-| 8,000 f/s for 10 s, then 300 f/s (6 runs) | 3 of 6 runs collapsed. The queue grew about 356 events a second, to 22,000. The wait to dequeue reached 90 s, and delivery lag grew about 7 s for every 5 s sent, never recovering. The other 3 runs drained. |
-| Same as above, with the consumer changed to `{ disableYield: true }` (4 runs) | 4 of 4 runs green. p99 ≈ 290 ms, the queue peaked at 84, and the relay carried about 5,700 f/s. |
+| Load per connection, two connections                                          | Result                                                                                                                                                                                                        |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 200–4,000 f/s, steady                                                         | p99 ≈ 255–270 ms (the 250 ms batch). No backlog.                                                                                                                                                              |
+| 8,000 f/s for 10 s, then 300 f/s (6 runs)                                     | 3 of 6 runs collapsed. The queue grew about 356 events a second, to 22,000. The wait to dequeue reached 90 s, and delivery lag grew about 7 s for every 5 s sent, never recovering. The other 3 runs drained. |
+| Same as above, with the consumer changed to `{ disableYield: true }` (4 runs) | 4 of 4 runs green. p99 ≈ 290 ms, the queue peaked at 84, and the relay carried about 5,700 f/s.                                                                                                               |
 
 In a collapsed run, the probes showed:
 

@@ -1,4 +1,4 @@
-# Marks each PR head commit's `e2e-evidence` status. `pnpm e2e:evidence` sets
+# Marks each PR head commit's `e2e-evidence` status. `vp run e2e:evidence` sets
 # it green after posting video; scripts/e2e-evidence-gate.repo.test.mts runs
 # this job's script against a fake GitHub client. The `e2e-evidence` context
 # and the `no-e2e-evidence` label are also CONTEXT and OPT_OUT_LABEL in
@@ -13,7 +13,16 @@ on:
   pull_request_target:
     # Decision: a draft PR runs no CI and gets no status until ready for review
     # (docs/adr/0004-drafts-run-no-checks.md)
-    types: [opened, synchronize, reopened, labeled, unlabeled, edited, ready_for_review]
+    types:
+      [
+        opened,
+        synchronize,
+        reopened,
+        labeled,
+        unlabeled,
+        edited,
+        ready_for_review,
+      ]
 
 # Retargeting a PR changes its files but not its head, and is the one `edited`
 # event with `changes.base`. Any other edit skips the job through the same test

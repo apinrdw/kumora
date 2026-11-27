@@ -39,10 +39,10 @@ secrets: [
 
 ### How the provider authenticates (`packages/infisical/src/AuthProvider.ts`)
 
-| Context | Mechanism |
-| --- | --- |
+| Context                                      | Mechanism                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Environment, which takes precedence anywhere | `INFISICAL_TOKEN`, a ready access token. Otherwise `INFISICAL_IDENTITY_ID` plus a platform OIDC JWT, exchanged through `loginWithOidcAuth`. `INFISICAL_API_URL` selects the EU cloud or a self-hosted instance. `INFISICAL_OIDC_TOKEN` and `INFISICAL_OIDC_AUDIENCE` override the OIDC token and audience. |
-| Local profile | `alchemy profile edit --add Infisical`, using `universal-auth` (client ID and secret) or `access-token` (a user token, valid 10 days). With Universal Auth, Alchemy mints a fresh access token on every run. |
+| Local profile                                | `alchemy profile edit --add Infisical`, using `universal-auth` (client ID and secret) or `access-token` (a user token, valid 10 days). With Universal Auth, Alchemy mints a fresh access token on every run.                                                                                               |
 
 - **CI never reads profiles.** `packages/alchemy/src/Auth/Resolve.ts` (`resolveProviderConfig`): when `CI` is true and no environment credentials are present, Alchemy calls `readEnvironment` and fails if nothing is set. The Doppler page says the same: "Profiles are never consulted in CI" (`environments/doppler.mdx`).
 - **OIDC auto-detection** covers Vercel, GitHub Actions, GitLab CI, and GCP only (`packages/alchemy/src/Auth/OidcToken.ts`, `SUPPORTED_OIDC_PLATFORMS`). Cloudflare Workers Builds is not on the list.
@@ -89,6 +89,7 @@ Because `CI=true`, Alchemy uses only environment credentials, and Workers Builds
    - Run the Infisical CLI: `infisical login --method=universal-auth --client-id … --client-secret … --silent --plain` prints only the token. The CLI also reads `INFISICAL_UNIVERSAL_AUTH_CLIENT_ID` and `INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET` ([CLI reference](https://infisical.com/docs/cli/reference-agents)). This requires installing the CLI in the build image.
 
    The rest of the deploy reads from Infisical. A small Bun script could do the exchange with no extra dependency, because `@alchemy.run/infisical` exports `mintAccessToken`. Note that `INFISICAL_TOKEN` must be in the real environment before Alchemy starts, so a wrapper script would need to set it and spawn the deploy.
+
 2. **Store a ready access token in `INFISICAL_TOKEN`.** This is simpler, but access tokens default to a 30-day TTL and a 30-day max TTL. The docs page is inconsistent: its sample response and a note cite 7200 s. Either way, someone must rotate the token by hand. A periodic token (Access Token Period) does not expire but needs `/renew` calls. Not recommended.
 
 Universal Auth defaults, per the Universal Auth docs (2026-11-05): client secret TTL `0` (never expires), max uses `0` (unlimited), trusted IPs `0.0.0.0/0`. Trusted-IP restriction is a Pro feature on Infisical Cloud.
@@ -106,6 +107,7 @@ Without Infisical, the minimum set of build secrets is `INFISICAL_UNIVERSAL_AUTH
   - Split prod and non-prod into separate Workers Builds configurations.
 
   The Workers Builds ticket owns how stages map to builds. This research only flags that the per-Worker scoping of build secrets limits isolation.
+
 - **Cloudflare token per stage.** If `CLOUDFLARE_API_TOKEN` lives in Infisical per environment, prod and non-prod deploys can use differently scoped Cloudflare tokens with no change to Workers Builds.
 
 ## 6. Secrets in state

@@ -133,7 +133,7 @@ describe("a parse coverage month's detail", () => {
   ]
 
   const render = () =>
-    act(() =>
+    act<void>(() =>
       root.render(
         <ParseCoverageCard
           grids={[
@@ -155,7 +155,7 @@ describe("a parse coverage month's detail", () => {
     return button
   }
 
-  const select = (name: string) => act(() => cell(name).click())
+  const select = (name: string) => act<void>(() => cell(name).click())
 
   // The panel's heading, then each detail's label and value, space-separated.
   const panel = () => {
@@ -282,7 +282,7 @@ describe("a by-day parse coverage", () => {
   ]
 
   const render = () =>
-    act(() =>
+    act<void>(() =>
       root.render(
         <ParseCoverageCard
           grids={[
@@ -309,7 +309,7 @@ describe("a by-day parse coverage", () => {
     container.querySelector('[aria-label="Above 5% parse coverage"]')
 
   const select = (name: string) =>
-    act(() => {
+    act<void>(() => {
       const button = [...container.querySelectorAll("button")].find((b) =>
         b.getAttribute("aria-label")?.startsWith(name)
       )

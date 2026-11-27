@@ -5,6 +5,7 @@ A disclosure day becomes complete only when none of its attachments waits (ADR 0
 Counting failed runs was the alternative: at one run every 15 minutes a count says little about how long IDX has been without the file, and it would be wrong for a stage where runs only start with Run now. Retrying an unavailable attachment now and then was another; the spec says it is no longer retried, and a complete day is never listed again (ADR 0138), so nothing would take it up.
 
 Sites:
+
 - `apps/dashboard/src/server/disclosures/disclosure-index.ts`
 - `apps/dashboard/src/server/disclosures/disclosure-day.ts`
 

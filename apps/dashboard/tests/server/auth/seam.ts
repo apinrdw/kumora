@@ -27,7 +27,10 @@ const siteverify = (input: RequestInfo | URL, init?: RequestInit) =>
       const url = input instanceof Request ? input.url : String(input)
       if (url !== SITEVERIFY)
         return yield* Effect.fail(new Error(`Unexpected fetch to ${url}`))
-      const { secret, response } = JSON.parse(String(init?.body)) as {
+      const body = init?.body
+      if (typeof body !== "string")
+        return yield* Effect.fail(new Error("Unexpected siteverify body"))
+      const { secret, response } = JSON.parse(body) as {
         secret: string
         response: string
       }

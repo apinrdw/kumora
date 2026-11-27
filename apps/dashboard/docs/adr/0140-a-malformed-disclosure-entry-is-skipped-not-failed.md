@@ -5,6 +5,7 @@ A disclosure run fails only when IDX's list of a recent day can't be read (an ol
 A skipped entry doesn't wait (ADR 0138), so its day can still be complete, and once it is no run lists it again: what was skipped is never stored. Keeping the day incomplete was the alternative, but backfill takes the oldest incomplete day first, so every run would list that day again for an entry IDX keeps listing the same way. Failing the run was the first design, and since backfill takes that day first, every later run failed on it.
 
 Sites:
+
 - `apps/dashboard/src/server/disclosures/listing.ts`
 - `apps/dashboard/src/server/disclosures/archive-run.ts`
 

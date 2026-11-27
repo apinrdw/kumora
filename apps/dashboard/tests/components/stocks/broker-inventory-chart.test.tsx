@@ -21,10 +21,7 @@ const CANDLES: CandleColumns = {
   trades: [0, 0, 0],
 }
 
-const render = (
-  marked: number | undefined = undefined,
-  selection: readonly [number, number] | undefined = undefined
-) =>
+const render = (marked?: number, selection?: readonly [number, number]) =>
   renderAt("/stocks/BBCA?tab=brokers", () => (
     <BrokerInventoryChart
       marked={marked}

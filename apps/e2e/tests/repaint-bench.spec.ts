@@ -52,7 +52,15 @@ const timeRepaints = () => {
           })
       }
     })
-  const getContext = HTMLCanvasElement.prototype.getContext
+  // The canvas's own getContext, kept as a function the wrapper calls with
+  // the canvas as `this`.
+  const canvas: {
+    getContext: (
+      this: HTMLCanvasElement,
+      ...args: Parameters<HTMLCanvasElement["getContext"]>
+    ) => ReturnType<HTMLCanvasElement["getContext"]>
+  } = HTMLCanvasElement.prototype
+  const { getContext } = canvas
   HTMLCanvasElement.prototype.getContext = function (
     this: HTMLCanvasElement,
     ...args: Parameters<typeof getContext>
@@ -61,7 +69,7 @@ const timeRepaints = () => {
       current.chart =
         this.closest("[data-chart]")?.getAttribute("data-chart") ?? undefined
     return getContext.apply(this, args)
-  } as typeof getContext
+  } as HTMLCanvasElement["getContext"]
 }
 
 const quantile = (values: ReadonlyArray<number>, q: number) => {

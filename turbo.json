@@ -2,55 +2,14 @@
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
   "agentGuidance": false,
-  "globalDependencies": [
-    ".oxlintrc.json",
-    "scripts/oxlint-plugin.mts",
-    ".oxfmtrc.json"
-  ],
   "tasks": {
+    // Only apps/extension builds; the apps deploy through Alchemy instead.
     // Decision: CI's package tasks hash no Markdown, so GLOSSARY edits replay cache
     // (docs/adr/0017-ci-package-tasks-hash-no-markdown.md)
-    "lint": {
-      "dependsOn": [
-        "^lint"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.md"
-      ]
-    },
-    "format": {
-      "dependsOn": [
-        "^format"
-      ]
-    },
-    "format:check": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.md"
-      ]
-    },
-    // Only apps/extension builds; the apps deploy through Alchemy instead.
     "build": {
-      "dependsOn": [
-        "^build"
-      ],
-      "outputs": [
-        "dist/**"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.md"
-      ]
-    },
-    "typecheck": {
-      "dependsOn": [
-        "^typecheck"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.md"
-      ]
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
     },
     "dev": {
       "cache": false,
@@ -76,12 +35,8 @@
     },
     // vitest.timeout.mts reads CI to give tests CI's timeout there.
     "test": {
-      "dependsOn": [
-        "transit"
-      ],
-      "passThroughEnv": [
-        "CI"
-      ],
+      "dependsOn": ["transit"],
+      "passThroughEnv": ["CI"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/vitest.timeout.mts",
@@ -89,44 +44,20 @@
       ]
     },
     "transit": {
-      "dependsOn": [
-        "^transit"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.md"
-      ]
+      "dependsOn": ["^transit"],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
     },
-    "//#lint:root": {
-      "inputs": [
-        "scripts/**"
-      ]
-    },
-    "//#format:root": {
-      "inputs": [
-        "scripts/**"
-      ]
-    },
-    "//#format:check:root": {
-      "inputs": [
-        "scripts/**",
-        "package.json"
-      ]
-    },
-    "//#typecheck:root": {
-      "inputs": [
-        "scripts/**",
-        "tsconfig.json"
-      ]
+    // A root task's default inputs are every file in the repo, Markdown
+    // included, which `vp check` formats; vite.config.ts is among them.
+    // Decision: tsrs checks types through vp check, with type-aware lint on
+    // (docs/adr/0023-types-are-checked-by-tsrs-through-vp-check-with-type-aware-lint-on.md)
+    "//#vp-check": {
+      "inputs": ["$TURBO_DEFAULT$"]
     },
     // Decision: the root tests split by what they read, checked by a repo test
     // (docs/adr/0018-root-tests-split-by-what-they-read.md)
     "//#test:root": {
-      "inputs": [
-        "scripts/**",
-        "vitest.config.*",
-        ".oxlintrc.json"
-      ]
+      "inputs": ["scripts/**", "vitest.config.*", "vite.config.ts"]
     },
     // All of scripts/**, not only what these tests import: root-test-inputs
     // reads every test's source and ci-checks lists scripts/check-*.mts.

@@ -49,7 +49,9 @@ const peerGroups = (key: string): string[] => {
   const groups: string[] = []
   let depth = 0
   let start = 0
-  for (const [i, ch] of [...key].entries()) {
+  // By UTF-16 index, the unit `slice` counts in.
+  for (let i = 0; i < key.length; i++) {
+    const ch = key[i]
     if (ch === "(" && depth++ === 0) start = i
     if (ch === ")" && --depth === 0) groups.push(key.slice(start, i + 1))
   }
@@ -73,7 +75,7 @@ const snapshotSplits = Effect.fnUntraced(function* (lockfile: string) {
       groups.filter((group) => !shared.includes(group)).join("")
     )
     return [
-      `pnpm-lock.yaml holds ${variants.length} ${name}@ snapshots whose peers differ: ${differing.join(" vs ")}. Run \`pnpm dedupe\`.`,
+      `pnpm-lock.yaml holds ${variants.length} ${name}@ snapshots whose peers differ: ${differing.join(" vs ")}. Run \`vp dedupe\`.`,
     ]
   })
 })
@@ -149,7 +151,7 @@ layer(NodeServices.layer)("catalog pins", (it) => {
     () =>
       Effect.gen(function* () {
         assert.deepStrictEqual(yield* snapshotSplits(twoAlchemySnapshots), [
-          "pnpm-lock.yaml holds 2 alchemy@ snapshots whose peers differ: (ws@8.22.0) vs (ws@8.22.1). Run `pnpm dedupe`.",
+          "pnpm-lock.yaml holds 2 alchemy@ snapshots whose peers differ: (ws@8.22.0) vs (ws@8.22.1). Run `vp dedupe`.",
         ])
       })
   )

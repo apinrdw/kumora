@@ -85,7 +85,7 @@ const mount = async (
   }
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
-  await act(() => root.render(<Harness />))
+  await act<void>(() => root.render(<Harness />))
   return () => act(() => root.unmount())
 }
 

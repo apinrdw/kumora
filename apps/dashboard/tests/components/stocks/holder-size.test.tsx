@@ -60,7 +60,7 @@ const root = createRoot(container)
 afterEach(() => act(() => root.render(null)))
 
 const render = (props: Partial<HolderSizeProps>) =>
-  act(() =>
+  act<void>(() =>
     root.render(
       <HolderSize
         code={StockCode.make("BBCA")}
@@ -107,7 +107,7 @@ describe("the Table view", () => {
     const table = [
       ...container.querySelectorAll('[aria-label="View"] button'),
     ].find((button) => button.textContent === "Table") as HTMLButtonElement
-    await act(() => table.click())
+    await act<void>(() => table.click())
     expect(picked).toEqual(["table"])
   })
 

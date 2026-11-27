@@ -1,6 +1,6 @@
 import { IconBan } from "@tabler/icons-react"
 import { Link, useHydrated, useRouter } from "@tanstack/react-router"
-import { clientRuntime } from "@workspace/client"
+import { clientRuntime, formFields } from "@workspace/client"
 import { Effect } from "effect"
 import { useState, type FormEvent } from "react"
 
@@ -8,7 +8,7 @@ import { KButton, KInput } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
 import { retryAfter } from "@/lib/retry-after"
 
-import { FormError, Notice, formFields, linkClass } from "./auth-page"
+import { FormError, Notice, linkClass } from "./auth-page"
 import { GoogleSignIn, googleErrorMessage } from "./google-sign-in"
 
 // Better Auth's code for a sign-in refused because an admin banned the

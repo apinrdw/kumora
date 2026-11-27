@@ -38,7 +38,7 @@ const render = (
   series = SERIES,
   view: ChartView = "table"
 ) =>
-  act(() =>
+  act<void>(() =>
     root.render(
       <HoldingComposition
         series={series}
@@ -71,12 +71,12 @@ test.each([{ foreignLegend: false }, { foreignLegend: true }])(
   async ({ foreignLegend }) => {
     await render("local")
     // A keyboard press hides at once; a click waits out a double-click.
-    await act(() => (legend("Individual") as HTMLButtonElement).click())
+    await act<void>(() => (legend("Individual") as HTMLButtonElement).click())
     expect(legend("Individual")?.getAttribute("aria-pressed")).toBe("false")
     await render("foreign")
     expect(pressed()).toEqual(allSeries())
     if (foreignLegend)
-      await act(() => (legend("Corporate") as HTMLButtonElement).click())
+      await act<void>(() => (legend("Corporate") as HTMLButtonElement).click())
     await render("local")
     expect(pressed()).toEqual(allSeries())
   }
@@ -84,7 +84,7 @@ test.each([{ foreignLegend: false }, { foreignLegend: true }])(
 
 // Fires a mouse click, `detail` its click count.
 const click = (label: string, detail: number) =>
-  act(() => {
+  act<void>(() => {
     legend(label)?.dispatchEvent(
       new MouseEvent("click", { bubbles: true, detail })
     )
@@ -95,7 +95,7 @@ const doubleClick = async (label: string, gap: number) => {
   await click(label, 1)
   await act(() => vi.advanceTimersByTime(gap))
   await click(label, 2)
-  await act(() => {
+  await act<void>(() => {
     legend(label)?.dispatchEvent(
       new MouseEvent("dblclick", { bubbles: true, detail: 2 })
     )
@@ -104,7 +104,7 @@ const doubleClick = async (label: string, gap: number) => {
 
 // Fires a keyboard press: a click with no click count.
 const press = (label: string) =>
-  act(() => (legend(label) as HTMLButtonElement).click())
+  act<void>(() => (legend(label) as HTMLButtonElement).click())
 
 const hiddenOf = () => allSeries().filter((label) => !pressed().includes(label))
 
@@ -245,7 +245,7 @@ const announced = () =>
   document.querySelector('[role="status"]')?.getAttribute("aria-label")
 
 const key = (name: string) =>
-  act(() => {
+  act<void>(() => {
     barsChart().dispatchEvent(
       new KeyboardEvent("keydown", { key: name, bubbles: true })
     )
@@ -253,7 +253,7 @@ const key = (name: string) =>
 
 test("the Bars chart announces the month a keyboard user steps to, with its changes", async () => {
   await render("all", BARS, "bars")
-  await act(() => barsChart().focus())
+  await act<void>(() => barsChart().focus())
   await key("End")
   expect(announced()).toBe(
     "Nov 2026\nForeign 75.00%, up from 70.00%\nLocal 25.00%, down from 30.00%\nShare of scripless shares."
@@ -296,7 +296,7 @@ test("the Bars tooltip shows no change for a share that prints the same as last 
     ],
     "bars"
   )
-  await act(() => barsChart().focus())
+  await act<void>(() => barsChart().focus())
   await key("End")
   expect(announced()).toBe(
     "Dec 2026\nForeign 75.00%\nLocal 25.00%\nShare of scripless shares."

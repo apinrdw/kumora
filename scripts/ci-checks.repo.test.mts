@@ -1,4 +1,4 @@
-// `pnpm check` is what a contributor runs locally, and each CI job runs one
+// `vp run check` is what a contributor runs locally, and each CI job runs one
 // `check:*` script, so local and CI checks are the same work only while
 // `check` is exactly the union of the `check:*` scripts and those scripts
 // leave out none of the turbo tasks or `scripts/check-*.mts` checks.
@@ -26,10 +26,10 @@ const rootScripts = Effect.gen(function* () {
 
 const commands = (script: string) => script.split("&&").map((c) => c.trim())
 
-// A script's commands, with each `pnpm <root script>` replaced by its own.
+// A script's commands, with each `vp run <root script>` replaced by its own.
 const expand = (scripts: Record<string, string>, name: string): Array<string> =>
   commands(scripts[name] ?? "").flatMap((command) => {
-    const called = /^pnpm (\S+)$/.exec(command)?.[1]
+    const called = /^vp run (\S+)$/.exec(command)?.[1]
     return called !== undefined && called in scripts
       ? expand(scripts, called)
       : [command]
@@ -44,7 +44,7 @@ const turboTasks = (script: string) =>
   )
 
 layer(NodeServices.layer)("check scripts", (it) => {
-  it.effect("pnpm check runs exactly the union of the check:* scripts", () =>
+  it.effect("vp run check runs exactly the union of the check:* scripts", () =>
     Effect.gen(function* () {
       const scripts = yield* rootScripts
       const parts = checkScripts(scripts)
@@ -86,15 +86,61 @@ layer(NodeServices.layer)("check scripts", (it) => {
   )
 
   it.effect(
+    "check:static lints, formats and checks types in one root vp check",
+    () =>
+      Effect.gen(function* () {
+        const scripts = yield* rootScripts
+        const tasks = yield* turboDryRun(
+          turboTasks(scripts["check:static"] ?? "")
+        )
+        assert.deepStrictEqual(
+          tasks
+            .filter(({ command }) =>
+              /^(vp (check|lint|fmt)|tsc)\b/.test(command)
+            )
+            .map(({ taskId, command }) => [taskId, command]),
+          [["//#vp-check", "vp check --deny-warnings"]]
+        )
+      })
+  )
+
+  it.effect("no package has its own lint, format or typecheck script", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const root = path.resolve(import.meta.dirname, "..")
+      const dirs = (yield* Effect.forEach(["apps", "packages"], (parent) =>
+        Effect.map(fs.readDirectory(path.join(root, parent)), (names) =>
+          names.map((name) => path.join(parent, name))
+        )
+      )).flat()
+      const manifests = yield* Effect.filter(
+        ["", ...dirs].map((dir) => path.join(dir, "package.json")),
+        (file) => fs.exists(path.join(root, file))
+      )
+      assert.isAbove(manifests.length, 1, "found the package manifests")
+      const found = yield* Effect.forEach(manifests, (file) =>
+        Effect.gen(function* () {
+          const { scripts } = yield* Schema.decodeEffect(Manifest)(
+            yield* fs.readFileString(path.join(root, file))
+          )
+          return Object.keys(scripts)
+            .filter((name) => /^(typecheck|lint|format)(:|$)/.test(name))
+            .map((name) => `${file} "${name}"`)
+        })
+      )
+      assert.deepStrictEqual(found.flat(), [])
+    })
+  )
+
+  it.effect(
     "check:static and check:test split every check task between them",
     () =>
       Effect.gen(function* () {
         const scripts = yield* rootScripts
         const ids = (tasks: ReadonlyArray<{ taskId: string }>) =>
           new Set(tasks.map(({ taskId }) => taskId))
-        const wanted = yield* turboDryRun(
-          CHECK_KINDS.flatMap((kind) => turboTasks(scripts[kind] ?? ""))
-        )
+        const wanted = yield* turboDryRun(CHECK_KINDS)
         const staticTasks = yield* turboDryRun(
           turboTasks(scripts["check:static"] ?? "")
         )

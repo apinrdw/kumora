@@ -4,11 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "e2e": "pnpm --filter extension build && playwright test",
-    "lint": "oxlint --deny-warnings",
-    "format": "oxfmt --write \"**/*.{ts,tsx}\" package.json",
-    "format:check": "oxfmt --check \"**/*.{ts,tsx}\" package.json",
-    "typecheck": "tsc --noEmit",
+    "e2e": "vp run --filter extension build && playwright test",
     "test": "vitest run"
   },
   "devDependencies": {

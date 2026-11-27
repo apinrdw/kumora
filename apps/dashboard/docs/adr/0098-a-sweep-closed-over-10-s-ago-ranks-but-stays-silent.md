@@ -5,6 +5,7 @@ After a relay gap or a lagged feed, sweeps arrive late in a burst, and that catc
 Silent means no sound and no tape mark only. Such a sweep still stands out at the level it reached and the All codes tab lists it, since that list shows everything that stood out (apinrdw/kumora#705).
 
 Sites:
+
 - `apps/dashboard/src/server/market-live/sweep-alerts.ts`
 
 Source: apinrdw/kumora#502

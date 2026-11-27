@@ -1,10 +1,9 @@
-import { NodeServices } from "@effect/platform-node"
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Layer, Path } from "effect"
+import { Effect } from "effect"
 import { TestConsole } from "effect/testing"
 
-import { CheckFailed, repoRoot } from "./lib/check.mts"
-import { memoryFileSystem } from "./lib/testing.mts"
+import config from "../vite.config.ts"
+import { CheckFailed } from "./lib/check.mts"
 import { checkOxlintOverrides } from "./oxlint-overrides.mts"
 
 const rootPaths = [
@@ -18,23 +17,12 @@ const imports = (
   patterns: ReadonlyArray<object>
 ) => ["error", { paths, patterns }]
 
-// A JSONC config, as .oxlintrc.json is written: comments and a trailing comma.
-const config = (overrides: ReadonlyArray<object>) => `{
-  // The root bans.
-  "rules": { "no-restricted-imports": ${JSON.stringify(imports(rootPaths, rootPatterns))} },
-  /* Each override restates them. */
-  "overrides": ${JSON.stringify(overrides)},
-}`
-
+// A lint block, as vite.config.ts holds it.
 const check = (overrides: ReadonlyArray<object>) =>
-  checkOxlintOverrides("/repo").pipe(
-    Effect.provide(
-      Layer.merge(
-        memoryFileSystem({ "/repo/.oxlintrc.json": config(overrides) }),
-        Path.layer
-      )
-    )
-  )
+  checkOxlintOverrides({
+    rules: { "no-restricted-imports": imports(rootPaths, rootPatterns) },
+    overrides,
+  })
 
 // The findings of a check that must fail with CheckFailed.
 const findingsOf = (overrides: ReadonlyArray<object>) =>
@@ -123,9 +111,7 @@ describe("checkOxlintOverrides", () => {
     })
   )
 
-  it.effect("the repo's .oxlintrc.json restates the root bans everywhere", () =>
-    Effect.flatMap(repoRoot, checkOxlintOverrides).pipe(
-      Effect.provide(NodeServices.layer)
-    )
+  it.effect("the repo's lint config restates the root bans everywhere", () =>
+    checkOxlintOverrides(config.lint)
   )
 })

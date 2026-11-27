@@ -6,6 +6,7 @@ export type {
   DayStateStore,
   DayStateUpdate,
 } from "./day-state-store.ts"
+export { formFields } from "./form-fields.ts"
 export { FrameScheduler } from "./frame-scheduler.ts"
 export {
   NewVersion,

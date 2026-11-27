@@ -1,7 +1,7 @@
 // A whole busy day's budgets (spec apinrdw/kumora#555, "Testing Decisions"):
 // the busy day recorded live by a fresh object in workerd, its books for the
 // codes one viewer watched, sealed and walked (billing/whole-day.ts). It
-// runs apart from the row budgets: `pnpm --filter dashboard test:whole-day`.
+// runs apart from the row budgets: `vp run --filter dashboard test:whole-day`.
 import { assert, layer } from "@effect/vitest"
 import { Effect } from "effect"
 
@@ -22,7 +22,7 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
       () =>
         Effect.gen(function* () {
           const day = yield* (yield* BusyDay).wholeDay
-          // What the PR reports: `pnpm --filter dashboard test:whole-day
+          // What the PR reports: `vp run --filter dashboard test:whole-day
           // --silent=false` prints it.
           console.log(JSON.stringify(day, null, 2))
           assert.strictEqual(day.written.trades, BUSY_DAY.trades)

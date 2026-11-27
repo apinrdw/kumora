@@ -7,7 +7,12 @@
   // drives the extension's walk, whose modules name `chrome` types and
   // the globals in its env.d.ts.
   "extends": "../tsconfig.json",
-  "include": ["**/*.ts", "**/*.tsx", "../alchemy.run.ts", "../../extension/src/env.d.ts"],
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "../alchemy.run.ts",
+    "../../extension/src/env.d.ts"
+  ],
   "exclude": [],
   "compilerOptions": {
     "types": ["vite/client", "node", "chrome"]

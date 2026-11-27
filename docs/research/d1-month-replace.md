@@ -7,7 +7,7 @@ Sources:
 - Cloudflare docs, read 2026-11-15: [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) (updated Oct 30, 2026), [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) (Oct 30, 2026), [D1 Database API](https://developers.cloudflare.com/d1/worker-api/d1-database/) (Jun 22, 2026), [Query JSON](https://developers.cloudflare.com/d1/sql-api/query-json/), [Debug D1](https://developers.cloudflare.com/d1/observability/debug-d1/), [Read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/) (Aug 10, 2026), [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) (Nov 13, 2026).
 - Workflow step limits as recorded in [Cloudflare Workflows for a shareholding archive run](cloudflare-workflows-shareholding-archive.md).
 - Vendored Alchemy, `repos/alchemy/packages/cloudflare/src/D1/`.
-- **Local runs**: a throwaway Worker under Miniflare 4.20260730.0 (workerd 2026-07-30) with a local D1. Miniflare's D1 is SQLite inside a local Durable Object, not production D1. Every number marked *local* comes from it. Nothing ran against a Cloudflare account.
+- **Local runs**: a throwaway Worker under Miniflare 4.20260730.0 (workerd 2026-07-30) with a local D1. Miniflare's D1 is SQLite inside a local Durable Object, not production D1. Every number marked _local_ comes from it. Nothing ran against a Cloudflare account.
 
 ## Answer
 
@@ -20,6 +20,7 @@ Sources:
   5. an upsert of the month's row with its sha256.
 
   The parameter cap is per statement, and this shape uses one parameter per statement. That keeps the batch near 33 statements, not 1,541 multi-row inserts or 30,962 single-row inserts. It was the fastest shape locally. A retry of the step reruns the same delete and insert, so the result is the same however many times it runs.
+
 - **The version pointer is the fallback, not the default.** You would insert under a new version id across several batches or steps, then flip a per-date `version` in one statement, then delete the old version. This is atomic for readers too: locally, 397 reads during a 34-batch replace saw no partial month. Choose it only if a production month comes close to the 30 s batch limit or the database-wide 'execution limits' that the [FAQ](https://developers.cloudflare.com/d1/platform/limits/#query-performance) warns of for "hundreds of thousands of rows". It costs the same rows written. It adds a join to every read and a cleanup step.
 - **Never write a month in several batches straight into the rows that readers query.** Locally, 194 of 214 reads during a 17-batch replace saw a partial month, and most of them saw an empty one.
 - **Readers.** Read a month's holdings and stock-month rows in one statement or one `batch`. Two separate queries could fall on either side of a replace. Keep read replication off: Alchemy defaults it to `disabled` (`repos/alchemy/packages/cloudflare/src/D1/Database.ts`, `readReplication`). Replicas are "arbitrarily out of date" unless reads go through the Sessions API ([Read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/#replica-lag-and-consistency-model)).
@@ -30,18 +31,18 @@ Sources:
 
 From [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) unless noted:
 
-| Limit | Value | Effect here |
-| --- | --- | --- |
-| Bound parameters per query | 100 | A 5-column multi-row `INSERT` holds at most 20 rows. One JSON parameter avoids the cap. *Local:* 100 parameters ran, and 101 failed with `too many SQL variables`. |
-| SQL statement length | 100,000 bytes | Applies to each statement inside a batch ("Batch limits"). *Local:* a 99,001-byte statement ran, and a 100,001-byte one failed with `SQLITE_TOOBIG`. |
-| String, `BLOB` or row size | 2,000,000 bytes | Caps one JSON parameter. A 1,000-row chunk is about 45 KB. The whole 30K-row month is about 1.3 MB, which ran locally as one parameter, but leaves little room. *Local:* a 2,000,001-byte string still bound, and a 3,000,000-byte one failed. |
-| SQL query duration | 30 s | Footnote 3: "this duration limit also applies to the entire batch call". |
-| Queries per Worker invocation | 1,000 (Paid) | "a `db.batch()` call counts as a single query against it". |
-| Large writes | — | "A single query that attempts to modify hundreds of thousands of rows … will exceed execution limits. Break the work into smaller chunks (e.g., processing 1,000 rows at a time)" ([limits FAQ](https://developers.cloudflare.com/d1/platform/limits/#query-performance)). A month is ~30K rows, and 1,000-row statements match the suggested chunk. |
-| Concurrency | single-threaded | "Each individual D1 database is inherently single-threaded, and processes queries one at a time". Readers wait while the replace batch runs. Locally that wait is ~60–80 ms. |
-| Worker CPU | 30 s default, up to 5 min (Paid) | Waiting on D1 does not count ([Workers limits, CPU time](https://developers.cloudflare.com/workers/platform/limits/#cpu-time)). A Workflow step has the same 30 s default and unlimited wall clock ([archive Workflow research](cloudflare-workflows-shareholding-archive.md)). |
-| Subrequests | 10,000 per invocation (Paid) | A D1 call is a subrequest ([Workers limits, Subrequests](https://developers.cloudflare.com/workers/platform/limits/#subrequests)). One batch per month uses one. |
-| Memory | 128 MB per isolate | 30K rows plus their JSON is a few MB. |
+| Limit                         | Value                            | Effect here                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bound parameters per query    | 100                              | A 5-column multi-row `INSERT` holds at most 20 rows. One JSON parameter avoids the cap. _Local:_ 100 parameters ran, and 101 failed with `too many SQL variables`.                                                                                                                                                                                   |
+| SQL statement length          | 100,000 bytes                    | Applies to each statement inside a batch ("Batch limits"). _Local:_ a 99,001-byte statement ran, and a 100,001-byte one failed with `SQLITE_TOOBIG`.                                                                                                                                                                                                 |
+| String, `BLOB` or row size    | 2,000,000 bytes                  | Caps one JSON parameter. A 1,000-row chunk is about 45 KB. The whole 30K-row month is about 1.3 MB, which ran locally as one parameter, but leaves little room. _Local:_ a 2,000,001-byte string still bound, and a 3,000,000-byte one failed.                                                                                                       |
+| SQL query duration            | 30 s                             | Footnote 3: "this duration limit also applies to the entire batch call".                                                                                                                                                                                                                                                                             |
+| Queries per Worker invocation | 1,000 (Paid)                     | "a `db.batch()` call counts as a single query against it".                                                                                                                                                                                                                                                                                           |
+| Large writes                  | —                                | "A single query that attempts to modify hundreds of thousands of rows … will exceed execution limits. Break the work into smaller chunks (e.g., processing 1,000 rows at a time)" ([limits FAQ](https://developers.cloudflare.com/d1/platform/limits/#query-performance)). A month is ~30K rows, and 1,000-row statements match the suggested chunk. |
+| Concurrency                   | single-threaded                  | "Each individual D1 database is inherently single-threaded, and processes queries one at a time". Readers wait while the replace batch runs. Locally that wait is ~60–80 ms.                                                                                                                                                                         |
+| Worker CPU                    | 30 s default, up to 5 min (Paid) | Waiting on D1 does not count ([Workers limits, CPU time](https://developers.cloudflare.com/workers/platform/limits/#cpu-time)). A Workflow step has the same 30 s default and unlimited wall clock ([archive Workflow research](cloudflare-workflows-shareholding-archive.md)).                                                                      |
+| Subrequests                   | 10,000 per invocation (Paid)     | A D1 call is a subrequest ([Workers limits, Subrequests](https://developers.cloudflare.com/workers/platform/limits/#subrequests)). One batch per month uses one.                                                                                                                                                                                     |
+| Memory                        | 128 MB per isolate               | 30K rows plus their JSON is a few MB.                                                                                                                                                                                                                                                                                                                |
 
 There is no SQL `BEGIN`/`COMMIT` on D1. The import guide tells you to remove them from dumps, or D1 fails with "cannot start a transaction within a transaction" ([Import and export data](https://developers.cloudflare.com/d1/best-practices/import-export-data/)). A batch is the only multi-statement transaction. Better Auth's D1 dialect notes the same thing ([Better Auth on Workers with D1](better-auth-workers-d1.md)).
 
@@ -55,15 +56,15 @@ There is no SQL `BEGIN`/`COMMIT` on D1. The import guide tells you to remove the
 
 Harness: a Worker under Miniflare, and a Node driver that calls it through `dispatchFetch`. Each trial seeds generation 1 of a month: 30,000 synthetic holdings (960 stocks × 32 classification-origin pairs) and 960 stock-month rows. It then replaces the month with generation 2. During the replace, four reader loops poll `SELECT count(*), min(shares / 1e7), max(shares / 1e7) … WHERE data_date = ?`. Each holding's `shares` value encodes its generation, so a full old month, a full new month and a partial month are each easy to tell apart. Times are the Worker's own wall clock around the replace. `duration` is the sum of D1's `meta.duration`. There were 3 runs each.
 
-| Pattern | Batches | Statements | Worker ms | D1 `duration` ms | rows_written | Partial reads |
-| --- | --- | --- | --- | --- | --- | --- |
-| One `INSERT` per row, one batch | 1 | 30,962 | 569–574 | 280–297 | 61,920 | 0 |
-| Multi-row `INSERT`, 20 rows (100 params), one batch | 1 | 1,541 | 154–157 | 73–80 | 61,920 | 0 |
-| `json_each`, 1,000 rows per statement, one batch | 1 | 33 | 72–78 | 57 | 61,920 | 0 |
-| `json_each`, the whole month in one statement, one batch | 1 | 4 | 63–66 | 48–49 | 61,920 | 0 |
-| Same as the 1,000-row case, rowid table plus unique index | 1 | 33 | 98–102 | 68 | **91,920** | 0 |
-| Multi-row into the live rows, 100 statements per batch | 17 | 1,541 | 178–180 | 82–88 | 61,920 | 0 without pauses, **194 of 214** with 20 ms between batches |
-| Version id plus pointer flip, `json_each` 1,000 | 10 | 36 | 74–76 | 53–55 | 61,921 | 0, and 0 of 397 with 34 batches and 20 ms pauses |
+| Pattern                                                   | Batches | Statements | Worker ms | D1 `duration` ms | rows_written | Partial reads                                               |
+| --------------------------------------------------------- | ------- | ---------- | --------- | ---------------- | ------------ | ----------------------------------------------------------- |
+| One `INSERT` per row, one batch                           | 1       | 30,962     | 569–574   | 280–297          | 61,920       | 0                                                           |
+| Multi-row `INSERT`, 20 rows (100 params), one batch       | 1       | 1,541      | 154–157   | 73–80            | 61,920       | 0                                                           |
+| `json_each`, 1,000 rows per statement, one batch          | 1       | 33         | 72–78     | 57               | 61,920       | 0                                                           |
+| `json_each`, the whole month in one statement, one batch  | 1       | 4          | 63–66     | 48–49            | 61,920       | 0                                                           |
+| Same as the 1,000-row case, rowid table plus unique index | 1       | 33         | 98–102    | 68               | **91,920**   | 0                                                           |
+| Multi-row into the live rows, 100 statements per batch    | 17      | 1,541      | 178–180   | 82–88            | 61,920       | 0 without pauses, **194 of 214** with 20 ms between batches |
+| Version id plus pointer flip, `json_each` 1,000           | 10      | 36         | 74–76     | 53–55            | 61,921       | 0, and 0 of 397 with 34 batches and 20 ms pauses            |
 
 Notes on the runs:
 

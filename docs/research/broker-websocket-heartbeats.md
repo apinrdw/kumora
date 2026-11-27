@@ -8,17 +8,17 @@ It sets the heartbeat tick and the stagger between connection A and connection B
 
 **On both sites the client pings, and only when its socket has gone quiet.** Neither server sends an app-level ping. Both pings are app-level messages. A browser cannot send a protocol ping, and neither server needs one.
 
-| | Stockbit | Ajaib |
-|---|---|---|
-| Socket | `wss://wss-jkt.trading.stockbit.com/ws`, subprotocol `web`, protobuf | `wss://stream.ajaib.co.id:8009/ws/trade`, `/ws/price`, `/ws/indicative`, JSON |
-| Who pings | Client | Client |
-| Ping | `WebsocketRequest { ping: { message: "ping" } }`, 8 bytes `22 06 0a 04 70 69 6e 67` | `{"method":"SUBSCRIBE","streamObject":"PING-WEB"}` |
-| Pong | Case 2 `ping`, `PingResponse { message: "pong" }`, 8 bytes `12 06 0a 04 70 6f 6e 67` | `{"id":null,"result":"subscribe successful"}`, then `{"id":null,"result":"already have active subscription for PING-WEB"}`. On `/ws/indicative`: `{"id":null,"result":"invalid subscription object"}` |
-| Page's ping rule | After 15 s with no inbound frame. Checked every 1 s, so about every 16 s on a quiet socket | After 10 s with no inbound frame, and 10 s since the last ping. Checked every 1 s, so about every 11 s. Plus one ping 1 s after open |
-| Page's dead-socket rule | Closes 13 s after a ping with no pong | Closes after 13 s with no inbound frame |
-| Page's reconnect | `1000 × 2^n` ms, 4 tries; new `auth/websocket/key` each time; no reconnect while the tab is hidden | Every 3 s, no limit; refreshes the token first |
-| Server idle timeout | Unknown. A third-party client reports a silent drop without pings, with no number. Pinging every 10–25 s is proven | About **30 s** after the last message when the client sends nothing (owner's capture, 2026-10-16) |
-| Periodic closes | 1006 after 51 and 61 min. No fixed lifetime. Cause unknown | One recorded busy-hour close 1000 at 3 m 15 s. Not shown to be periodic. Cause unknown |
+|                         | Stockbit                                                                                                           | Ajaib                                                                                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Socket                  | `wss://wss-jkt.trading.stockbit.com/ws`, subprotocol `web`, protobuf                                               | `wss://stream.ajaib.co.id:8009/ws/trade`, `/ws/price`, `/ws/indicative`, JSON                                                                                                                         |
+| Who pings               | Client                                                                                                             | Client                                                                                                                                                                                                |
+| Ping                    | `WebsocketRequest { ping: { message: "ping" } }`, 8 bytes `22 06 0a 04 70 69 6e 67`                                | `{"method":"SUBSCRIBE","streamObject":"PING-WEB"}`                                                                                                                                                    |
+| Pong                    | Case 2 `ping`, `PingResponse { message: "pong" }`, 8 bytes `12 06 0a 04 70 6f 6e 67`                               | `{"id":null,"result":"subscribe successful"}`, then `{"id":null,"result":"already have active subscription for PING-WEB"}`. On `/ws/indicative`: `{"id":null,"result":"invalid subscription object"}` |
+| Page's ping rule        | After 15 s with no inbound frame. Checked every 1 s, so about every 16 s on a quiet socket                         | After 10 s with no inbound frame, and 10 s since the last ping. Checked every 1 s, so about every 11 s. Plus one ping 1 s after open                                                                  |
+| Page's dead-socket rule | Closes 13 s after a ping with no pong                                                                              | Closes after 13 s with no inbound frame                                                                                                                                                               |
+| Page's reconnect        | `1000 × 2^n` ms, 4 tries; new `auth/websocket/key` each time; no reconnect while the tab is hidden                 | Every 3 s, no limit; refreshes the token first                                                                                                                                                        |
+| Server idle timeout     | Unknown. A third-party client reports a silent drop without pings, with no number. Pinging every 10–25 s is proven | About **30 s** after the last message when the client sends nothing (owner's capture, 2026-10-16)                                                                                                     |
+| Periodic closes         | 1006 after 51 and 61 min. No fixed lifetime. Cause unknown                                                         | One recorded busy-hour close 1000 at 3 m 15 s. Not shown to be periodic. Cause unknown                                                                                                                |
 
 **Recommendation:**
 
@@ -29,16 +29,16 @@ The rest of this note gives the evidence, the reasons, and the checks that still
 
 ## Sources
 
-| Tag | Source | Pinned at |
-|---|---|---|
-| **[sb]** | stockbit.com Next.js bundle, `buildId` `v3.54.12`. Socket module `5386` in `9293.5f722a92ed0608ae.js`; protobuf descriptors in `20793-dcf9c3587c81dd92.js` | fetched 2026-11-06 |
-| **[aj]** | trade.ajaib.co.id Vite bundle, entry `index-DKOtYJk3.js`. Socket code in `websocket-BahpgoPk.js`, `PRICE` hook in `price-ws-DdNlptn5.js` | fetched 2026-11-06 |
-| **[lot]** | [`r3ven7/lot`](https://github.com/r3ven7/lot), CDP captures of Stockbit's web socket from 2026-04-17, in `stockbit_orderbook_service/research/captures/ws_capture_output/*_raw_*.ndjson` | `1a66f4c68a83b2764d3ee66770b98848e1334857` |
-| **[ofs]** | [`silenccy/orderflow-station`](https://github.com/silenccy/orderflow-station), `docs/protocol.md` and `orderflow/feed.py` | `39f4410ea0702bb5209f7a765e6b8e1f5e490173` |
-| **[haka]** | [`nofendian17/stockbit-haka-haki`](https://github.com/nofendian17/stockbit-haka-haki), `websocket/client.go`, `websocket/manager.go` | `18fe1e9ccd6b5437ad4e84a23decc08c75e4bad8` |
-| **[orca]** | The owner's earlier project `apinrdw/orca-trader-monorepo` (private): issues #91, #125, #126, #128, and `apps/extension/lib/socket-clock.ts` | `4b7b18f` |
-| **[#48]** | Owner's DevTools captures on [#48](https://github.com/apinrdw/kumora/issues/48) and [#50](https://github.com/apinrdw/kumora/issues/50) | 2026-11-06 |
-| **[chrome]** | [Timer throttling in Chrome 88](https://developer.chrome.com/blog/timer-throttling-in-chrome-88), [extension service worker lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle) | read 2026-11-06 |
+| Tag          | Source                                                                                                                                                                                                                          | Pinned at                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| **[sb]**     | stockbit.com Next.js bundle, `buildId` `v3.54.12`. Socket module `5386` in `9293.5f722a92ed0608ae.js`; protobuf descriptors in `20793-dcf9c3587c81dd92.js`                                                                      | fetched 2026-11-06                         |
+| **[aj]**     | trade.ajaib.co.id Vite bundle, entry `index-DKOtYJk3.js`. Socket code in `websocket-BahpgoPk.js`, `PRICE` hook in `price-ws-DdNlptn5.js`                                                                                        | fetched 2026-11-06                         |
+| **[lot]**    | [`r3ven7/lot`](https://github.com/r3ven7/lot), CDP captures of Stockbit's web socket from 2026-04-17, in `stockbit_orderbook_service/research/captures/ws_capture_output/*_raw_*.ndjson`                                        | `1a66f4c68a83b2764d3ee66770b98848e1334857` |
+| **[ofs]**    | [`silenccy/orderflow-station`](https://github.com/silenccy/orderflow-station), `docs/protocol.md` and `orderflow/feed.py`                                                                                                       | `39f4410ea0702bb5209f7a765e6b8e1f5e490173` |
+| **[haka]**   | [`nofendian17/stockbit-haka-haki`](https://github.com/nofendian17/stockbit-haka-haki), `websocket/client.go`, `websocket/manager.go`                                                                                            | `18fe1e9ccd6b5437ad4e84a23decc08c75e4bad8` |
+| **[orca]**   | The owner's earlier project `apinrdw/orca-trader-monorepo` (private): issues #91, #125, #126, #128, and `apps/extension/lib/socket-clock.ts`                                                                                    | `4b7b18f`                                  |
+| **[#48]**    | Owner's DevTools captures on [#48](https://github.com/apinrdw/kumora/issues/48) and [#50](https://github.com/apinrdw/kumora/issues/50)                                                                                          | 2026-11-06                                 |
+| **[chrome]** | [Timer throttling in Chrome 88](https://developer.chrome.com/blog/timer-throttling-in-chrome-88), [extension service worker lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle) | read 2026-11-06                            |
 
 The bundles are the primary source for what each site's own client does. Server behaviour can only be observed, so it comes from captures: **[lot]**, **[orca]** and **[#48]**.
 

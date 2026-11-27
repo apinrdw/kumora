@@ -88,7 +88,7 @@ const root = createRoot(container)
 afterEach(() => act(() => root.render(null)))
 
 const render = (props: Partial<DailyHoldersProps>) =>
-  act(() =>
+  act<void>(() =>
     root.render(
       <DailyHolders
         code={StockCode.make("ENRG")}
@@ -171,8 +171,8 @@ describe("Daily holders", () => {
     const picked: Array<string> = []
     await render({ day: "2026-11-18", onDay: (each) => picked.push(each) })
     expect(select()?.value).toBe("2026-11-18")
-    await act(() => button("Previous trading day")?.click())
-    await act(() => button("Next trading day")?.click())
+    await act<void>(() => button("Previous trading day")?.click())
+    await act<void>(() => button("Next trading day")?.click())
     const list = select() ?? document.createElement("select")
     list.value = "2026-11-17"
     await act(() => list.dispatchEvent(new Event("change", { bubbles: true })))

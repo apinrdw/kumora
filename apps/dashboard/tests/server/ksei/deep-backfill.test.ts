@@ -71,7 +71,7 @@ const recordOf = (bucket: MemoryBucket, filename: string) => {
       key.endsWith(".json") && customMetadata.filename === filename
   )
   assert.strictEqual(records.length, 1, `one record of ${filename}`)
-  const [key = "", object] = records[0] ?? []
+  const [key, object] = records[0] ?? ["", undefined]
   return { key, record: JSON.parse(object?.body ?? "null") }
 }
 

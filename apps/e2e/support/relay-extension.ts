@@ -32,8 +32,9 @@ import { WebSocketServer, type WebSocket } from "ws"
 import { wibInstant } from "./clock"
 import { closeWhenTestEnds } from "./test"
 import { recordVideo } from "./video"
+import { wsFrame } from "./ws-frame"
 
-/** The built extension (`pnpm --filter extension build`, run by `pnpm e2e`). */
+/** The built extension (`vp run --filter extension build`, run by `vp run e2e`). */
 const EXTENSION = fileURLToPath(
   new URL("../../extension/dist", import.meta.url)
 )
@@ -382,7 +383,11 @@ export async function startFakeBrokers() {
     }
     sockets.push(entry)
     socket.on("message", (data, binary) => {
-      const message = binary ? new Uint8Array(data as Buffer) : String(data)
+      const frame = wsFrame(data)
+      const message =
+        binary && typeof frame !== "string"
+          ? new Uint8Array(frame)
+          : frame.toString()
       entry.received.push(message)
       if (typeof message === "string" && message.includes("PING-WEB"))
         socket.send(
@@ -433,7 +438,7 @@ export async function startFakeIngest() {
   new WebSocketServer({ server }).on("connection", (socket) => {
     sockets.push(socket)
     socket.on("message", (data) =>
-      received.push({ text: String(data), at: Date.now() })
+      received.push({ text: wsFrame(data).toString(), at: Date.now() })
     )
   })
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))

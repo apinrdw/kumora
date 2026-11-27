@@ -88,10 +88,14 @@ test("the order shown before the first second's tick holds while the pointer is 
   // The pointer lands on the list, then the second turns more lopsided.
   act(() => root!.render(<Scanner hovering />))
   stores.readings.apply(delta([readings(SECOND, 1_900)]))
-  act(() => vi.advanceTimersByTime(7_000))
+  act(() => {
+    vi.advanceTimersByTime(7_000)
+  })
   expect(order).toEqual([FIRST, SECOND])
   // Off the list, the next re-sort takes the new readings.
   act(() => root!.render(<Scanner hovering={false} />))
-  act(() => vi.advanceTimersByTime(6_000))
+  act(() => {
+    vi.advanceTimersByTime(6_000)
+  })
   expect(order).toEqual([SECOND, FIRST])
 })

@@ -180,15 +180,12 @@ const button = (name: string) => {
 }
 
 const typeSearch = (value: string) =>
-  act(() => {
+  act<void>(() => {
     const input = container.querySelector(
       'input[aria-label="Search stock, holder or broker"]'
     ) as HTMLInputElement
-    const setter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value"
-    )?.set
-    setter?.call(input, value)
+    // The prototype's setter, so React sees the value change.
+    Reflect.set(HTMLInputElement.prototype, "value", value, input)
     input.dispatchEvent(new Event("input", { bubbles: true }))
   })
 
@@ -253,7 +250,7 @@ describe("Holder moves", () => {
         ),
       ].map((each) => each.textContent)
     ).toEqual(["All4", "New1", "Up1", "Down1", "Transfer0", "Off list1"])
-    await act(() => button("Off list").click())
+    await act<void>(() => button("Off list").click())
     expect(button("Off list").getAttribute("aria-pressed")).toBe("true")
     expect(rows().map((row) => row[1])).toEqual(["PARADISO RESOURCES LTD"])
   })
@@ -283,7 +280,7 @@ describe("Holder moves", () => {
       counts: { new: 1, up: 1, down: 1, transfer: 1, offList: 1 },
     })
     expect(button("All").textContent).toBe("All5")
-    await act(() => button("Transfer").click())
+    await act<void>(() => button("Transfer").click())
     expect(rows()).toEqual([
       [
         "CMNPCMNP TBK",
@@ -365,7 +362,7 @@ describe("Holder moves", () => {
         "aria-pressed"
       )
     ).toBe("true")
-    await act(() => day.click())
+    await act<void>(() => day.click())
     expect(picked).toEqual(["2026-11-19"])
   })
 
@@ -421,14 +418,14 @@ describe("Holder moves", () => {
       ["Daily", "true"],
       ["Monthly", "false"],
     ])
-    await act(() => button("Monthly").click())
+    await act<void>(() => button("Monthly").click())
     expect(picked).toEqual(["monthly"])
   })
 
   test("offers the toggle before a month is parsed", async () => {
     const picked = await render(undefined, "monthly")
     expect(text()).toContain("No month of IDX's above-1% report is parsed yet.")
-    await act(() => button("Daily").click())
+    await act<void>(() => button("Daily").click())
     expect(picked).toEqual(["daily"])
   })
 })
@@ -509,7 +506,7 @@ describe("Holder moves, Monthly", () => {
   test("rails the last months' counts, picking one on click", async () => {
     const picked = await render(MONTHLY)
     expect(text()).toContain("Last 2 months")
-    await act(() =>
+    await act<void>(() =>
       button("Apr 2026: 6 new or up, 11 down or off list").click()
     )
     expect(picked).toEqual(["2026-04-30"])

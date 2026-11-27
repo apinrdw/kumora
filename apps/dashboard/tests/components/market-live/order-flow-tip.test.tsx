@@ -38,11 +38,11 @@ test("a mark's tooltip names its event and its figures", async () => {
   const root = createRoot(
     document.body.appendChild(document.createElement("div"))
   )
-  await act(() => root.render(<OrderFlowTip tip={tip} store={store} />))
+  await act<void>(() => root.render(<OrderFlowTip tip={tip} store={store} />))
   const shown = () => document.querySelector('[role="tooltip"]')?.textContent
   expect(shown()).toBeUndefined()
 
-  await act(() =>
+  await act<void>(() =>
     tip.set({
       key: `BBCA|exhaustion|buy|1250|${Date.parse("2026-11-19T03:45:00.000Z")}`,
       x: 10,
@@ -55,7 +55,7 @@ test("a mark's tooltip names its event and its figures", async () => {
     "buy-aggressor lots 2,400 → 900 a minute · range 5 → 1 ticks"
   )
 
-  await act(() => tip.set({ key: "gone", x: 10, y: 10, pinned: false }))
+  await act<void>(() => tip.set({ key: "gone", x: 10, y: 10, pinned: false }))
   expect(shown(), "an event the store no longer holds").toBeUndefined()
-  await act(() => root.unmount())
+  await act<void>(() => root.unmount())
 })

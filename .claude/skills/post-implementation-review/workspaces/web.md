@@ -3,7 +3,7 @@
 Running the site and its probe locally, and checking prerender without a deploy.
 
 - **Local run.** `ALCHEMY_STAGE=test DEPLOY_PROBE_SECRET=abc bun alchemy dev` from `apps/web` needs no Cloudflare or Infisical credential. `curl localhost:3000/probe` must answer `"secretSha256Prefix":"ba7816bf8f01"`, the SHA-256 prefix of `abc`.
-- **Port 3000 taken by another project?** The port is strict, so the stack fails instead of moving. For a hand-run `bun alchemy dev`, set its port variable (`DEV_PORT_VARIABLES` in `packages/deploy/src/target.ts`), or run it inside `unshare -rn sh -c 'ip link set lo up && ...'` for a private loopback. `pnpm test:e2e` needs neither (`apps/e2e/support/ports.ts`).
+- **Port 3000 taken by another project?** The port is strict, so the stack fails instead of moving. For a hand-run `bun alchemy dev`, set its port variable (`DEV_PORT_VARIABLES` in `packages/deploy/src/target.ts`), or run it inside `unshare -rn sh -c 'ip link set lo up && ...'` for a private loopback. `vp run test:e2e` needs neither (`apps/e2e/support/ports.ts`).
 - **Prerender without a deploy.** `alchemy deploy` needs credentials, but alchemy's build child runs alone. From `apps/web`, pipe a Bun-serialized config into it (Node's `v8.serialize` output fails in Bun with "Unable to deserialize data"):
 
   ```sh
@@ -13,5 +13,6 @@ Running the site and its probe locally, and checking prerender without a deploy.
   ```
 
   Pass: `[prerender] Prerendered 1 pages:` followed by `[prerender] - /`. Delete `dist/` afterwards. The config reads `COMPATIBILITY_DATE` from `packages/deploy/src/target.ts`.
+
 - **Newest compatibility date the bundled workerd accepts.** Set `COMPATIBILITY_DATE` to a far-future date, run `bun alchemy dev`, and read "the newest date supported by this server binary" in the error. Put the date back.
 - **A branch's Preview stage.** `bun packages/deploy/src/teardown.ts stage <branch>` from the root prints `stage=<stage>`; the Worker is `kumora-web-<stage>`.

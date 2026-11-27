@@ -44,13 +44,13 @@ The dashboard's DOM tests use **happy-dom 21.0.4**, not jsdom. `holding-composit
 
 What happy-dom 21.0.4 provides, and what the chart does with it:
 
-| API | happy-dom | Chart behaviour |
-| --- | --- | --- |
-| `ResizeObserver` | present | The host observes the container. happy-dom does no layout, so the width reads 0. The host ignores zero sizes and keeps `initialWidth` (`viewBox="0 0 640 280"` in the test). |
-| `getBoundingClientRect` | present, returns zeros | Same as above. Tests should assert structure and data, not pixel positions. |
+| API                        | happy-dom                                             | Chart behaviour                                                                                                                                                                                                |
+| -------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ResizeObserver`           | present                                               | The host observes the container. happy-dom does no layout, so the width reads 0. The host ignores zero sizes and keeps `initialWidth` (`viewBox="0 0 640 280"` in the test).                                   |
+| `getBoundingClientRect`    | present, returns zeros                                | Same as above. Tests should assert structure and data, not pixel positions.                                                                                                                                    |
 | `CanvasRenderingContext2D` | `undefined`; `canvas.getContext("2d")` returns `null` | `dom-text.js` makes a canvas measurer only when `view.CanvasRenderingContext2D` exists. Otherwise it uses `estimateSceneText`, the same estimator the server uses. No canvas mock is needed for the SVG chart. |
-| `document.fonts` | `undefined` | The `loadingdone` relayout is skipped, with no error. |
-| `requestAnimationFrame` | present | Responsive relayouts run normally. |
+| `document.fonts`           | `undefined`                                           | The `loadingdone` relayout is skipped, with no error.                                                                                                                                                          |
+| `requestAnimationFrame`    | present                                               | Responsive relayouts run normally.                                                                                                                                                                             |
 
 The Canvas entry (`@tanstack/react-charts/canvas`) is different. The library's testing guide (`docs/guides/testing-and-debugging.md`) says to use "a Canvas 2D mock for draw-call and device-pixel-ratio assertions" there. For logic that does not need a DOM, it recommends `createChartScene(definition, { width, height })`, which returns a deterministic scene that tests can assert against.
 
@@ -58,12 +58,12 @@ The Canvas entry (`@tanstack/react-charts/canvas`) is different. The library's t
 
 Method: `vite build` in `apps/dashboard`. The client environment builds; the server build then fails on `cloudflare:workers`, as it does at baseline. Every `dist/client/assets/*.js` was gzipped at level 9 and summed. The experiment rendered one stacked bar chart (three months × two origins, grid, axes) at the top of the `/stocks/$code` route component. Vite's own gzip figure for the route chunk is in brackets.
 
-| Build | `stocks._code` chunk gzip | Added to the client total (gzip) |
-| --- | --- | --- |
-| Baseline (`staging` at `81fea64e57`) | 5.67 kB [5.70 kB] | — |
-| TanStack, `barY` + `tooltip` | 46.33 kB [46.80 kB] | **+40.7 kB** |
-| TanStack, `barY` without `tooltip` | [42.50 kB] | +36.3 kB |
-| recharts 3.8.0, `BarChart` + 2 stacked `Bar` + `XAxis`/`YAxis`/`CartesianGrid`/`Tooltip` in `ResponsiveContainer` | 104.20 kB [105.27 kB] | **+98.5 kB** |
+| Build                                                                                                             | `stocks._code` chunk gzip | Added to the client total (gzip) |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------- | -------------------------------- |
+| Baseline (`staging` at `81fea64e57`)                                                                              | 5.67 kB [5.70 kB]         | —                                |
+| TanStack, `barY` + `tooltip`                                                                                      | 46.33 kB [46.80 kB]       | **+40.7 kB**                     |
+| TanStack, `barY` without `tooltip`                                                                                | [42.50 kB]                | +36.3 kB                         |
+| recharts 3.8.0, `BarChart` + 2 stacked `Bar` + `XAxis`/`YAxis`/`CartesianGrid`/`Tooltip` in `ResponsiveContainer` | 104.20 kB [105.27 kB]     | **+98.5 kB**                     |
 
 All of the added code went into the route chunk. No shared chunk changed by more than 15 bytes. React was already in the shared chunks, so both figures leave React out.
 

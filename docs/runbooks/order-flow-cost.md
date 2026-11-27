@@ -10,16 +10,16 @@ The prices are Cloudflare's Durable Object SQLite prices on Workers Paid, read 2
 
 A busy day is Production's busiest measured day, 1,460,000 trades ([apinrdw/kumora#258](https://github.com/apinrdw/kumora/issues/258), 2026-11-13). Each threshold keeps a month of 22 busy days inside the included amounts:
 
-| What | Threshold | Where you read it |
-| --- | --- | --- |
-| Rows written for a busy day | ≤ 2 M | the day's object, summed over every hour ([Split by object and hour](#split-by-object-and-hour)) |
-| Rows read for a busy day | ≤ 0.5 B | the same sum |
-| Storage of one hot day | ≤ 0.4 GB | the day's `Order flow storage` line, `databaseBytes` ([Split by table](#split-by-table-from-workers-logs)) |
-| Storage of Production's `TradingDay` namespace | ≤ 5 GB | `storedBytes` from the daily mode ([Split by stage](#split-by-stage)) |
+| What                                           | Threshold | Where you read it                                                                                          |
+| ---------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------- |
+| Rows written for a busy day                    | ≤ 2 M     | the day's object, summed over every hour ([Split by object and hour](#split-by-object-and-hour))           |
+| Rows read for a busy day                       | ≤ 0.5 B   | the same sum                                                                                               |
+| Storage of one hot day                         | ≤ 0.4 GB  | the day's `Order flow storage` line, `databaseBytes` ([Split by table](#split-by-table-from-workers-logs)) |
+| Storage of Production's `TradingDay` namespace | ≤ 5 GB    | `storedBytes` from the daily mode ([Split by stage](#split-by-stage))                                      |
 
 A hot day is a recorded day that still lives in its object. A cold day lives in R2 and bills no SQL rows. `apps/dashboard/GLOSSARY.md` defines both.
 
-The row-budget suite checks the same budgets in workerd before a deploy, on a modelled busy day. Run `pnpm --filter dashboard test:row-budgets` for each operation's budget. Run `pnpm --filter dashboard test:whole-day --silent=false` for a whole recorded day: it takes about 5.5 minutes and is not part of `pnpm check`.
+The row-budget suite checks the same budgets in workerd before a deploy, on a modelled busy day. Run `vp run --filter dashboard test:row-budgets` for each operation's budget. Run `vp run --filter dashboard test:whole-day --silent=false` for a whole recorded day: it takes about 5.5 minutes and is not part of `vp run check`.
 
 ## Every cost Decision states rows billed
 
@@ -39,6 +39,7 @@ A `Decision:` comment that justifies a choice by its cost states the rows billed
    - **Workers Scripts Read**, for the list that maps a namespace ID to its Worker.
 
    The token is not stored anywhere. An agent asks with `request_secret`, file delivery, and reads the file only inside the command.
+
 2. Write down the account ID, `8ecc24065089e01c57d5470fa0848f9a`. Production's `TradingDay` namespace is `295e30c501fb411daf0a7f125637c301`.
 3. Save the script below as `do-usage.mjs` in an empty directory outside the repo. It ran as written on 2026-11-18 ([apinrdw/kumora#532](https://github.com/apinrdw/kumora/issues/532)).
 
@@ -164,6 +165,7 @@ Each `TradingDay` object holds one WIB trading day, and its `name` is that date,
    ```
 
    For a busy day's totals, run a window that covers the day's live hours and every night after them until its walk is done. Compare the day's sums with the 2 M and 0.5 B thresholds.
+
 3. List one object's hours to see when it read and wrote:
 
    ```sh
@@ -171,6 +173,7 @@ Each `TradingDay` object holds one WIB trading day, and its `name` is that date,
    ```
 
    Rows during 02:00–09:15 UTC on the object's own date are live trading. Later rows are the seal, the evening walk and any later reads of the sealed day. A cold day's object bills no rows after its move.
+
 4. If an hour reads far more than its writes explain, divide its rows read by its requests. That gives the rows each request read. Get the requests from `durableObjectsInvocationsAdaptiveGroups`, as `sum { requests }`, filtered by the same namespace and hour.
 
 ## Split by table from Workers Logs

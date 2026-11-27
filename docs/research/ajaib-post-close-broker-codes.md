@@ -12,11 +12,11 @@ Research for [#125](https://github.com/apinrdw/kumora/issues/125), under the map
 
 ## Sources
 
-| Tag | Source | Version |
-|---|---|---|
-| **[aj]** | trade.ajaib.co.id Vite bundle, entry `index-DKOtYJk3.js`, 142 chunks crawled from the entry, plus `/__ENV.js` (`VITE_PUBLIC_API_URL = https://ht2.ajaib.co.id/api/`) | fetched anonymously 2026-11-07. It is the same entry hash #61 read on 2026-11-06 |
-| **[#48]** | Owner's DevTools capture in a signed-in tab, 2026-11-06 09:36–09:41 WIB, during the session | issue comments |
-| **[probe]** | Anonymous `curl` to `ht2.ajaib.co.id` from this machine, 2026-11-07 | response headers only |
+| Tag         | Source                                                                                                                                                               | Version                                                                          |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **[aj]**    | trade.ajaib.co.id Vite bundle, entry `index-DKOtYJk3.js`, 142 chunks crawled from the entry, plus `/__ENV.js` (`VITE_PUBLIC_API_URL = https://ht2.ajaib.co.id/api/`) | fetched anonymously 2026-11-07. It is the same entry hash #61 read on 2026-11-06 |
+| **[#48]**   | Owner's DevTools capture in a signed-in tab, 2026-11-06 09:36–09:41 WIB, during the session                                                                          | issue comments                                                                   |
+| **[probe]** | Anonymous `curl` to `ht2.ajaib.co.id` from this machine, 2026-11-07                                                                                                  | response headers only                                                            |
 
 The bundle shows what the web app sends and renders. It does not show what the server caps, rate-limits or fills in. Minified names (`JC`, `KC`, `fw`, …) change with every release. Search a newer bundle for the quoted string literals instead.
 
@@ -26,13 +26,13 @@ The bundle shows what the web app sends and renders. It does not show what the s
 
 The row component `GC` (`displayName "TradeRow"`) renders these row fields when the buyer/seller columns are on (**[aj]**):
 
-| Field | Meaning |
-|---|---|
-| `buyer`, `seller` | Broker code. An empty value renders as `-` |
-| `buyer_type`, `seller_type` | Broker category. The chip `BC` puts it in `data-broker-type`, and the CSS styles the values `LOCAL-BROKER`, `FOREIGN-BROKER`, `BUMN` and `OTHER` |
-| `buyer_color`, `seller_color` | Legacy colour hex. The CSS matches `#DF1401`, `#2978AE` and `#FABC2A` in `data-broker-old-color` |
-| `trade_num` | `YYYYMMDD` + 10 digits (**[#48]**). The table keys rows by `trade_num`, or by `timestamp` when that is missing |
-| `stock_code`, `price`, `lot`, `side`, `date`, `time`, `timestamp`, `return_pct`, `market_type` | As in #40. `market_type` is never rendered |
+| Field                                                                                          | Meaning                                                                                                                                          |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `buyer`, `seller`                                                                              | Broker code. An empty value renders as `-`                                                                                                       |
+| `buyer_type`, `seller_type`                                                                    | Broker category. The chip `BC` puts it in `data-broker-type`, and the CSS styles the values `LOCAL-BROKER`, `FOREIGN-BROKER`, `BUMN` and `OTHER` |
+| `buyer_color`, `seller_color`                                                                  | Legacy colour hex. The CSS matches `#DF1401`, `#2978AE` and `#FABC2A` in `data-broker-old-color`                                                 |
+| `trade_num`                                                                                    | `YYYYMMDD` + 10 digits (**[#48]**). The table keys rows by `trade_num`, or by `timestamp` when that is missing                                   |
+| `stock_code`, `price`, `lot`, `side`, `date`, `time`, `timestamp`, `return_pct`, `market_type` | As in #40. `market_type` is never rendered                                                                                                       |
 
 **Broker code format:** the bundle renders the code as an opaque string. These are IDX exchange-member codes, two uppercase letters such as `YP` or `CC` (**inferred**: the bundle does not check the format). Store it as a string and don't validate its length. The live check confirms the format.
 
@@ -52,10 +52,10 @@ The response wrapper is `{ results[], has_next | next, page, total_pages }` (**[
 How the app pages after the close (**[aj]** `rw`, `XC`): the first page is `page=1&page_size=40&last_timestamp=Date.now()`. On the first "load more" the app freezes `last_timestamp = Date.now()` and fetches `page=2, 3, …` (`initialPageParam: 2`) with that fixed timestamp. It dedupes on `trade_num`. This is **offset paging** on a fixed snapshot. After the close the snapshot no longer changes, so pages are stable and independent, and they can be fetched in parallel.
 
 | `page_size` | Calls for 1.3M | Calls for 2.2M | At 1 call/s | At 5 calls/s |
-|---|---|---|---|---|
-| 40 (app) | 32,500 | 55,000 | 9.0–15.3 h | 1.8–3.1 h |
-| 100 | 13,000 | 22,000 | 3.6–6.1 h | 43–73 min |
-| 1,000 | 1,300 | 2,200 | 22–37 min | 4–7 min |
+| ----------- | -------------- | -------------- | ----------- | ------------ |
+| 40 (app)    | 32,500         | 55,000         | 9.0–15.3 h  | 1.8–3.1 h    |
+| 100         | 13,000         | 22,000         | 3.6–6.1 h   | 43–73 min    |
+| 1,000       | 1,300          | 2,200          | 22–37 min   | 4–7 min      |
 
 - **Cap:** unknown. The app sends 8 or 40 and never more. **Live check 2.**
 - **Deep offsets:** page 30,000 of a 40-row page means an offset of 1.2M rows. Offset paging can get slow, or the server can cap `page` (`total_pages` may stop short of the whole day). **Live check 3.**
@@ -77,6 +77,7 @@ How the app pages after the close (**[aj]** `rw`, `XC`): the first page is `page
   - `cursor`
 
   It pages by `result.next_cursor` while `result.has_next`. Rows are `result.transactions[]` with `time`, `price`, `qty`, and `buyer` and `seller` objects that carry `broker_code`, `type` and, on the ORDER type, `order_id`. The date picker blocks only dates after today (`disabled: {after: new Date}`), so the app sets no lower bound. A holiday returns `err_code: "EC0009003"`.
+
 - Done Details is per stock code, so a day is about one cursor walk per traded code (`v1/stock/data/list/` lists 3,406 instruments, #48). Its rows render no trade number, so they cannot be joined to **Trade number** without matching time, price and quantity, which can be ambiguous. It is a fallback for missed days and a cross-check, not the main path. Its page size, depth and row fields are **live check 7**.
 - `v1/stock/data/trading-day/non-holiday` lists trading days, to enumerate the past days to retry.
 

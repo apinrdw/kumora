@@ -1,0 +1,12 @@
+# vp is the CLI; pnpm resolves underneath; turbo still runs the tasks
+
+Contributors, agents, CI and the pre-commit hook call Vite+'s `vp` for package work: `vp install`, `vp add`, `vp exec`, `vp dlx`, `--filter` and running root scripts with `vp run`. One front door replaces switching between pnpm, oxlint, oxfmt and tsc commands. pnpm stays the package manager underneath: `vp install` forwards to the `packageManager` pnpm, so the lockfile, `pnpm-workspace.yaml`, the catalog (ADR-0015) and the build approvals are unchanged. turbo still runs the tasks, with its GitHub Actions cache (ADR-0005), because vite-plus 1.8's own runner has no remote cache, does not reliably cache Vitest or TypeScript tasks (vite-task#929) and misses its cache at other checkout paths such as t3 worktrees (vite-plus#3374); `vp run` starts a root script with its cache off, and turbo inside it caches as before. `vite-plus` is an exact root devDependency, and each CI job is set up by one `voidzero-dev/setup-vp` step pinned to a commit, naming the same vp version. `scripts/check-vp-version.mts` fails `check:static` when a step names another version. Workers Builds installs no vp: Cloudflare's build image has none, and its own install (pnpm through Corepack at the `packageManager` version) and the Bun-run deploy script already deploy, so a build command fetching vp would add a pinned download and dashboard state for no change in what deploys. Tests stay on plain `vitest run`, since `vp test` resolves its own bundled Vitest first. ADR-0011 deferred Vite Plus because it re-aliases `vite` and adds a second task runner; neither happens here, since no `vite` alias is installed and turbo stays the one runner.
+
+Sites:
+
+- `.github/workflows/ci.yml`
+- `.github/workflows/release.yml`
+- `.github/workflows/teardown-preview.yml`
+- `scripts/vp-version.mts`
+
+Source: apinrdw/kumora#721

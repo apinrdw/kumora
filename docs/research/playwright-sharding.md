@@ -5,7 +5,7 @@ Research for [#165](https://github.com/apinrdw/kumora/issues/165), map [#163](ht
 ## Answer
 
 - **1 worker is the default on our runner, not a cap from the config.** The default `workers` is 50% of `os.cpus().length`, rounded down. `apinrdw/kumora` is a private repo, and GitHub gives private repos a **2-vCPU** `ubuntu-latest` (4 vCPU is for public repos). floor(2 × 50%) = 1. The `trading-day` project's `workers: 1` and the `fullyParallel` default do not lower the global count. They only decide how many test groups exist, and the printed count is min(global workers, the largest number of groups that could run at once in any phase).
-- **Under `--shard` as the config stands today, shard 1 runs all 55 tests and every other shard runs nothing.** `limits` depends on `chromium` and `trading-day`, which depend on `setup`, so Playwright classes `limits` as the only *top-level* project and the other three as *dependencies*. Only top-level tests are split between shards. The shard that gets the one `too-many-attempts` file then gets every dependency project in full. The other shards have no top-level tests, so they run no dependencies either, and exit 0.
+- **Under `--shard` as the config stands today, shard 1 runs all 55 tests and every other shard runs nothing.** `limits` depends on `chromium` and `trading-day`, which depend on `setup`, so Playwright classes `limits` as the only _top-level_ project and the other three as _dependencies_. Only top-level tests are split between shards. The shard that gets the one `too-many-attempts` file then gets every dependency project in full. The other shards have no top-level tests, so they run no dependencies either, and exit 0.
 - **In general, each shard reruns the whole dependency closure of whatever top-level tests it got.** Setup projects are never split. They run in full in every shard that needs them.
 - **`workers: 1` on a project is enforced per `playwright test` process.** It limits one shard's dispatcher. Shards do not coordinate, so two shards can run `trading-day` files at the same time.
 - **Blob reports merge into one report with every shard's tests.** A dependency project that ran in several shards appears once per shard. The merged worker count is the sum across shards, and the duration is from the earliest shard start to the latest shard end.
@@ -65,12 +65,12 @@ for (const dep of project.deps)
 
 When a project is reached at any depth > 0, it becomes `"dependency"` and stays that way. This happens even when it was also selected directly, as every project is when no `--project` is given. In our config this gives:
 
-| Project | Class |
-| --- | --- |
-| `setup` | dependency (of `chromium`, `trading-day`) |
-| `chromium` | dependency (of `limits`) |
-| `trading-day` | dependency (of `limits`) |
-| `limits` | **top-level** (the only one) |
+| Project       | Class                                     |
+| ------------- | ----------------------------------------- |
+| `setup`       | dependency (of `chromium`, `trading-day`) |
+| `chromium`    | dependency (of `limits`)                  |
+| `trading-day` | dependency (of `limits`)                  |
+| `limits`      | **top-level** (the only one)              |
 
 **Sharding.** `createRootSuite` [`runner/loadUtils.ts`, `:2560-2640`]:
 
@@ -84,15 +84,15 @@ When a project is reached at any depth > 0, it becomes `"dependency"` and stays 
 
 **Reproduction.** I made a scratch project with the same four projects, `testMatch`/`testIgnore` patterns, `workers: 1` on `trading-day`, and dummy tests that log their project. I ran it with the installed 1.64.1 CLI:
 
-| Command | Ran |
-| --- | --- |
-| `--shard=1/2` | 20 of 20: setup 1, chromium 12, trading-day 6, limits 1 |
-| `--shard=2/2` | nothing; `--list` says `Total: 0 tests in 0 files`; exit 0 |
-| `--shard=1/3` | 20 of 20, same as `1/2` |
-| `--shard=2/3`, `--shard=3/3` | nothing |
-| `--project=chromium --project=trading-day --shard=1/3` | setup 1 + chromium `account`, `admin` (6) |
-| same, `--shard=2/3` | setup 1 + chromium `sign-in`, `web` (6) |
-| same, `--shard=3/3` | setup 1 + trading-day `market-live`, `relay-extension` (6), "using 1 worker" |
+| Command                                                | Ran                                                                          |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `--shard=1/2`                                          | 20 of 20: setup 1, chromium 12, trading-day 6, limits 1                      |
+| `--shard=2/2`                                          | nothing; `--list` says `Total: 0 tests in 0 files`; exit 0                   |
+| `--shard=1/3`                                          | 20 of 20, same as `1/2`                                                      |
+| `--shard=2/3`, `--shard=3/3`                           | nothing                                                                      |
+| `--project=chromium --project=trading-day --shard=1/3` | setup 1 + chromium `account`, `admin` (6)                                    |
+| same, `--shard=2/3`                                    | setup 1 + chromium `sign-in`, `web` (6)                                      |
+| same, `--shard=3/3`                                    | setup 1 + trading-day `market-live`, `relay-extension` (6), "using 1 worker" |
 
 The last three rows show the general case. Once `limits` is not in the selection, `chromium` and `trading-day` are top-level and get split, and **every shard reruns `setup`**. The "Running N tests" count includes the setup tests.
 

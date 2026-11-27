@@ -109,7 +109,7 @@ const root = createRoot(container)
 afterEach(() => act(() => root.render(null)))
 
 const render = (props: Partial<MajorHoldersProps>) =>
-  act(() =>
+  act<void>(() =>
     root.render(
       <MajorHolders
         code={StockCode.make("AADI")}
@@ -314,7 +314,7 @@ describe("Major holders", () => {
       (button) => button.textContent === "2 rows in the report"
     )
     expect(toggle?.getAttribute("aria-expanded")).toBe("false")
-    await act(() => toggle?.click())
+    await act<void>(() => toggle?.click())
     expect(toggle?.getAttribute("aria-expanded")).toBe("true")
     expect(text()).toContain("PARAGA ARTAMIDA, PT · 1,000,000 lots · 1.30%")
     expect(text()).toContain("PT PARAGA ARTAMIDA · 3,000,000 lots · 3.90%")
@@ -342,8 +342,8 @@ describe("Major holders", () => {
       "false",
       "false",
     ])
-    await act(() => tabs[0]?.click())
-    await act(() => tabs[1]?.click())
+    await act<void>(() => tabs[0]?.click())
+    await act<void>(() => tabs[1]?.click())
     expect(picked).toEqual(["2026-09-30"])
   })
 
@@ -382,7 +382,7 @@ describe("Major holders", () => {
       ["Dec 2026", "false", "false"],
     ])
     expect(text()).toContain("vs Sep 2026: 1 new, 1 up, 0 down, 1 off list")
-    for (const tab of tabs) await act(() => tab.click())
+    for (const tab of tabs) await act<void>(() => tab.click())
     expect(picked).toEqual(["2026-09-30", "2026-10-29", "2026-12-30"])
   })
 

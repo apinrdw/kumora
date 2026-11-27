@@ -12,11 +12,11 @@ shown₁ − shown₀ = added − hit − cancelled
 
 `shown` comes from the book, `hit` from the running trades. `added` and `cancelled` are both unknown, so only their difference is known. Each reading must work from bounds: `added ≥ max(0, shown₁ − shown₀ + hit)` and `cancelled ≥ max(0, shown₀ − shown₁ − hit)`. This is how the Cont–Kukanov–Stoikov order-flow-imbalance paper classifies quote changes. It treats a drop in a queue as "a market order or a cancellation" because quote data cannot tell them apart. We can tell them apart in part because we also have the tape.
 
-| Reading | Works at our granularity? | Minimum cadence (one side) | Main false positives |
-| --- | --- | --- | --- |
-| **Absorption** (a level takes hits and holds) | Yes, over windows of 5–30 s | ~1–2 s per side | Trade and frame clocks misaligned at 1 s; adds and cancels netting out |
-| **Reload** (a level refilled after being hit) | Yes as an event, but cannot say "iceberg" | ~1 s; a refill inside one interval shows only as overflow | Other traders joining the queue; amends; frames coalesced |
-| **Wall** appeared / pulled / filled / moved | Yes for appeared, pulled and filled. Moved is a heuristic | ~1–2 s; moved needs both frames within ~2 s | The level leaving the 20-level window; a legal cancel looks like spoofing; provenance switch |
+| Reading                                       | Works at our granularity?                                 | Minimum cadence (one side)                                | Main false positives                                                                         |
+| --------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| **Absorption** (a level takes hits and holds) | Yes, over windows of 5–30 s                               | ~1–2 s per side                                           | Trade and frame clocks misaligned at 1 s; adds and cancels netting out                       |
+| **Reload** (a level refilled after being hit) | Yes as an event, but cannot say "iceberg"                 | ~1 s; a refill inside one interval shows only as overflow | Other traders joining the queue; amends; frames coalesced                                    |
+| **Wall** appeared / pulled / filled / moved   | Yes for appeared, pulled and filled. Moved is a heuristic | ~1–2 s; moved needs both frames within ~2 s               | The level leaving the 20-level window; a legal cancel looks like spoofing; provenance switch |
 
 **Our data's edge:** each level carries its **order count**. Most market-by-price feeds that order-flow tools use carry size only. A change in orders next to a change in lots separates "one order refilled" from "many traders joined", and a wall of one to three orders from a crowd.
 
@@ -35,35 +35,36 @@ shown₁ − shown₀ = added − hit − cancelled
 
 ### Market microstructure
 
-- **Order flow imbalance (OFI).** Cont, Kukanov, Stoikov, *The Price Impact of Order Book Events* ([arXiv:1011.6402](https://arxiv.org/abs/1011.6402), J. Financial Econometrics 2014). They compare consecutive best-quote observations and define the contribution `eₙ = 1{Pᴮₙ ≥ Pᴮₙ₋₁}qᴮₙ − 1{Pᴮₙ ≤ Pᴮₙ₋₁}qᴮₙ₋₁ − 1{Pᴬₙ ≤ Pᴬₙ₋₁}qᴬₙ + 1{Pᴬₙ ≥ Pᴬₙ₋₁}qᴬₙ₋₁`. A fall in the bid queue at an unchanged price is "the size that was removed from the bid, whether due to a market sell or cancel buy order." They sum `eₙ` over **10-second** intervals and find price changes linear in OFI, with a slope inversely proportional to depth. The method needs **only snapshots of aggregated levels**, not orders, and does not match trades. Our ledger is this method extended to 20 levels and split using the tape.
-- **Cancellation is proportional to queue size.** Cont, Stoikov, Talreja, *A Stochastic Model for Order Book Dynamics* (Operations Research 58(3), 2010). They model cancellations at a level at a rate proportional to the orders resting there, and estimate the model from high-frequency order-book observations on the Tokyo Stock Exchange. The full-text estimator was not retrieved, only the model structure ([RePEc](https://econpapers.repec.org/RePEc:inm:oropre:v:58:y:2010:i:3:p:549-563)). For us, the lesson is that big levels lose lots to cancellation constantly. A wall that shrinks is not by itself an event.
-- **Iceberg detection from public data.** Frey & Sandås, *The impact of iceberg orders in limit order books* ([CFR WP 09-06](https://www.cfr-cologne.de/download/workingpaper/cfr-09-06.pdf)), on Xetra. The rule: "if an order book contains an iceberg at the best quote then a trade that exhausts all the displayed depth at the best quote prompts an immediate addition of new depth equal to the iceberg order's peak size." The algorithm flags an iceberg after the first replenishment, tracks each price level separately, and keeps the flag until an expected replenishment fails to occur. It "compare[s] the execution records with the observed order book before each trade", which means event-level sequencing. Against Xetra's true iceberg flags, at the best ask, it falsely detects an iceberg in about **1%** of observations and misses one in **3–5%**. They also note that a detector "cannot determine the iceberg order's size although its peak size may provide a signal."
-- **CME iceberg detection.** *CME Iceberg Order Detection and Prediction* ([arXiv:1909.09495](https://ar5iv.labs.arxiv.org/html/1909.09495)). This uses market-by-order data with order IDs. Native icebergs are flagged when "a trade larger than the resting volume is detected". Synthetic icebergs (a trader re-posting by hand or by algorithm) are flagged when a new order at the same price and size arrives within **dt = 0.3 s** of the previous tranche's removal. The authors admit "it is impossible to detect synthetic icebergs with varying peak sizes or price levels." Synthetic-iceberg prediction precision is about 50%.
-- **Spoofing in an Asian order-driven market.** Lee, Eom & Park, *Microstructure-based manipulation: Strategic behavior and performance of spoofing traders* (J. Financial Markets 16(2), 2013, [RePEc](https://econpapers.repec.org/RePEc:eee:finmar:v:16:y:2013:i:2:p:227-252)), on the Korea Exchange with account-level data. About 0.81% of orders were spoofing orders, placed with little chance of execution to suggest an imbalance. Spoofing fell sharply after KRX changed its order-disclosure rule. They could tell spoofing apart only because they had **account identities**. Nobody outside the exchange can.
+- **Order flow imbalance (OFI).** Cont, Kukanov, Stoikov, _The Price Impact of Order Book Events_ ([arXiv:1011.6402](https://arxiv.org/abs/1011.6402), J. Financial Econometrics 2014). They compare consecutive best-quote observations and define the contribution `eₙ = 1{Pᴮₙ ≥ Pᴮₙ₋₁}qᴮₙ − 1{Pᴮₙ ≤ Pᴮₙ₋₁}qᴮₙ₋₁ − 1{Pᴬₙ ≤ Pᴬₙ₋₁}qᴬₙ + 1{Pᴬₙ ≥ Pᴬₙ₋₁}qᴬₙ₋₁`. A fall in the bid queue at an unchanged price is "the size that was removed from the bid, whether due to a market sell or cancel buy order." They sum `eₙ` over **10-second** intervals and find price changes linear in OFI, with a slope inversely proportional to depth. The method needs **only snapshots of aggregated levels**, not orders, and does not match trades. Our ledger is this method extended to 20 levels and split using the tape.
+- **Cancellation is proportional to queue size.** Cont, Stoikov, Talreja, _A Stochastic Model for Order Book Dynamics_ (Operations Research 58(3), 2010). They model cancellations at a level at a rate proportional to the orders resting there, and estimate the model from high-frequency order-book observations on the Tokyo Stock Exchange. The full-text estimator was not retrieved, only the model structure ([RePEc](https://econpapers.repec.org/RePEc:inm:oropre:v:58:y:2010:i:3:p:549-563)). For us, the lesson is that big levels lose lots to cancellation constantly. A wall that shrinks is not by itself an event.
+- **Iceberg detection from public data.** Frey & Sandås, _The impact of iceberg orders in limit order books_ ([CFR WP 09-06](https://www.cfr-cologne.de/download/workingpaper/cfr-09-06.pdf)), on Xetra. The rule: "if an order book contains an iceberg at the best quote then a trade that exhausts all the displayed depth at the best quote prompts an immediate addition of new depth equal to the iceberg order's peak size." The algorithm flags an iceberg after the first replenishment, tracks each price level separately, and keeps the flag until an expected replenishment fails to occur. It "compare[s] the execution records with the observed order book before each trade", which means event-level sequencing. Against Xetra's true iceberg flags, at the best ask, it falsely detects an iceberg in about **1%** of observations and misses one in **3–5%**. They also note that a detector "cannot determine the iceberg order's size although its peak size may provide a signal."
+- **CME iceberg detection.** _CME Iceberg Order Detection and Prediction_ ([arXiv:1909.09495](https://ar5iv.labs.arxiv.org/html/1909.09495)). This uses market-by-order data with order IDs. Native icebergs are flagged when "a trade larger than the resting volume is detected". Synthetic icebergs (a trader re-posting by hand or by algorithm) are flagged when a new order at the same price and size arrives within **dt = 0.3 s** of the previous tranche's removal. The authors admit "it is impossible to detect synthetic icebergs with varying peak sizes or price levels." Synthetic-iceberg prediction precision is about 50%.
+- **Spoofing in an Asian order-driven market.** Lee, Eom & Park, _Microstructure-based manipulation: Strategic behavior and performance of spoofing traders_ (J. Financial Markets 16(2), 2013, [RePEc](https://econpapers.repec.org/RePEc:eee:finmar:v:16:y:2013:i:2:p:227-252)), on the Korea Exchange with account-level data. About 0.81% of orders were spoofing orders, placed with little chance of execution to suggest an imbalance. Spoofing fell sharply after KRX changed its order-disclosure rule. They could tell spoofing apart only because they had **account identities**. Nobody outside the exchange can.
 
 ### Regulators
 
 - **US.** CEA §4c(a)(5)(C) makes spoofing unlawful: "bidding or offering with the intent to cancel the bid or offer before execution". The CFTC's interpretive guidance is at 78 Fed. Reg. 31890 (2013), summarized by [FIA](https://fia.org/sites/default/files/2019-12/Dodd-Frank-Disruptive-Trading-Provisions-CFTC-Provides-Final-Interpretative-Guidance-052313.pdf). The offence turns on **intent**, which the book cannot show.
-- **EU.** MAR Delegated Regulation 2016/522, Annex II, lists orders withdrawn before execution as indicators of "layering and spoofing". A 2026 Commission draft (C(2026) 2152, [Council doc ST-8101-2026-ADD-1](https://data.consilium.europa.eu/doc/document/ST-8101-2026-ADD-1/en/pdf)) adds a point that names the practice. These are *indicators* for regulators who see who placed the orders, not tests a public-data observer can apply.
+- **EU.** MAR Delegated Regulation 2016/522, Annex II, lists orders withdrawn before execution as indicators of "layering and spoofing". A 2026 Commission draft (C(2026) 2152, [Council doc ST-8101-2026-ADD-1](https://data.consilium.europa.eu/doc/document/ST-8101-2026-ADD-1/en/pdf)) adds a point that names the practice. These are _indicators_ for regulators who see who placed the orders, not tests a public-data observer can apply.
 - **IDX.** Spoofing is illegal under UU Pasar Modal art. 91 (map #485). IDX added a **non-cancellation period** from 2025-12-15, in pre-opening (from about 08:56) and pre-closing (from about 15:56). During it, orders already entered cannot be amended or withdrawn, though new orders can still be entered. IDX gave its reason as rising cancellations in the final minutes before the auction match ([Bareksa, 2024-08-08](https://www.bareksa.com/berita/saham/2024-08-08/cegah-order-fiktif-di-pasar-saham-bursa-kaji-penerapan-sistem-ini/amp); [Kontan](https://investasi.kontan.co.id/news/ingat-bei-akan-terapkan-periode-non-cancellation-mulai-15-desember-2025); exact windows differ between press reports, so **confirm** against the IDX circular). It does not touch continuous trading, where walls are read.
 - **IDX iceberg orders: not found.** No source found says JATS-NextG offers an iceberg or hidden order type. Its market orders are FAK, FOK and Market-to-Limit ([VOI](https://voi.id/en/economy/380838)). If there is none, every reload on IDX is **synthetic**: someone re-posting, by hand or by algorithm. **Confirm** against IDX Rule II-A before the glossary uses "iceberg".
 
 ### Order-flow tools
 
 - **Bookmap Iceberg Orders Tracker** ([wiki](https://bookmap.com/wiki/Iceberg_Orders_Tracker)) has three algorithms:
-  - *Underflow*: a trade larger than the size shown at its price. It is now expired, because feeds no longer keep that event order.
-  - *Native*: needs market-by-order data with "an untouched sequence of events".
-  - *Resistance*: for market-by-price data. It flags new limit orders "being added instantly from the opposite side as a response to executions at that price level". What counts as "instantly" is configurable, and a size threshold above the default of 1 "reduce[s] the chance of false-positive detection".
+  - _Underflow_: a trade larger than the size shown at its price. It is now expired, because feeds no longer keep that event order.
+  - _Native_: needs market-by-order data with "an untouched sequence of events".
+  - _Resistance_: for market-by-price data. It flags new limit orders "being added instantly from the opposite side as a response to executions at that price level". What counts as "instantly" is configurable, and a size threshold above the default of 1 "reduce[s] the chance of false-positive detection".
 
   Bookmap says icebergs and their larger analogues "act as Absorption of aggressive orders", "the size of the hidden part … cannot be detected", and "any Iceberg tracker is an estimation". Resistance is the method that matches our data.
+
 - **Footprint absorption** ([ATAS, footprint patterns](https://learn.atas.net/volume-basics/volume-analysis/footprint-patterns)): "unusually high volume at one level" where "price does not move or barely advances". No numeric thresholds are given. This is trades-only: footprint absorption never looks at the book. We already have the footprint, and the radar adds the book side, meaning what the level showed before and after.
 - **Pulling and stacking** (Bookmap Marketplace and Sierra Chart; community sources only, no first-party definition found): these indicators count lots removed from and added to levels near the touch, without separating fills from cancels. Our ledger is stricter.
 
 ### Indonesian educator material
 
-- **Stockbit Snips**, [*Bid dan Offer Saham*](https://snips.stockbit.com/investasi/bid-offer-saham): watch the largest lot count on each side. A thick bid that is eaten tends to precede a fall, and a thick offer that is eaten tends to precede a rise. Its "fake demand/supply" pattern is a price pushed up on thin volume, then a sudden thick bid, then spam orders on the running trade. It says nothing about order counts.
-- **Ajaib**, *Kenapa bid tebal belum tentu harga naik* (cited in search results; the page returned 403 to the fetcher, so this is **unverified**). It works the ledger arithmetic by hand: when a 5,000-lot sell print takes a bid queue from 800,000 to 550,000 lots, the 245,000-lot gap "hilang bukan karena terserap oleh transaksi, melainkan karena order ditarik" (vanished not because trades absorbed it, but because orders were pulled). It names the tell: a giant queue cancelled just before price reaches it. Its advice is to check the running trade to see whether a queue really executed.
-- **Bareksa**, [*Apa Itu Antrian Bid & Offer*](https://www.bareksa.com/berita/saham/2026-01-08/apa-itu-antrian-bid-offer-saham-dan-cara-membacanya/amp): read the consistency of a queue over time, not one snapshot, because a queue is intent, not a transaction.
+- **Stockbit Snips**, [_Bid dan Offer Saham_](https://snips.stockbit.com/investasi/bid-offer-saham): watch the largest lot count on each side. A thick bid that is eaten tends to precede a fall, and a thick offer that is eaten tends to precede a rise. Its "fake demand/supply" pattern is a price pushed up on thin volume, then a sudden thick bid, then spam orders on the running trade. It says nothing about order counts.
+- **Ajaib**, _Kenapa bid tebal belum tentu harga naik_ (cited in search results; the page returned 403 to the fetcher, so this is **unverified**). It works the ledger arithmetic by hand: when a 5,000-lot sell print takes a bid queue from 800,000 to 550,000 lots, the 245,000-lot gap "hilang bukan karena terserap oleh transaksi, melainkan karena order ditarik" (vanished not because trades absorbed it, but because orders were pulled). It names the tell: a giant queue cancelled just before price reaches it. Its advice is to check the running trade to see whether a queue really executed.
+- **Bareksa**, [_Apa Itu Antrian Bid & Offer_](https://www.bareksa.com/berita/saham/2026-01-08/apa-itu-antrian-bid-offer-saham-dan-cara-membacanya/amp): read the consistency of a queue over time, not one snapshot, because a queue is intent, not a transaction.
 
 The IDX educators teach the same decomposition as the literature, by eye. What they add is the pattern of a thick queue pulled as price approaches.
 
@@ -90,11 +91,11 @@ Cadence floor: the literature's event-level methods use millisecond sequencing (
 ## Reload
 
 - **Inputs:** the level ledger at the best level: `overflow`, the change in lots, and the change in orders. Also the passive broker per trade, on recorded days once broker codes are stored.
-- **Minimum cadence:** about 1 s. A refill that happens within one interval does not show as a drop and a rise. It shows as **overflow**: more lots traded at `p` than `p` showed, while `p` is still the best price. That is Bookmap's expired *Underflow* idea and the native CME rule, both of which still work on snapshots. A refill slower than one interval shows as a drop explained by hits, then an add at the same price. That is Bookmap's *Resistance* and Frey–Sandås's replenishment.
+- **Minimum cadence:** about 1 s. A refill that happens within one interval does not show as a drop and a rise. It shows as **overflow**: more lots traded at `p` than `p` showed, while `p` is still the best price. That is Bookmap's expired _Underflow_ idea and the native CME rule, both of which still work on snapshots. A refill slower than one interval shows as a drop explained by hits, then an add at the same price. That is Bookmap's _Resistance_ and Frey–Sandås's replenishment.
 - **Matching:** the steps above. Overflow needs only `hit(p)` and `shown₀(p)`.
 - **False positives:**
   - Other traders joining the queue as it is hit, which on IDX is common at round numbers.
-  - Amends that change quantity. Whether IDX keeps time priority on a quantity *increase* is not confirmed; one broker FAQ says a *reduction* keeps priority.
+  - Amends that change quantity. Whether IDX keeps time priority on a quantity _increase_ is not confirmed; one broker FAQ says a _reduction_ keeps priority.
   - Coalesced frames.
   - Ajaib's batched deltas hiding the low point.
 - **At our granularity:** yes as an event. The **order count** sharpens it. A refill that restores about the same lots with `Δorders` of 0 or +1, repeated at one price, points to one actor. A refill made of many new orders is the crowd. We cannot size the hidden remainder, and probably cannot call it an "iceberg" (see the IDX note above).
@@ -103,7 +104,7 @@ Cadence floor: the literature's event-level methods use millisecond sequencing (
 ## Walls: appeared, pulled, filled, moved
 
 - **Inputs:** every level in the 20-level window: lots, orders, and distance from the best price in ticks (tick table in map #485). The ledger supplies the pulled-versus-filled split.
-- **Minimum cadence:** about 1–2 s per side. *Moved* needs the disappearance and the reappearance within about two frames.
+- **Minimum cadence:** about 1–2 s per side. _Moved_ needs the disappearance and the reappearance within about two frames.
 - **Matching:** a wall's drop is filled to the extent of `hit(p)`. The rest is pulled, and it is a lower bound.
 - **False positives:**
   - **A wall leaving the window** as price moves away, which is not a pull. Require the level inside both frames.
@@ -114,9 +115,9 @@ Cadence floor: the literature's event-level methods use millisecond sequencing (
   - Tick-size boundaries changing what "the next level" means.
   - ARA/ARB queues (out of scope) and auction periods, where the non-cancellation period applies.
   - Steady cancellation proportional to queue size (Cont–Stoikov–Talreja). Large levels shrink by themselves.
-- **At our granularity:** yes for appeared, pulled and filled, because the tape separates fills. *Moved* is a heuristic: without order IDs, it cannot be proven that the same order moved, which is the same limit the CME paper hits for synthetic icebergs.
+- **At our granularity:** yes for appeared, pulled and filled, because the tape separates fills. _Moved_ is a heuristic: without order IDs, it cannot be proven that the same order moved, which is the same limit the CME paper hits for synthetic icebergs.
 - **Recommended definitions:**
-  - **Wall:** a level whose lots are at least `m ×` the median lots of the levels on its side in the window, and at least a value floor. Show its order count: a wall of one to three orders is *concentrated*, and a wall of many is a *crowd*.
+  - **Wall:** a level whose lots are at least `m ×` the median lots of the levels on its side in the window, and at least a value floor. Show its order count: a wall of one to three orders is _concentrated_, and a wall of many is a _crowd_.
   - **Appeared:** a level became a wall within one interval, with `added` at its lower bound for most of it.
   - **Pulled:** a wall lost at least half its lots within one or two intervals while it stayed inside the window and price did not cross it, and the tape explains less than a set share of the loss. Record its distance in ticks at the time it was pulled, and whether price had been approaching it. "Pulled as price approached" means the distance shrank over the wall's life and the pull came within a few ticks.
   - **Filled:** a wall's drop is mostly explained by `hit`.
@@ -135,14 +136,14 @@ Cadence floor: the literature's event-level methods use millisecond sequencing (
 
 ## Confidence
 
-| Claim | Basis | Confidence |
-| --- | --- | --- |
-| OFI decomposition from aggregated snapshots | Paper text read (arXiv PDF) | High |
-| Frey–Sandås rule and error rates | Working paper text read | High |
-| CME rules and limits | Paper read (ar5iv) | High |
-| Bookmap algorithms and limits | First-party wiki | High |
-| Our cadence and fields | Repo code and earlier research notes | High; per-side cadence is about 1 s, an estimate |
-| IDX non-cancellation period | Press, not the circular | Medium |
-| No iceberg order type on IDX | Absence of evidence | Low |
-| Ajaib 800,000 → 550,000 example | Search excerpt; page blocked | Low |
-| Cont–Stoikov–Talreja estimator details | Abstract and secondary summaries only | Low (model structure only) |
+| Claim                                       | Basis                                 | Confidence                                       |
+| ------------------------------------------- | ------------------------------------- | ------------------------------------------------ |
+| OFI decomposition from aggregated snapshots | Paper text read (arXiv PDF)           | High                                             |
+| Frey–Sandås rule and error rates            | Working paper text read               | High                                             |
+| CME rules and limits                        | Paper read (ar5iv)                    | High                                             |
+| Bookmap algorithms and limits               | First-party wiki                      | High                                             |
+| Our cadence and fields                      | Repo code and earlier research notes  | High; per-side cadence is about 1 s, an estimate |
+| IDX non-cancellation period                 | Press, not the circular               | Medium                                           |
+| No iceberg order type on IDX                | Absence of evidence                   | Low                                              |
+| Ajaib 800,000 → 550,000 example             | Search excerpt; page blocked          | Low                                              |
+| Cont–Stoikov–Talreja estimator details      | Abstract and secondary summaries only | Low (model structure only)                       |

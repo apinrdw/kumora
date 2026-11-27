@@ -13,6 +13,7 @@ import { WebSocket } from "ws"
 
 import { DASHBOARD } from "./accounts"
 import { WIB_OFFSET, marketNow, wibDate, wibTime } from "./clock"
+import { wsFrame } from "./ws-frame"
 
 /** The Test stage's INGEST_TOKEN (playwright.config.ts sets it). */
 export const TEST_INGEST_TOKEN = "e2e-ingest-token-not-a-secret"
@@ -230,7 +231,7 @@ export async function openIngest(token = TEST_INGEST_TOKEN) {
   // token.
   const received: Array<string> = []
   socket.addEventListener("message", (event) =>
-    received.push(String(event.data))
+    received.push(wsFrame(event.data).toString())
   )
   await send(socket, {
     _tag: "Token",

@@ -28,7 +28,7 @@ const hydrated = async (count: number, bound?: number) => {
   document.body.append(container)
   const root = await act(() => hydrateRoot(container, list(count, bound)))
   const shown = container.querySelectorAll("li").length
-  await act(() => root.unmount())
+  await act<void>(() => root.unmount())
   container.remove()
   return shown
 }

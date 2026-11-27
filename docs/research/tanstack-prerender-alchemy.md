@@ -44,17 +44,18 @@ Sources:
 
 Each was run with Alchemy's real build child, `ViteBuildChildRunner.ts` from beta.85, fed a V8-serialized config on stdin and spawned with `bun run` as `ViteChild.ts:215-240` does. The app was `apps/web` from the scratch branch with prerender turned back on. The original config reproduces the deploy failure offline: `Cannot find package 'cloudflare:workers' from 'dist/server/assets/router-*.js'`, exit 1.
 
-| Workaround | Result | Tested |
-|---|---|---|
-| (a) Prerender off | Builds. Every page, `/` included, is rendered by the Worker on each request. | Yes (the scratch deploy, `ed289120-…`) |
-| (b) Lazy `cloudflare:workers` import | Builds and prerenders `/` in Bun. `/probe` keeps working at runtime. | Yes |
-| (c) `vite preview` after the build | Doesn't fit Alchemy. With the shipped config it fails the same way. | Partly |
-| (d) Alchemy's plugin in `vite.config.ts` for `isPreview` | Builds and prerenders `/` in workerd. | Yes |
-| (e) Static assets step | Not applicable. | Source only |
+| Workaround                                               | Result                                                                       | Tested                                 |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------- |
+| (a) Prerender off                                        | Builds. Every page, `/` included, is rendered by the Worker on each request. | Yes (the scratch deploy, `ed289120-…`) |
+| (b) Lazy `cloudflare:workers` import                     | Builds and prerenders `/` in Bun. `/probe` keeps working at runtime.         | Yes                                    |
+| (c) `vite preview` after the build                       | Doesn't fit Alchemy. With the shipped config it fails the same way.          | Partly                                 |
+| (d) Alchemy's plugin in `vite.config.ts` for `isPreview` | Builds and prerenders `/` in workerd.                                        | Yes                                    |
+| (e) Static assets step                                   | Not applicable.                                                              | Source only                            |
 
 **(a) Prerender off.** This is what the scratch deploy used. The cost is that `/`, the only static page in `apps/web` today, costs a Worker invocation and an SSR render on every request, instead of being served free from static assets. `apps/dashboard` on `main` doesn't prerender at all (plain `tanstackStart()`), so it isn't affected.
 
 **(b) Lazy import.** In `src/routes/probe.ts`, drop the top-level import and write `const { env } = await import("cloudflare:workers")` inside the `GET` handler. The build child then prerendered `/` and exited 0. Rolldown kept the import dynamic in the `router-*.js` chunk. Bun never resolves `cloudflare:workers`, whether it appears statically or dynamically, so this works only because the dynamic import never runs during prerender. Costs:
+
 - Every `cloudflare:workers` import anywhere in the server graph must be dynamic, and that includes dependencies. A single static import fails the whole build, though it fails loudly (`failOnError` defaults to `true`, `prerender.js:118`), so it can't ship a broken page.
 - Prerendered pages render in Bun, not workerd, so runtime parity isn't guaranteed for those pages. Today that is only `/`.
 - A prerendered page can't read bindings. Only `/probe` reads one, and the filter already excludes it.
@@ -77,6 +78,7 @@ export default defineConfig(({ isPreview }) => ({
 ```
 
 The build child logged workerd's startup lines (`service user-worker: …`), prerendered `/` and exited 0, all with the probe's top-level static import left in place. With prerender off, `vite preview` on the same config answered `/` with `200`, and `/probe` with `{"secretPresent":false}`. The page ran in workerd with no bindings, because Alchemy passes only compatibility options to the build plugin. Costs:
+
 - `apps/web` needs a direct dependency on `@alchemy.run/cloudflare-runtime`, which pnpm requires. I tested with a symlink.
 - The compatibility date and flags are written twice, in `alchemy.run.ts` and in `vite.config.ts`, and can drift apart.
 - It depends on two things neither project documents: that TanStack prerenders through `vite.preview({ configFile })`, and that Alchemy's plugin works when loaded from a user config. Alchemy's docs say only to remove `@cloudflare/vite-plugin` (`website/src/content/docs/cloudflare/frontend/vite.mdx:60-76`). The maintainer's reply on #1432 suggests they don't want the plugin to live in `vite.config.ts`.

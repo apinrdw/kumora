@@ -16,12 +16,12 @@ import {
   video,
 } from "./support/video"
 
-// Refuse a `--` in the arguments. `pnpm test:e2e -- <spec>` hands it
+// Refuse a `--` in the arguments. `vp run test:e2e -- <spec>` hands it
 // to Playwright, which then drops every filter after it and runs the whole
 // suite: 7 agent sessions waited minutes for a one-spec run that way.
 if (process.argv.includes("--")) {
   console.error(
-    "e2e: drop the `--`. Playwright ignores the spec files and -g after it and runs every test. Run `pnpm test:e2e tests/<file>.spec.ts -g <title>`."
+    "e2e: drop the `--`. Playwright ignores the spec files and -g after it and runs every test. Run `vp run test:e2e tests/<file>.spec.ts -g <title>`."
   )
   process.exit(2)
 }
@@ -143,7 +143,7 @@ const config = defineConfig({
     {
       // reset-test-stage.ts first, so the dashboard starts on an empty D1.
       command:
-        "node apps/e2e/reset-test-stage.ts && pnpm exec turbo run dev --only --ui=stream --filter=web --filter=dashboard",
+        "node apps/e2e/reset-test-stage.ts && vp exec turbo run dev --only --ui=stream --filter=web --filter=dashboard",
       cwd: "../..",
       env: {
         ALCHEMY_STAGE: TEST,
@@ -195,7 +195,7 @@ if (
 ) {
   const only = [...new Set(named.map((file) => waitingFor(file)?.name))]
   console.error(
-    `e2e: ${only.join(", ")} first waits for every other project, so this would run the whole suite. Run it alone: \`pnpm test:e2e ${["setup", ...only].map((name) => `--project=${name}`).join(" ")} --no-deps --workers=1\`.`
+    `e2e: ${only.join(", ")} first waits for every other project, so this would run the whole suite. Run it alone: \`vp run test:e2e ${["setup", ...only].map((name) => `--project=${name}`).join(" ")} --no-deps --workers=1\`.`
   )
   process.exit(2)
 }

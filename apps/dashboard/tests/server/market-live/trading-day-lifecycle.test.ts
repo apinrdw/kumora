@@ -536,7 +536,8 @@ const run = (seed: number, mode: Mode) =>
     for (const row of built.totals)
       if (row.buyLots > 0)
         bought.set(row.broker, (bought.get(row.broker) ?? 0) + row.buyLots)
-    const show = (lots: Map<string, number>) => JSON.stringify([...lots].sort())
+    const show = (lots: Map<string, number>) =>
+      JSON.stringify([...lots].sort(([a], [b]) => (a < b ? -1 : 1)))
 
     const problems: Array<string> = []
     if (final.n !== String(T) || final.missingCount !== unfillable.size)

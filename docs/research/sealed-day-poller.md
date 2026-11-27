@@ -8,15 +8,15 @@ Research for [#545](https://github.com/apinrdw/kumora/issues/545), map [#529](ht
 
 **The bursts come from the extension's Stockbit gap walk of an older incomplete day.** Before `83ba334696` (2026-11-18 08:02, extension 0.0.39), the walk of a missing range that Stockbit's tape lacks a trade in paged on to the day's end. At full pace that is 3 calls/s and 10 calls a batch, so about 1,078 batches an hour. Each batch on a sealed, incomplete day runs one or two status scans after it is written. Each batch writes only its chunk rows.
 
-| | Overnight plateau | Bursts |
-| --- | --- | --- |
-| Sender | Dashboard page (`@workspace/client` rechecks) | Extension, Stockbit gap walk |
-| Request | `GET /market-live/days/<day>/broker-codes?at=…` and `GET …/sweep-brokers/<code>` (both with `cache: "reload"`) | `POST /api/broker-codes/<day>` (a batch of about 1,000 trades) |
-| Cadence | each loop: sleep 30 s after its answer, about 2 GETs every 32 s | one batch every 10 paced calls × 334 ms = 3.34 s, about 1,078 an hour |
-| Scans per request | 1 (`codesComplete` on a cold instance) | 1 (`sweepBrokers.completed`), plus 1 (`totalsWritten`'s `buildable`) when the day's broker totals aren't current and no build wake is set |
-| Rows written | 0 | the touched chunk rows, plus a fact or two |
-| Stop condition | an answer with `complete: true`, or the tab leaves the recorded day (08:40 WIB) | the range's trades are all seen (before the fix), which never happens for a trade Stockbit lacks, so it stops at the tape's end |
-| Why it doesn't stop | the day's codes stay incomplete, and the cache that should make repeats free dies with each hibernation | the missing trade never comes; the day stays incomplete and in the list, so each run walks it again |
+|                     | Overnight plateau                                                                                              | Bursts                                                                                                                                    |
+| ------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Sender              | Dashboard page (`@workspace/client` rechecks)                                                                  | Extension, Stockbit gap walk                                                                                                              |
+| Request             | `GET /market-live/days/<day>/broker-codes?at=…` and `GET …/sweep-brokers/<code>` (both with `cache: "reload"`) | `POST /api/broker-codes/<day>` (a batch of about 1,000 trades)                                                                            |
+| Cadence             | each loop: sleep 30 s after its answer, about 2 GETs every 32 s                                                | one batch every 10 paced calls × 334 ms = 3.34 s, about 1,078 an hour                                                                     |
+| Scans per request   | 1 (`codesComplete` on a cold instance)                                                                         | 1 (`sweepBrokers.completed`), plus 1 (`totalsWritten`'s `buildable`) when the day's broker totals aren't current and no build wake is set |
+| Rows written        | 0                                                                                                              | the touched chunk rows, plus a fact or two                                                                                                |
+| Stop condition      | an answer with `complete: true`, or the tab leaves the recorded day (08:40 WIB)                                | the range's trades are all seen (before the fix), which never happens for a trade Stockbit lacks, so it stops at the tape's end           |
+| Why it doesn't stop | the day's codes stay incomplete, and the cache that should make repeats free dies with each hibernation        | the missing trade never comes; the day stays incomplete and in the list, so each run walks it again                                       |
 
 ## The overnight plateau
 

@@ -76,10 +76,7 @@ const count = new Intl.NumberFormat("en-US")
 
 // The threshold beside the control, `≥ 26 lots (buy 26, sell 34)`, or
 // `≥ 26 lots of AK (…)` with AK picked; nothing while it hides nothing.
-export const thresholdText = (
-  threshold: SweepThreshold,
-  picked?: BrokerCode | undefined
-) =>
+export const thresholdText = (threshold: SweepThreshold, picked?: BrokerCode) =>
   Effect.sync(() => {
     if (threshold.lots === 0) return ""
     const sides = [

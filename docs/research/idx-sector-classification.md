@@ -68,31 +68,31 @@ The record also carries contact fields (address, phone, email, NPWP). Kumora nee
 
 ### Parameters
 
-| Parameter | Effect (observed) |
-|---|---|
-| `emitenType` | `s` means stocks. Omitting it returned the same 944. |
-| `start`, `length` | Paging, as on the shareholding listing. `length=9999` returns everything in one call. |
-| `lang` | `en` returns English names for sector, sub-sector, industry and sub-industry. `language=en-us`, which `GetSecuritiesStock` takes, has no effect here. |
-| `kodeEmiten` | Filters to one stock code. It also returns records that the full list leaves out (see [Gaps](#gaps-in-the-full-list)). |
-| `sector` | Ignored: the full 944 come back. |
+| Parameter         | Effect (observed)                                                                                                                                     |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `emitenType`      | `s` means stocks. Omitting it returned the same 944.                                                                                                  |
+| `start`, `length` | Paging, as on the shareholding listing. `length=9999` returns everything in one call.                                                                 |
+| `lang`            | `en` returns English names for sector, sub-sector, industry and sub-industry. `language=en-us`, which `GetSecuritiesStock` takes, has no effect here. |
+| `kodeEmiten`      | Filters to one stock code. It also returns records that the full list leaves out (see [Gaps](#gaps-in-the-full-list)).                                |
+| `sector`          | Ignored: the full 944 come back.                                                                                                                      |
 
 ### What it holds
 
 The 11 sectors, with the number of stock codes in each:
 
-| English (`lang=en`) | Indonesian (default) | Codes |
-|---|---|---|
-| Consumer Cyclicals | Barang Konsumen Non-Primer | 155 |
-| Consumer Non-Cyclicals | Barang Konsumen Primer | 132 |
-| Basic Materials | Barang Baku | 113 |
-| Financials | Keuangan | 105 |
-| Properties & Real Estate | Properti & Real Estat | 91 |
-| Energy | Energi | 89 |
-| Infrastructures | Infrastruktur | 69 |
-| Industrials | Perindustrian | 65 |
-| Technology | Teknologi | 44 |
-| Healthcare | Kesehatan | 41 |
-| Transportation & Logistic | Transportasi & Logistik | 40 |
+| English (`lang=en`)       | Indonesian (default)       | Codes |
+| ------------------------- | -------------------------- | ----- |
+| Consumer Cyclicals        | Barang Konsumen Non-Primer | 155   |
+| Consumer Non-Cyclicals    | Barang Konsumen Primer     | 132   |
+| Basic Materials           | Barang Baku                | 113   |
+| Financials                | Keuangan                   | 105   |
+| Properties & Real Estate  | Properti & Real Estat      | 91    |
+| Energy                    | Energi                     | 89    |
+| Infrastructures           | Infrastruktur              | 69    |
+| Industrials               | Perindustrian              | 65    |
+| Technology                | Teknologi                  | 44    |
+| Healthcare                | Kesehatan                  | 41    |
+| Transportation & Logistic | Transportasi & Logistik    | 40    |
 
 Below the sector there are 33 sub-sectors, 58 industries and 102 sub-industries. Each Indonesian sector name maps to exactly one English name across all 944 codes. IDX-IC's twelfth sector, Listed Investment Products (ETFs and the like), does not appear because `emitenType=s` returns stocks only.
 
@@ -132,15 +132,15 @@ What this means for Kumora:
 
 ## Other sources compared
 
-| Source | Coverage | Freshness | Format | Terms / access | Verdict |
-|---|---|---|---|---|---|
-| **IDX `GetCompanyProfiles`** | All 944 stocks, four IDX-IC levels | IDX's own record; refresh daily | One JSON call | IDX Terms of Use (above); no login | **Recommended** |
-| IDX `GetSecuritiesStock` | Same 944 codes | Same | JSON: code, name, listing date, shares, board | Same | No sector field. Its `sector` filter takes English names (`sector=Energy` returned 89), so it could rebuild the map with 11 calls, but that only repeats `GetCompanyProfiles` with more steps. |
-| IDX sector index constituents (IDXENERGY and so on) | Sector only | Changes at index reviews | Per-index files | Same | Worse: 11 files to merge, and no industry level. Not probed. |
-| Stockbit `/emitten/classification/company` | Unknown | Unknown | JSON | Needs a signed-in token; `exodus.stockbit.com` answered 403 unauthenticated. Broker terms apply. | Not usable without the owner's session. Named in [stockbit-live-data.md](stockbit-live-data.md). |
-| Ajaib `GET /api/v1/stock/data/list/` | All codes; [ajaib-live-data.md](ajaib-live-data.md) records only `code` and `name` | Cached 1 h by the app | JSON | Needs the JWT | No sector field is known to exist. |
-| Live running-trade feeds (Stockbit `running_trade_batch`, Ajaib `TRADE`) | Every traded code | Live | Per trade | Via the relay extension | Neither record has a sector field ([stockbit-live-data.md](stockbit-live-data.md), [ajaib-live-data.md](ajaib-live-data.md)). They are a source of codes, not of sectors. |
-| Public datasets (GitHub CSVs, Kaggle, Wikipedia) | Varies | Usually a one-time snapshot | CSV | Mixed, and usually derived from IDX anyway | Secondary and stale. Rejected without probing. |
+| Source                                                                   | Coverage                                                                           | Freshness                       | Format                                        | Terms / access                                                                                   | Verdict                                                                                                                                                                                        |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **IDX `GetCompanyProfiles`**                                             | All 944 stocks, four IDX-IC levels                                                 | IDX's own record; refresh daily | One JSON call                                 | IDX Terms of Use (above); no login                                                               | **Recommended**                                                                                                                                                                                |
+| IDX `GetSecuritiesStock`                                                 | Same 944 codes                                                                     | Same                            | JSON: code, name, listing date, shares, board | Same                                                                                             | No sector field. Its `sector` filter takes English names (`sector=Energy` returned 89), so it could rebuild the map with 11 calls, but that only repeats `GetCompanyProfiles` with more steps. |
+| IDX sector index constituents (IDXENERGY and so on)                      | Sector only                                                                        | Changes at index reviews        | Per-index files                               | Same                                                                                             | Worse: 11 files to merge, and no industry level. Not probed.                                                                                                                                   |
+| Stockbit `/emitten/classification/company`                               | Unknown                                                                            | Unknown                         | JSON                                          | Needs a signed-in token; `exodus.stockbit.com` answered 403 unauthenticated. Broker terms apply. | Not usable without the owner's session. Named in [stockbit-live-data.md](stockbit-live-data.md).                                                                                               |
+| Ajaib `GET /api/v1/stock/data/list/`                                     | All codes; [ajaib-live-data.md](ajaib-live-data.md) records only `code` and `name` | Cached 1 h by the app           | JSON                                          | Needs the JWT                                                                                    | No sector field is known to exist.                                                                                                                                                             |
+| Live running-trade feeds (Stockbit `running_trade_batch`, Ajaib `TRADE`) | Every traded code                                                                  | Live                            | Per trade                                     | Via the relay extension                                                                          | Neither record has a sector field ([stockbit-live-data.md](stockbit-live-data.md), [ajaib-live-data.md](ajaib-live-data.md)). They are a source of codes, not of sectors.                      |
+| Public datasets (GitHub CSVs, Kaggle, Wikipedia)                         | Varies                                                                             | Usually a one-time snapshot     | CSV                                           | Mixed, and usually derived from IDX anyway                                                       | Secondary and stale. Rejected without probing.                                                                                                                                                 |
 
 ## How Kumora would fetch and store it
 

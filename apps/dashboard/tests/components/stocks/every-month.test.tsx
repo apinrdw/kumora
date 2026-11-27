@@ -77,7 +77,9 @@ const root = createRoot(container)
 afterEach(() => act(() => root.render(null)))
 
 const render = (selected: string) =>
-  act(() => root.render(<EveryMonth months={MONTHS} selected={selected} />))
+  act<void>(() =>
+    root.render(<EveryMonth months={MONTHS} selected={selected} />)
+  )
 
 const grid = () => container.querySelector('table[aria-label="Every month"]')
 
@@ -128,7 +130,9 @@ describe("Every month", () => {
       <EveryMonth months={months} selected={last} />
     )
     expect(server.querySelectorAll("tbody tr")).toHaveLength(60)
-    await act(() => root.render(<EveryMonth months={months} selected={last} />))
+    await act<void>(() =>
+      root.render(<EveryMonth months={months} selected={last} />)
+    )
     expect(
       rows()
         .slice(0, 2)
@@ -138,7 +142,7 @@ describe("Every month", () => {
   })
 
   test("shades every cell the lightest when every holder holds 0%", async () => {
-    await act(() =>
+    await act<void>(() =>
       root.render(
         <EveryMonth
           months={[month("2026-10-30", [holder("ZERO", [row("ZERO", 1, 0)])])]}

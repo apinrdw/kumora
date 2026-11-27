@@ -1,5 +1,5 @@
 import { Link, useHydrated } from "@tanstack/react-router"
-import { clientRuntime } from "@workspace/client"
+import { clientRuntime, formFields } from "@workspace/client"
 import { Effect } from "effect"
 import { useState, type FormEvent } from "react"
 
@@ -8,7 +8,7 @@ import { authClient } from "@/lib/auth-client"
 import { MIN_PASSWORD_LENGTH } from "@/lib/password"
 import { retryAfter } from "@/lib/retry-after"
 
-import { FormError, formFields, linkClass } from "./auth-page"
+import { FormError, linkClass } from "./auth-page"
 import { CAPTCHA_HEADER, useTurnstile } from "./turnstile"
 import { CheckInbox } from "./verify-notices"
 
