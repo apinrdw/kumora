@@ -11,6 +11,8 @@ import {
   type MoveKind,
 } from "@/domain/holdings"
 
+import type { HolderMapRead } from "@/server/holdings/holder-map-schema"
+
 import { type Refocus, shownNodes } from "./holder-map-graph"
 import { nodeId } from "./holder-map-ids"
 import { field } from "./search-field"
@@ -226,6 +228,21 @@ export const pickOf = Effect.fnUntraced(function* (
     ? { highlight: id }
     : { refocus }
 })
+
+// The key a holder focus is read under when the read took another: a key
+// the day lists only as repeats of another key's blocks is that key's
+// (`holderMapRead`), so the URL names the key the map draws.
+export const resolvedHolder = (
+  asked: HolderMapQuery,
+  read: { readonly focus: HolderMapRead["focus"] }
+) =>
+  Effect.sync(() =>
+    asked.focus?.kind === "holder" &&
+    read.focus?.kind === "holder" &&
+    read.focus.key !== asked.focus.key
+      ? read.focus.key
+      : undefined
+  )
 
 export const queryOf = ({ stock, holder, custodian, day }: HolderMapSearch) =>
   Effect.succeed<HolderMapQuery>({

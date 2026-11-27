@@ -99,15 +99,31 @@ const holdersByKey = Effect.fnUntraced(function* <B, S>(
   )
 })
 
-// An above-5% holder of a day: its first block's name, and its blocks' %,
-// shares and securities accounts.
+// An above-5% holder of a day: its first block's name, its blocks' %,
+// shares and securities accounts, and the other keys of the repeat blocks
+// folded into them.
 export interface Listed {
   readonly name: string
   hundredths: number
   shares: number
   readonly origins: Array<SplitOrigin>
   readonly accounts: Array<Account>
+  readonly aliases: Array<HolderKey>
 }
+
+// The keys of a block's repeats' names, but `key`: a repeat of another
+// name folds into the block it repeats whatever its key (ADR 0131).
+const aliasKeys = Effect.fnUntraced(function* (
+  key: HolderKey,
+  names: ReadonlyArray<string>
+) {
+  const keys: Array<HolderKey> = []
+  for (const name of names) {
+    const alias = HolderKey.make(yield* holderKey(name))
+    if (alias !== key && !keys.includes(alias)) keys.push(alias)
+  }
+  return keys
+})
 
 // A stock-day's above-5% holders: its blocks, each repeat folded into the
 // block it repeats as Daily holders folds it (ADR 0131), then summed by
@@ -124,8 +140,14 @@ export const listedHolders = Effect.fnUntraced(function* (
     holders,
     accounts
   )
+  const folded = []
+  for (const block of yield* dayHolders(blocks?.holders ?? []))
+    folded.push({
+      ...block,
+      aliasKeys: yield* aliasKeys(HolderKey.make(block.key), block.aliases),
+    })
   return yield* holdersByKey(
-    yield* dayHolders(blocks?.holders ?? []),
+    folded,
     (block) =>
       Effect.succeed({
         code,
@@ -139,12 +161,15 @@ export const listedHolders = Effect.fnUntraced(function* (
       shares: block.scripless,
       origins: block.accounts.map(({ origin }) => origin),
       accounts: [...block.accounts],
+      aliases: [...block.aliasKeys],
     }),
     (sum, block) => {
       sum.hundredths += block.percentageHundredths
       sum.shares += block.scripless
       sum.origins.push(...block.accounts.map(({ origin }) => origin))
       sum.accounts.push(...block.accounts)
+      for (const alias of block.aliasKeys)
+        if (!sum.aliases.includes(alias)) sum.aliases.push(alias)
       return sum
     }
   )

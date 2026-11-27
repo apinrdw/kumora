@@ -132,38 +132,51 @@ const BEFORE_SEVERAL = `FROM above_5_holder AS h
         ) > 1
       )`
 
+// The day's blocks and accounts and the month's ≥1% rows that `links`
+// are made of, of the stocks `where` picks, or of every stock with none:
+// at most one whole day and one whole month, each within its report's
+// parse cap (ADR 0045).
+//
+// Decision: a stock's holders are read from its newest periods that fit a
+// row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
+export const linkRows = (where?: string): ReadonlyArray<Budgeted> => {
+  const and = where === undefined ? "" : `${where} AND`
+  return [
+    {
+      sql: `SELECT stock_code, data_date, no, issuer_name, holder_name,
+        holder_key, scripless, percentage_hundredths
+      FROM above_5_holder
+      WHERE ${and} data_date = (SELECT day FROM asof)
+      ORDER BY stock_code, no`,
+      rows: DAY_ROWS,
+    },
+    {
+      sql: `SELECT stock_code, data_date, no, custodian, account_name,
+        origin, domicile, scripless
+      FROM above_5_account
+      WHERE ${and} data_date = (SELECT day FROM asof)
+      ORDER BY stock_code, no, ordinal`,
+      rows: DAY_ROWS,
+    },
+    {
+      sql: `SELECT stock_code, data_date, holder_key, investor_name,
+        classification, investor_type, origin, domicile, controller,
+        scripless, scrip, total, percentage_hundredths, issuer_name
+      FROM above_1_holding
+      WHERE ${and} data_date = (SELECT month FROM band_month)
+      ORDER BY stock_code, seq`,
+      rows: MONTH_ROWS,
+    },
+  ]
+}
+
 // The stocks in view's day and month. A focus has no cap, so a nominee hub
-// reads every stock: at most one whole day and one whole month, each
-// within its report's parse cap (ADR 0045), and their stored lines.
+// reads every stock (`linkRows`), and their stored lines.
 //
 // Decision: a stock's holders are read from its newest periods that fit a
 // row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
 const IN_VIEW_ROWS: ReadonlyArray<Budgeted> = [
-  {
-    sql: `SELECT stock_code, data_date, no, issuer_name, holder_name,
-      holder_key, scripless, percentage_hundredths
-    FROM above_5_holder
-    WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
-    ORDER BY stock_code, no`,
-    rows: DAY_ROWS,
-  },
-  {
-    sql: `SELECT stock_code, data_date, no, custodian, account_name, origin,
-      domicile, scripless
-    FROM above_5_account
-    WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
-    ORDER BY stock_code, no, ordinal`,
-    rows: DAY_ROWS,
-  },
-  {
-    sql: `SELECT stock_code, data_date, holder_key, investor_name,
-      classification, investor_type, origin, domicile, controller,
-      scripless, scrip, total, percentage_hundredths, issuer_name
-    FROM above_1_holding
-    WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT month FROM band_month)
-    ORDER BY stock_code, seq`,
-    rows: MONTH_ROWS,
-  },
+  ...linkRows(STOCKS_IN_VIEW),
   // Their stored moves of the identities listed now: the day's against
   // the trading day before, the month's against the month before. A
   // period's lines of a stock listed now are at most its holders.
@@ -302,7 +315,7 @@ const originOf = (origins: ReadonlyArray<SplitOrigin | undefined>) =>
 
 // One stock's rows of the day and the month, and of the day before its
 // keys of several blocks'.
-interface StockRows {
+export interface StockRows {
   readonly holders: Array<typeof Above5MapRow.Type>
   readonly accounts: Array<typeof Above5AccountMapRow.Type>
   readonly month: Array<typeof Above1MapRow.Type>
@@ -311,7 +324,7 @@ interface StockRows {
 }
 
 // The rows of each stock in view, by code, in the order read.
-const byStock = (read: {
+export const byStock = (read: {
   readonly [K in keyof StockRows]: ReadonlyArray<StockRows[K][number]>
 }) =>
   Effect.sync(() => {
@@ -339,13 +352,14 @@ const byStock = (read: {
     return stocks
   })
 
-// A stock's links: its above-5% holders of the day, then the month's ≥1%
-// holders whose key none of the day's blocks carries, each summed by key
-// (`holder-map-holders.ts`).
+// A stock's links: its above-5% holders of the day, repeats folded, then
+// the month's ≥1% holders whose key none of the day's blocks carries, each
+// summed by key (`holder-map-holders.ts`). The search lists holders by
+// these links too, so it offers no key the map folds away.
 //
 // Decision: the Holder map matches holders across stocks and reports by
 // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
-const stockLinks = Effect.fnUntraced(function* (
+export const stockLinks = Effect.fnUntraced(function* (
   code: StockCode,
   day: WibDate | undefined,
   month: WibDate | undefined,
@@ -454,6 +468,7 @@ const linksInView = Effect.fnUntraced(function* (
   const links: Array<HolderMapLink> = []
   const accounts: Array<HoldingAccounts> = []
   const issuers = new Map<StockCode, string>()
+  const folded = new Map<HolderKey, { key: HolderKey; hundredths: number }>()
   for (const [code, rows] of stocks) {
     const issuer = rows.holders[0]?.issuer_name ?? rows.month[0]?.issuer_name
     if (issuer !== undefined) issuers.set(code, issuer)
@@ -463,8 +478,14 @@ const linksInView = Effect.fnUntraced(function* (
       before,
       inMonth,
     } = yield* stockLinks(code, periods.day, periods.month, rows)
-    for (const [holder, { sum }] of now)
+    for (const [holder, { sum }] of now) {
       accounts.push({ code, holder, accounts: sum.accounts })
+      for (const alias of sum.aliases) {
+        const known = folded.get(alias)
+        if (known === undefined || sum.hundredths > known.hundredths)
+          folded.set(alias, { key: holder, hundredths: sum.hundredths })
+      }
+    }
     links.push(
       ...(yield* changesOf(
         periods,
@@ -478,7 +499,14 @@ const linksInView = Effect.fnUntraced(function* (
       ))
     )
   }
-  return { links, issuers, custodians: yield* custodianLinks(accounts) }
+  return {
+    links,
+    issuers,
+    custodians: yield* custodianLinks(accounts),
+    // Each key whose repeat blocks folded into another key's block of the
+    // day: that key, the largest of them where several.
+    folded: new Map([...folded].map(([alias, { key }]) => [alias, key])),
+  }
 })
 
 // The places of `links`.
@@ -620,10 +648,19 @@ export const holderMapRead = Effect.fnUntraced(function* ({
       offListCut: false,
       mostHeld: yield* mostHeldOf(rest[0] ?? []),
     })
-  const { links, issuers, custodians } = yield* linksInView(
+  const { links, issuers, custodians, folded } = yield* linksInView(
     { day: shownDay, month },
     rest.slice(0, IN_VIEW_ROWS.length)
   )
+  // A holder focus on a key the day lists only as repeats of another key's
+  // blocks, so holding nothing as itself, is that key's: the map reads it,
+  // and the page puts its key in the URL.
+  const into =
+    focus.kind === "holder" && !links.some(({ holder }) => holder === focus.key)
+      ? folded.get(focus.key)
+      : undefined
+  if (into !== undefined)
+    return yield* holderMapRead({ focus: { kind: "holder", key: into }, day })
   const { first, second } = yield* hopsOf(focus, links, custodians)
   const offRead = yield* offListRead(focus, rest.slice(IN_VIEW_ROWS.length))
   const offListCut = offRead.cut

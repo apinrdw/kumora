@@ -1,4 +1,4 @@
-import { createFileRoute, useLocation } from "@tanstack/react-router"
+import { createFileRoute, redirect, useLocation } from "@tanstack/react-router"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { Effect } from "effect"
 import { useMemo, useState } from "react"
@@ -10,6 +10,7 @@ import {
   parseHolderMapSearch,
   queryOf,
   refocused,
+  resolvedHolder,
 } from "@/lib/holder-map-search"
 import type { HolderMapRead } from "@/server/holdings/holder-map-schema"
 import { holderMapFn } from "@/server/stocks/stocks.functions"
@@ -24,8 +25,24 @@ export const Route = createFileRoute("/_app/holder-map")({
   loaderDeps: ({ search }) => ({ query: Effect.runSync(queryOf(search)) }),
   // Declared, so the route's type doesn't depend on itself through
   // loadServerFn.
+  // A holder focus the read took under another key opens under that key,
+  // in place of this entry.
+  //
+  // Decision: the Holder map matches holders across stocks and reports by
+  // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
   loader: ({ deps }): Promise<HolderMapRead> =>
-    runLoader(loadServerFn(() => holderMapFn({ data: deps.query }))),
+    runLoader(loadServerFn(() => holderMapFn({ data: deps.query }))).then(
+      (read) => {
+        const holder = Effect.runSync(resolvedHolder(deps.query, read))
+        if (holder !== undefined)
+          throw redirect({
+            to: "/holder-map",
+            search: (previous) => ({ ...previous, holder }),
+            replace: true,
+          })
+        return read
+      }
+    ),
   head: () => ({ meta: [{ title: "Holder map · KUMORA Terminal" }] }),
   component: HolderMapRoute,
 })

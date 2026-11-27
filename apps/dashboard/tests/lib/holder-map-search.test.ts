@@ -11,6 +11,7 @@ import {
   findFoci,
   queryOf,
   refocused,
+  resolvedHolder,
 } from "@/lib/holder-map-search"
 import { mapDrawn } from "@/lib/holder-map-graph"
 
@@ -221,6 +222,41 @@ describe("holderMapMoveSearch", () => {
       expect(
         yield* holderMapMoveSearch("monthly", TRUE, WibDate.make("2026-10-30"))
       ).toEqual({ stock: "TRUE" })
+    })
+  )
+})
+
+describe("resolvedHolder", () => {
+  const ALIAS = HolderKey.make("ALPHA LTD")
+  const ALPHA = HolderKey.make("ALPHA LIMITED")
+  const asked = {
+    focus: { kind: "holder" as const, key: ALIAS },
+    day: undefined,
+  }
+
+  it.effect("names the key a holder focus was read under instead", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* resolvedHolder(asked, {
+          focus: { kind: "holder", key: ALPHA, name: "ALPHA LIMITED" },
+        })
+      ).toBe(ALPHA)
+    })
+  )
+
+  it.effect("names none for a focus read as asked", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* resolvedHolder(asked, {
+          focus: { kind: "holder", key: ALIAS, name: undefined },
+        })
+      ).toBeUndefined()
+      expect(
+        yield* resolvedHolder(
+          { focus: undefined, day: undefined },
+          { focus: undefined }
+        )
+      ).toBeUndefined()
     })
   )
 })
