@@ -109,8 +109,9 @@ export const MatchedTrade = Schema.Struct({
 export type MatchedTrade = typeof MatchedTrade.Type
 
 // Where the walk of a day stands: at the page it asks next, of a code the
-// tape trades hold, in its first pass or its second (`PASS_SIZES`); past the last code, posting the matched trades; or done, its matched
-// trades held for the extra target's catch-up.
+// tape trades hold, in its first pass or its second (`PASS_SIZES`); past
+// the last code, posting the matched trades; or done, its matched trades
+// held for the extra target's catch-up.
 // Decision: a code of more than one page is walked again at 999 rows a page
 // (apps/extension/docs/adr/0027-a-multi-page-done-details-code-is-walked-again-at-999-rows.md)
 export const DoneDetailsPosition = Schema.Union([

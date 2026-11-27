@@ -614,8 +614,8 @@ describe("the Done Details walk", () => {
   )
 
   // 999 rows of 11:00:00 come first, newest first, then the three tied
-  // trades' rows at offsets 999 to 1,001: the walk at 1,000 a page skips the
-  // middle one, at offset 1,000, and the walk at 999 the first.
+  // trades' rows at offsets 999 to 1,001: the first pass, at 1,000 a page,
+  // skips the middle one, at offset 1,000, and the second, at 999, the first.
   it.effect(
     "gives a tie straddling a page boundary its rows in Ajaib's order, the row the boundary skipped included",
     () =>
@@ -640,8 +640,8 @@ describe("the Done Details walk", () => {
   )
 
   // The three tied trades' rows come first, then 999 rows of 11:00:00: two
-  // pages at 1,000. The walk at 1,000 can't read trade 2's row on its first
-  // page; the walk at 999 reads it.
+  // pages at 1,000. The first pass can't read trade 2's row on its first
+  // page; the second pass reads it.
   it.effect(
     "pairs a row the first pass couldn't read with the copy the second pass read",
     () =>
