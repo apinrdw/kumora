@@ -243,6 +243,64 @@ describe("Holder map, holder moves", () => {
         assert.strictEqual(april?.holders[1]?.move?.percentageChange, -37)
       })
   )
+
+  // CPGT lists two blocks named ASIA ARGENTUM ASSETS HONG KONG LIMITED,
+  // 8.17% at Deutsche Bank and 20.95% at Trimegah: one holder on the map.
+  const ARGENTUM = "ASIA ARGENTUM ASSETS HONG KONG LIMITED"
+  const argentumOf = Effect.fnUntraced(function* (w: World) {
+    const [above5] = (yield* mapOf(w, "CPGT")).focus?.bands ?? []
+    const stockFocus = above5?.holders.find(({ name }) => name === ARGENTUM)
+    const holderFocus = (yield* holderReadOf(w, ARGENTUM)).links.find(
+      ({ code, band }) => code === "CPGT" && band === "5%"
+    )
+    return {
+      percentageHundredths: stockFocus?.percentageHundredths,
+      move: stockFocus?.move,
+      holderFocusMove: holderFocus?.move,
+    }
+  })
+
+  it.effect(
+    "moves a holder whose one block left beside an unchanged one Down by its summed change",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        republish(w, "2026-11-20", "argentum-gone-2026-11-20")
+        yield* archive(w, "cron-2026-11-26T13")
+        yield* parse(w, "cron-2026-11-26")
+        const down = {
+          kind: "down" as const,
+          shareChange: -832_312_874,
+          percentageChange: -2095,
+        }
+        assert.deepStrictEqual(yield* argentumOf(w), {
+          percentageHundredths: 817,
+          move: down,
+          holderFocusMove: down,
+        })
+      })
+  )
+
+  it.effect(
+    "moves a holder whose one block arrived beside an unchanged one Up, never New",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        republish(w, "2026-11-19", "argentum-gone-2026-11-19")
+        yield* archive(w, "cron-2026-11-26T13")
+        yield* parse(w, "cron-2026-11-26")
+        const up = {
+          kind: "up" as const,
+          shareChange: 832_312_874,
+          percentageChange: 2095,
+        }
+        assert.deepStrictEqual(yield* argentumOf(w), {
+          percentageHundredths: 2912,
+          move: up,
+          holderFocusMove: up,
+        })
+      })
+  )
 })
 
 describe("Holder map, gap holders", () => {
