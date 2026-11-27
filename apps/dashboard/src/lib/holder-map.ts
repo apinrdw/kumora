@@ -4,7 +4,11 @@
 import type { StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
-import type { HolderMapLink, HolderMapRead } from "@/server/holdings/holder-map"
+import type {
+  HolderMapLink,
+  HolderMapOffList,
+  HolderMapRead,
+} from "@/server/holdings/holder-map"
 
 export type Band = HolderMapLink["band"]
 
@@ -29,6 +33,8 @@ export interface HolderMapView {
         readonly issuerName: string | undefined
         // The 5% band, then the 1% band.
         readonly bands: readonly [BandSection, BandSection]
+        // Its earlier holders, latest to leave first, then by name.
+        readonly offList: ReadonlyArray<HolderMapOffList>
       }
     | undefined
   readonly mostHeld: HolderMapRead["mostHeld"]
@@ -61,7 +67,7 @@ const section = (
 export const holderMapView = Effect.fnUntraced(function* (
   read: HolderMapRead
 ): Effect.fn.Return<HolderMapView> {
-  const { day, month, focus, links, mostHeld } = read
+  const { day, month, focus, links, offList, mostHeld } = read
   return {
     day,
     month,
@@ -75,6 +81,10 @@ export const holderMapView = Effect.fnUntraced(function* (
               yield* section("5%", day, links),
               yield* section("1%", month, links),
             ],
+            offList: [...offList].sort(
+              (a, b) =>
+                b.since.localeCompare(a.since) || a.name.localeCompare(b.name)
+            ),
           },
     mostHeld,
   }

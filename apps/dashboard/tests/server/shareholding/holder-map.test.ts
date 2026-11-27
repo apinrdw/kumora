@@ -8,7 +8,11 @@ import { StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { holderMapView } from "@/lib/holder-map"
-import { holderMapRead, holderMapStocks } from "@/server/holdings/holder-map"
+import {
+  type HolderMapLink,
+  holderMapRead,
+  holderMapStocks,
+} from "@/server/holdings/holder-map"
 import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 
 import {
@@ -162,6 +166,91 @@ describe("Holder map, stock focus", () => {
       assert.isTrue(
         map.focus?.bands.every(({ holders }) => holders.length === 0)
       )
+    })
+  )
+})
+
+// A band's holders with their stored moves.
+const movesOf = (
+  band:
+    | {
+        readonly holders: ReadonlyArray<{
+          readonly name: string
+          readonly move: HolderMapLink["move"]
+        }>
+      }
+    | undefined
+) => (band?.holders ?? []).map(({ name, move }) => [name, move?.kind])
+
+describe("Holder map, holder moves", () => {
+  it.effect(
+    "gives a 5%-band holder its stored move against the trading day before",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        const [nov20] = (yield* mapOf(w, "TRUE")).focus?.bands ?? []
+        // Agung holds as it did on 19 Nov: no move.
+        assert.deepStrictEqual(movesOf(nov20), [
+          ["PT AGUNG PERKASA INVESTINDO", undefined],
+          ["PT PERINTIS TRINITI PROPERTI TBK", "down"],
+        ])
+        const perintis = nov20?.holders[1]?.move
+        assert.strictEqual(perintis?.shareChange, -58_765_800)
+        assert.strictEqual(perintis?.percentageChange, -77)
+        const [nov19] =
+          (yield* mapOf(w, "TRUE", "2026-11-19")).focus?.bands ?? []
+        assert.deepStrictEqual(movesOf(nov19), [
+          ["PT AGUNG PERKASA INVESTINDO", undefined],
+          ["PT PERINTIS TRINITI PROPERTI TBK", "new"],
+        ])
+      })
+  )
+
+  it.effect(
+    "gives a 1%-band holder its stored move against the month before",
+    () =>
+      Effect.gen(function* () {
+        const [, april] =
+          (yield* mapOf(yield* parsed, "TRUE", "2026-06-25")).focus?.bands ?? []
+        assert.deepStrictEqual(movesOf(april), [
+          ["PT PERINTIS TRINITI PROPERTI TBK", undefined],
+          ["PT PANCA AGUNG GEMILANG", "down"],
+          ["DJONI", undefined],
+          ["VALTOS GLOBALINDO PT", undefined],
+          ["VINCENT YO", undefined],
+        ])
+        assert.strictEqual(april?.holders[1]?.move?.shareChange, -28_512_300)
+        assert.strictEqual(april?.holders[1]?.move?.percentageChange, -37)
+      })
+  )
+})
+
+describe("Holder map, Off list", () => {
+  it.effect(
+    "lists the focus's earlier holders with the period each left the list",
+    () =>
+      Effect.gen(function* () {
+        const map = yield* mapOf(yield* parsed, "TRUE")
+        // Djoni left Aug's ≥1% list and Panca Sep's, each still off it in
+        // Oct.
+        assert.deepStrictEqual(
+          map.focus?.offList.map(({ name, band, since }) => [
+            name,
+            band,
+            since,
+          ]),
+          [
+            ["PT PANCA AGUNG GEMILANG", "1%", "2026-09-30"],
+            ["DJONI", "1%", "2026-08-31"],
+          ]
+        )
+      })
+  )
+
+  it.effect("lists no holder that left after the as-of day", () =>
+    Effect.gen(function* () {
+      const map = yield* mapOf(yield* parsed, "TRUE", "2026-06-25")
+      assert.deepStrictEqual(map.focus?.offList, [])
     })
   )
 })
