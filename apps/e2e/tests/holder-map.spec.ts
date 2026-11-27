@@ -544,6 +544,41 @@ test.describe.serial("Holder map", () => {
       )
     })
 
+    test("refocuses on a node picked with the keyboard after the map was panned", async ({
+      page,
+    }) => {
+      await page.goto(`${HOLDER_MAP}?stock=BSDE&day=2026-11-20`)
+      const map = mapOf(page, "BSDE", 7, 4, "1 other stock")
+      await expect(map).toBeVisible()
+      const box = await map.boundingBox()
+      if (box === null) throw new Error("no map box")
+      const x = box.x + box.width / 2
+      const y = box.y + 20
+      // A pan, released as a drag is.
+      await page.mouse.move(x, y)
+      await page.mouse.down()
+      await page.mouse.move(x + 60, y, { steps: 5 })
+      await page.mouse.up()
+      // A pan the browser cancels, so no click ends it.
+      await page.mouse.move(x, y)
+      await page.mouse.down()
+      await page.mouse.move(x + 60, y, { steps: 5 })
+      await map.dispatchEvent("pointercancel")
+      await page.mouse.up()
+      await expect(page).toHaveURL(/\/holder-map\?(?=.*stock=BSDE)/)
+      await map.focus()
+      await expect(async () => {
+        await page.keyboard.press("ArrowRight")
+        await expect(page.getByRole("status")).toContainText("TLKM", {
+          timeout: 200,
+        })
+      }).toPass()
+      await page.keyboard.press("Enter")
+      await expect(page).toHaveURL(
+        /\/holder-map\?(?=.*stock=TLKM)(?=.*day=2026-11-20)/
+      )
+    })
+
     test("focuses a custodian from a stock's side panel, the search and the URL", async ({
       page,
     }) => {
