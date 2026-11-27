@@ -537,6 +537,10 @@ _Avoid_: 5% holders page, block-holder feed
 A holder's change against the period before: New, Up, Down, Transfer or Off list. An unchanged holder has none.
 _Avoid_: Move (that is how a hot day turns cold), exit, entry
 
+**Holder map**:
+The page that draws, around one stock, one holder or one custodian, who holds what: the stock's holders and each holder's other stocks, the holder's stocks and their other holders, or the above-5% holders holding through the custodian, with the custodians of above-5% holders' securities accounts. Nominee and custody names are drawn like any holder, every stock included. It is drawn as of one trading day: the 5%-and-above band is that day's above-5% holders, and the 1%-to-5% band is the ≥1% holders under 5% of the newest above-1% month on or before it that are not already an above-5% holder of the stock; a ≥1% holder at 5% or more with no above-5% holder of its name that day stays in the 1%-to-5% band, marked. A holder that crossed 5% between the bands' periods moves Up into 5% or Down out of 5%, never Off list and New. Each other link carries its holder move against its own report's period before, and the focus's earlier holders show faded as Off list. A custodian is one custodian across stocks by its broker code, or, without one, by its name matched as a holder's is. Across stocks, and across the two reports, a holder is one holder when its name matches as a ≥1% holder's does, so two unrelated investors of one name show as one.
+_Avoid_: Investor map, ownership graph, network
+
 **Transfer**:
 The holder move of an above-5% holder whose total shares are unchanged against the trading day before while shares left some of its securities accounts for accounts at a different broker or custodian: the same owner, held through someone else. It names the brokers the shares went from and to, and how many moved. Shares moved between accounts at one broker or custodian are no Transfer. A holder whose total changed is Up or Down, whatever moved between its accounts. Never Monthly: the above-1% report has no accounts.
 _Avoid_: Shift, re-custody, Up or Down (the total did not change)
@@ -554,7 +558,7 @@ A ≥1% holder listed in the month before and not in this one: it sold out or fe
 _Avoid_: Exited, sold
 
 **Above-5% holder**:
-One investor IDX lists on a trading day's above-5% report as holding at least 5% of a stock's listed shares in scripless form, with the securities accounts its holding sits in. Until 19 Nov 2026 the report could list one investor once per name variant, each with the same accounts; the stock page shows those as one holder. From one trading day to the next a holder is the same when its name matches as a ≥1% holder's does, or when one name leaves and another arrives in the same stock with the same shares or a securities account in common. A holder that returns to the list under a matching name is the same holder. It is never matched to a ≥1% holder.
+One investor IDX lists on a trading day's above-5% report as holding at least 5% of a stock's listed shares in scripless form, with the securities accounts its holding sits in. Until 19 Nov 2026 the report could list one investor once per name variant, each with the same accounts; the stock page shows those as one holder. From one trading day to the next a holder is the same when its name matches as a ≥1% holder's does, or when one name leaves and another arrives in the same stock with the same shares or a securities account in common. A holder that returns to the list under a matching name is the same holder. The stock page and Holder moves never match it to a ≥1% holder; the Holder map does, by name.
 _Avoid_: ≥5% holder (Holder size's band, grouped by investor type), daily ≥5% holder, major holder
 
 **Securities account**:
