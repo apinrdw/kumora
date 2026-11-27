@@ -176,7 +176,9 @@ const dots = (nodes: ReadonlyArray<NodeRow>) =>
           ? "outlined"
           : "filled"
       const key = `${style} ${node.color}`
-      groups.set(key, [...(groups.get(key) ?? []), node])
+      const group = groups.get(key)
+      if (group === undefined) groups.set(key, [node])
+      else group.push(node)
     }
     return [...groups.values()].map((rows) => {
       const offList = rows[0]?.offList === true
