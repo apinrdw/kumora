@@ -222,7 +222,8 @@ const repeatSignature = ({ scripless, accounts }: Above5Holder) =>
     ])
   )
 
-const dayHolders = (holders: ReadonlyArray<Above5Holder>) =>
+// A stock-day's blocks, each repeat folded into the block it repeats.
+export const dayHolders = (holders: ReadonlyArray<Above5Holder>) =>
   Effect.map(collapseRepeats(holders, repeatSignature), (collapsed) =>
     collapsed.map(({ holder, aliases }): DailyHolder => ({
       ...holder,

@@ -1,7 +1,7 @@
 // Parsed holdings' vocabulary, shared by the server's reads and the stock
 // page: origins, the 39 investor classifications and KSEI's 9 investor
 // types.
-import { WibDate } from "@workspace/relay"
+import { StockCode, WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
 // A report month as a URL or a server function spells it, `YYYY-MM`: a
@@ -301,3 +301,14 @@ export const RAIL_PERIODS = 10
 // Holder moves alike, ending at the selected one. Its oldest bar compares
 // with the period before them.
 export const TREND_PERIODS = 20
+
+// What the Holder map is drawn around, and as of which trading day: a
+// stock, or nothing for the landing view; the day absent for the newest
+// parsed.
+export const HolderMapQuery = Schema.Struct({
+  focus: Schema.UndefinedOr(
+    Schema.Struct({ kind: Schema.Literal("stock"), code: StockCode })
+  ),
+  day: Schema.UndefinedOr(WibDate),
+})
+export type HolderMapQuery = typeof HolderMapQuery.Type
