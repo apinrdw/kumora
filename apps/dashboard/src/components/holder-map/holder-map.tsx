@@ -1,29 +1,42 @@
 // The Holder map page (spec apinrdw/kumora#733; apinrdw/kumora#734,
-// #735): a stock search, then the focus stock's holders as of one trading
-// day, drawn as a map above a side panel of two bands, or, with no focus,
-// the stocks with the most ≥1% holders.
+// #735, #736): a stock search, then the focus stock's holders as of one
+// trading day, drawn as a map above a side panel of two bands, each with its
+// move, and its Off list holders, or, with no focus, the stocks with the
+// most ≥1% holders.
 import { Link } from "@tanstack/react-router"
 import type { StockCode, WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
+import { useState } from "react"
 
 import { BoundedRows } from "@/components/k/bounded-rows"
+import { KChip } from "@/components/k/chip"
 import { KEmptyState } from "@/components/k/empty-state"
 import { kCard, kFocus } from "@/components/k/styles"
 import type { StockCodeList } from "@/components/market-live/use-stock-code-list"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
-import { percentOf } from "@/components/stocks/holder-cells"
+import {
+  Delta,
+  lotsChangeText,
+  MoveChip,
+  offListText,
+  percentChangeText,
+  percentOf,
+} from "@/components/stocks/holder-cells"
+import { MOVEMENT } from "@/components/stocks/holder-movement"
 import { KSEI_TYPE_LABELS } from "@/domain/holdings"
 import { count, lotsOfShares } from "@/lib/format"
 import {
   BAND_TITLE,
   type BandSection,
   type HolderMapView,
+  type MapHolder,
   ORIGIN_LABEL,
   type Refocus,
+  type ShownMove,
 } from "@/lib/holder-map"
 import { dayDateLabel, monthLabel } from "@/lib/stock-page-display"
-import type { HolderMapLink } from "@/server/holdings/holder-map"
+import type { HolderMapOffList } from "@/server/holdings/holder-map"
 
 import { HolderMapGraph } from "./holder-map-graph"
 
@@ -33,6 +46,25 @@ export type HolderMapPageProps = {
   onStock: (code: StockCode) => void
   onRefocus: (refocus: Refocus) => void
 }
+
+// A link's move as the side panel's chip shows it: Holder moves' chips,
+// and a crossing of 5% toned as the Up or Down it is.
+const SHOWN_MOVE: Record<
+  ShownMove,
+  { readonly label: string; readonly text: string; readonly chip: string }
+> = {
+  new: MOVEMENT.new,
+  up: MOVEMENT.up,
+  down: MOVEMENT.down,
+  transfer: MOVEMENT.transfer,
+  unchanged: MOVEMENT.unchanged,
+  "up into 5%": { ...MOVEMENT.up, label: "Up into 5%" },
+  "down out of 5%": { ...MOVEMENT.down, label: "Down out of 5%" },
+}
+
+// The period a band's report is of: a trading day or an above-1% month.
+const periodLabel = (band: BandSection["band"], date: WibDate) =>
+  band === "5%" ? dayDateLabel(date) : monthLabel(date)
 
 // The bands' dates: the 5% band's trading day and the 1% band's month.
 const datesLine = Effect.fnUntraced(function* (
@@ -170,15 +202,16 @@ function Focus({
         <>
           <HolderMapGraph focus={focus} onRefocus={onRefocus} />
           {focus.bands.map((band) => (
-            <Band key={band.band} band={band} />
+            <Band key={band.band} band={band} day={day} />
           ))}
         </>
       )}
+      <OffList holders={focus.offList} />
     </section>
   )
 }
 
-function Band({ band }: { band: BandSection }) {
+function Band({ band, day }: { band: BandSection; day: WibDate | undefined }) {
   const title = BAND_TITLE[band.band]
   const id = `band-${band.band === "5%" ? "5" : "1"}`
   return (
@@ -213,6 +246,9 @@ function Band({ band }: { band: BandSection }) {
                 <th scope="col" className="text-left">
                   Holder
                 </th>
+                <th scope="col" className="text-left">
+                  Move
+                </th>
                 <th scope="col" className="text-right">
                   % of listed
                 </th>
@@ -225,7 +261,9 @@ function Band({ band }: { band: BandSection }) {
               {/* Decision: a page renders a list of stored rows through BoundedRows
                   (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md) */}
               <BoundedRows rows={band.holders}>
-                {(holder) => <HolderRow key={holder.holder} holder={holder} />}
+                {(holder) => (
+                  <HolderRow key={holder.holder} holder={holder} day={day} />
+                )}
               </BoundedRows>
             </tbody>
           </table>
@@ -235,7 +273,13 @@ function Band({ band }: { band: BandSection }) {
   )
 }
 
-function HolderRow({ holder }: { holder: HolderMapLink }) {
+function HolderRow({
+  holder,
+  day,
+}: {
+  holder: MapHolder
+  day: WibDate | undefined
+}) {
   const meta = [
     holder.origin === undefined
       ? "Origin unknown"
@@ -251,7 +295,16 @@ function HolderRow({ holder }: { holder: HolderMapLink }) {
         <div className="mt-0.5 text-[12px] text-muted-foreground">
           {meta.join(" · ")}
         </div>
+        {holder.gap && day !== undefined && (
+          <div className="text-warning mt-0.5 text-[12px]">
+            ≥5% at month-end, not on {Effect.runSync(dayDateLabel(day))}'s
+            above-5% list
+          </div>
+        )}
       </th>
+      <td className="text-left">
+        <ShownMoveCell holder={holder} />
+      </td>
       <td className="num text-right whitespace-nowrap">
         {Effect.runSync(percentOf(holder.percentageHundredths))}
       </td>
@@ -259,5 +312,95 @@ function HolderRow({ holder }: { holder: HolderMapLink }) {
         {Effect.runSync(lotsOfShares(holder.shares))}
       </td>
     </tr>
+  )
+}
+
+// The chip of a holder's shown move, and under it what changed: a crossing's
+// other side, or the move's change in % and lots.
+function ShownMoveCell({ holder }: { holder: MapHolder }) {
+  const { label, text, chip } = SHOWN_MOVE[holder.shownMove]
+  const { crossing, move } = holder
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      <span
+        className={cn(
+          "inline-flex h-5 items-center rounded-full px-2 text-[11px] font-semibold whitespace-nowrap",
+          text,
+          chip
+        )}
+      >
+        {label}
+      </span>
+      {crossing?.kind === "up into 5%" && (
+        <div className="text-[12px] text-muted-foreground">
+          {Effect.runSync(percentOf(crossing.monthHundredths))} at month-end
+        </div>
+      )}
+      {crossing?.kind === "down out of 5%" && (
+        <div className="text-[12px] text-muted-foreground">
+          Off the above-5% list since{" "}
+          {Effect.runSync(dayDateLabel(crossing.since))}
+        </div>
+      )}
+      {crossing === undefined && move !== undefined && (
+        <>
+          <Delta value={move.percentageChange} text={percentChangeText} />
+          <Delta value={move.shareChange} text={lotsChangeText} />
+        </>
+      )}
+    </div>
+  )
+}
+
+// The focus's earlier holders, each with the period it left its list,
+// hidden by the toggle.
+function OffList({ holders }: { holders: ReadonlyArray<HolderMapOffList> }) {
+  const [shown, setShown] = useState(true)
+  if (holders.length === 0) return null
+  return (
+    <section aria-labelledby="off-list" className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 id="off-list" className="text-[15px] font-semibold">
+          Off list
+        </h3>
+        <KChip
+          selected={shown}
+          onSelectedChange={setShown}
+          count={holders.length}
+        >
+          Show Off list
+        </KChip>
+      </div>
+      {shown && (
+        <ul aria-label="Off list holders" className="flex flex-col text-[13px]">
+          {/* Decision: a page renders a list of stored rows through BoundedRows
+              (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md) */}
+          <BoundedRows rows={holders}>
+            {(holder) => <OffListRow key={holder.holder} holder={holder} />}
+          </BoundedRows>
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function OffListRow({ holder }: { holder: HolderMapOffList }) {
+  const since = Effect.runSync(periodLabel(holder.band, holder.since))
+  return (
+    <li className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border py-1.5 text-muted-foreground opacity-80 last:border-0">
+      <span className="font-medium">{holder.name}</span>
+      <span className="flex items-baseline gap-2">
+        <span className="num">
+          {Effect.runSync(percentOf(holder.percentageHundredths))} last
+        </span>
+        <MoveChip
+          move="off list"
+          since={since}
+          offListTip={Effect.runSync(
+            offListText(holder.band === "5%" ? "daily" : "monthly")
+          )}
+        />
+      </span>
+    </li>
   )
 }

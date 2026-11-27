@@ -105,17 +105,17 @@ test.describe.serial("Holder map", () => {
       // in both reports, shows once, in the 5% band.
       await expect(band(page, "5% and above")).toHaveCount(2)
       await expect(band(page, "5% and above").nth(0)).toContainText(
-        /PT AGUNG PERKASA INVESTINDO\s*Local · Corporate\s*52\.83%/
+        /PT AGUNG PERKASA INVESTINDO\s*Local · Corporate.*52\.83%/
       )
       await expect(band(page, "5% and above").nth(1)).toContainText(
-        /PT PERINTIS TRINITI PROPERTI TBK\s*Local · Corporate\s*6\.95%/
+        /PT PERINTIS TRINITI PROPERTI TBK\s*Local · Corporate.*6\.95%/
       )
       await expect(band(page, "1% to 5%")).toHaveCount(2)
       await expect(band(page, "1% to 5%").nth(0)).toContainText(
-        /VALTOS GLOBALINDO PT\s*Local · Type unknown\s*2\.72%/
+        /VALTOS GLOBALINDO PT\s*Local · Type unknown.*2\.72%/
       )
       await expect(band(page, "1% to 5%").nth(1)).toContainText(
-        /VINCENT YO\s*Local · Individual\s*1\.42%/
+        /VINCENT YO\s*Local · Individual.*1\.42%/
       )
       await expect(
         page.getByRole("region", { name: "5% and above" })
@@ -175,6 +175,47 @@ test.describe.serial("Holder map", () => {
       await page.goForward()
       await expect(page).toHaveURL(/\/holder-map\?stock=TRUE$/)
       await expect(mapOf(page, "TRUE")).toBeVisible()
+    })
+
+    test("shows each holder's move and hides the Off list on its toggle", async ({
+      page,
+    }) => {
+      await page.goto(`${HOLDER_MAP}?stock=TRUE&day=2026-11-20`)
+      // Perintis is down on 19 Nov; Agung holds as it did.
+      await expect(band(page, "5% and above").nth(0)).toContainText("Unchanged")
+      await expect(band(page, "5% and above").nth(1)).toContainText(
+        /Down\s*−0\.77%/
+      )
+
+      // Panca left Sep's ≥1% list and Djoni Aug's.
+      const offList = page.getByRole("list", { name: "Off list holders" })
+      await expect(offList.getByRole("listitem")).toHaveCount(2)
+      await expect(offList.getByRole("listitem").nth(0)).toContainText(
+        /PT PANCA AGUNG GEMILANG.*Off list since Sep 2026/
+      )
+      await expect(offList.getByRole("listitem").nth(1)).toContainText(
+        /DJONI.*Off list since Aug 2026/
+      )
+      const toggle = page.getByRole("button", { name: /^Show Off list/ })
+      await expect(toggle).toHaveAttribute("aria-pressed", "true")
+      await until(
+        () => toggle.click(),
+        () => expect(offList).toHaveCount(0, { timeout: 1000 })
+      )
+      await toggle.click()
+      await expect(offList.getByRole("listitem")).toHaveCount(2)
+    })
+
+    test("marks a ≥1% holder at 5% or more missing from the day's above-5% list", async ({
+      page,
+    }) => {
+      await page.goto(`${HOLDER_MAP}?stock=TRUE&day=2026-06-25`)
+      await expect(band(page, "1% to 5%").nth(0)).toContainText(
+        /PT PERINTIS TRINITI PROPERTI TBK.*≥5% at month-end, not on 25 Jun 2026's above-5% list/
+      )
+      await expect(band(page, "1% to 5%").nth(3)).not.toContainText(
+        "≥5% at month-end"
+      )
     })
 
     test("shows an empty state for a code no report lists", async ({

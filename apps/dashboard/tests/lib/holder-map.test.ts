@@ -18,6 +18,9 @@ const link = (
   shares: hundredths * 1000,
   origin: "local",
   investorType: "CP",
+  move: undefined,
+  gap: false,
+  crossing: undefined,
 })
 
 const read = (links: ReadonlyArray<HolderMapLink>): HolderMapRead => ({
@@ -25,6 +28,7 @@ const read = (links: ReadonlyArray<HolderMapLink>): HolderMapRead => ({
   month: WibDate.make("2026-10-30"),
   focus: { kind: "stock", code: StockCode.make("TRUE"), issuerName: "TRUE" },
   links,
+  offList: [],
   mostHeld: [],
 })
 
@@ -74,6 +78,79 @@ describe("holderMapView", () => {
       ).toEqual([
         [0, 0],
         [0, 0],
+      ])
+    })
+  )
+
+  it.effect(
+    "shows each holder's crossing of 5% over its move, else its move, else Unchanged",
+    () =>
+      Effect.gen(function* () {
+        const moved = (kind: "new" | "down") => ({
+          kind,
+          shareChange: -1000,
+          percentageChange: -10,
+        })
+        const view = yield* holderMapView(
+          read([
+            { ...link("5%", "A", 900), move: moved("new") },
+            {
+              ...link("5%", "B", 800),
+              move: moved("new"),
+              crossing: { kind: "up into 5%", monthHundredths: 450 },
+            },
+            link("5%", "C", 700),
+            {
+              ...link("1%", "D", 600),
+              move: moved("down"),
+              crossing: {
+                kind: "down out of 5%",
+                since: WibDate.make("2026-11-20"),
+              },
+            },
+            { ...link("1%", "E", 200), move: moved("down") },
+          ])
+        )
+        expect(
+          view.focus?.bands.flatMap(({ holders }) =>
+            holders.map(({ name, shownMove }) => [name, shownMove])
+          )
+        ).toEqual([
+          ["A", "new"],
+          ["B", "up into 5%"],
+          ["C", "unchanged"],
+          ["D", "down out of 5%"],
+          ["E", "down"],
+        ])
+      })
+  )
+
+  it.effect("lists Off list holders latest to leave first, then by name", () =>
+    Effect.gen(function* () {
+      const off = (
+        band: HolderMapLink["band"],
+        name: string,
+        since: string
+      ) => ({
+        code: StockCode.make("TRUE"),
+        band,
+        holder: name,
+        name,
+        since: WibDate.make(since),
+        percentageHundredths: 300,
+      })
+      const view = yield* holderMapView({
+        ...read([]),
+        offList: [
+          off("1%", "B", "2026-08-31"),
+          off("5%", "C", "2026-11-19"),
+          off("1%", "A", "2026-08-31"),
+        ],
+      })
+      expect(view.focus?.offList.map(({ name }) => name)).toEqual([
+        "C",
+        "A",
+        "B",
       ])
     })
   )

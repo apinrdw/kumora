@@ -6,11 +6,26 @@ import type { StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import type { KseiType } from "@/domain/holdings"
-import type { HolderMapLink, HolderMapRead } from "@/server/holdings/holder-map"
+import type {
+  HolderMapLink,
+  HolderMapOffList,
+  HolderMapRead,
+} from "@/server/holdings/holder-map"
 
 export type Band = HolderMapLink["band"]
 
 type Origin = HolderMapLink["origin"]
+
+// What a holder's link shows, and the graph colours it by: its crossing of
+// 5% between the bands' periods, else its stored move, else Unchanged.
+export type ShownMove =
+  | NonNullable<HolderMapLink["move"]>["kind"]
+  | NonNullable<HolderMapLink["crossing"]>["kind"]
+  | "unchanged"
+
+export interface MapHolder extends HolderMapLink {
+  readonly shownMove: ShownMove
+}
 
 // One band's section of the side panel.
 export interface BandSection {
@@ -19,7 +34,7 @@ export interface BandSection {
   // report; undefined when none is parsed.
   readonly date: WibDate | undefined
   // Most % first, then by name.
-  readonly holders: ReadonlyArray<HolderMapLink>
+  readonly holders: ReadonlyArray<MapHolder>
   // Their summed % × 100.
   readonly totalHundredths: number
 }
@@ -89,6 +104,8 @@ export interface HolderMapView {
         }
         // In the legend's order, only what the graph draws.
         readonly legend: ReadonlyArray<LegendEntry>
+        // Its earlier holders, latest to leave first, then by name.
+        readonly offList: ReadonlyArray<HolderMapOffList>
       }
     | undefined
   readonly mostHeld: HolderMapRead["mostHeld"]
@@ -125,6 +142,10 @@ const section = (
   Effect.sync((): BandSection => {
     const holders = links
       .filter((link) => link.band === band)
+      .map((link): MapHolder => ({
+        ...link,
+        shownMove: link.crossing?.kind ?? link.move?.kind ?? "unchanged",
+      }))
       .sort(
         (a, b) =>
           b.percentageHundredths - a.percentageHundredths ||
@@ -232,7 +253,7 @@ const legendOf = (nodes: ReadonlyArray<MapNode>) =>
 export const holderMapView = Effect.fnUntraced(function* (
   read: HolderMapRead
 ): Effect.fn.Return<HolderMapView> {
-  const { day, month, focus, links, mostHeld } = read
+  const { day, month, focus, links, offList, mostHeld } = read
   if (focus === undefined) return { day, month, focus: undefined, mostHeld }
   const bands = [
     yield* section("5%", day, links),
@@ -248,6 +269,9 @@ export const holderMapView = Effect.fnUntraced(function* (
       bands,
       graph,
       legend: yield* legendOf(graph.nodes),
+      offList: [...offList].sort(
+        (a, b) => b.since.localeCompare(a.since) || a.name.localeCompare(b.name)
+      ),
     },
     mostHeld,
   }
