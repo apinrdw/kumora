@@ -50,6 +50,26 @@ describe("parseHolderMapSearch", () => {
     })
   )
 
+  it.effect("keeps the Off list hidden, and drops any other value", () =>
+    Effect.gen(function* () {
+      expect(
+        (yield* parseHolderMapSearch({ stock: "TRUE", offList: "hide" }))
+          .offList
+      ).toBe("hide")
+      expect(
+        (yield* parseHolderMapSearch({ stock: "TRUE", offList: "show" }))
+          .offList
+      ).toBeUndefined()
+      // A refocus keeps it, as it keeps the day.
+      expect(
+        (yield* refocused(
+          { stock: StockCode.make("TRUE"), offList: "hide" },
+          { holder: HolderKey.make("DJONI") }
+        )).offList
+      ).toBe("hide")
+    })
+  )
+
   it.effect("drops both foci when the URL names a stock and a holder", () =>
     Effect.gen(function* () {
       const search = yield* parseHolderMapSearch({

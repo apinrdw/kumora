@@ -2,7 +2,7 @@
 // the focus and the as-of trading day, each left out when absent, so a plain
 // link opens the landing view on the newest day.
 import { type BrokerCode, StockCode, WibDate } from "@workspace/relay"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 
 import {
   CustodianId,
@@ -11,7 +11,7 @@ import {
   type MoveKind,
 } from "@/domain/holdings"
 
-import { field } from "./holder-moves-search"
+import { field } from "./search-field"
 
 // At most one is set: the map has one focus.
 export interface HolderMapSearch {
@@ -23,7 +23,13 @@ export interface HolderMapSearch {
   readonly custodian?: CustodianId | undefined
   // The as-of trading day; absent for the newest parsed.
   readonly day?: WibDate | undefined
+  // The Off list filter: `hide` hides the Off list's nodes and rows;
+  // absent shows them.
+  readonly offList?: OffListParam | undefined
 }
+
+const OffListParam = Schema.Literal("hide")
+type OffListParam = typeof OffListParam.Type
 
 /**
  * Keeps the fields that parse and drops anything else; a stock code and a
@@ -55,11 +61,12 @@ export const parseHolderMapSearch = Effect.fnUntraced(function* (
     holder: one ? holder : undefined,
     custodian: one ? custodian : undefined,
     day: yield* field(WibDate, raw.day),
+    offList: yield* field(OffListParam, raw.offList),
   }
 })
 
 // A refocus's search over the one before: the new focus, the others
-// cleared, the day kept.
+// cleared, the day and the Off list filter kept.
 export const refocused = (
   previous: HolderMapSearch,
   focus:
@@ -73,6 +80,7 @@ export const refocused = (
     custodian: undefined,
     ...focus,
     day: previous.day,
+    offList: previous.offList,
   })
 
 /**

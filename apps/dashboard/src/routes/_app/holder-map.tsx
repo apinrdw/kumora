@@ -32,6 +32,7 @@ export const Route = createFileRoute("/_app/holder-map")({
 
 function HolderMapRoute() {
   const read: HolderMapRead = Route.useLoaderData()
+  const { offList } = Route.useSearch()
   const navigate = Route.useNavigate()
   // The page the search's sign-in returns to: the one it opened on, so a
   // refocus doesn't load the list again.
@@ -54,6 +55,17 @@ function HolderMapRoute() {
       // A new day is a new entry too, and keeps the focus.
       onDay={(day) =>
         void navigate({ search: (previous) => ({ ...previous, day }) })
+      }
+      // A filter, so a new entry too; it hides the map's Off list nodes
+      // and its Off list rows.
+      showOffList={offList !== "hide"}
+      onShowOffList={(shown) =>
+        void navigate({
+          search: (previous) => ({
+            ...previous,
+            offList: shown ? undefined : "hide",
+          }),
+        })
       }
     />
   )

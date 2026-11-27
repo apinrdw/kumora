@@ -9,7 +9,7 @@ import { Link } from "@tanstack/react-router"
 import type { WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
-import { type ReactNode, useState } from "react"
+import type { ReactNode } from "react"
 
 import { BoundedRows } from "@/components/k/bounded-rows"
 import { KChip } from "@/components/k/chip"
@@ -54,6 +54,9 @@ export type HolderMapPageProps = {
   list: FocusListState
   onRefocus: (refocus: Refocus) => void
   onDay: (day: WibDate) => void
+  // The URL's Off list filter: shown unless `offList=hide`.
+  showOffList: boolean
+  onShowOffList: (shown: boolean) => void
 }
 
 // A search match's refocus.
@@ -157,6 +160,8 @@ export function HolderMapPage({
   list,
   onRefocus,
   onDay,
+  showOffList,
+  onShowOffList,
 }: HolderMapPageProps) {
   const shown = map.day ?? map.refused
   return (
@@ -193,6 +198,8 @@ export function HolderMapPage({
           day={map.day}
           month={map.month}
           onRefocus={onRefocus}
+          showOffList={showOffList}
+          onShowOffList={onShowOffList}
         />
       )}
     </div>
@@ -260,20 +267,21 @@ function Focus({
   day,
   month,
   onRefocus,
+  showOffList,
+  onShowOffList,
 }: {
   focus: FocusView
   day: WibDate | undefined
   month: WibDate | undefined
   onRefocus: (refocus: Refocus) => void
+  showOffList: boolean
+  onShowOffList: (shown: boolean) => void
 }) {
   const empty =
     focus.kind === "custodian"
       ? focus.book.holders.length === 0
       : focus.bands.every(({ holders }) => holders.length === 0)
   const nothing = Effect.runSync(emptyText(focus, day))
-  // On by default; hides both the Off list section and the map's Off list
-  // nodes.
-  const [showOffList, setShowOffList] = useState(true)
   return (
     <section
       aria-labelledby="holder-map-focus"
@@ -326,7 +334,7 @@ function Focus({
         focus={focus}
         holders={focus.offList}
         shown={showOffList}
-        onShown={setShowOffList}
+        onShown={onShowOffList}
       />
     </section>
   )

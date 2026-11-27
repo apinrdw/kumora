@@ -21,6 +21,8 @@ const page = () => (
     list={{ _tag: "Loading" }}
     onRefocus={() => undefined}
     onDay={() => undefined}
+    showOffList
+    onShowOffList={() => undefined}
   />
 )
 
