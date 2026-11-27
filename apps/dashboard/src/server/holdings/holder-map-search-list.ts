@@ -21,6 +21,7 @@ import {
 import {
   type Budgeted,
   DAY_ROWS,
+  DRAWABLE_HOLDING,
   MONTH_ROWS,
   PERIODS,
   PERIODS_SQL,
@@ -51,10 +52,10 @@ const MONTH = "(SELECT month FROM band_month)"
 const STOCKS_SQL = {
   sql: `${PERIODS} SELECT stock_code, MAX(issuer_name) AS issuer_name FROM (
     SELECT stock_code, issuer_name FROM above_5_holder
-    WHERE data_date = ${DAY}
+    WHERE data_date = ${DAY} AND ${DRAWABLE_HOLDING}
     UNION ALL
     SELECT stock_code, issuer_name FROM above_1_holding
-    WHERE data_date = ${MONTH}
+    WHERE data_date = ${MONTH} AND ${DRAWABLE_HOLDING}
   )
   GROUP BY stock_code ORDER BY stock_code`,
   rows: DAY_ROWS + MONTH_ROWS,

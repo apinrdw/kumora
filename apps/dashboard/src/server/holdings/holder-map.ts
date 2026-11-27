@@ -41,12 +41,16 @@ import { OFF_LIST, offListOf, offListRead } from "./holder-map-off-list.ts"
 import {
   type Budgeted,
   DAY_ROWS,
+  DRAWABLE_HOLDING,
+  DRAWABLE_LINE,
+  DRAWABLE_STOCK,
   type Focus,
   type HolderMapCustodianLink,
   type HolderMapFocus,
   type HolderMapLink,
   type HolderMapOffList,
   HolderMapRead,
+  identityKey,
   MONTH_ROWS,
   PERIODS,
   PERIODS_SQL,
@@ -72,9 +76,11 @@ const IN_VIEW: Record<Focus["kind"], string> = {
   focus_keys AS (
     SELECT holder_key FROM above_5_holder
     WHERE stock_code = ?2 AND data_date = (SELECT day FROM asof)
+      AND ${DRAWABLE_HOLDING}
     UNION
     SELECT holder_key FROM above_1_holding
     WHERE stock_code = ?2 AND data_date = (SELECT month FROM band_month)
+      AND ${DRAWABLE_HOLDING}
   ),
   in_view AS (
     SELECT ?2 AS stock_code
@@ -82,18 +88,22 @@ const IN_VIEW: Record<Focus["kind"], string> = {
     SELECT stock_code FROM above_5_holder
     WHERE data_date = (SELECT day FROM asof)
       AND holder_key IN (SELECT holder_key FROM focus_keys)
+      AND ${DRAWABLE_HOLDING}
     UNION
     SELECT stock_code FROM above_1_holding
     WHERE data_date = (SELECT month FROM band_month)
       AND holder_key IN (SELECT holder_key FROM focus_keys)
+      AND ${DRAWABLE_HOLDING}
   )`,
   holder: `${PERIODS},
   in_view AS (
     SELECT stock_code FROM above_5_holder
     WHERE holder_key = ?2 AND data_date = (SELECT day FROM asof)
+      AND ${DRAWABLE_HOLDING}
     UNION
     SELECT stock_code FROM above_1_holding
     WHERE holder_key = ?2 AND data_date = (SELECT month FROM band_month)
+      AND ${DRAWABLE_HOLDING}
   )`,
   // Through above_5_account_by_custodian: the custodian's accounts of the
   // day, not the whole day's. An account emptied to 0 shares holds nothing
@@ -103,6 +113,7 @@ const IN_VIEW: Record<Focus["kind"], string> = {
     SELECT DISTINCT stock_code FROM above_5_account
     WHERE custodian IN (SELECT value FROM json_each(?2))
       AND data_date = (SELECT day FROM asof) AND scripless > 0
+      AND ${DRAWABLE_STOCK}
   )`,
 }
 
@@ -121,7 +132,7 @@ const dayBlocks = (and: string, day: string): ReadonlyArray<Budgeted> => [
     sql: `SELECT stock_code, data_date, no, issuer_name, holder_name,
       holder_key, scripless, percentage_hundredths
     FROM above_5_holder
-    WHERE ${and} data_date = ${day}
+    WHERE ${and} ${DRAWABLE_HOLDING} AND data_date = ${day}
     ORDER BY stock_code, no`,
     rows: DAY_ROWS,
   },
@@ -129,7 +140,7 @@ const dayBlocks = (and: string, day: string): ReadonlyArray<Budgeted> => [
     sql: `SELECT stock_code, data_date, no, custodian, account_name,
       origin, domicile, scripless
     FROM above_5_account
-    WHERE ${and} data_date = ${day}
+    WHERE ${and} ${DRAWABLE_STOCK} AND data_date = ${day}
     ORDER BY stock_code, no, ordinal`,
     rows: DAY_ROWS,
   },
@@ -151,7 +162,8 @@ export const linkRows = (where?: string): ReadonlyArray<Budgeted> => {
         classification, investor_type, origin, domicile, controller,
         scripless, scrip, total, percentage_hundredths, issuer_name
       FROM above_1_holding
-      WHERE ${and} data_date = (SELECT month FROM band_month)
+      WHERE ${and} ${DRAWABLE_HOLDING}
+        AND data_date = (SELECT month FROM band_month)
       ORDER BY stock_code, seq`,
       rows: MONTH_ROWS,
     },
@@ -176,13 +188,13 @@ const IN_VIEW_ROWS: ReadonlyArray<Budgeted> = [
       percentage_change
     FROM above_5_move
     WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
-      AND move <> 'off list'
+      AND move <> 'off list' AND ${DRAWABLE_LINE}
     UNION ALL
     SELECT stock_code, '1%' AS band, name, move, share_change,
       percentage_change
     FROM above_1_move
     WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT month FROM band_month)
-      AND move <> 'off list'`,
+      AND move <> 'off list' AND ${DRAWABLE_LINE}`,
     rows: DAY_ROWS + MONTH_ROWS,
   },
   // The month's ≥1% holders that left the above-5% list after the month:
@@ -198,8 +210,7 @@ const IN_VIEW_ROWS: ReadonlyArray<Budgeted> = [
   // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
   {
     sql: `SELECT stock_code, holder_key, MAX(data_date) AS data_date FROM (
-      SELECT stock_code, substr(holder, 1, instr(holder, '#') - 1)
-          AS holder_key,
+      SELECT stock_code, ${identityKey("holder")} AS holder_key,
         move, data_date,
         ROW_NUMBER() OVER (
           PARTITION BY stock_code, holder ORDER BY data_date DESC
@@ -208,10 +219,12 @@ const IN_VIEW_ROWS: ReadonlyArray<Budgeted> = [
       WHERE ${STOCKS_IN_VIEW} AND move IN ('new', 'off list')
         AND data_date > (SELECT month FROM band_month)
         AND data_date <= (SELECT day FROM asof)
-        AND substr(holder, 1, instr(holder, '#') - 1) IN (
+        AND ${DRAWABLE_LINE}
+        AND ${identityKey("holder")} IN (
           SELECT holder_key FROM above_1_holding
           WHERE stock_code = line.stock_code
             AND data_date = (SELECT month FROM band_month)
+            AND ${DRAWABLE_HOLDING}
         )
     )
     WHERE nth = 1 AND move = 'off list'
@@ -233,6 +246,7 @@ const IN_VIEW_ROWS: ReadonlyArray<Budgeted> = [
   {
     sql: `SELECT DISTINCT stock_code FROM above_5_holder AS h
     WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
+      AND ${DRAWABLE_HOLDING}
       AND NOT EXISTS (
         SELECT 1 FROM above_5_holder AS earlier
         WHERE earlier.stock_code = h.stock_code
@@ -260,7 +274,8 @@ const MOST_HELD_SQL = {
   sql: `${PERIODS}
   SELECT stock_code, MAX(issuer_name) AS issuer_name,
     COUNT(DISTINCT holder_key) AS holders
-  FROM above_1_holding WHERE data_date = (SELECT month FROM band_month)
+  FROM above_1_holding
+  WHERE data_date = (SELECT month FROM band_month) AND ${DRAWABLE_HOLDING}
   GROUP BY stock_code
   ORDER BY holders DESC, stock_code
   LIMIT ${MOST_HELD}`,

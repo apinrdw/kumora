@@ -1,6 +1,11 @@
 // What the Holder map's read returns (spec apinrdw/kumora#733, "Holder map
 // read"), and the day and month it is drawn as of.
-import { BrokerCode, StockCode, WibDate } from "@workspace/relay"
+import {
+  BrokerCode,
+  STOCK_CODE_MAX_LENGTH,
+  StockCode,
+  WibDate,
+} from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
 import {
@@ -8,6 +13,7 @@ import {
   HolderKey,
   type HolderMapQuery,
   KseiType,
+  NAME_LENGTH,
   SplitOrigin,
 } from "@/domain/holdings"
 
@@ -230,14 +236,80 @@ export const PeriodsRow = Schema.Struct({
   month: Schema.NullOr(WibDate),
 })
 
+// Whether the SQL `code` is a `StockCode`: one of capitals, digits and
+// dashes, after two capitals and a dot or not, at most its length. SQLite
+// has no regex: a GLOB of the class negated finds a character outside it.
+const isStockCodeSql = (code: string) =>
+  `(length(${code}) BETWEEN 1 AND ${STOCK_CODE_MAX_LENGTH} AND (
+    ${code} NOT GLOB '*[^A-Z0-9-]*'
+    OR (${code} GLOB '[A-Z][A-Z].?*'
+      AND substr(${code}, 4) NOT GLOB '*[^A-Z0-9-]*')
+  ))`
+
+// JavaScript's whitespace, `\s`, by code point: what `HolderKey`'s `\S`
+// finds none of in a blank key.
+const WHITESPACE = [
+  9, 10, 11, 12, 13, 32, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198,
+  8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288, 65279,
+]
+
+// Whether the SQL `key` is a `HolderKey`: not blank, at most a name long.
+const isHolderKeySql = (key: string) =>
+  `(trim(${key}, char(${WHITESPACE.join(", ")})) <> ''
+    AND length(${key}) <= ${NAME_LENGTH})`
+
+// The one rule of which stored rows the Holder map draws, in SQL: a row
+// whose `code` is a stock code and whose `key`, where it has one, a holder
+// key. The parsers only trim a code and cap its length, and key a name of
+// legal-form words blank, so every statement takes it in its WHERE, before
+// any grouping, count, window or LIMIT: a bad row takes no place in a
+// ranking, a budget or a cut (codex review of apinrdw/kumora#741, round
+// 12), and one report's bad row fails no read of every other.
+//
+// Decision: the Holder map matches holders across stocks and reports by
+// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+export const drawable = ({
+  code,
+  key,
+}: {
+  readonly code: string
+  readonly key?: string
+}) =>
+  key === undefined
+    ? isStockCodeSql(code)
+    : `${isStockCodeSql(code)} AND ${isHolderKeySql(key)}`
+
+// Whether a row of a holder's, a block or a month's ≥1% holding, is one the
+// map draws.
+export const DRAWABLE_HOLDING = drawable({
+  code: "stock_code",
+  key: "holder_key",
+})
+
+// Whether a row of a stock's, such as a securities account, is of a stock
+// the map draws.
+export const DRAWABLE_STOCK = drawable({ code: "stock_code" })
+
+// The key of the SQL `identity`, a Holder moves line's: an identity is
+// `<key>#<n>` (lib/holder-identity.ts), and a key can hold a `#` itself,
+// so its key is all before the final `#` and digits.
+export const identityKey = (identity: string) =>
+  `substr(${identity}, 1, length(rtrim(${identity}, '0123456789')) - 1)`
+
+// Whether a Holder moves line is of a row the map draws: its stock code and
+// its identity's key (`drawable`).
+export const DRAWABLE_LINE = drawable({
+  code: "stock_code",
+  key: identityKey("holder"),
+})
+
 const isStockCode = Schema.is(StockCode)
 const isHolderKey = Schema.is(HolderKey)
 
 // A statement's rows as `row`s, each whose stored `stock_code` or
-// `holder_key` isn't of its shape left out. The parsers only trim a code
-// and cap its length, and key a name of legal-form words blank, so one
-// report's bad row must not fail a read of every other. Every Holder map
-// statement that returns a stored code or key is read through this.
+// `holder_key` isn't of its shape left out: the decode's guard behind
+// `drawable`, which every statement already applies in SQL. Every Holder
+// map statement that returns a stored code or key is read through this.
 //
 // Decision: the Holder map matches holders across stocks and reports by
 // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)

@@ -18,6 +18,7 @@ import { holderKey } from "./holder-key.ts"
 import {
   type Budgeted,
   DAY_ROWS,
+  DRAWABLE_STOCK,
   type HolderMapCustodianLink,
   PERIODS,
   PERIODS_SQL,
@@ -116,7 +117,7 @@ export const custodianLinks = Effect.fnUntraced(function* (
 export const DAY_SPELLINGS_SQL = {
   sql: `${PERIODS}
   SELECT DISTINCT custodian FROM above_5_account
-  WHERE data_date = (SELECT day FROM asof)`,
+  WHERE data_date = (SELECT day FROM asof) AND ${DRAWABLE_STOCK}`,
   rows: DAY_ROWS,
 } satisfies Budgeted
 

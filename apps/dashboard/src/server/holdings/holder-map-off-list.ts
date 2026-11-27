@@ -17,9 +17,12 @@ import {
 import { LeavingRow, leavings } from "./holder-map-moves.ts"
 import {
   type Budgeted,
+  drawable,
+  DRAWABLE_LINE,
   type Focus,
   type HolderMapLink,
   type HolderMapOffList,
+  identityKey,
   PERIODS,
   storedRows,
 } from "./holder-map-schema.ts"
@@ -57,7 +60,7 @@ const LEFT = ({ where, by }: LeftFocus) => `${PERIODS},
       ) AS nth
     FROM above_5_move INDEXED BY above_5_move_by_${by}
     WHERE ${where} AND move IN ('new', 'off list')
-      AND data_date <= (SELECT day FROM asof)
+      AND data_date <= (SELECT day FROM asof) AND ${DRAWABLE_LINE}
     UNION ALL
     SELECT stock_code, issuer_name, '1%' AS band, name, move, data_date,
       stake_before,
@@ -66,7 +69,7 @@ const LEFT = ({ where, by }: LeftFocus) => `${PERIODS},
       ) AS nth
     FROM above_1_move INDEXED BY above_1_move_by_${by}
     WHERE ${where} AND move IN ('new', 'off list')
-      AND data_date <= (SELECT month FROM band_month)
+      AND data_date <= (SELECT month FROM band_month) AND ${DRAWABLE_LINE}
   ),
   left_lines AS (
     SELECT stock_code, issuer_name, band, name, data_date, stake_before
@@ -121,6 +124,7 @@ const THROUGH = `${PERIODS},
     FROM above_5_account INDEXED BY above_5_account_by_custodian
     WHERE custodian IN (SELECT value FROM json_each(?2))
       AND data_date < (SELECT day FROM asof) AND scripless > 0
+      AND ${drawable({ code: "stock_code" })}
   ),
   through_now AS MATERIALIZED (
     SELECT DISTINCT holder.stock_code, holder.holder_key
@@ -129,12 +133,14 @@ const THROUGH = `${PERIODS},
     WHERE account.custodian IN (SELECT value FROM json_each(?2))
       AND account.data_date = (SELECT day FROM asof)
       AND account.scripless > 0
+      AND ${drawable({ code: "holder.stock_code", key: "holder.holder_key" })}
   ),
   through_keys AS MATERIALIZED (
     SELECT holder.stock_code, holder.holder_key,
       MAX(holder.data_date) AS last_day
     FROM through JOIN above_5_holder AS holder
       USING (data_date, stock_code, no)
+    WHERE ${drawable({ code: "holder.stock_code", key: "holder.holder_key" })}
     GROUP BY holder.stock_code, holder.holder_key
   ),
   -- Every CTE is materialized, each stock-day's blocks are walked once
@@ -165,6 +171,7 @@ const THROUGH = `${PERIODS},
     WHERE (block.stock_code, block.holder_key, block.data_date) IN (
       SELECT stock_code, holder_key, last_day FROM last_through
     )
+      AND ${drawable({ code: "block.stock_code", key: "block.holder_key" })}
   ),
   -- Every block of those days one of them could repeat or be repeated
   -- by: a repeat lists the same shares (lib/daily-holders.ts). Each once.
@@ -176,6 +183,7 @@ const THROUGH = `${PERIODS},
     WHERE (block.data_date, block.stock_code, block.scripless) IN (
       SELECT data_date, stock_code, scripless FROM held
     )
+      AND ${drawable({ code: "block.stock_code", key: "block.holder_key" })}
   ),
   read_days AS MATERIALIZED (
     SELECT data_date, stock_code,
@@ -205,9 +213,11 @@ const isKept = (alias: string, day: string) =>
 export const OFF_LIST: Record<Focus["kind"], ReadonlyArray<Budgeted>> = {
   stock: leftStatements({ where: "stock_code = ?2", by: "stock" }),
   // An identity is `<key>#<n>`: those of the key sort from `<key>#` up to,
-  // not including, `<key>$`.
+  // not including, `<key>$`, the range the index reads, and of them, those
+  // whose key is the key, not one that starts with it and a `#`.
   holder: leftStatements({
-    where: "holder >= ?2 || '#' AND holder < ?2 || '$'",
+    where: `holder >= ?2 || '#' AND holder < ?2 || '$'
+      AND ${identityKey("holder")} = ?2`,
     by: "holder",
   }),
   custodian: [

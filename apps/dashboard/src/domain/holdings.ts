@@ -303,7 +303,7 @@ export const RAIL_PERIODS = 10
 export const TREND_PERIODS = 20
 
 // The longest published name the parses take (ADR 0045).
-const NAME_LENGTH = 256
+export const NAME_LENGTH = 256
 
 // A key made of a published name: never blank, and at most as long as the
 // name.
