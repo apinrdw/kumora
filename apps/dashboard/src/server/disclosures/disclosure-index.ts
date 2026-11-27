@@ -1,0 +1,376 @@
+// The disclosure archive's index in ArchiveDb
+// (archive-migrations/0005_disclosure_index.sql): a row per stored
+// disclosure version, a row per attachment its versions list, once per
+// disclosure and path, and when a run last listed each disclosure day and
+// when the day became complete. A run decides from it what the archive
+// lacks, and never lists the bucket.
+import { WibDate } from "@workspace/relay"
+import { DateTime, Effect, Schema } from "effect"
+
+import { ArchiveDb } from "../archive/archive-db.ts"
+import type { PageRead } from "../archive/page-read.ts"
+import type { RunId } from "../archive/run.ts"
+import { decodeRows, jsonChunks, type SqlValue, type Statement } from "../d1.ts"
+import {
+  attachmentKey,
+  DisclosureKey,
+  type DisclosureLanguage,
+  versionKey,
+} from "./key.ts"
+import { UNAVAILABLE_AFTER } from "./disclosure-day.ts"
+
+// The most statements one batch sends: 10 chunks of at most 90,000 bytes.
+const STATEMENTS_A_BATCH = 10
+
+const INSERT_VERSIONS =
+  "INSERT OR IGNORE INTO disclosure_version " +
+  "(disclosure_key, language, day, object_key, stored_at, run_id) " +
+  "SELECT value->>0, value->>1, value->>2, value->>3, value->>4, " +
+  "value->>5 FROM json_each(?)"
+
+// The rows `statement` answers, decoded with `row`.
+const queryRows = Effect.fnUntraced(function* <A, I>(
+  row: Schema.Codec<A, I>,
+  statement: Statement
+) {
+  const [rows = []] = yield* (yield* ArchiveDb).batch([statement])
+  return yield* decodeRows(row)(rows)
+})
+
+const INSERT_ATTACHMENTS =
+  "INSERT OR IGNORE INTO disclosure_attachment " +
+  "(disclosure_key, path, day, object_key) " +
+  "SELECT value->>0, value->>1, value->>2, value->>3 FROM json_each(?)"
+
+// The disclosure keys of `day` the archive holds a version of in
+// `language`.
+export const heldVersions = Effect.fnUntraced(function* (
+  day: WibDate,
+  language: DisclosureLanguage
+) {
+  const rows = yield* queryRows(
+    Schema.Struct({ disclosure_key: DisclosureKey }),
+    {
+      sql: "SELECT disclosure_key FROM disclosure_version WHERE day = ? AND language = ?",
+      params: [day, language],
+    }
+  )
+  return new Set(rows.map(({ disclosure_key }) => disclosure_key))
+})
+
+// A version just stored in the bucket, and the paths of its attachments.
+export interface StoredVersion {
+  readonly key: DisclosureKey
+  readonly language: DisclosureLanguage
+  readonly day: WibDate
+  readonly paths: ReadonlyArray<string>
+}
+
+// Indexes each version as `run`'s, and each of its attachments the index
+// lacks, to be stored. A row already there stays as it is.
+// Decision: D1 inserts go in json_each chunks under D1's statement limits
+// (apps/dashboard/docs/adr/0018-d1-inserts-go-in-json-each-chunks-under-statement-limits.md)
+export const indexVersions = Effect.fnUntraced(function* (
+  versions: ReadonlyArray<StoredVersion>,
+  storedAt: string,
+  run: RunId
+) {
+  const versionRows: Array<ReadonlyArray<SqlValue>> = []
+  const attachmentRows: Array<ReadonlyArray<SqlValue>> = []
+  for (const version of versions) {
+    versionRows.push([
+      version.key,
+      version.language,
+      version.day,
+      yield* versionKey(version.key, version.language),
+      storedAt,
+      run,
+    ])
+    for (const path of version.paths)
+      attachmentRows.push([
+        version.key,
+        path,
+        version.day,
+        yield* attachmentKey(version.key, path),
+      ])
+  }
+  // Attachments first: a version indexed is one whose attachments wait to
+  // be stored, should the batch after this one fail.
+  const statements: Array<Statement> = [
+    ...(yield* jsonChunks(attachmentRows)).map((chunk) => ({
+      sql: INSERT_ATTACHMENTS,
+      params: [chunk],
+    })),
+    ...(yield* jsonChunks(versionRows)).map((chunk) => ({
+      sql: INSERT_VERSIONS,
+      params: [chunk],
+    })),
+  ]
+  const db = yield* ArchiveDb
+  for (let start = 0; start < statements.length; start += STATEMENTS_A_BATCH)
+    yield* db.batch(statements.slice(start, start + STATEMENTS_A_BATCH))
+})
+
+// How many versions of `day` `run` indexed, in either language: read from
+// the index, so a retried step counts what its first attempt indexed.
+export const versionsIndexedBy = Effect.fnUntraced(function* (
+  day: WibDate,
+  run: RunId
+) {
+  const [row] = yield* queryRows(Schema.Struct({ added: Schema.Number }), {
+    sql: "SELECT COUNT(*) AS added FROM disclosure_version WHERE day = ? AND run_id = ?",
+    params: [day, run],
+  })
+  return row?.added ?? 0
+})
+
+// Records that a run has listed `day` in both languages.
+export const recordDayListed = Effect.fnUntraced(function* (
+  day: WibDate,
+  listedAt: string
+) {
+  yield* (yield* ArchiveDb).batch([
+    {
+      sql:
+        "INSERT INTO disclosure_day (day, listed_at) VALUES (?, ?) " +
+        "ON CONFLICT (day) DO UPDATE SET listed_at = excluded.listed_at",
+      params: [day, listedAt],
+    },
+  ])
+})
+
+// An attachment row that waits to be stored: what keeps its day from being
+// complete. The one place that says so, for the runs and the coverage alike.
+// An unavailable attachment no longer waits.
+// Decision: an attachment whose failures span 7 days is unavailable
+// (apps/dashboard/docs/adr/0139-an-attachment-failing-for-7-days-is-unavailable.md)
+const WAITING = "stored_at IS NULL AND unavailable_at IS NULL"
+
+// Rows of the days in a bound JSON array.
+const IN_DAYS = "day IN (SELECT value FROM json_each(?))"
+
+// A disclosure day a run has listed: when it last did, when the day became
+// complete, and how many of its attachments wait to be stored.
+const ListedDay = Schema.Struct({
+  day: WibDate,
+  listed_at: Schema.String,
+  complete_at: Schema.NullOr(Schema.String),
+  waiting: Schema.Number,
+})
+export type ListedDay = typeof ListedDay.Type
+
+// One row per listed day from `from` on, oldest first: a row a day, ~1,240
+// from IDX's first disclosure day to 2026-11-26. Its waiting count reads
+// the partial index of waiting attachments, never the stored ones.
+const listedDaysStatement = (from: WibDate): Statement => ({
+  sql:
+    "SELECT day, listed_at, complete_at, (SELECT COUNT(*) FROM " +
+    `disclosure_attachment AS a WHERE a.day = d.day AND ${WAITING}) ` +
+    "AS waiting FROM disclosure_day AS d WHERE day >= ? ORDER BY day",
+  params: [from],
+})
+
+const decodeListedDays = decodeRows(ListedDay)
+
+export const listedDays = (from: WibDate) =>
+  queryRows(ListedDay, listedDaysStatement(from))
+
+// listedDays as a part of an admin page's read.
+export const listedDaysRead = (from: WibDate) =>
+  ({
+    kinds: [],
+    statements: [listedDaysStatement(from)],
+    read: ([rows = []]) => decodeListedDays(rows),
+  }) satisfies PageRead<ReadonlyArray<ListedDay>>
+
+// The oldest disclosure day the archive holds a version of, or null. MIN
+// reads the first entry of the index disclosure_version_day
+// (archive-migrations/0005_disclosure_index.sql), not the table.
+export const earliestDayRead = {
+  kinds: [],
+  statements: [
+    { sql: "SELECT MIN(day) AS day FROM disclosure_version", params: [] },
+  ],
+  read: ([rows = []]) =>
+    Effect.map(
+      decodeRows(Schema.Struct({ day: Schema.NullOr(WibDate) }))(rows),
+      ([row]) => row?.day ?? null
+    ),
+} satisfies PageRead<WibDate | null>
+
+// Records `days` complete at `completeAt`; one already complete keeps its
+// instant.
+export const recordDaysComplete = Effect.fnUntraced(function* (
+  days: ReadonlyArray<WibDate>,
+  completeAt: string
+) {
+  if (days.length === 0) return
+  yield* (yield* ArchiveDb).batch([
+    {
+      sql:
+        "UPDATE disclosure_day SET complete_at = ? " +
+        `WHERE complete_at IS NULL AND ${IN_DAYS}`,
+      params: [completeAt, JSON.stringify(days)],
+    },
+  ])
+})
+
+// An attachment that waits to be stored.
+const WaitingAttachment = Schema.Struct({
+  disclosure: DisclosureKey,
+  path: Schema.String,
+})
+export type WaitingAttachment = typeof WaitingAttachment.Type
+
+// Up to `limit` attachments of `days` that wait to be stored, in the order
+// `days` names their days.
+export const waitingAttachments = Effect.fnUntraced(function* (
+  days: ReadonlyArray<WibDate>,
+  limit: number
+) {
+  return yield* queryRows(WaitingAttachment, {
+    sql:
+      // json_each has a `path` column of its own.
+      "SELECT a.disclosure_key AS disclosure, a.path " +
+      "FROM json_each(?) AS listed JOIN disclosure_attachment AS a " +
+      `ON a.day = listed.value WHERE ${WAITING} ` +
+      "ORDER BY listed.key, a.disclosure_key, a.path LIMIT ?",
+    params: [JSON.stringify(days), limit],
+  })
+})
+
+// How many attachments of `days` wait to be stored.
+export const waitingCount = Effect.fnUntraced(function* (
+  days: ReadonlyArray<WibDate>
+) {
+  const [row] = yield* queryRows(Schema.Struct({ waiting: Schema.Number }), {
+    sql:
+      "SELECT COUNT(*) AS waiting FROM disclosure_attachment " +
+      `WHERE ${WAITING} AND ${IN_DAYS}`,
+    params: [JSON.stringify(days)],
+  })
+  return row?.waiting ?? 0
+})
+
+// Whether the attachment is stored already.
+export const isAttachmentStored = Effect.fnUntraced(function* (
+  attachment: WaitingAttachment
+) {
+  const rows = yield* queryRows(Schema.Struct({ stored: Schema.Number }), {
+    sql:
+      "SELECT 1 AS stored FROM disclosure_attachment WHERE disclosure_key = ? " +
+      "AND path = ? AND stored_at IS NOT NULL",
+    params: [attachment.disclosure, attachment.path],
+  })
+  return rows.length > 0
+})
+
+export const markAttachmentStored = Effect.fnUntraced(function* (
+  attachment: WaitingAttachment,
+  storedAt: string,
+  bytes: number
+) {
+  yield* (yield* ArchiveDb).batch([
+    {
+      sql:
+        "UPDATE disclosure_attachment SET stored_at = ?, bytes = ?, " +
+        "first_failed_at = NULL, last_error = NULL " +
+        "WHERE disclosure_key = ? AND path = ?",
+      params: [storedAt, bytes, attachment.disclosure, attachment.path],
+    },
+  ])
+})
+
+// The most unavailable attachments the admin page lists, newest first; it
+// counts them all.
+export const MAX_UNAVAILABLE_SHOWN = 100
+
+// The most bytes the list may take as JSON in the admin page's load: each
+// attachment's key, path and last error at their longest (MAX_KEY_LENGTH,
+// MAX_PATH_LENGTH, MAX_RUN_ERROR_LENGTH), ~1,750 bytes, ~175 KB in all.
+export const MAX_UNAVAILABLE_BYTES = 256 * 1024
+
+const UnavailableAttachment = Schema.Struct({
+  disclosure: DisclosureKey,
+  path: Schema.String,
+  day: WibDate,
+  // ISO instants: its first failed download, and the one that made it
+  // unavailable.
+  firstFailedAt: Schema.String,
+  unavailableAt: Schema.String,
+  lastError: Schema.String,
+})
+
+const UnavailableAttachments = Schema.Struct({
+  total: Schema.Number,
+  // The newest MAX_UNAVAILABLE_SHOWN.
+  attachments: Schema.Array(UnavailableAttachment),
+})
+export type UnavailableAttachments = typeof UnavailableAttachments.Type
+
+// The unavailable attachments as a part of an admin page's read: how many,
+// and the newest MAX_UNAVAILABLE_SHOWN. Both read the partial index of
+// unavailable attachments, never the ~600k others.
+export const unavailableAttachmentsRead = {
+  kinds: [],
+  statements: [
+    {
+      sql:
+        "SELECT COUNT(*) AS total FROM disclosure_attachment " +
+        "WHERE unavailable_at IS NOT NULL",
+      params: [],
+    },
+    {
+      sql:
+        "SELECT disclosure_key AS disclosure, path, day, " +
+        "first_failed_at AS firstFailedAt, unavailable_at AS unavailableAt, " +
+        "last_error AS lastError FROM disclosure_attachment " +
+        "WHERE unavailable_at IS NOT NULL " +
+        "ORDER BY unavailable_at DESC, disclosure_key, path LIMIT ?",
+      params: [MAX_UNAVAILABLE_SHOWN],
+    },
+  ],
+  read: ([totals = [], rows = []]) =>
+    Effect.gen(function* () {
+      const [row] = yield* decodeRows(Schema.Struct({ total: Schema.Number }))(
+        totals
+      )
+      return UnavailableAttachments.make({
+        total: row?.total ?? 0,
+        attachments: yield* decodeRows(UnavailableAttachment)(rows),
+      })
+    }),
+} satisfies PageRead<UnavailableAttachments>
+
+// Records a failed download: when the first was, and the last's message.
+// A failure UNAVAILABLE_AFTER or more after the first makes it unavailable.
+// Decision: an attachment whose failures span 7 days is unavailable
+// (apps/dashboard/docs/adr/0139-an-attachment-failing-for-7-days-is-unavailable.md)
+export const markAttachmentFailed = Effect.fnUntraced(function* (
+  attachment: WaitingAttachment,
+  failedAt: string,
+  message: string
+) {
+  // Both instants are formatIso's, so they compare as strings. The CASE
+  // reads first_failed_at as it was before this failure.
+  const since = DateTime.formatIso(
+    DateTime.subtractDuration(DateTime.makeUnsafe(failedAt), UNAVAILABLE_AFTER)
+  )
+  yield* (yield* ArchiveDb).batch([
+    {
+      sql:
+        "UPDATE disclosure_attachment SET " +
+        "first_failed_at = COALESCE(first_failed_at, ?), last_error = ?, " +
+        "unavailable_at = CASE WHEN first_failed_at <= ? THEN ? END " +
+        "WHERE disclosure_key = ? AND path = ? AND stored_at IS NULL",
+      params: [
+        failedAt,
+        message,
+        since,
+        failedAt,
+        attachment.disclosure,
+        attachment.path,
+      ],
+    },
+  ])
+})

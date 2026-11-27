@@ -7,8 +7,10 @@ import {
   ArchiveBucket,
   BucketError,
   checkListed,
+  forEachPart,
   type ListedObject,
   type ListOptions,
+  PUT_PART_BYTES,
 } from "./bucket.ts"
 
 // The binding's members this layer uses. The admin pages' server functions
@@ -31,7 +33,7 @@ interface R2Binding {
     readonly truncated: boolean
     readonly cursor?: string
   }>
-  readonly head: (key: string) => Promise<unknown>
+  readonly head: (key: string) => Promise<{ readonly size: number } | null>
   readonly get: (key: string) => Promise<{
     readonly httpEtag: string
     readonly uploaded: Date
@@ -48,6 +50,27 @@ interface R2Binding {
       readonly onlyIf?: Headers
     }
   ) => Promise<unknown>
+  readonly createMultipartUpload: (
+    key: string,
+    options: {
+      readonly httpMetadata: { readonly contentType: string }
+      readonly customMetadata: Record<string, string>
+    }
+  ) => Promise<R2Upload>
+}
+
+interface R2UploadedPart {
+  readonly partNumber: number
+  readonly etag: string
+}
+
+interface R2Upload {
+  readonly uploadPart: (
+    partNumber: number,
+    value: Uint8Array
+  ) => Promise<R2UploadedPart>
+  readonly complete: (parts: Array<R2UploadedPart>) => Promise<unknown>
+  readonly abort: () => Promise<void>
 }
 
 // The archive bucket over the R2 binding `binding` picks from the Worker's
@@ -113,6 +136,10 @@ export const r2ArchiveBucket = (binding: (env: WorkerEnvShape) => R2Binding) =>
           attempt("head", key, () => bucket.head(key)).pipe(
             Effect.map((object) => object !== null)
           ),
+        size: (key) =>
+          attempt("head", key, () => bucket.head(key)).pipe(
+            Effect.map((object) => object?.size)
+          ),
         get: (key) =>
           readObject(key, (object) =>
             object.text().then((body) => ({
@@ -131,6 +158,61 @@ export const r2ArchiveBucket = (binding: (env: WorkerEnvShape) => R2Binding) =>
               customMetadata: customMetadata ?? {},
             })
           ).pipe(Effect.asVoid),
+        putStream: (key, body, { contentType, customMetadata }) => {
+          const metadata = {
+            httpMetadata: { contentType },
+            customMetadata: customMetadata ?? {},
+          }
+          // Started by the first full part; a body within one part is a
+          // put.
+          let upload: R2Upload | undefined
+          const uploaded: Array<R2UploadedPart> = []
+          const uploadPart = Effect.fnUntraced(function* (
+            bytes: Uint8Array,
+            partNumber: number
+          ) {
+            const started =
+              upload ??
+              (yield* attempt("createMultipartUpload", key, () =>
+                bucket.createMultipartUpload(key, metadata)
+              ))
+            upload = started
+            uploaded.push(
+              yield* attempt("uploadPart", key, () =>
+                started.uploadPart(partNumber, bytes)
+              )
+            )
+          })
+          return Effect.gen(function* () {
+            const { rest, size } = yield* forEachPart(
+              body,
+              PUT_PART_BYTES,
+              uploadPart
+            )
+            if (upload === undefined) {
+              yield* attempt("put", key, () => bucket.put(key, rest, metadata))
+              return size
+            }
+            if (rest.length > 0) yield* uploadPart(rest, uploaded.length + 1)
+            const parts = [...uploaded]
+            const finished = upload
+            yield* attempt("completeMultipartUpload", key, () =>
+              finished.complete(parts)
+            )
+            return size
+          }).pipe(
+            // A body or write that fails, or a step cut off, aborts the
+            // upload, so no part of it is left behind.
+            Effect.onError(() => {
+              const started = upload
+              return started === undefined
+                ? Effect.void
+                : attempt("abortMultipartUpload", key, () =>
+                    started.abort()
+                  ).pipe(Effect.ignore)
+            })
+          )
+        },
       })
     })
   )

@@ -72,6 +72,10 @@ export const invocationLimits = (stores: {
                 over(1, false)
                   ? Effect.fail(bucketFailure("exists", key))
                   : inner.exists(key),
+              size: (key) =>
+                over(1, false)
+                  ? Effect.fail(bucketFailure("size", key))
+                  : inner.size(key),
               get: (key) =>
                 over(1, false)
                   ? Effect.fail(bucketFailure("get", key))

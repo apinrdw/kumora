@@ -1,0 +1,129 @@
+{
+  "ResultCount": 194,
+  "SearchParams": {
+    "DateFrom": "24/11/2026 12:00:00 AM",
+    "DateTo": "24/11/2026 12:00:00 AM",
+    "Query": null,
+    "Language": "id-id",
+    "KodeEmiten": null,
+    "EmitenType": "*",
+    "SortOrder": null,
+    "SortColumn": null,
+    "indexfrom": 0,
+    "pagesize": 3
+  },
+  "Replies": [
+    {
+      "pengumuman": {
+        "Id2": "20261124230949-02894/FMS/OPS-BTIM/XI/26_id-id",
+        "EfekEmiten_DIRE": false,
+        "EfekEmiten_DINFRA": false,
+        "Id": 0,
+        "FinalId": null,
+        "OldFinalId": 0,
+        "NoPengumuman": "02894/FMS/OPS-BTIM/XI/26",
+        "TglPengumuman": "2026-11-24T23:09:49",
+        "JudulPengumuman": "Laporan Harian atas Nilai Aktiva Bersih dan Komposisi Portofolio",
+        "JenisPengumuman": "STOCK",
+        "Kode_Emiten": "XPIN                                                                                                ",
+        "CreatedDate": "2026-11-24T23:30:02",
+        "Form_Id": "00010",
+        "PerihalPengumuman": "Laporan Harian atas Nilai Akti",
+        "JMSXGroupID": "f-8373aead-8253-4c24-92de-b06baecb9c30-1-1",
+        "Divisi": "",
+        "KodeDivisi": "",
+        "JenisEmiten": null,
+        "EfekEmiten_Saham": false,
+        "EfekEmiten_Obligasi": false,
+        "EfekEmiten_EBA": false,
+        "EfekEmiten_ETF": true,
+        "EfekEmiten_SPEI": false
+      },
+      "attachments": [
+        {
+          "Id": 0,
+          "PDFFilename": "20261124_XPIN_E043_8373aead-8253-4c24-92de-b06baecb9c30-20261124230952.pdf",
+          "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202611/20261124_XPIN_E043_8373aead-8253-4c24-92de-b06baecb9c30-20261124230952.pdf",
+          "JMSXGroupID": null,
+          "CorrelationID": null,
+          "IsAttachment": false,
+          "OriginalFilename": "20261124_XPIN_E043_8373aead-8253-4c24-92de-b06baecb9c30.pdf"
+        },
+        {
+          "Id": 0,
+          "PDFFilename": "20261124_XPIN_E043_8373aead-8253-4c24-92de-b06baecb9c30_lamp1-20261124230953.pdf",
+          "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202611/20261124_XPIN_E043_8373aead-8253-4c24-92de-b06baecb9c30_lamp1-20261124230953.pdf",
+          "JMSXGroupID": null,
+          "CorrelationID": null,
+          "IsAttachment": true,
+          "OriginalFilename": "20261124_XPIN_E043_8373aead-8253-4c24-92de-b06baecb9c30_lamp1.pdf"
+        },
+        {
+          "Id": 0,
+          "PDFFilename": "20261124_XPIN_E043_8373aead-8253-4c24-92de-b06baecb9c30_lamp2-20261124230953.pdf",
+          "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202611/20261124_XPIN_E043_8373aead-8253-4c24-92de-b06baecb9c30_lamp2-20261124230953.pdf",
+          "JMSXGroupID": null,
+          "CorrelationID": null,
+          "IsAttachment": true,
+          "OriginalFilename": "20261124_XPIN_E043_8373aead-8253-4c24-92de-b06baecb9c30_lamp2.pdf"
+        }
+      ]
+    },
+    {
+      "pengumuman": {
+        "Id2": "20261124230723-02896/FMS/OPS-BTIM/XI/26_id-id",
+        "EfekEmiten_DIRE": false,
+        "EfekEmiten_DINFRA": false,
+        "Id": 0,
+        "FinalId": null,
+        "OldFinalId": 0,
+        "NoPengumuman": "02896/FMS/OPS-BTIM/XI/26",
+        "TglPengumuman": "2026-11-24T23:07:23",
+        "JudulPengumuman": "Laporan Harian atas Nilai Aktiva Bersih dan Komposisi Portofolio",
+        "JenisPengumuman": "STOCK",
+        "Kode_Emiten": "R-ABFII                                                                                             ",
+        "CreatedDate": "2026-11-24T23:30:02",
+        "Form_Id": "00010",
+        "PerihalPengumuman": "Laporan Harian atas Nilai Akti",
+        "JMSXGroupID": "f-35521a9c-2f31-4fb6-bae8-6d0276268bb0-1-1",
+        "Divisi": "",
+        "KodeDivisi": "",
+        "JenisEmiten": null,
+        "EfekEmiten_Saham": false,
+        "EfekEmiten_Obligasi": false,
+        "EfekEmiten_EBA": false,
+        "EfekEmiten_ETF": true,
+        "EfekEmiten_SPEI": false
+      },
+      "attachments": [
+        {
+          "Id": 0,
+          "PDFFilename": "20261124_R-ABFII_E043_35521a9c-2f31-4fb6-bae8-6d0276268bb0-20261124230725.pdf",
+          "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202611/20261124_R-ABFII_E043_35521a9c-2f31-4fb6-bae8-6d0276268bb0-20261124230725.pdf",
+          "JMSXGroupID": null,
+          "CorrelationID": null,
+          "IsAttachment": false,
+          "OriginalFilename": "20261124_R-ABFII_E043_35521a9c-2f31-4fb6-bae8-6d0276268bb0.pdf"
+        },
+        {
+          "Id": 0,
+          "PDFFilename": "20261124_R-ABFII_E043_35521a9c-2f31-4fb6-bae8-6d0276268bb0_lamp1-20261124230726.pdf",
+          "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202611/20261124_R-ABFII_E043_35521a9c-2f31-4fb6-bae8-6d0276268bb0_lamp1-20261124230726.pdf",
+          "JMSXGroupID": null,
+          "CorrelationID": null,
+          "IsAttachment": true,
+          "OriginalFilename": "20261124_R-ABFII_E043_35521a9c-2f31-4fb6-bae8-6d0276268bb0_lamp1.pdf"
+        },
+        {
+          "Id": 0,
+          "PDFFilename": "20261124_R-ABFII_E043_35521a9c-2f31-4fb6-bae8-6d0276268bb0_lamp2-20261124230726.pdf",
+          "FullSavePath": "https://www.idx.co.id/StaticData/NewsAndAnnouncement/ANNOUNCEMENTSTOCK/From_EREP/202611/20261124_R-ABFII_E043_35521a9c-2f31-4fb6-bae8-6d0276268bb0_lamp2-20261124230726.pdf",
+          "JMSXGroupID": null,
+          "CorrelationID": null,
+          "IsAttachment": true,
+          "OriginalFilename": "20261124_R-ABFII_E043_35521a9c-2f31-4fb6-bae8-6d0276268bb0_lamp2.pdf"
+        }
+      ]
+    }
+  ]
+}

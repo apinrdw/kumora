@@ -12,7 +12,7 @@ import { ArchiveCard, RunStatus } from "./archive-card"
 // A table running to the panel's edges, under the panel's header rule, so
 // it is not a box inside the panel's box. Last in the panel, it runs to the
 // panel's foot too.
-const FLUSH =
+export const FLUSH =
   "-mx-5 -mt-5 max-w-none rounded-none border-x-0 border-t-0 last:-mb-6 last:border-b-0"
 
 const RUN_COLUMNS: ReadonlyArray<KColumn<RunSummaryBase>> = [

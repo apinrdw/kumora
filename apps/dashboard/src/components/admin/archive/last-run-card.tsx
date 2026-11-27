@@ -130,12 +130,14 @@ export function RunArchiveButton({
   )
 }
 
-function Schedule({ times, nextRun }: ArchiveSchedule) {
+function Schedule({ schedule }: { schedule: ArchiveSchedule }) {
   return (
     <p className="text-secondary-text flex items-center gap-2 text-[13px] leading-5">
       <IconClock aria-hidden className="size-4 shrink-0" stroke={1.75} />
       <span>
-        Production runs at {times}. Next: {Effect.runSync(dateTime(nextRun))}.
+        Production runs{" "}
+        {"every" in schedule ? schedule.every : `at ${schedule.times}`}. Next:{" "}
+        {Effect.runSync(dateTime(schedule.nextRun))}.
       </span>
     </p>
   )
@@ -206,12 +208,11 @@ export interface RunStat {
   readonly tone?: "warning" | "down"
 }
 
-export interface ArchiveSchedule {
-  // When Production's cron runs, as "13:00 and 20:00 WIB".
-  readonly times: string
-  // An ISO instant.
-  readonly nextRun: string
-}
+// When Production's cron runs: at set times, as "13:00 and 20:00 WIB", or
+// every so often, as "every 15 minutes". `nextRun` is an ISO instant.
+export type ArchiveSchedule =
+  | { readonly times: string; readonly nextRun: string }
+  | { readonly every: string; readonly nextRun: string }
 
 /** How an archive's last run is framed: its own card, or a ledger row. */
 export type RunFrame = "card" | "row"
@@ -317,7 +318,7 @@ export function ArchiveLastRunCard({
             ) : (
               <RunMeta run={lastRun} now={now} />
             )}
-            <Schedule {...schedule} />
+            <Schedule schedule={schedule} />
           </>
         }
         stats={lastRun === undefined ? null : statList(archiveRowStats)}
@@ -332,7 +333,7 @@ export function ArchiveLastRunCard({
         <p className="text-secondary-text border-strong rounded-sm border border-dashed px-4 py-6 text-center text-sm leading-5 text-pretty">
           {emptyMessage}
         </p>
-        <Schedule {...schedule} />
+        <Schedule schedule={schedule} />
       </ArchiveCard>
     )
   return (
@@ -345,7 +346,7 @@ export function ArchiveLastRunCard({
         "grid grid-cols-2 gap-4 border-y border-border py-4 sm:auto-cols-fr sm:grid-flow-col sm:grid-cols-none sm:gap-x-0 sm:divide-x sm:divide-border sm:[&>div]:px-4 sm:[&>div:first-child]:pl-0"
       )}
       {notes}
-      <Schedule {...schedule} />
+      <Schedule schedule={schedule} />
     </ArchiveCard>
   )
 }
