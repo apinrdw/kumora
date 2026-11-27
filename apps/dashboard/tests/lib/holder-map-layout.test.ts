@@ -1,7 +1,11 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
 
-import { holderMapLayout, type LayoutGraph } from "@/lib/holder-map-layout"
+import {
+  fitExtent,
+  holderMapLayout,
+  type LayoutGraph,
+} from "@/lib/holder-map-layout"
 
 const graph = (holders: number): LayoutGraph => ({
   nodes: [
@@ -64,5 +68,34 @@ describe("holderMapLayout", () => {
       expect(layout.extent.x[0]).toBeLessThan(layout.extent.x[1])
       expect(layout.extent.y[0]).toBeLessThan(layout.extent.y[1])
     })
+  )
+})
+
+describe("fitExtent", () => {
+  it.effect(
+    "fits the nodes shown only, as with the Off list hidden, on the same layout",
+    () =>
+      Effect.gen(function* () {
+        const all = graph(12)
+        const layout = yield* holderMapLayout(all)
+        const shown = all.nodes.slice(0, 3)
+        const bound = (
+          pick: (at: { x: number; y: number }, r: number) => number
+        ) =>
+          shown.map(({ id, radius }) => {
+            const at = layout.positions[id] ?? { x: NaN, y: NaN }
+            return pick(at, radius)
+          })
+        expect(yield* fitExtent(layout, shown)).toEqual({
+          x: [
+            Math.min(...bound(({ x }, r) => x - r)) - 40,
+            Math.max(...bound(({ x }, r) => x + r)) + 40,
+          ],
+          y: [
+            Math.min(...bound(({ y }, r) => y - r)) - 40,
+            Math.max(...bound(({ y }, r) => y + r)) + 40,
+          ],
+        })
+      })
   )
 })

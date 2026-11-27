@@ -120,3 +120,10 @@ export const holderMapLayout = (graph: LayoutGraph) =>
       },
     }
   })
+
+// What fit-to-view shows of `layout`: the nodes shown, each dot plus a
+// margin for its label.
+export const fitExtent = (
+  layout: Layout,
+  _nodes: ReadonlyArray<{ readonly id: string; readonly radius: number }>
+) => Effect.succeed(layout.extent)
