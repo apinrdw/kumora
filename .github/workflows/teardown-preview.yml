@@ -80,7 +80,10 @@ jobs:
   sweep:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Under the teardown identity's 1800s Infisical token TTL
+    # (docs/runbooks/deploy.md §5), so no destroy outlives its token. A
+    # sweep cut short leaves its rest to the next day's run.
+    timeout-minutes: 25
     # One sweep at a time. Its destroys don't share the event-driven destroy's
     # preview-<stage> group, which would take a job per Stale Preview: an
     # overlap with that destroy is harmless, because whichever runs second
