@@ -37,13 +37,20 @@ export interface HoldingAccounts {
 
 export const SpellingRow = Schema.Struct({ custodian: Schema.String })
 
+// A name-keyed custodian's id starts with this, so a custodian with no
+// code whose name keys to two letters (`PT ZP`) is never a broker's.
+const BY_NAME = "NAME:"
+
 // A custodian as one node: by the broker code its name looks up, else by
-// its name keyed as a holder's, as typed in any case or punctuation.
+// its name keyed as a holder's, as typed in any case or punctuation. The
+// URL's `?custodian=` uppercases what it is given, as both are.
 export const custodianOf = Effect.fnUntraced(function* (custodian: string) {
   const broker = yield* brokerOf(custodian)
-  const key = broker ?? (yield* holderKey(custodian))
+  const key = yield* holderKey(custodian)
   return {
-    id: CustodianId.make(key === "" ? custodian.trim().toUpperCase() : key),
+    id: CustodianId.make(
+      broker ?? `${BY_NAME}${key === "" ? custodian.trim().toUpperCase() : key}`
+    ),
     broker,
     member: broker === undefined ? undefined : yield* memberName(broker),
   }

@@ -108,7 +108,7 @@ describe("the Holder map's read of a hub", () => {
         const read = yield* holderMapRead({
           focus: {
             kind: "custodian",
-            id: CustodianId.make("CUSTODIAN HUB"),
+            id: CustodianId.make("NAME:CUSTODIAN HUB"),
           },
           day: undefined,
         }).pipe(Effect.provide(db.layer))

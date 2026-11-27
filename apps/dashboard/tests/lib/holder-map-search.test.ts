@@ -99,6 +99,11 @@ describe("parseHolderMapSearch", () => {
         focus: { kind: "custodian", id: "ZP" },
         day: undefined,
       })
+      // A custodian without a broker code, by its name's key.
+      expect(
+        (yield* parseHolderMapSearch({ custodian: "name:a citibank n" }))
+          .custodian
+      ).toBe("NAME:A CITIBANK N")
     })
   )
 
@@ -237,7 +242,7 @@ describe("findFoci", () => {
     ],
     custodians: [
       {
-        id: CustodianId.make("A CITIBANK N"),
+        id: CustodianId.make("NAME:A CITIBANK N"),
         broker: undefined,
         name: "CITIBANK, N. A",
       },
@@ -275,7 +280,7 @@ describe("findFoci", () => {
   it.effect("finds a custodian by its broker code or its name", () =>
     Effect.gen(function* () {
       expect(yield* found("zp")).toEqual(["custodian ZP"])
-      expect(yield* found("citibank")).toEqual(["custodian A CITIBANK N"])
+      expect(yield* found("citibank")).toEqual(["custodian NAME:A CITIBANK N"])
     })
   )
 

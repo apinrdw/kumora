@@ -317,7 +317,7 @@ export type HolderKey = typeof HolderKey.Type
 
 // A custodian as one Holder map node across stocks
 // (server/holdings/holder-map-custodians.ts, `custodianOf`): its broker
-// code, or, with none, its name keyed as a holder's name is.
+// code, or, with none, `NAME:` and its name keyed as a holder's name is.
 export const CustodianId = NameKey.pipe(Schema.brand("CustodianId"))
 export type CustodianId = typeof CustodianId.Type
 

@@ -640,20 +640,20 @@ describe("Holder map, custodians", () => {
           ],
         ])
         const citibank = custodiansOf(yield* stockReadOf(w, "CPGT")).filter(
-          ([, , id]) => id === "A CITIBANK N"
+          ([, , id]) => id === "NAME:A CITIBANK N"
         )
         assert.deepStrictEqual(citibank, [
           [
             "CPGT",
             "ARGENTUM ASIA ASSETS HONG KONG LIMITED",
-            "A CITIBANK N",
+            "NAME:A CITIBANK N",
             "CITIBANK, N. A",
             2_000,
           ],
           [
             "CPGT",
             "LIMITED RECKSON",
-            "A CITIBANK N",
+            "NAME:A CITIBANK N",
             "CITIBANK, N. A",
             1_156_687_126,
           ],
@@ -736,10 +736,10 @@ describe("Holder map, custodians", () => {
 
   it.effect("focuses a custodian without a broker code by its name", () =>
     Effect.gen(function* () {
-      const read = yield* custodianReadOf(yield* parsed, "A CITIBANK N")
+      const read = yield* custodianReadOf(yield* parsed, "NAME:A CITIBANK N")
       assert.deepStrictEqual(read.focus, {
         kind: "custodian",
-        id: CustodianId.make("A CITIBANK N"),
+        id: CustodianId.make("NAME:A CITIBANK N"),
         broker: undefined,
         name: "CITIBANK, N. A",
       })
@@ -747,6 +747,40 @@ describe("Holder map, custodians", () => {
         ["CPGT", "5%", "RECKSON LIMITED", 2912],
       ])
     })
+  )
+
+  it.effect(
+    "keeps a custodian named like a broker code apart from that broker",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        // A bank no exchange member is, whose name's key is ZP.
+        addAccount(w, "ASRI", 1, "PT ZP", 2_000)
+        const broker = yield* custodianReadOf(w, "ZP")
+        assert.notInclude(
+          broker.custodians.map(({ shares }) => shares),
+          2_000
+        )
+        const named = yield* custodianReadOf(w, "NAME:ZP")
+        assert.deepStrictEqual(named.focus, {
+          kind: "custodian",
+          id: CustodianId.make("NAME:ZP"),
+          broker: undefined,
+          name: "PT ZP",
+        })
+        assert.deepStrictEqual(
+          custodiansOf(named).filter(([, , id]) => id === "NAME:ZP"),
+          [
+            [
+              "ASRI",
+              "ESTATE FAJAR INDUSTRIAL TANGERANG",
+              "NAME:ZP",
+              "PT ZP",
+              2_000,
+            ],
+          ]
+        )
+      })
   )
 
   it.effect("finds nothing for a custodian with no account that day", () =>
@@ -859,7 +893,11 @@ describe("Holder map, no focus", () => {
             broker: "ZP",
             name: "MAYBANK SEKURITAS INDONESIA",
           },
-          { id: "A CITIBANK N", broker: undefined, name: "CITIBANK, N. A" },
+          {
+            id: "NAME:A CITIBANK N",
+            broker: undefined,
+            name: "CITIBANK, N. A",
+          },
         ])
         const names = custodians.map(({ name }) => name)
         assert.deepStrictEqual(names, [...names].sort())
