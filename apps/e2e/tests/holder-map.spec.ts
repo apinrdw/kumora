@@ -13,14 +13,18 @@ const search = (page: Page) =>
 const band = (page: Page, name: "5% and above" | "1% to 5%") =>
   page.getByRole("table", { name }).locator("tbody tr")
 
-// The map's chart, named by its focus and how many holders it draws; never
-// its pixels.
-const mapOf = (page: Page, code: string, holders?: number) =>
+// The map's chart, named by its focus and how many holders and Off list
+// holders it draws; never its pixels. Off list left out matches any.
+const mapOf = (page: Page, code: string, holders?: number, offList?: number) =>
   page.getByRole("img", {
     name:
       holders === undefined
         ? new RegExp(`^Holder map of ${code}: `)
-        : `Holder map of ${code}: ${holders} holders. The tables below list each.`,
+        : offList === undefined
+          ? new RegExp(
+              `^Holder map of ${code}: ${holders} holders( and \\d+ Off list)?\\. `
+            )
+          : `Holder map of ${code}: ${holders} holders${offList === 0 ? "" : ` and ${offList} Off list`}. The tables below list each.`,
   })
 
 // Retried until `then` holds, since input before hydration does nothing.
@@ -130,7 +134,7 @@ test.describe.serial("Holder map", () => {
     }) => {
       await page.goto(`${HOLDER_MAP}?stock=TRUE&day=2026-11-20`)
       // One node per holder the side panel lists.
-      const map = mapOf(page, "TRUE", 4)
+      const map = mapOf(page, "TRUE", 4, 2)
       await expect(map).toBeVisible()
       await expect(
         page.getByRole("list", { name: "Legend" }).getByRole("listitem")
@@ -140,6 +144,11 @@ test.describe.serial("Holder map", () => {
         /^5% and above/,
         /^1% to 5%/,
         /^Local/,
+        // The links' moves: Perintis down on the day, the rest unchanged,
+        // and the dashed Off list.
+        /^Down/,
+        /^Unchanged/,
+        /^Off list/,
       ])
       await expect(
         page.getByRole("button", { name: "Fit to view" })
@@ -196,14 +205,18 @@ test.describe.serial("Holder map", () => {
       await expect(offList.getByRole("listitem").nth(1)).toContainText(
         /DJONI.*Off list since Aug 2026/
       )
+      // The map draws them too, faded, until the toggle hides both.
+      await expect(mapOf(page, "TRUE", 4, 2)).toBeVisible()
       const toggle = page.getByRole("button", { name: /^Show Off list/ })
       await expect(toggle).toHaveAttribute("aria-pressed", "true")
       await until(
         () => toggle.click(),
         () => expect(offList).toHaveCount(0, { timeout: 1000 })
       )
+      await expect(mapOf(page, "TRUE", 4, 0)).toBeVisible()
       await toggle.click()
       await expect(offList.getByRole("listitem")).toHaveCount(2)
+      await expect(mapOf(page, "TRUE", 4, 2)).toBeVisible()
     })
 
     test("marks a ≥1% holder at 5% or more missing from the day's above-5% list", async ({
@@ -259,6 +272,23 @@ test.describe.serial("Holder map", () => {
       await page.goForward()
       await expect(page).toHaveURL(/day=2026-06-25/)
       await expect(day).toHaveValue("2026-06-25")
+    })
+
+    test("keeps the picked day on the stocks most held", async ({ page }) => {
+      await page.goto(`${HOLDER_MAP}?day=2026-11-19`)
+      const first = page
+        .getByRole("list", { name: "Most held stocks" })
+        .getByRole("link")
+        .first()
+      const code = (await first.innerText()).split(/\s/)[0] ?? ""
+      await first.click()
+      await expect(page).toHaveURL(
+        new RegExp(`/holder-map\\?(?=.*stock=${code})(?=.*day=2026-11-19)`)
+      )
+      await expect(
+        page.getByRole("combobox", { name: "Trading day" })
+      ).toHaveValue("2026-11-19")
+      await expect(mapOf(page, code)).toBeVisible()
     })
 
     test("refuses a day without an above-5% report", async ({ page }) => {
