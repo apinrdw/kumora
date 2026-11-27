@@ -1,16 +1,16 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Command } from "effect/cli"
 import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
+import type * as Layer from "effect/Layer"
 import { TestConsole } from "effect/testing"
 
 import type { Stacks } from "../src/stacks.ts"
 import { teardownCommand } from "../src/teardown-command.ts"
-import { cliTestLayer, fakeStacks } from "./support.ts"
+import { fakeStacks, teardownTestLayer } from "./support.ts"
 
 const run = (args: ReadonlyArray<string>, stacks: Layer.Layer<Stacks>) =>
   Command.runWith(teardownCommand, { version: "test" })(args).pipe(
-    Effect.provide(Layer.merge(cliTestLayer, stacks))
+    Effect.provide(teardownTestLayer(stacks))
   )
 
 // A Preview of the branch "feature/login" (see target.test.ts).
