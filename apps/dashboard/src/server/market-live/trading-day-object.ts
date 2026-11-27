@@ -17,6 +17,7 @@ import {
 import { Clock, DateTime, Effect, Option, Schema, Scope } from "effect"
 
 import { brokerTotalsDbD1 } from "../broker-totals/db.ts"
+import { orderNumbersMoved } from "./broker-codes.ts"
 import { durableSql } from "./durable-sql.ts"
 import { marketClockOffset, withMarketClock } from "./market-clock.ts"
 import type { CodeListStore } from "./code-list.ts"
@@ -269,6 +270,7 @@ const coldFetch = Effect.fnUntraced(function* (
     if (request.method !== "POST") return yield* cold.status(url.searchParams)
     return yield* cold.post(yield* Effect.promise(() => request.text()))
   }
+  if (url.pathname === ObjectPath.orderNumbers) return yield* orderNumbersMoved
   const poked: ReadonlyArray<string> = [
     ObjectPath.endSessions,
     ObjectPath.brokerTotals,
@@ -417,6 +419,10 @@ export class TradingDayObject {
         )
       )
     }
+    if (pathname === ObjectPath.orderNumbers)
+      return respond(
+        withMarketClock(this.day.brokerCodes.orderNumbers(url.searchParams))
+      )
     // A newer day's seal, or the reconcile cron, asks the day to move.
     if (pathname === ObjectPath.move)
       return respond(

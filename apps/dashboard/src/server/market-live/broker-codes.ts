@@ -112,6 +112,78 @@ const ORDER_SOURCES: Record<number, OrderSourceRule> = {
   },
 }
 
+// A held order numbers page holds at most this many trades, by default a
+// tenth of it: a 1.13M-trade day reads in 23 pages at the most.
+const ORDER_PAGE_LIMIT = 50_000
+const ORDER_PAGE_DEFAULT = 5_000
+// Decision: held order numbers are read by admins only, uncached, from a hot day
+// (apps/dashboard/docs/adr/0141-held-order-numbers-are-read-by-admins-only.md)
+const ORDER_CACHE = "private, no-store"
+
+// Each source byte a held order record has, as the page's letter.
+const ORDER_LETTERS: Record<number, string> = {
+  [A]: "A",
+  [S]: "S",
+  [B]: "B",
+  [D]: "D",
+}
+
+// A held order numbers page's `limit`: none for a bad one.
+const orderPageLimit = (search: URLSearchParams) =>
+  Effect.sync(() => {
+    const text = search.get("limit")
+    if (text === null) return Option.some(ORDER_PAGE_DEFAULT)
+    const limit = /^[0-9]+$/.test(text) ? Number(text) : 0
+    return limit >= 1 && limit <= ORDER_PAGE_LIMIT
+      ? Option.some(limit)
+      : Option.none<number>()
+  })
+
+// A held trade on a held order numbers page: its number, buy and sell
+// order numbers, and its source letter.
+type HeldOrderRow = readonly [number, number, number, string]
+
+// An order chunk row's held trades after `after` onto `rows`, until they
+// hold `limit`.
+const pushHeldOrders = (
+  rows: Array<HeldOrderRow>,
+  row: Record<string, SqlValue>,
+  page: { readonly after: number; readonly limit: number }
+) =>
+  Effect.sync(() => {
+    const chunk = Number(row.chunk)
+    const orders = new Uint8Array(row.orders as Uint8Array)
+    const view = new DataView(orders.buffer)
+    const first = Math.max(0, page.after - chunk * CHUNK)
+    for (
+      let index = first;
+      index < CHUNK && rows.length < page.limit;
+      index++
+    ) {
+      const at = index * ORDER_RECORD
+      const letter = ORDER_LETTERS[orders[at + ORDER_SOURCE]!]
+      if (letter !== undefined)
+        rows.push([
+          chunk * CHUNK + index + 1,
+          view.getUint32(at),
+          view.getUint32(at + 4),
+          letter,
+        ])
+    }
+  })
+
+// The held order numbers answer of a day moved to R2, whose cold archive
+// keeps no order numbers.
+export const orderNumbersMoved = Effect.sync(() =>
+  Response.json(
+    {
+      error: "NotAvailable",
+      message: "The day moved to R2, which keeps no order numbers",
+    },
+    { status: 404, headers: { "Cache-Control": ORDER_CACHE } }
+  )
+)
+
 // The rule of an order record's source byte, which the store wrote.
 const orderSourceOf = (source: number) =>
   Effect.sync(() => ORDER_SOURCES[source]!)
@@ -1129,6 +1201,55 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return found
   })
 
+  // The held trades after `after`, at most `limit`, each as its trade
+  // number, buy and sell order numbers and source letter, read a run of
+  // chunks at a time. `next` is the last trade answered when the page
+  // filled, else none: the day holds no more.
+  const orderNumbersPage = Effect.fnUntraced(function* (
+    after: number,
+    limit: number
+  ) {
+    const rows: Array<HeldOrderRow> = []
+    if (Option.isNone(yield* orderCountsFact))
+      return { rows, next: null as number | null }
+    const span = Math.ceil(limit / CHUNK) + 1
+    let from = Math.floor(after / CHUNK)
+    for (;;) {
+      const chunks = yield* Effect.sync(() =>
+        sql.exec(
+          "SELECT chunk, orders FROM order_number_chunks WHERE chunk >= ? ORDER BY chunk LIMIT ?",
+          from,
+          span
+        )
+      )
+      for (const row of chunks) {
+        yield* pushHeldOrders(rows, row, { after, limit })
+        if (rows.length === limit) return { rows, next: rows.at(-1)![0] }
+      }
+      if (chunks.length < span) return { rows, next: null }
+      from = Number(chunks.at(-1)!.chunk) + 1
+    }
+  })
+
+  // A held order numbers GET's answer: 400 when its `after` isn't a trade
+  // number or its `limit` isn't 1 to ORDER_PAGE_LIMIT.
+  const orderNumbersAnswer = Effect.fnUntraced(function* (
+    search: URLSearchParams
+  ) {
+    const after = yield* brokerCodesAfter(search)
+    const limit = yield* orderPageLimit(search)
+    if (Option.isNone(after) || Option.isNone(limit))
+      return Response.json(
+        { error: "BadRequest", message: "Bad after or limit" },
+        { status: 400, headers: { "Cache-Control": ORDER_CACHE } }
+      )
+    const page = yield* orderNumbersPage(after.value, limit.value)
+    return Response.json(
+      { day: options.date, after: after.value, ...page },
+      { headers: { "Cache-Control": ORDER_CACHE } }
+    )
+  })
+
   // The trades of chunks first..last the tape lacks, marked 1 in `unfielded`
   // from the first chunk's first trade, read from the tape summary.
   const summaryHoles = (first: number, last: number, unfielded: Uint8Array) =>
@@ -1401,6 +1522,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     heldOrders,
     heldCodes,
     heldOrderNumbers,
+    orderNumbers: orderNumbersAnswer,
     codesComplete,
     codesCompleteFactForSeal,
     buildable,
