@@ -1539,3 +1539,138 @@ describe("Holder map, as-of day", () => {
     })
   )
 })
+
+describe("Holder map, a bad stored row", () => {
+  // The parsers only trim a code and cap its length, so a report can store
+  // a code that isn't a stock code's shape, and a name of legal-form words
+  // only keys to nothing: no read fails on either, it leaves the row out
+  // (codex review of apinrdw/kumora#741, round 9).
+  const BAD = "BAD CODE"
+  const BLANK = "PT TBK"
+  const withBadRows = Effect.gen(function* () {
+    const w = yield* parsed
+    const db = w.holdings.database
+    const agung = yield* holderKey("PT AGUNG PERKASA INVESTINDO")
+    const { custodian } = db
+      .prepare(
+        `SELECT custodian FROM above_5_account
+          WHERE stock_code = 'TRUE' AND data_date = '2026-11-20' LIMIT 1`
+      )
+      .get() as { custodian: string }
+    const block = db.prepare(
+      `INSERT INTO above_5_holder VALUES (?, ?, ?, 'BAD TBK', ?, ?, 1000, 600)`
+    )
+    const account = db.prepare(
+      `INSERT INTO above_5_account VALUES (?, ?, ?, 1, ?, 'ACCOUNT',
+        'local', NULL, NULL, 1000)`
+    )
+    // Held on 20 Nov: a block of Agung under a bad code, and one of TRUE
+    // under a blank key, both through TRUE's custodian.
+    for (const [day, code, no, name, key] of [
+      ["2026-11-20", BAD, 1, "PT AGUNG PERKASA INVESTINDO", agung],
+      ["2026-11-20", "TRUE", 98, BLANK, ""],
+      // Left before 20 Nov, through that custodian: its earlier holdings.
+      ["2026-11-19", BAD, 1, "PT BAD HOLDER", "BAD HOLDER"],
+      ["2026-11-19", "TLKM", 98, BLANK, ""],
+    ] as const) {
+      block.run(day, code, no, name, key)
+      account.run(day, code, no, custodian)
+    }
+    const month = db.prepare(
+      `INSERT INTO above_1_holding VALUES ('2026-10-30', ?, 998, 'BAD TBK',
+        ?, ?, NULL, 'CP', 'local', NULL, NULL, NULL, 2000000, 0, 2000000,
+        200)`
+    )
+    month.run(BAD, "PT AGUNG PERKASA INVESTINDO", agung)
+    month.run("TLKM", BLANK, "")
+    const line = db.prepare(
+      `INSERT INTO above_5_move VALUES ('2026-11-20', ?, ?, 'BAD TBK', ?,
+        '[]', NULL, ?, '[]', NULL, ?, ?, NULL, '[]', NULL)`
+    )
+    line.run(BAD, `${agung}#1`, "PT AGUNG PERKASA INVESTINDO", "new", null, 600)
+    line.run(
+      BAD,
+      `${agung}#2`,
+      "PT AGUNG PERKASA INVESTINDO",
+      "off list",
+      600,
+      null
+    )
+    line.run("TRUE", "#1", BLANK, "new", null, 600)
+    line.run("TRUE", "#2", BLANK, "off list", 600, null)
+    return w
+  })
+
+  it.effect("searches the stocks and holders, the bad rows left out", () =>
+    Effect.gen(function* () {
+      const w = yield* withBadRows
+      const { stocks, holders } = yield* holderMapSearchList(undefined).pipe(
+        Effect.provide(w.holdings.layer)
+      )
+      assert.notInclude(
+        stocks.map(({ code }): string => code),
+        BAD
+      )
+      const keys = holders.map(({ key }): string => key)
+      assert.include(keys, HolderKey.make(AGUNG))
+      assert.notInclude(keys, "")
+    })
+  )
+
+  it.effect("draws a stock focus, its Off list and the stocks most held", () =>
+    Effect.gen(function* () {
+      const w = yield* withBadRows
+      const read = yield* stockReadOf(w, "TRUE")
+      assert.include(
+        read.links.map(({ holder }): string => holder),
+        HolderKey.make(AGUNG)
+      )
+      assert.notInclude(
+        read.offList.map(({ holder }): string => holder),
+        ""
+      )
+      const map = yield* mapOf(w, undefined)
+      assert.notInclude(
+        map.mostHeld.map(({ code }): string => code),
+        BAD
+      )
+    })
+  )
+
+  it.effect("draws a holder focus with its hops and Off list", () =>
+    Effect.gen(function* () {
+      const read = yield* holderReadOf(
+        yield* withBadRows,
+        "PT AGUNG PERKASA INVESTINDO"
+      )
+      assert.include(
+        read.links.map(({ code }): string => code),
+        "TRUE"
+      )
+      assert.notInclude(
+        [...read.links, ...read.hops, ...read.offList].map(
+          ({ code }): string => code
+        ),
+        BAD
+      )
+    })
+  )
+
+  it.effect("draws a custodian focus with its Off list", () =>
+    Effect.gen(function* () {
+      const read = yield* custodianReadOf(yield* withBadRows, "YP")
+      assert.include(
+        read.links.map(({ code }): string => code),
+        "TRUE"
+      )
+      const codes = [...read.links, ...read.offList].map(
+        ({ code }): string => code
+      )
+      assert.notInclude(codes, BAD)
+      assert.notInclude(
+        [...read.links, ...read.offList].map(({ holder }): string => holder),
+        ""
+      )
+    })
+  )
+})
