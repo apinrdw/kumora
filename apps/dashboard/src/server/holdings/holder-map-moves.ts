@@ -43,7 +43,7 @@ export const MoveRow = Schema.Struct({
 // Each holding's latest leaving of either list, by its place.
 //
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0141-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 export const leavings = Effect.fnUntraced(function* (
   rows: ReadonlyArray<typeof LeavingRow.Type>
 ) {

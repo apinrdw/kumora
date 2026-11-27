@@ -64,7 +64,7 @@ const MOST_HELD = 20
 // key, whatever stock it was first listed in.
 //
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0141-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 const IN_VIEW: Record<Focus["kind"], string> = {
   stock: `${PERIODS},
   focus_keys AS (
@@ -208,7 +208,7 @@ const OFF_LIST_LINES = (where: string) => `SELECT stock_code, issuer_name,
   LIMIT ${OFF_LIST_ROWS + 1}`
 
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0141-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 const OFF_LIST: Record<Focus["kind"], string> = {
   stock: `${PERIODS} ${OFF_LIST_LINES("stock_code = ?2")}`,
   // An identity is `<key>#<n>`: those of the key sort from `<key>#` up to,
@@ -326,7 +326,7 @@ const byStock = (
 // holders whose key none of the day's blocks carries.
 //
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0141-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 const stockLinks = Effect.fnUntraced(function* (
   code: StockCode,
   day: WibDate | undefined,
