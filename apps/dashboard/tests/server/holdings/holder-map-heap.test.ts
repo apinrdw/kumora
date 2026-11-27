@@ -524,6 +524,38 @@ describe("the Holder map's Off list in time", () => {
     )
 
   it.effect(
+    `reads a custodian's Off list of 10 days' every block, the as-of day's all still held, in ${OFF_LIST_SECONDS} s`,
+    () =>
+      Effect.gen(function* () {
+        // Every block of every day through the hub, each day's keys its
+        // own: 80,000 earlier holdings, each set against the 8,000 still
+        // held (round 9, again).
+        const days = Array.from({ length: 11 }, (_, at) =>
+          new Date(Date.UTC(2025, 11, 1 + at)).toISOString().slice(0, 10)
+        )
+        const db = memoryHoldingsDb()
+        seedAbove5AtCap(db, days, ["S0000"], ABOVE_5_DAY_ROWS)
+        db.database.exec(`UPDATE above_5_holder SET scripless = 1000,
+          holder_key = holder_key || data_date`)
+        db.database
+          .prepare("UPDATE above_5_account SET custodian = ?")
+          .run(HUB_CUSTODIAN)
+        const { value: read, seconds } = yield* timed(
+          holderMapRead({
+            focus: {
+              kind: "custodian",
+              id: CustodianId.make("NAME:CUSTODIAN HUB"),
+            },
+            day: undefined,
+          }).pipe(Effect.provide(db.layer))
+        )
+        assert.isTrue(read.offListCut)
+        assert.isBelow(seconds, OFF_LIST_SECONDS, `${seconds.toFixed(1)} s`)
+      }),
+    { timeout: 600_000 }
+  )
+
+  it.effect(
     `reads a holder's Off list of a leaving a day across 8,000 days in ${OFF_LIST_SECONDS} s`,
     () =>
       Effect.gen(function* () {

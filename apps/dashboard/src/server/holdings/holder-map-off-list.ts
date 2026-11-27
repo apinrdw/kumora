@@ -48,14 +48,14 @@ const cutOf = (groups: string, over: string) =>
 // cut keeps whole (stock, band, period)s, newest first, while their
 // leavings fit OFF_LIST_ROWS. The key isn't stored on a line (it is its
 // name's), so the group is the period's, which holds the key's whole.
-const LEFT = (where: string) => `${PERIODS},
+const LEFT = ({ where, by }: LeftFocus) => `${PERIODS},
   lines AS (
     SELECT stock_code, issuer_name, '5%' AS band, name, move, data_date,
       stake_before,
       ROW_NUMBER() OVER (
         PARTITION BY stock_code, holder ORDER BY data_date DESC
       ) AS nth
-    FROM above_5_move
+    FROM above_5_move INDEXED BY above_5_move_by_${by}
     WHERE ${where} AND move IN ('new', 'off list')
       AND data_date <= (SELECT day FROM asof)
     UNION ALL
@@ -64,7 +64,7 @@ const LEFT = (where: string) => `${PERIODS},
       ROW_NUMBER() OVER (
         PARTITION BY stock_code, holder ORDER BY data_date DESC
       ) AS nth
-    FROM above_1_move
+    FROM above_1_move INDEXED BY above_1_move_by_${by}
     WHERE ${where} AND move IN ('new', 'off list')
       AND data_date <= (SELECT month FROM band_month)
   ),
@@ -80,13 +80,21 @@ const LEFT = (where: string) => `${PERIODS},
     FROM left_lines GROUP BY stock_code, band, data_date
   )`
 
-const leftStatements = (where: string): ReadonlyArray<Budgeted> => [
+// A stock or holder focus's lines (`where`), read through the index by
+// its stock or its holder: the planner, with no statistics, may otherwise
+// scan every stored line by day.
+interface LeftFocus {
+  readonly where: string
+  readonly by: "stock" | "holder"
+}
+
+const leftStatements = (focus: LeftFocus): ReadonlyArray<Budgeted> => [
   {
-    sql: `${LEFT(where)} ${cutOf("left_periods", `upto > ${OFF_LIST_ROWS}`)}`,
+    sql: `${LEFT(focus)} ${cutOf("left_periods", `upto > ${OFF_LIST_ROWS}`)}`,
     rows: 1,
   },
   {
-    sql: `${LEFT(where)}
+    sql: `${LEFT(focus)}
   SELECT stock_code, issuer_name, band, name, data_date, stake_before
   FROM left_lines JOIN left_periods USING (stock_code, band, data_date)
   WHERE upto <= ${OFF_LIST_ROWS}
@@ -108,12 +116,13 @@ const leftStatements = (where: string): ReadonlyArray<Budgeted> => [
 // OFF_LIST_ROWS. A spelling the custodian no longer uses on the day is
 // missed.
 const THROUGH = `${PERIODS},
-  through AS (
-    SELECT DISTINCT data_date, stock_code, no FROM above_5_account
+  through AS MATERIALIZED (
+    SELECT DISTINCT data_date, stock_code, no
+    FROM above_5_account INDEXED BY above_5_account_by_custodian
     WHERE custodian IN (SELECT value FROM json_each(?2))
       AND data_date < (SELECT day FROM asof) AND scripless > 0
   ),
-  through_now AS (
+  through_now AS MATERIALIZED (
     SELECT DISTINCT holder.stock_code, holder.holder_key
     FROM above_5_account AS account JOIN above_5_holder AS holder
       USING (data_date, stock_code, no)
@@ -121,36 +130,54 @@ const THROUGH = `${PERIODS},
       AND account.data_date = (SELECT day FROM asof)
       AND account.scripless > 0
   ),
-  last_through AS (
+  through_keys AS MATERIALIZED (
     SELECT holder.stock_code, holder.holder_key,
       MAX(holder.data_date) AS last_day
     FROM through JOIN above_5_holder AS holder
       USING (data_date, stock_code, no)
-    WHERE NOT EXISTS (
-      SELECT 1 FROM through_now
-      WHERE through_now.stock_code = holder.stock_code
-        AND through_now.holder_key = holder.holder_key
-    )
     GROUP BY holder.stock_code, holder.holder_key
   ),
-  -- Materialized, as are the candidates: inlined, SQLite pairs every
-  -- block of the custodian's stocks with each block of its day.
+  -- Every CTE is materialized, each stock-day's blocks are walked once
+  -- (CROSS JOIN keeps last_days outside), and every other match is a row
+  -- value IN an uncorrelated subquery, which SQLite reads once into an
+  -- index (a NOT IN it may scan, so the one exclusion is an EXCEPT): no
+  -- step pairs a row with each row of another. A join or a correlated
+  -- EXISTS is planned case by case, and SQLite paired 240k ×
+  -- 8,000 blocks (codex review of apinrdw/kumora#741, round 4), 8,000
+  -- former holdings of one stock-day at the same shares 64 million, and
+  -- 240k holdings with each of the 8,000 still held (round 9).
+  last_through AS MATERIALIZED (
+    SELECT stock_code, holder_key, last_day FROM through_keys
+    WHERE (stock_code, holder_key) IN (
+      SELECT stock_code, holder_key FROM through_keys
+      EXCEPT SELECT stock_code, holder_key FROM through_now
+    )
+  ),
+  last_days AS MATERIALIZED (
+    SELECT DISTINCT last_day AS data_date, stock_code FROM last_through
+  ),
+  -- The shares of the holdings' blocks of their last day, once each.
   held AS MATERIALIZED (
-    SELECT holder.data_date, holder.stock_code, holder.scripless
-    FROM last_through JOIN above_5_holder AS holder
-      ON holder.data_date = last_through.last_day
-        AND holder.stock_code = last_through.stock_code
-        AND holder.holder_key = last_through.holder_key
+    SELECT DISTINCT block.data_date, block.stock_code, block.scripless
+    FROM last_days CROSS JOIN above_5_holder AS block
+      ON block.data_date = last_days.data_date
+        AND block.stock_code = last_days.stock_code
+    WHERE (block.stock_code, block.holder_key, block.data_date) IN (
+      SELECT stock_code, holder_key, last_day FROM last_through
+    )
   ),
-  -- The holdings' blocks of their last day, and every block of that day
-  -- one of them could repeat or be repeated by: a repeat lists the same
-  -- shares (lib/daily-holders.ts).
+  -- Every block of those days one of them could repeat or be repeated
+  -- by: a repeat lists the same shares (lib/daily-holders.ts). Each once.
   candidates AS MATERIALIZED (
-    SELECT DISTINCT data_date, stock_code, block.no
-    FROM held JOIN above_5_holder AS block
-      USING (data_date, stock_code, scripless)
+    SELECT block.data_date, block.stock_code, block.no
+    FROM last_days CROSS JOIN above_5_holder AS block
+      ON block.data_date = last_days.data_date
+        AND block.stock_code = last_days.stock_code
+    WHERE (block.data_date, block.stock_code, block.scripless) IN (
+      SELECT data_date, stock_code, scripless FROM held
+    )
   ),
-  read_days AS (
+  read_days AS MATERIALIZED (
     SELECT data_date, stock_code,
       SUM(COUNT(DISTINCT candidates.no)) OVER newest AS blocks_upto,
       SUM(COUNT(account.no)) OVER newest AS accounts_upto
@@ -161,18 +188,28 @@ const THROUGH = `${PERIODS},
       ORDER BY data_date DESC, stock_code ROWS UNBOUNDED PRECEDING
     )
   ),
-  kept AS (
+  kept AS MATERIALIZED (
     SELECT data_date, stock_code FROM read_days
     WHERE blocks_upto <= ${OFF_LIST_ROWS} AND accounts_upto <= ${OFF_LIST_ROWS}
+  )`
+
+// Whether a custodian's holding of `alias`, or its block, is of a kept
+// stock-day.
+const isKept = (alias: string, day: string) =>
+  `(${alias}.${day}, ${alias}.stock_code) IN (
+    SELECT data_date, stock_code FROM kept
   )`
 
 // Decision: the Holder map matches holders across stocks and reports by
 // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 export const OFF_LIST: Record<Focus["kind"], ReadonlyArray<Budgeted>> = {
-  stock: leftStatements("stock_code = ?2"),
+  stock: leftStatements({ where: "stock_code = ?2", by: "stock" }),
   // An identity is `<key>#<n>`: those of the key sort from `<key>#` up to,
   // not including, `<key>$`.
-  holder: leftStatements("holder >= ?2 || '#' AND holder < ?2 || '$'"),
+  holder: leftStatements({
+    where: "holder >= ?2 || '#' AND holder < ?2 || '$'",
+    by: "holder",
+  }),
   custodian: [
     {
       sql: `${THROUGH} ${cutOf(
@@ -186,9 +223,8 @@ export const OFF_LIST: Record<Focus["kind"], ReadonlyArray<Budgeted>> = {
   SELECT last_through.stock_code, holder_key, last_day,
     (SELECT MIN(data_date) FROM above_5_day
       WHERE data_date > last_through.last_day) AS left_on
-  FROM last_through JOIN kept
-    ON kept.data_date = last_through.last_day
-      AND kept.stock_code = last_through.stock_code
+  FROM last_through
+  WHERE ${isKept("last_through", "last_day")}
   ORDER BY last_day DESC, last_through.stock_code, holder_key
   LIMIT ${OFF_LIST_ROWS}`,
       rows: OFF_LIST_ROWS,
@@ -197,8 +233,8 @@ export const OFF_LIST: Record<Focus["kind"], ReadonlyArray<Budgeted>> = {
       sql: `${THROUGH}
   SELECT stock_code, data_date, no, issuer_name, holder_name, holder_key,
     scripless, percentage_hundredths
-  FROM candidates JOIN kept USING (data_date, stock_code)
-    JOIN above_5_holder USING (data_date, stock_code, no)
+  FROM candidates JOIN above_5_holder USING (data_date, stock_code, no)
+  WHERE ${isKept("candidates", "data_date")}
   ORDER BY stock_code, data_date, no
   LIMIT ${OFF_LIST_ROWS}`,
       rows: OFF_LIST_ROWS,
@@ -207,8 +243,8 @@ export const OFF_LIST: Record<Focus["kind"], ReadonlyArray<Budgeted>> = {
       sql: `${THROUGH}
   SELECT stock_code, data_date, no, custodian, account_name, origin,
     domicile, scripless
-  FROM candidates JOIN kept USING (data_date, stock_code)
-    JOIN above_5_account USING (data_date, stock_code, no)
+  FROM candidates JOIN above_5_account USING (data_date, stock_code, no)
+  WHERE ${isKept("candidates", "data_date")}
   ORDER BY stock_code, data_date, no, ordinal
   LIMIT ${OFF_LIST_ROWS}`,
       rows: OFF_LIST_ROWS,
