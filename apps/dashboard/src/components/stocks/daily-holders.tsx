@@ -15,7 +15,7 @@ import {
   BrokerChip,
   Change,
   changeTone,
-  HolderMapLink,
+  OpenHolderMapLink,
   lotsChangeText,
   MoveChip,
   offListText,
@@ -61,7 +61,7 @@ export function DailyHolders({ code, days, day, onDay }: DailyHoldersProps) {
             <h2 id="daily-holders" className="text-[15px] font-semibold">
               Daily holders
             </h2>
-            <HolderMapLink search={{ stock: code }} />
+            <OpenHolderMapLink search={{ stock: code }} />
           </div>
           {holders && (
             <p className="text-[13px] text-muted-foreground">

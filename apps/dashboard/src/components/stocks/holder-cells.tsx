@@ -307,7 +307,7 @@ export function LotsChange({
 }
 
 // The Holder map focused on a stock (spec apinrdw/kumora#733, "Links in").
-export function HolderMapLink({ search }: { search: HolderMapSearch }) {
+export function OpenHolderMapLink({ search }: { search: HolderMapSearch }) {
   return (
     <Link
       to="/holder-map"

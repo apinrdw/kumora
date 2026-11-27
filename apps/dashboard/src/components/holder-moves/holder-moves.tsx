@@ -14,7 +14,7 @@ import { BoundedRows } from "@/components/k/bounded-rows"
 import { kCard, kFocus } from "@/components/k/styles"
 import {
   Change,
-  HolderMapLink,
+  OpenHolderMapLink,
   LotsChange,
   MoveChip,
   offListText,
@@ -367,7 +367,7 @@ function MoveCell({
             </span>
           </Link>
           <div>
-            <HolderMapLink
+            <OpenHolderMapLink
               search={Effect.runSync(
                 holderMapMoveSearch(kind, line.code, period)
               )}

@@ -15,7 +15,7 @@ import { MonthTabs } from "@/components/stocks/choice"
 import { EveryMonth } from "@/components/stocks/every-month"
 import {
   Delta,
-  HolderMapLink,
+  OpenHolderMapLink,
   lotsChangeText,
   MoveChip,
   OwnershipBar,
@@ -58,7 +58,7 @@ export function MajorHolders({
           <h2 id="major-holders" className="text-[15px] font-semibold">
             Major holders
           </h2>
-          <HolderMapLink search={{ stock: code }} />
+          <OpenHolderMapLink search={{ stock: code }} />
         </div>
         {holders && (
           <p className="text-[13px] text-muted-foreground">
