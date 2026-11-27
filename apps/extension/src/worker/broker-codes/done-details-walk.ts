@@ -124,6 +124,7 @@ export const DoneDetailsPosition = Schema.Union([
   Schema.TaggedStruct("Posted", {}),
 ])
 export type DoneDetailsPosition = typeof DoneDetailsPosition.Type
+type Walking = Extract<DoneDetailsPosition, { readonly _tag: "Walking" }>
 const POSTING: DoneDetailsPosition = { _tag: "Posting" }
 const POSTED: DoneDetailsPosition = { _tag: "Posted" }
 
@@ -452,19 +453,18 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
     }
   })
 
-  // One walk of a code's pages from `from` on, each page's rows kept with
-  // the next page as it goes. It answers its last page and that page's
+  // One pass over a code's pages from `from` on, each page's rows kept
+  // with the next page as it goes. It answers its last page and that page's
   // rows, which it leaves to the caller to keep. Page k holds the rows from
-  // offset (k - 1)(size + 1), so the walk skips one at each page boundary.
+  // offset (k - 1)(size + 1), so the pass skips one at each page boundary.
   const walkPass = Effect.fnUntraced(function* (
     day: WibDate,
     windowEnd: DateTime.Utc,
-    code: StockCode,
-    pass: WalkPass,
-    from: number
+    from: Walking
   ) {
+    const { code, pass } = from
     const size = PASS_SIZES[pass]
-    for (let page = from; ; page++) {
+    for (let page = from.page; ; page++) {
       yield* locate({ day, code, pass, page })
       const answer = yield* detailsPage(
         windowEnd,
@@ -474,11 +474,7 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
       const rows = yield* detailRows(day, start, answer.transactions)
       if (!answer.has_next || answer.transactions.length === 0)
         return { page, rows }
-      yield* store.page(
-        day,
-        { _tag: "Walking", code, pass, page: page + 1 },
-        rows
-      )
+      yield* store.page(day, { ...from, page: page + 1 }, rows)
     }
   })
 
@@ -491,14 +487,14 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
   const walkCode = Effect.fnUntraced(function* (
     day: WibDate,
     windowEnd: DateTime.Utc,
-    code: StockCode,
-    from: { readonly pass: WalkPass; readonly page: number }
+    from: Walking
   ) {
-    let last = yield* walkPass(day, windowEnd, code, from.pass, from.page)
+    const { code } = from
+    let last = yield* walkPass(day, windowEnd, from)
     if (from.pass === "first" && last.page > 1) {
-      const second = { _tag: "Walking", code, pass: "second", page: 1 } as const
+      const second: Walking = { ...from, pass: "second", page: 1 }
       yield* store.page(day, second, last.rows)
-      last = yield* walkPass(day, windowEnd, code, "second", 1)
+      last = yield* walkPass(day, windowEnd, second)
     }
     const all = yield* byOffset([
       ...(yield* store.rows(day, code)),
@@ -529,14 +525,11 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
     for (let at = start; at < codes.length; at++) {
       const code = codes[at]!
       yield* codesDone(at, codes.length)
-      const from = Option.match(
+      const from = Option.getOrElse(
         Option.filter(walking, (position) => position.code === code),
-        {
-          onNone: () => ({ pass: "first", page: 1 }) as const,
-          onSome: ({ pass, page }) => ({ pass, page }),
-        }
+        (): Walking => ({ _tag: "Walking", code, pass: "first", page: 1 })
       )
-      yield* walkCode(day, windowEnd, code, from)
+      yield* walkCode(day, windowEnd, from)
       const next = codes[at + 1]
       yield* store.page(
         day,

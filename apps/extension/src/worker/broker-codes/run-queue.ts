@@ -114,7 +114,6 @@ export type StallCause = typeof StallCause.Type
 // page or its second at 49,999, or a Done Details code's first at 1,000 or
 // its second at 999.
 export const WalkPass = Schema.Literals(["first", "second"])
-export type WalkPass = typeof WalkPass.Type
 
 const WalkPhase = Schema.Union([
   Schema.Struct({
