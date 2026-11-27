@@ -207,16 +207,22 @@ const decodePage = Schema.decodeUnknownOption(DetailsPage)
 const decodeKeyRow = Schema.decodeUnknownOption(DetailKeyRow)
 
 // The key a trade and a row pair under: every one of `MatchFields`, read
-// from the struct's own list, so none can be left out. The second pass's
-// key leaves out the lots.
-const MATCH_FIELDS = Object.keys(MatchFields.fields) as ReadonlyArray<
-  keyof MatchFields
->
+// from the struct's own list, so none can be left out. The second round of
+// pairing leaves out the lots.
+type MatchField = keyof MatchFields
+const MATCH_FIELDS = Object.keys(
+  MatchFields.fields
+) as ReadonlyArray<MatchField>
 const NO_LOT_FIELDS = MATCH_FIELDS.filter((name) => name !== "lots")
-const keyOf = (fields: MatchFields) =>
-  Effect.sync(() => JSON.stringify(MATCH_FIELDS.map((name) => fields[name])))
-const noLotKeyOf = (fields: MatchFields) =>
-  Effect.sync(() => JSON.stringify(NO_LOT_FIELDS.map((name) => fields[name])))
+// `fields`' values of `names`, then `more`, as one string.
+const keyOf = (
+  names: ReadonlyArray<MatchField>,
+  fields: MatchFields,
+  ...more: ReadonlyArray<unknown>
+) =>
+  Effect.sync(() =>
+    JSON.stringify([...names.map((name) => fields[name]), ...more])
+  )
 
 // The tape walk's trade as this walk keeps it.
 export const keptTrade = (
@@ -292,35 +298,32 @@ const tradeFields = (trade: KeptTrade) =>
 
 // The rows, each once: Ajaib can list a trade's row twice, alike in every
 // field and both order numbers.
-const distinct = (rows: ReadonlyArray<ReadRow>) =>
-  Effect.sync(() => {
-    const seen = new Set<string>()
-    return rows.filter((row) => {
-      const at = JSON.stringify([
-        ...MATCH_FIELDS.map((name) => row.fields[name]),
-        row.buy,
-        row.sell,
-      ])
-      if (seen.has(at)) return false
-      seen.add(at)
-      return true
-    })
-  })
+const distinct = Effect.fnUntraced(function* (rows: ReadonlyArray<ReadRow>) {
+  const seen = new Set<string>()
+  const once: Array<ReadRow> = []
+  for (const row of rows) {
+    const at = yield* keyOf(MATCH_FIELDS, row.fields, row.buy, row.sell)
+    if (seen.has(at)) continue
+    seen.add(at)
+    once.push(row)
+  }
+  return once
+})
 
-// One pass: each of `rows`, in Ajaib's order, takes the highest-numbered
-// trade left of its key, and the rows and trades still unpaired are left
-// for the next.
+// One round of pairing: each of `rows`, in Ajaib's order, takes the
+// highest-numbered trade left of its key of `names`, and the rows and
+// trades still unpaired are left for the next round.
 const pairByRowOrder = Effect.fnUntraced(function* (
   rows: ReadonlyArray<ReadRow>,
   trades: ReadonlyArray<KeptTrade>,
-  key: (fields: MatchFields) => Effect.Effect<string>
+  names: ReadonlyArray<MatchField>
 ) {
   const left = new Map<string, Array<KeptTrade>>()
   const inTradeOrder = [...trades].sort(
     (a, b) => Number(a.number) - Number(b.number)
   )
   for (const trade of inTradeOrder) {
-    const at = yield* key(yield* tradeFields(trade))
+    const at = yield* keyOf(names, yield* tradeFields(trade))
     const group = left.get(at) ?? []
     group.push(trade)
     left.set(at, group)
@@ -328,7 +331,7 @@ const pairByRowOrder = Effect.fnUntraced(function* (
   const found: Array<MatchedTrade> = []
   const unpaired: Array<ReadRow> = []
   for (const row of rows) {
-    const trade = left.get(yield* key(row.fields))?.pop()
+    const trade = left.get(yield* keyOf(names, row.fields))?.pop()
     if (trade === undefined) {
       unpaired.push(row)
       continue
@@ -347,7 +350,7 @@ const pairByRowOrder = Effect.fnUntraced(function* (
 // (apps/extension/docs/adr/0026-done-details-rows-pair-with-trades-in-ajaib-s-row-order.md)
 //
 // Ajaib answers a code's rows newest first, so each takes the newest trade
-// left of its key. A second pass leaves out the lots, for the NG trades
+// left of its key. A second round leaves out the lots, for the NG trades
 // whose fractional lot reads 0 in Done Details and 1 on the tape. A code
 // with a row the walk can't read gets nothing: that row could be any key's,
 // and every pairing of its key after it would shift by one.
@@ -360,8 +363,12 @@ const matched = Effect.fnUntraced(function* (
   )
   const readRows = rows.flatMap((row) => (row._tag === "Read" ? [row] : []))
   if (readRows.length < rows.length) return []
-  const first = yield* pairByRowOrder(yield* distinct(readRows), trades, keyOf)
-  const second = yield* pairByRowOrder(first.rows, first.trades, noLotKeyOf)
+  const first = yield* pairByRowOrder(
+    yield* distinct(readRows),
+    trades,
+    MATCH_FIELDS
+  )
+  const second = yield* pairByRowOrder(first.rows, first.trades, NO_LOT_FIELDS)
   return [...first.found, ...second.found]
 })
 

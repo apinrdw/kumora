@@ -642,7 +642,7 @@ describe("the Done Details walk", () => {
   // An NG trade of a fractional lot reads 1 lot on the tape and 0 in Done
   // Details. Trade 2, of 1 lot on both, takes the 1-lot row first.
   it.effect(
-    "pairs the rows and trades a first pass left without their lots",
+    "pairs the rows and trades the first round of pairing left without their lots",
     () =>
       Effect.gen(function* () {
         const negotiated = (number: string): KeptTrade => ({
