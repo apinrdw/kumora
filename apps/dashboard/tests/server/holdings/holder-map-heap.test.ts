@@ -25,7 +25,9 @@ import {
 // The holder focus retained 32.4 MiB on 27 Nov 2026, its 20,005 nodes,
 // 8,000 custodian links and its side panel's hop beyond with it; the
 // custodian focus 13.6 MiB, and 8.9 MiB with 7,999 Off list holdings;
-// the stock focus 1.9 MiB, and 9.0 MiB with 80,000 stored leavings.
+// the stock focus 1.9 MiB, and 8.9 MiB with 80,000 stored leavings. A
+// custodian that left a holding on each of 30 days, each a day at the cap,
+// returns no statement over a day's rows.
 const HEAP_LIMIT_MIB = 40
 
 // The most stocks a report lists (ADR 0045), each with the day's blocks
@@ -73,7 +75,7 @@ const hub = (days: ReadonlyArray<string> = [DAY]) => {
   return db
 }
 
-// `db`, and the rows its batches return, counted.
+// `db`, and the most rows one of its statements returned.
 const counted = (db: MemoryHoldingsDb) => {
   const count = { rows: 0 }
   const layer = Layer.effect(
@@ -84,7 +86,8 @@ const counted = (db: MemoryHoldingsDb) => {
         batch: (statements) =>
           Effect.tap(inner.batch(statements), (rows) =>
             Effect.sync(() => {
-              for (const statement of rows) count.rows += statement.length
+              for (const statement of rows)
+                count.rows = Math.max(count.rows, statement.length)
             })
           ),
       })
@@ -224,9 +227,10 @@ describe("the Holder map's read of a hub", () => {
         }).pipe(Effect.provide(db.layer))
         const view = yield* holderMapView(read)
         const retained = ((yield* retainedHeap) - before) / 2 ** 20
-        // The newest leavings, a day's accounts at the cap.
-        assert.strictEqual(read.offList.length, ABOVE_5_DAY_ROWS)
-        assert.strictEqual(view.focus?.offList.length, ABOVE_5_DAY_ROWS)
+        // The newest whole days' leavings that fit a day's accounts at the
+        // cap: 150 days of 53.
+        assert.strictEqual(read.offList.length, 7_950)
+        assert.strictEqual(view.focus?.offList.length, 7_950)
         assert.isTrue(view.focus?.offListCut)
         assert.isBelow(
           retained,
@@ -301,12 +305,12 @@ describe("the Holder map's read of a hub", () => {
         }).pipe(Effect.provide(layer))
         const view = yield* holderMapView(read)
         const retained = ((yield* retainedHeap) - before) / 2 ** 20
-        // At most a day at the cap of each: the custodian names, and the
-        // Off list's blocks and accounts.
+        // No statement returns more than a day at the cap: the Off list
+        // keeps the newest day whose blocks and accounts fit.
         assert.isAtMost(
           count.rows,
-          4 * ABOVE_5_DAY_ROWS,
-          `${count.rows} rows returned`
+          ABOVE_5_DAY_ROWS,
+          `${count.rows} rows from one statement`
         )
         // The newest holding left, and older ones said to be left out.
         assert.strictEqual(read.links.length, 1)
