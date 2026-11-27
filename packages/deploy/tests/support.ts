@@ -8,7 +8,9 @@ import { ChildProcessSpawner } from "effect/process"
 import * as Stdio from "effect/Stdio"
 import * as Terminal from "effect/Terminal"
 
+import { GitHub } from "../src/github.ts"
 import { Stacks } from "../src/stacks.ts"
+import { StoredStages } from "../src/stored-stages.ts"
 import type { App, Stage } from "../src/target.ts"
 
 // What effect/cli's Command.runWith needs, none of it real.
@@ -56,3 +58,22 @@ export const fakeStacks = (
   })
   return { deployed, destroyed, layer }
 }
+
+// The state store's raw stage names for each app's stack.
+export const fakeStoredStages = (
+  stages: Partial<Record<App, ReadonlyArray<string>>>
+) =>
+  Layer.succeed(StoredStages, {
+    list: (app) => Effect.succeed(stages[app] ?? []),
+  })
+
+// The repo's live branches.
+export const fakeGitHub = (branches: ReadonlyArray<string>) =>
+  Layer.succeed(GitHub, {
+    branches: Effect.succeed(branches.map((name) => ({ name }))),
+  })
+
+// What the teardown command needs, for a test that never sweeps: an empty
+// state store and no branches.
+export const teardownTestLayer = (stacks: Layer.Layer<Stacks>) =>
+  Layer.mergeAll(cliTestLayer, stacks, fakeStoredStages({}), fakeGitHub([]))

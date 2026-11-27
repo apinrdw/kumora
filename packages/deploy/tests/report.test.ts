@@ -7,14 +7,14 @@ import { TestConsole } from "effect/testing"
 import { report, stderrPresenter } from "../src/report.ts"
 import { Stage } from "../src/target.ts"
 import { NotAPreview, teardownCommand } from "../src/teardown-command.ts"
-import { cliTestLayer, fakeStacks } from "./support.ts"
+import { fakeStacks, teardownTestLayer } from "./support.ts"
 
 // What an entry point runs, minus BunRuntime: the command, reported.
 const teardown = (args: ReadonlyArray<string>) =>
   Command.runWith(teardownCommand, { version: "test" })(args).pipe(
     report,
     Effect.provide(
-      Layer.mergeAll(cliTestLayer, fakeStacks().layer, stderrPresenter)
+      Layer.merge(teardownTestLayer(fakeStacks().layer), stderrPresenter)
     ),
     Effect.exit
   )
