@@ -1679,6 +1679,42 @@ describe("Holder map, a bad stored row", () => {
     })
   )
 
+  it.effect(
+    "ranks the stocks most held by the holders their maps draw, bad rows taking no place",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* withBadRows
+        // Twenty stocks under bad codes, each of twenty month holders: more
+        // than any real stock, and as many as the landing view lists.
+        const month = w.holdings.database.prepare(
+          `INSERT INTO above_1_holding VALUES ('2026-10-30', ?, ?, 'BAD TBK',
+            ?, ?, NULL, 'CP', 'local', NULL, NULL, NULL, 2000000, 0,
+            2000000, 200)`
+        )
+        for (let stock = 1; stock <= 20; stock++)
+          for (let holder = 1; holder <= 20; holder++)
+            month.run(
+              `BAD ${stock}`,
+              holder,
+              `HOLDER ${holder}`,
+              `${holder} HOLDER`
+            )
+        const map = yield* mapOf(w, undefined)
+        // TLKM's blank-key row is no holder: its map draws five.
+        assert.deepStrictEqual(
+          map.mostHeld.map(({ code, holders }) => [code, holders]),
+          [
+            ["FLMC", 13],
+            ["AADI", 10],
+            ["BSDE", 7],
+            ["RALS", 7],
+            ["TLKM", 5],
+            ["TRUE", 4],
+          ]
+        )
+      })
+  )
+
   it.effect("draws a holder focus with its hops and Off list", () =>
     Effect.gen(function* () {
       const read = yield* holderReadOf(
