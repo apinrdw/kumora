@@ -246,6 +246,45 @@ describe("holderMapView", () => {
   )
 
   it.effect(
+    "gives a crossing node no stored change, as it is the day's or the month's, not the crossing's",
+    () =>
+      Effect.gen(function* () {
+        // At 4.50% at month-end and 6.95% now, down 0.77% today: the
+        // tooltip says Up into 5%, never Up into 5% −0.77%.
+        const view = yield* holderMapView(
+          read([
+            {
+              ...link("5%", "A", 695),
+              move: { kind: "down", shareChange: -1000, percentageChange: -77 },
+              crossing: { kind: "up into 5%", monthHundredths: 450 },
+            },
+            {
+              ...link("1%", "B", 600),
+              move: { kind: "up", shareChange: 1000, percentageChange: 12 },
+              crossing: {
+                kind: "down out of 5%",
+                since: WibDate.make("2026-11-20"),
+              },
+            },
+            {
+              ...link("5%", "C", 900),
+              move: { kind: "down", shareChange: -1000, percentageChange: -77 },
+            },
+          ])
+        )
+        expect(
+          view.focus?.graph.nodes
+            .filter(({ kind }) => kind === "holder")
+            .map(({ name, move }) => [name, move])
+        ).toEqual([
+          ["C", { kind: "down", percentageChange: -77 }],
+          ["A", { kind: "up into 5%", percentageChange: undefined }],
+          ["B", { kind: "down out of 5%", percentageChange: undefined }],
+        ])
+      })
+  )
+
+  it.effect(
     "draws each Off list holder after the holders, linked as Off list, and names it in the legend",
     () =>
       Effect.gen(function* () {
