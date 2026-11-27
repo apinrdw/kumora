@@ -23,12 +23,15 @@ export interface BandSection {
 export interface HolderMapView {
   readonly day: WibDate | undefined
   readonly month: WibDate | undefined
+  readonly refused: WibDate | undefined
+  readonly days: ReadonlyArray<WibDate>
   readonly focus:
     | {
         readonly code: StockCode
         readonly issuerName: string | undefined
-        // The 5% band, then the 1% band.
-        readonly bands: readonly [BandSection, BandSection]
+        // The 5% band, then the 1% band; the 5% band only for a day before
+        // any above-1% month, none for a refused day.
+        readonly bands: ReadonlyArray<BandSection>
       }
     | undefined
   readonly mostHeld: HolderMapRead["mostHeld"]
@@ -61,21 +64,19 @@ const section = (
 export const holderMapView = Effect.fnUntraced(function* (
   read: HolderMapRead
 ): Effect.fn.Return<HolderMapView> {
-  const { day, month, focus, links, mostHeld } = read
+  const { day, month, refused, days, focus, links, mostHeld } = read
+  const bands: Array<BandSection> = []
+  if (day !== undefined) bands.push(yield* section("5%", day, links))
+  if (month !== undefined) bands.push(yield* section("1%", month, links))
   return {
     day,
     month,
+    refused,
+    days,
     focus:
       focus === undefined
         ? undefined
-        : {
-            code: focus.code,
-            issuerName: focus.issuerName,
-            bands: [
-              yield* section("5%", day, links),
-              yield* section("1%", month, links),
-            ],
-          },
+        : { code: focus.code, issuerName: focus.issuerName, bands },
     mostHeld,
   }
 })

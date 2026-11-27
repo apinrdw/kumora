@@ -17,6 +17,14 @@ import {
   type World,
   world,
 } from "./above-5-world.ts"
+import {
+  above1Item,
+  above5Items,
+  fakeIdx,
+  listedSharesItems,
+} from "./fake-idx.ts"
+import { memoryBucket } from "../archive/memory-bucket.ts"
+import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
 
 const parsed = Effect.gen(function* () {
   const w = world({ withAbove1: true })
@@ -216,5 +224,79 @@ describe("Holder map, no focus", () => {
           "TRINITI DINAMIK Tbk, PT"
         )
       })
+  )
+})
+
+describe("Holder map, as-of day", () => {
+  it.effect("lists every above-5% day to pick from, oldest first", () =>
+    Effect.gen(function* () {
+      const map = yield* mapOf(yield* parsed, "TRUE", "2026-06-25")
+      assert.deepStrictEqual<ReadonlyArray<string>>(map.days, [
+        "2026-06-11",
+        "2026-06-12",
+        "2026-06-24",
+        "2026-06-25",
+        "2026-11-19",
+        "2026-11-20",
+      ])
+      assert.isUndefined(map.refused)
+    })
+  )
+
+  it.effect("refuses a day without an above-5% report, keeping the focus", () =>
+    Effect.gen(function* () {
+      // A Saturday: IDX publishes no above-5% report.
+      const map = yield* mapOf(yield* parsed, "TRUE", "2026-06-13")
+      assert.strictEqual(map.refused, "2026-06-13")
+      assert.isUndefined(map.day)
+      assert.isUndefined(map.month)
+      assert.strictEqual(map.focus?.code, "TRUE")
+      assert.deepStrictEqual(map.focus?.bands, [])
+      assert.lengthOf(map.days, 6)
+    })
+  )
+
+  it.effect("refuses a day without a report on the landing view too", () =>
+    Effect.gen(function* () {
+      const map = yield* mapOf(yield* parsed, undefined, "2026-06-13")
+      assert.strictEqual(map.refused, "2026-06-13")
+      assert.deepStrictEqual(map.mostHeld, [])
+    })
+  )
+
+  it.effect("draws the 5% band only for a day before any above-1% month", () =>
+    Effect.gen(function* () {
+      // August's report is the first above-1% month parsed, after June's
+      // trading days.
+      const w: World = {
+        idx: fakeIdx([
+          ...above5Items(),
+          ...listedSharesItems(),
+          above1Item("2026-08-31"),
+          above1Item("2026-10-30"),
+        ]),
+        bucket: memoryBucket(),
+        holdings: memoryHoldingsDb(),
+      }
+      yield* archiveAndParse(w, "cron-2026-11-25")
+      yield* runParse(above1ParseRuns)(w, "cron-2026-11-25")
+      const map = yield* mapOf(w, "TRUE", "2026-06-25")
+      assert.strictEqual(map.day, "2026-06-25")
+      assert.isUndefined(map.month)
+      assert.deepStrictEqual(
+        map.focus?.bands.map(({ band }) => band),
+        ["5%"]
+      )
+      assert.deepStrictEqual(
+        rowsOf(map.focus?.bands[0]).map(([name, hundredths]) => [
+          name,
+          hundredths,
+        ]),
+        [["PT AGUNG PERKASA INVESTINDO", 5283]]
+      )
+      // A later day takes the newest month on or before it.
+      const later = yield* mapOf(w, "TRUE", "2026-11-19")
+      assert.strictEqual(later.month, "2026-10-30")
+    })
   )
 })
