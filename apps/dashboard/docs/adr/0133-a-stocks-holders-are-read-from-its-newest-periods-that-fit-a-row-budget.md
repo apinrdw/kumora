@@ -5,6 +5,7 @@ A stock's panel follows its holders across periods: Daily holders across above-5
 Every reader of a kind's periods now takes them from one definition, the windows in `server/holdings/holders-window.ts`: the stock's newest parsed periods up to a given one whose rows fit a budget. A period costs its own row plus its holders' rows: a day's blocks and securities accounts, a month's holdings. A kind read alone has a budget of two periods at the cap, 32,002 rows of days and 30,002 of months, so a period and the one before always fit and its moves are always right. On real data it holds far more. The busiest stock on 25 Nov 2026 (DNET) has at most 38 securities accounts a day, so about three years of days fit. A stock has at most 28 rows a month (Sep 2026), so every month fits. The months read are also at most 240, 20 years of them (`periods`): Major holders renders a tab and an Every month column for each month read, and the row budget alone holds 15,001 months of one holder, whose render took over 88 MiB of heap.
 
 - Holder moves' derivation (ADR 0134) reads one kind, each moving stock up to the period it derives, within the kind's budget (`readFrom`).
+- The Holder map (apinrdw/kumora#733) reads one stock's as-of day and the month its 1% band takes, one period of each kind, within the kind read alone's budget, so it needs no window.
 - The stock page reads both kinds of one stock up to their newest parsed periods, within one budget they share (`pageReadFrom`): 36,002 rows, two days at the cap and 4,000 rows beside them. The months are read first, as alone, and the days fit what the months leave, at most their own budget. A real stock's months are few rows, 11 years of them in the 4,000, so its days keep their whole budget. A panel's picker, Trend and earlier holders cover only the periods read. Past the budget the oldest periods drop out of all three, and a URL naming such a period opens the newest.
 
 A period's lines and its panel then read the same periods, so a holder has one identity and one Trend in both. That holds while the stock's periods up to the newest fit the page's budget. Past it the panel starts at a later period than the derivation did, and a holder back from before the panel's first period can show a shorter Trend there. A stock with over 4,000 rows of months beside two days at the cap shows fewer days than Holder moves derived from, down to none at both caps. The two budgets apart let one stock's page read 62,004 rows, which took 144 MiB of heap, more than a Worker has (apinrdw/kumora#673's review). No real stock comes near either cap: at most 20 holders can be above 5% and 100 above 1%.
@@ -13,7 +14,8 @@ What a panel's server render holds of its rows has one bound too. A list of stor
 
 - Daily holders' table, as one list: each holder, a listed one's securities accounts under it, then the earlier holders under their heading;
 - Major holders' table, and its Every month grid. The grid's server render holds as many rows as fit 6,000 cells, so fewer for more months (100 rows of 60 months), and works out a row's cells when it renders the row (`cellsOf` in `lib/every-month.ts`): every row's cells at once are holders times months, which no row budget bounds;
-- Holder moves' table and its Entered or left list (ADR 0134).
+- Holder moves' table and its Entered or left list (ADR 0134);
+- the Holder map's band tables (apinrdw/kumora#733).
 
 The ownership bar draws a segment for each of its first 100 holders and one for the rest. A real stock's day stays under the bound unless it has well over a hundred earlier holders, which no stock's parsed days were checked for: at most 20 holders can be above 5%, and the busiest stock has 38 securities accounts (DNET, 25 Nov 2026). A real month has at most 28 rows. Holder moves' table does pass it on a real day.
 
@@ -30,10 +32,12 @@ Undoing this means another bound on the read, such as reading by the selected pe
 Sites:
 
 - `apps/dashboard/src/components/k/bounded-rows.tsx`
+- `apps/dashboard/src/components/holder-map/holder-map.tsx`
 - `apps/dashboard/src/components/holder-moves/holder-moves.tsx`
 - `apps/dashboard/src/components/stocks/daily-holders.tsx`
 - `apps/dashboard/src/components/stocks/every-month.tsx`
 - `apps/dashboard/src/components/stocks/major-holders.tsx`
+- `apps/dashboard/src/server/holdings/holder-map.ts`
 - `apps/dashboard/src/server/holdings/holders-window.ts`
 - `apps/dashboard/src/server/holdings/stock-page.ts`
 - `apps/dashboard/tests/server/holdings/stock-page-heap.test.ts`
