@@ -15,6 +15,7 @@ import { MonthTabs } from "@/components/stocks/choice"
 import { EveryMonth } from "@/components/stocks/every-month"
 import {
   Delta,
+  HolderMapLink,
   lotsChangeText,
   MoveChip,
   OwnershipBar,
@@ -53,9 +54,12 @@ export function MajorHolders({
       className={cn(kCard, "flex flex-col gap-3")}
     >
       <div className="flex flex-col gap-1">
-        <h2 id="major-holders" className="text-[15px] font-semibold">
-          Major holders
-        </h2>
+        <div className="flex items-baseline gap-3">
+          <h2 id="major-holders" className="text-[15px] font-semibold">
+            Major holders
+          </h2>
+          <HolderMapLink search={{ stock: code }} />
+        </div>
         {holders && (
           <p className="text-[13px] text-muted-foreground">
             {Effect.runSync(summary(code, holders))}

@@ -14,6 +14,7 @@ import {
   BrokerChip,
   Change,
   changeTone,
+  HolderMapLink,
   lotsChangeText,
   MoveChip,
   offListText,
@@ -55,9 +56,12 @@ export function DailyHolders({ code, days, day, onDay }: DailyHoldersProps) {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h2 id="daily-holders" className="text-[15px] font-semibold">
-            Daily holders
-          </h2>
+          <div className="flex items-baseline gap-3">
+            <h2 id="daily-holders" className="text-[15px] font-semibold">
+              Daily holders
+            </h2>
+            <HolderMapLink search={{ stock: code }} />
+          </div>
           {holders && (
             <p className="text-[13px] text-muted-foreground">
               {Effect.runSync(summary(holders))}

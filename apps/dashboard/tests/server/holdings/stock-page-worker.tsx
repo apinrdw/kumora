@@ -1,12 +1,18 @@
 // A Node worker thread that seeds a memory HoldingsDb with one stock's
 // above-5% days and above-1% months (above-5-at-cap.ts, above-1-at-cap.ts),
 // reads its stock page and renders its Daily holders and Major holders
-// panels as the page's server render does (stock-page-heap.test.ts). It
+// panels, in a memory router, as the page's server render does (stock-page-heap.test.ts). It
 // posts the periods read, what each panel's summary says and the table rows
 // rendered, or the failure's message. Vite bundles it (`bundled` in
 // bounded-heap.ts), so it is handed the migrations.
 import { parentPort, workerData } from "node:worker_threads"
 
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router"
 import { StockCode } from "@workspace/relay"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 import { Effect } from "effect"
@@ -60,7 +66,12 @@ const read = (
 Effect.runFork(
   Effect.gen(function* () {
     const page = yield* stockPage(CODE, undefined)
-    const { rows, found } = yield* serverRender(
+    // In a memory router, as the page is, so the panels' links resolve.
+    const router = createRouter({
+      routeTree: createRootRoute({ component: () => panels }),
+      history: createMemoryHistory({ initialEntries: [`/stocks/${CODE}`] }),
+    })
+    const panels = (
       <TooltipProvider>
         <DailyHolders
           code={CODE}
@@ -74,13 +85,17 @@ Effect.runFork(
           month={undefined}
           onMonth={() => {}}
         />
-      </TooltipProvider>,
+      </TooltipProvider>
+    )
+    yield* Effect.promise(() => router.load())
+    const { rows, found } = yield* serverRender(
+      <RouterProvider router={router} />,
       {
         daily:
-          /id="daily-holders"[^>]*>[^<]*<\/h2><p[^>]*>(\d+ holders? holds?)[^<]*?: ([^<]*)</,
+          /id="daily-holders"[^>]*>[^<]*<\/h2><a[^>]*>[^<]*<\/a><\/div><p[^>]*>(\d+ holders? holds?)[^<]*?: ([^<]*)</,
         earlier: /Earlier holders · (?:<!-- -->)?(\d+)/,
         major:
-          /id="major-holders"[^>]*>[^<]*<\/h2><p[^>]*>(\d+ holders? holds?)[^<]*?: ([^<]*)</,
+          /id="major-holders"[^>]*>[^<]*<\/h2><a[^>]*>[^<]*<\/a><\/div><p[^>]*>(\d+ holders? holds?)[^<]*?: ([^<]*)</,
       }
     )
     return [
