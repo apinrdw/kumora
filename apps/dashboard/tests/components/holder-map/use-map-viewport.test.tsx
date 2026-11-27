@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, type PointerEvent, useRef } from "react"
 import { createRoot } from "react-dom/client"
-import { expect, test } from "vitest"
+import { afterEach, expect, test } from "vitest"
 
 import { useMapViewport } from "@/components/holder-map/use-map-viewport"
 import type { Extent } from "@/lib/holder-map-layout"
@@ -37,8 +37,17 @@ const at = (x: number, y: number, buttons: number) => {
     clientY: y,
     pointerId: 1,
     currentTarget: frame,
+    stopPropagation: () => {
+      stopped += 1
+    },
   } as unknown as PointerEvent<HTMLDivElement>
 }
+
+// How many events a handler stopped, so the chart never heard them.
+let stopped = 0
+afterEach(() => {
+  stopped = 0
+})
 
 type Handler = (event: PointerEvent<HTMLDivElement>) => void
 
@@ -80,4 +89,45 @@ test("a drag with the button held pans the map", () => {
   fire(viewport, "PointerDown", at(100, 100, 1))
   fire(viewport, "PointerMove", at(200, 100, 1))
   expect(viewport.current?.view).not.toEqual(fitted)
+})
+
+// Whether the frame lets a click at (x, y) through to the chart.
+const clickReachesChart = (
+  viewport: { current?: ReturnType<typeof useMapViewport> },
+  x: number,
+  y: number
+) => {
+  const before = stopped
+  fire(viewport, "ClickCapture", at(x, y, 0))
+  return stopped === before
+}
+
+test("the click that ends a drag never reaches the chart", () => {
+  const viewport = mount()
+  fire(viewport, "PointerDown", at(100, 100, 1))
+  fire(viewport, "PointerMove", at(200, 100, 1))
+  fire(viewport, "PointerUp", at(200, 100, 0))
+  expect(clickReachesChart(viewport, 200, 100)).toBe(false)
+  // Only that one.
+  fire(viewport, "PointerDown", at(200, 100, 1))
+  fire(viewport, "PointerUp", at(200, 100, 0))
+  expect(clickReachesChart(viewport, 200, 100)).toBe(true)
+})
+
+test("a click reaches the chart after a drag the browser cancelled", () => {
+  const viewport = mount()
+  fire(viewport, "PointerDown", at(100, 100, 1))
+  fire(viewport, "PointerMove", at(200, 100, 1))
+  fire(viewport, "PointerCancel", at(200, 100, 1))
+  expect(clickReachesChart(viewport, 200, 100)).toBe(true)
+})
+
+test("a press after a drag whose click never came is a click on the chart", () => {
+  const viewport = mount()
+  fire(viewport, "PointerDown", at(100, 100, 1))
+  fire(viewport, "PointerMove", at(200, 100, 1))
+  fire(viewport, "PointerUp", at(200, 100, 0))
+  fire(viewport, "PointerDown", at(150, 100, 1))
+  fire(viewport, "PointerUp", at(150, 100, 0))
+  expect(clickReachesChart(viewport, 150, 100)).toBe(true)
 })

@@ -261,8 +261,8 @@ export function HolderMapGraph({
             }
             onSelect={(point) => {
               const node = nodeOf(point?.datum)
-              if (viewport.endedDrag() || node?.refocus === undefined) return
-              if (!node.focus) onRefocus(node.refocus)
+              if (node?.refocus !== undefined && !node.focus)
+                onRefocus(node.refocus)
             }}
           />
         ) : (

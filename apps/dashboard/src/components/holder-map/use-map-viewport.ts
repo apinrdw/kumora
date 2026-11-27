@@ -3,6 +3,7 @@
 // new layout, or the Off list toggled) starts fitted to view.
 import { Effect } from "effect"
 import {
+  type MouseEvent,
   type PointerEvent,
   type RefObject,
   useEffect,
@@ -28,6 +29,20 @@ interface Size {
   readonly height: number
 }
 
+// The frame's one pointer gesture, the only place a press or drag is kept:
+// none; a press not yet past the click slop, which may still be a click on
+// a node; a drag, panning from its last point; or a drag just released,
+// whose click the frame swallows. Every pointerdown starts it afresh, and a
+// cancel ends it, so no gesture outlives the next. A keyboard selection
+// never reads it.
+type Gesture =
+  | { readonly _tag: "Idle" }
+  | { readonly _tag: "Pressed"; readonly x: number; readonly y: number }
+  | { readonly _tag: "Dragging"; readonly x: number; readonly y: number }
+  | { readonly _tag: "Released" }
+
+const IDLE: Gesture = { _tag: "Idle" }
+
 export function useMapViewport(
   frame: RefObject<HTMLDivElement | null>,
   extent: Extent | undefined,
@@ -44,9 +59,7 @@ export function useMapViewport(
   const [moved, setMoved] = useState<{ extent: Extent; view: Viewport }>()
   const view =
     moved !== undefined && moved.extent === extent ? moved.view : fitted
-  const drag = useRef<{ x: number; y: number; dragging: boolean }>(undefined)
-  // Set by a drag, so the click that ends it refocuses nothing.
-  const dragged = useRef(false)
+  const gesture = useRef<Gesture>(IDLE)
 
   // Functional, so moves between two renders (a fast wheel) add up.
   const move = (next: (current: Viewport) => Viewport) => {
@@ -99,48 +112,57 @@ export function useMapViewport(
         )
       ),
     fit: () => setMoved(undefined),
-    // True once, for the click that ends a drag.
-    endedDrag: () => {
-      const was = dragged.current
-      dragged.current = false
-      return was
-    },
     frameHandlers: {
       onPointerDown: (event: PointerEvent<HTMLDivElement>) => {
-        if (event.button !== 0) return
-        drag.current = { x: event.clientX, y: event.clientY, dragging: false }
-        dragged.current = false
+        gesture.current =
+          event.button === 0
+            ? { _tag: "Pressed", x: event.clientX, y: event.clientY }
+            : IDLE
       },
       onPointerMove: (event: PointerEvent<HTMLDivElement>) => {
-        const start = drag.current
-        if (start === undefined) return
+        const at = gesture.current
+        if (at._tag !== "Pressed" && at._tag !== "Dragging") return
         // The button came up where the frame never heard it: no drag.
         if ((event.buttons & 1) === 0) {
-          drag.current = undefined
+          gesture.current = IDLE
           return
         }
-        const by = { x: event.clientX - start.x, y: event.clientY - start.y }
-        if (!start.dragging && Math.hypot(by.x, by.y) <= CLICK_SLOP) return
-        if (!start.dragging) {
+        const by = { x: event.clientX - at.x, y: event.clientY - at.y }
+        if (at._tag === "Pressed") {
+          if (Math.hypot(by.x, by.y) <= CLICK_SLOP) return
           // Captured only once it is a drag, so a click still reaches the
           // chart.
           event.currentTarget.setPointerCapture(event.pointerId)
-          dragged.current = true
         }
-        drag.current = { x: event.clientX, y: event.clientY, dragging: true }
+        gesture.current = {
+          _tag: "Dragging",
+          x: event.clientX,
+          y: event.clientY,
+        }
         move((current) => Effect.runSync(panViewport(current, by)))
       },
       onPointerUp: () => {
-        drag.current = undefined
+        gesture.current =
+          gesture.current._tag === "Dragging" ? { _tag: "Released" } : IDLE
       },
       onPointerCancel: () => {
-        drag.current = undefined
+        gesture.current = IDLE
       },
       // A press not yet a drag isn't captured, so its pointerup may land
       // outside the frame: it ends on leaving.
       onPointerLeave: (event: PointerEvent<HTMLDivElement>) => {
-        if (!event.currentTarget.hasPointerCapture(event.pointerId))
-          drag.current = undefined
+        if (
+          gesture.current._tag === "Pressed" &&
+          !event.currentTarget.hasPointerCapture(event.pointerId)
+        )
+          gesture.current = IDLE
+      },
+      // In the capture phase, so the click that ends a drag never reaches
+      // the chart, wherever the browser sends it.
+      onClickCapture: (event: MouseEvent<HTMLDivElement>) => {
+        if (gesture.current._tag !== "Released") return
+        gesture.current = IDLE
+        event.stopPropagation()
       },
     },
   }
