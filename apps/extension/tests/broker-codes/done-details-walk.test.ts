@@ -22,6 +22,10 @@ import {
 } from "../../src/worker/broker-codes/done-details-walk.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
 import type { WalkPhase } from "../../src/worker/broker-codes/run-queue.ts"
+import {
+  withStallRecord,
+  type StallRecord,
+} from "../../src/worker/broker-codes/stall-records.ts"
 import type { Answer, TabRequest } from "../../src/worker/broker.ts"
 import hope from "./fixtures/done-details-hope-2026-11-20.json"
 
@@ -1009,6 +1013,78 @@ describe("the Done Details walk's walk token", () => {
           stalled(2),
           { step: "fetching", since },
         ])
+      })
+  )
+
+  it.effect(
+    "keeps a stall record of each stall, with its code and page, from its first failure to the call that answered",
+    () =>
+      Effect.gen(function* () {
+        yield* evening
+        const { store } = yield* keptStore()
+        const cookie = jwt("cookie")
+        // HOPE's first page gets no answer once; its second, every time
+        // with the cookie's token, which two such calls refuse.
+        const tab = fakeAjaib({
+          cookie: () => cookie,
+          answer: (call, bearer) =>
+            call === 1 || (call >= 3 && bearer === cookie)
+              ? Option.none()
+              : undefined,
+        })
+        const writes: Array<StallRecord> = []
+        const walk = yield* makeDoneDetailsWalk({
+          tab,
+          post: fakeProduction().post,
+          store,
+          stalls: (record) =>
+            Effect.sync(() => {
+              writes.push(record)
+            }),
+        })
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("0 millis")
+        yield* TestClock.adjust("10 seconds")
+        yield* TestClock.adjust("10 seconds")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        const none = { "refused-token": 0, "no-answer": 0, timeout: 0 }
+        const hopeStall = {
+          walk: "done-details",
+          day: DAY,
+          code: StockCode.make("HOPE"),
+          kind: "no-answer",
+          tokenChanged: false,
+          reloads: 0,
+        } as const
+        assert.deepStrictEqual(writes.reduce(withStallRecord, []), [
+          {
+            ...hopeStall,
+            began: wib("17:30:00"),
+            ended: wib("17:30:10"),
+            page: 1,
+            failures: 1,
+            kinds: { ...none, "no-answer": 1 },
+          },
+          {
+            ...hopeStall,
+            began: wib("17:30:10"),
+            ended: wib("17:30:20"),
+            page: 2,
+            failures: 2,
+            kinds: { ...none, "no-answer": 2 },
+          },
+        ])
+        // Each is written as it begins, so a stall the worker never ended
+        // still shows.
+        assert.deepStrictEqual(writes[0], {
+          ...hopeStall,
+          began: wib("17:30:00"),
+          ended: null,
+          page: 1,
+          failures: 1,
+          kinds: { ...none, "no-answer": 1 },
+        })
+        assert.notInclude(JSON.stringify(writes), cookie)
       })
   )
 })

@@ -18,6 +18,11 @@ import {
   BrokerCodesProgress,
   type IncompleteDaysStore,
 } from "./broker-codes/run-queue.ts"
+import {
+  StallRecords,
+  withStallRecord,
+  type StallRecord,
+} from "./broker-codes/stall-records.ts"
 import { StaticHeaders } from "./broker.ts"
 import { CodeListCache, RelayOutcome, type CodeListStore } from "./code-list.ts"
 import { ErrorLogEntry, redact, type ErrorLogStore } from "./error-log.ts"
@@ -666,7 +671,7 @@ export const isHistoryChange = Effect.fnUntraced(function* (
   return area === "local" && HISTORY_KEY in changes
 })
 
-// Decision: error lines and the Relay stopped cause live in storage.session
+// Decision: error lines, the Relay stopped cause and stall records live in storage.session
 // (apps/extension/docs/adr/0020-error-lines-live-in-chrome-storage-session.md)
 const ERROR_LOG_KEY = "relayErrors"
 const RELAY_STOPPED_KEY = "relayStopped"
@@ -747,6 +752,34 @@ export const isRelayStoppedChange = Effect.fnUntraced(function* (
 ) {
   return area === "session" && RELAY_STOPPED_KEY in changes
 })
+
+// Decision: error lines, the Relay stopped cause and stall records live in storage.session
+// (apps/extension/docs/adr/0020-error-lines-live-in-chrome-storage-session.md)
+const STALL_RECORDS_KEY = "brokerCodesStalls"
+
+// The Ajaib walks' stall records (stall-records.ts), oldest first.
+export const stallRecordStore = {
+  load: Effect.gen(function* () {
+    const stored = yield* Effect.promise(() =>
+      chrome.storage.session.get(STALL_RECORDS_KEY)
+    )
+    return Option.getOrElse(
+      Schema.decodeUnknownOption(StallRecords)(stored[STALL_RECORDS_KEY]),
+      (): ReadonlyArray<StallRecord> => []
+    )
+  }),
+  // Keeps `record`, in place of its stall's earlier write.
+  record: (record: StallRecord): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const kept = withStallRecord(yield* stallRecordStore.load, record)
+      const encoded = yield* Effect.orDie(
+        Schema.encodeEffect(StallRecords)(kept)
+      )
+      yield* Effect.promise(() =>
+        chrome.storage.session.set({ [STALL_RECORDS_KEY]: encoded })
+      )
+    }),
+}
 
 // Diagnostics read these session keys by name, never
 // `chrome.storage.session.get(null)`: the session area also holds the Ajaib

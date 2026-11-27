@@ -82,6 +82,7 @@ import {
   loadStaticHeaders,
   saveStaticHeaders,
   saveBrokerCodesProgress,
+  stallRecordStore,
   saveBrokerCodesRun,
   saveCodeListRelay,
   saveRelayStopped,
@@ -438,12 +439,14 @@ const main = Effect.gen(function* () {
     trades: progress.trades,
     phase: progress.phase,
     keep: keptTrades.keep,
+    stalls: stallRecordStore.record,
   })
   const doneDetailsWalk = yield* makeDoneDetailsWalk({
     tab: ajaibWalkTab,
     post: extra.tee(production.post),
     store: keptTrades,
     codes: progress.codes,
+    stalls: stallRecordStore.record,
     phase: progress.phase,
   })
   // The Stockbit walks' paced calls, and whether their tab is still there.

@@ -60,6 +60,10 @@ _Avoid_: expired token (expiry is one way of three)
 Why an Ajaib walk's last call failed while it retries in place: a refused token, no answer, or a timeout, with how many calls in a row have failed and whether the walk token changed meanwhile. The Broker codes card shows it until a call answers.
 _Avoid_: error, stuck reason
 
+**Stall record**:
+What is kept of one stall of an Ajaib walk (the tape or Done Details) after the card stops showing its stall cause: when its first failed call was sent and when a call answered or the walk ended, the day and where the walk was (the tape's pass and page, or the Done Details code and page), the last failure's kind, failures in a row, whether the walk token changed, each kind's count and the tab reloads meanwhile. The last 50 live in `chrome.storage.session`, and Copy diagnostics lists them. One the worker never ended stays open. Never a token, a header or a path.
+_Avoid_: stall log, retry history
+
 **Static headers**:
 The Ajaib page's REST request headers other than its token (`Authorization`) and `X-Device-Signature`, with the page's API base. The extension keeps the page's latest in `chrome.storage.session` until Chrome closes, and a reloaded tab's walk calls send them with the walk token until the page makes a call of its own.
 _Avoid_: page headers (those include the token)

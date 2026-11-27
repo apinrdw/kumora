@@ -33,6 +33,7 @@ import {
   type WalkPhase,
   type WalkResult,
 } from "./run-queue.ts"
+import type { StallRecord } from "./stall-records.ts"
 
 const DETAILS_PATH = "v1/stock/data/broker-transaction"
 // 1,000 rows a page, the most Ajaib serves: 1,001 gets a
@@ -412,12 +413,15 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
   readonly codes?: (done: number, of: number) => Effect.Effect<void>
   // For the options page too: what the walk is doing, and since when.
   readonly phase?: (phase: WalkPhase) => Effect.Effect<void>
+  // Keeps each stall's record for Copy diagnostics (stall-records.ts).
+  readonly stalls?: (record: StallRecord) => Effect.Effect<void>
 }) {
   const { store } = options
   const codesDone = options.codes ?? (() => Effect.void)
-  const { enter, guard, readPage } = yield* makeAjaibCalls(
+  const { enter, locate, guard, readPage } = yield* makeAjaibCalls(
     options.tab,
-    options.phase ?? (() => Effect.void)
+    options.phase ?? (() => Effect.void),
+    { walk: "done-details", record: options.stalls }
   )
 
   // One page, retried in place until it answers one.
@@ -465,6 +469,7 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
     from: number
   ) {
     for (let page = from; ; page++) {
+      yield* locate({ day, code, page })
       const answer = yield* detailsPage(
         windowEnd,
         yield* detailsPath(day, code, page)
