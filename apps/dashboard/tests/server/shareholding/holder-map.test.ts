@@ -1118,6 +1118,42 @@ describe("Holder map, one key's blocks", () => {
         )
       })
   )
+
+  it.effect(
+    "lists no key at part of its leavings when the Off list is cut through them",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        // A day CPGT lost more holders than an Off list keeps: two blocks
+        // of one key, `A Z` and `Z A`, with 8,000 others between them by
+        // name (codex review of apinrdw/kumora#741, round 4).
+        const leaving = w.holdings.database.prepare(
+          `INSERT INTO above_5_move VALUES ('2026-06-10', 'CPGT', ?, 'CPGT',
+            ?, '[]', NULL, 'off list', '[]', NULL, 600, NULL, NULL, '[]',
+            NULL)`
+        )
+        const names = [
+          "A Z",
+          ...Array.from(
+            { length: 8_000 },
+            (_, at) => `M ${String(at).padStart(4, "0")}`
+          ),
+          "Z A",
+        ]
+        names.forEach((name, at) => leaving.run(`LEFT ${at}#1`, name))
+        const read = yield* stockReadOf(w, "CPGT")
+        const key = yield* holderKey("A Z")
+        // The key at both blocks' 12%, or left out whole: never at 6%.
+        assert.deepStrictEqual(
+          read.offList
+            .filter(({ holder }) => holder === key)
+            .map(({ percentageHundredths }) => percentageHundredths)
+            .filter((hundredths) => hundredths !== 1200),
+          []
+        )
+        assert.isTrue(read.offListCut)
+      })
+  )
 })
 
 describe("Holder map, no focus", () => {
