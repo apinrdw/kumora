@@ -151,6 +151,8 @@ test.describe.serial("Holder map", () => {
       ).toHaveText([
         /^Stock/,
         /^Holder/,
+        // Mirae, the custodian of both its above-5% holders.
+        /^Custodian/,
         /^5% and above/,
         /^1% to 5%/,
         /^Local/,
@@ -464,6 +466,78 @@ test.describe.serial("Holder map", () => {
       await expect(page).toHaveURL(
         /\/holder-map\?(?=.*stock=TLKM)(?=.*day=2026-11-20)/
       )
+    })
+
+    test("focuses a custodian from a stock's side panel, the search and the URL", async ({
+      page,
+    }) => {
+      const MIRAE = "MIRAE ASSET SEKURITAS INDONESIA"
+      const heading = page.getByRole("heading", {
+        name: `${MIRAE} Custodian · YP`,
+      })
+      await page.goto(`${HOLDER_MAP}?stock=TRUE&day=2026-11-20`)
+      // Both of TRUE's above-5% holders hold through Mirae, broker YP.
+      const custodians = page.getByRole("table", { name: "Custodians" })
+      await expect(custodians.locator("tbody tr")).toHaveCount(1)
+      await expect(custodians).toContainText(/YP\s*2\s*45,259,395\.84/)
+      await expect(
+        page.getByRole("list", { name: "Legend" }).getByText("Custodian")
+      ).toBeVisible()
+      await until(
+        () => custodians.getByRole("link", { name: MIRAE }).click(),
+        () => expect(page).toHaveURL(/custodian=YP/, { timeout: 1000 })
+      )
+      await expect(page).toHaveURL(/day=2026-11-20/)
+      await expect(page).not.toHaveURL(/stock=/)
+      await expect(heading).toBeVisible()
+      // Its book: the two holders, and TRUE, with the lots held through it.
+      await expect(
+        page
+          .getByRole("table", { name: "Holders through it" })
+          .locator("tbody tr")
+      ).toHaveCount(2)
+      const stocks = page
+        .getByRole("table", { name: "Stocks through it" })
+        .locator("tbody tr")
+      await expect(stocks).toHaveCount(1)
+      await expect(stocks).toContainText(/TRUE.*2\s*45,259,395\.84/)
+      await expect(
+        page.getByRole("img", {
+          name: `Holder map of ${MIRAE}: 2 holders, in 1 stock. The tables below list each.`,
+        })
+      ).toBeVisible()
+
+      // Its stock refocuses the map; back and forward restore each focus.
+      await stocks.getByRole("link", { name: "TRUE" }).click()
+      await expect(page).toHaveURL(
+        /\/holder-map\?(?=.*stock=TRUE)(?=.*day=2026-11-20)/
+      )
+      await expect(page).not.toHaveURL(/custodian=/)
+      await page.goBack()
+      await expect(page).toHaveURL(/custodian=YP/)
+      await expect(heading).toBeVisible()
+      await page.goBack()
+      await expect(page).toHaveURL(/stock=TRUE/)
+      await expect(page).not.toHaveURL(/custodian=/)
+      await page.goForward()
+      await expect(page).toHaveURL(/custodian=YP/)
+      await expect(heading).toBeVisible()
+
+      // The search finds it by its broker code.
+      await page.goto(`${HOLDER_MAP}?stock=ASRI`)
+      await pick(
+        page,
+        "yp",
+        page.getByRole("option", { name: new RegExp(`^${MIRAE}`) })
+      )
+      await expect(page).toHaveURL(/\/holder-map\?custodian=YP$/)
+      await expect(heading).toBeVisible()
+
+      // Naming a custodian and a stock names neither.
+      await page.goto(`${HOLDER_MAP}?custodian=YP&stock=TRUE`)
+      await expect(
+        page.getByRole("heading", { name: /^Stocks with the most ≥1% holders/ })
+      ).toBeVisible()
     })
 
     test("shows an empty state for a code no report lists", async ({
