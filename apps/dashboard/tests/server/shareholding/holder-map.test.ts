@@ -864,6 +864,65 @@ describe("Holder map, custodians", () => {
   )
 
   it.effect(
+    "holds nothing through an account emptied to zero shares, now or earlier",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        const offListOf = (read: HolderMapRead) =>
+          read.offList.map(({ code, holder, since }) => [code, holder, since])
+        // A bank's accounts: Tangerang's ASRI block held 1,000 shares there
+        // on 19 Nov, emptied to 0 by 20 Nov; Shima's ENRG account was
+        // already empty on 19 Nov and holds 1,000 on 20 Nov.
+        addAccount(w, "ASRI", 1, "PT ZP", 1_000, "2026-11-19")
+        addAccount(w, "ASRI", 1, "PT ZP", 0)
+        addAccount(w, "ENRG", 13, "PT ZP", 0, "2026-11-19")
+        addAccount(w, "ENRG", 11, "PT ZP", 1_000)
+        const shima = yield* holderKey("PT Shima Global Kapital")
+        const read = yield* custodianReadOf(w, "NAME:ZP")
+        // Only Shima's ENRG block is held through it on 20 Nov: no link, no
+        // book line and no node for the emptied account.
+        assert.deepStrictEqual(
+          custodiansOf(read).filter(([, , id]) => id === "NAME:ZP"),
+          [["ENRG", shima, "NAME:ZP", "PT ZP", 1_000]]
+        )
+        assert.deepStrictEqual(
+          read.links.map(({ code }) => code),
+          ["ENRG"]
+        )
+        const view = (yield* holderMapView(read)).focus
+        assert.deepStrictEqual(
+          view?.kind === "custodian"
+            ? view.book.holders.map(({ key, shares, stocks }) => [
+                key,
+                shares,
+                stocks,
+              ])
+            : undefined,
+          [[shima, 1_000, ["ENRG"]]]
+        )
+        // Tangerang left it on 20 Nov; Shima, empty there on 19 Nov, never
+        // held through it before.
+        assert.deepStrictEqual(offListOf(read), [
+          ["ASRI", "ESTATE FAJAR INDUSTRIAL TANGERANG", "2026-11-20"],
+        ])
+        // As of 19 Nov, only Tangerang held through it.
+        const nov19 = yield* custodianReadOf(w, "NAME:ZP", "2026-11-19")
+        assert.deepStrictEqual(
+          nov19.links.map(({ code }) => code),
+          ["ASRI"]
+        )
+        assert.deepStrictEqual(offListOf(nov19), [])
+        // A stock focus links no holder to it through an empty account.
+        assert.deepStrictEqual(
+          custodiansOf(yield* stockReadOf(w, "ASRI")).filter(
+            ([, , id]) => id === "NAME:ZP"
+          ),
+          []
+        )
+      })
+  )
+
+  it.effect(
     "draws nothing earlier through a custodian with no earlier holders",
     () =>
       Effect.gen(function* () {
