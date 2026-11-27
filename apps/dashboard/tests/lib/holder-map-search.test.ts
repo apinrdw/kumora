@@ -1,7 +1,12 @@
 import { describe, expect, it } from "@effect/vitest"
+import { StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { parseHolderMapSearch, queryOf } from "@/lib/holder-map-search"
+import {
+  holderMapMoveSearch,
+  parseHolderMapSearch,
+  queryOf,
+} from "@/lib/holder-map-search"
 
 describe("parseHolderMapSearch", () => {
   it.effect("keeps a stock focus, in any case, and an as-of day", () =>
@@ -30,6 +35,29 @@ describe("parseHolderMapSearch", () => {
         focus: undefined,
         day: undefined,
       })
+    })
+  )
+})
+
+describe("holderMapMoveSearch", () => {
+  const TRUE = StockCode.make("TRUE")
+
+  it.effect("focuses a Daily row's stock as of the row's day", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* holderMapMoveSearch("daily", TRUE, WibDate.make("2026-11-20"))
+      ).toEqual({
+        stock: "TRUE",
+        day: "2026-11-20",
+      })
+    })
+  )
+
+  it.effect("opens a Monthly row's stock on the newest day", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* holderMapMoveSearch("monthly", TRUE, WibDate.make("2026-10-30"))
+      ).toEqual({ stock: "TRUE" })
     })
   )
 })
