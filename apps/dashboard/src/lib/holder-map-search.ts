@@ -1,10 +1,11 @@
 // What /holder-map reads from its URL (spec apinrdw/kumora#733, "Route"):
 // the focus and the as-of trading day, each left out when absent, so a plain
 // link opens the landing view on the newest day.
-import { StockCode, WibDate } from "@workspace/relay"
+import { type BrokerCode, StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import {
+  CustodianId,
   HolderKey,
   type HolderMapQuery,
   type MoveKind,
@@ -18,13 +19,16 @@ export interface HolderMapSearch {
   readonly stock?: StockCode | undefined
   // The focus holder, by its holder key.
   readonly holder?: HolderKey | undefined
+  // The focus custodian, by its broker code or its name's key.
+  readonly custodian?: CustodianId | undefined
   // The as-of trading day; absent for the newest parsed.
   readonly day?: WibDate | undefined
 }
 
 /**
- * Keeps the fields that parse and drops anything else; a stock code as
- * typed in any case. A URL naming two foci names none: the landing view. A
+ * Keeps the fields that parse and drops anything else; a stock code and a
+ * custodian as typed in any case. A URL naming two foci names none: the
+ * landing view. A
  * dropped one is set `undefined`: the router lays the validated search
  * over the raw one, which would keep it.
  */
@@ -36,10 +40,20 @@ export const parseHolderMapSearch = Effect.fnUntraced(function* (
     typeof raw.stock === "string" ? raw.stock.toUpperCase() : raw.stock
   )
   const holder = yield* field(HolderKey, raw.holder)
-  const both = stock !== undefined && holder !== undefined
+  const custodian = yield* field(
+    CustodianId,
+    typeof raw.custodian === "string"
+      ? raw.custodian.toUpperCase()
+      : raw.custodian
+  )
+  const named = [stock, holder, custodian].filter(
+    (focus) => focus !== undefined
+  ).length
+  const one = named === 1
   return {
-    stock: both ? undefined : stock,
-    holder: both ? undefined : holder,
+    stock: one ? stock : undefined,
+    holder: one ? holder : undefined,
+    custodian: one ? custodian : undefined,
     day: yield* field(WibDate, raw.day),
   }
 })
@@ -48,11 +62,15 @@ export const parseHolderMapSearch = Effect.fnUntraced(function* (
 // cleared, the day kept.
 export const refocused = (
   previous: HolderMapSearch,
-  focus: { readonly stock: StockCode } | { readonly holder: HolderKey }
+  focus:
+    | { readonly stock: StockCode }
+    | { readonly holder: HolderKey }
+    | { readonly custodian: CustodianId }
 ) =>
   Effect.succeed<HolderMapSearch>({
     stock: undefined,
     holder: undefined,
+    custodian: undefined,
     ...focus,
     day: previous.day,
   })
@@ -82,6 +100,11 @@ export interface FocusList {
     readonly key: string
     readonly name: string
   }>
+  readonly custodians: ReadonlyArray<{
+    readonly id: string
+    readonly broker: BrokerCode | undefined
+    readonly name: string
+  }>
 }
 
 // One match of the search.
@@ -96,13 +119,21 @@ export type FocusMatch =
       readonly key: HolderKey
       readonly name: string
     }
+  | {
+      readonly kind: "custodian"
+      readonly id: CustodianId
+      readonly broker: BrokerCode | undefined
+      readonly name: string
+    }
 
 const words = (text: string) => text.toUpperCase().split(/\s+/).filter(Boolean)
 
 /**
  * The search's first `shown` matches of `query`: stocks whose code starts
  * with it, then stocks whose code or issuer name holds every word typed,
- * then holders whose name does. An empty query lists the stocks.
+ * then custodians whose broker code is the word typed or whose name holds
+ * every word, then holders whose name does. An empty query lists the
+ * stocks.
  */
 export const findFoci = (list: FocusList, query: string, shown: number) =>
   Effect.sync((): ReadonlyArray<FocusMatch> => {
@@ -126,6 +157,17 @@ export const findFoci = (list: FocusList, query: string, shown: number) =>
         !byCode.includes(each) && holds(`${each.code} ${each.issuerName}`)
     )
     const matches: Array<FocusMatch> = [...byCode, ...byName].map(stock)
+    for (const custodian of list.custodians)
+      if (
+        (typed.length === 1 && custodian.broker === first) ||
+        holds(custodian.name)
+      )
+        matches.push({
+          kind: "custodian",
+          id: CustodianId.make(custodian.id),
+          broker: custodian.broker,
+          name: custodian.name,
+        })
     for (const holder of list.holders) {
       if (matches.length >= shown) break
       if (holds(holder.name))
@@ -138,13 +180,15 @@ export const findFoci = (list: FocusList, query: string, shown: number) =>
     return matches.slice(0, shown)
   })
 
-export const queryOf = ({ stock, holder, day }: HolderMapSearch) =>
+export const queryOf = ({ stock, holder, custodian, day }: HolderMapSearch) =>
   Effect.succeed<HolderMapQuery>({
     focus:
       stock !== undefined
         ? { kind: "stock", code: stock }
         : holder !== undefined
           ? { kind: "holder", key: holder }
-          : undefined,
+          : custodian !== undefined
+            ? { kind: "custodian", id: custodian }
+            : undefined,
     day,
   })

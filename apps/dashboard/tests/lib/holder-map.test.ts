@@ -1,9 +1,11 @@
 import { describe, expect, it } from "@effect/vitest"
-import { StockCode, WibDate } from "@workspace/relay"
+import { BrokerCode, StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
+import { CustodianId } from "@/domain/holdings"
 import { type HolderMapView, holderMapView } from "@/lib/holder-map"
 import type {
+  HolderMapCustodianLink,
   HolderMapLink,
   HolderMapOffList,
   HolderMapRead,
@@ -35,10 +37,32 @@ const read = (links: ReadonlyArray<HolderMapLink>): HolderMapRead => ({
   focus: { kind: "stock", code: StockCode.make("TRUE"), issuerName: "TRUE" },
   links,
   hops: [],
+  custodians: [],
   issuers: [],
   offList: [],
   mostHeld: [],
 })
+
+// A holding's shares at a custodian: a broker's, by its code, else a bank's
+// by its name's key.
+const through = (
+  holder: string,
+  custodian: string,
+  shares: number,
+  code = "TRUE"
+): HolderMapCustodianLink => {
+  const broker = /^[A-Z]{2}$/.test(custodian)
+    ? BrokerCode.make(custodian)
+    : undefined
+  return {
+    code: StockCode.make(code),
+    holder,
+    custodian: CustodianId.make(custodian),
+    broker,
+    name: broker === undefined ? custodian : `BROKER ${custodian}`,
+    shares,
+  }
+}
 
 const off = (
   band: HolderMapLink["band"],
@@ -448,6 +472,187 @@ describe("holderMapView", () => {
           ["stock:TLKM", "holder:C", "unchanged"],
         ])
         expect(held?.graph.key).toBe("holder:A@2026-11-20")
+      })
+  )
+
+  it.effect(
+    "links each above-5% holder to its custodians, one node a custodian, sized by shares",
+    () =>
+      Effect.gen(function* () {
+        const view = yield* holderMapView({
+          ...read([link("5%", "A", 900), link("5%", "B", 600)]),
+          // A's 900,000 shares, two thirds at YP; B's all at YP.
+          custodians: [
+            through("A", "CITIBANK", 300_000),
+            through("A", "YP", 600_000),
+            through("B", "YP", 600_000),
+          ],
+        })
+        const graph = view.focus?.graph
+        expect(
+          graph?.nodes
+            .filter(({ kind }) => kind === "custodian")
+            .map(({ id, name, inside, labelled, refocus, shares }) => [
+              id,
+              name,
+              inside,
+              labelled,
+              refocus,
+              shares,
+            ])
+        ).toEqual([
+          [
+            "custodian:CITIBANK",
+            "CITIBANK",
+            undefined,
+            false,
+            { custodian: "CITIBANK" },
+            300_000,
+          ],
+          [
+            "custodian:YP",
+            "BROKER YP",
+            "YP",
+            false,
+            { custodian: "YP" },
+            1_200_000,
+          ],
+        ])
+        const custodianLinks = (graph?.links ?? []).filter(({ source }) =>
+          source.startsWith("custodian:")
+        )
+        expect(
+          custodianLinks.map(({ source, target, move, stakeHundredths }) => [
+            source,
+            target,
+            move,
+            stakeHundredths,
+          ])
+        ).toEqual([
+          ["custodian:CITIBANK", "holder:A", undefined, 300],
+          ["custodian:YP", "holder:A", undefined, 600],
+          ["custodian:YP", "holder:B", undefined, 600],
+        ])
+        expect(view.focus?.legend.map(({ label }) => label)).toEqual([
+          "Stock",
+          "Holder",
+          "Custodian",
+          "5% and above",
+          "Local",
+          "Unchanged",
+        ])
+        // The side panel lists them, most shares first.
+        expect(
+          view.focus?.custodians.map(({ id, shares, holders }) => [
+            id,
+            shares,
+            holders,
+          ])
+        ).toEqual([
+          ["YP", 1_200_000, 2],
+          ["CITIBANK", 300_000, 1],
+        ])
+      })
+  )
+
+  it.effect(
+    "draws a custodian focus linked to its holders, once each, and their stocks through it",
+    () =>
+      Effect.gen(function* () {
+        const at = (code: string, held: HolderMapLink) => ({
+          ...held,
+          code: StockCode.make(code),
+        })
+        const view = yield* holderMapView({
+          ...read([]),
+          focus: {
+            kind: "custodian",
+            id: CustodianId.make("ZP"),
+            broker: BrokerCode.make("ZP"),
+            name: "MAYBANK SEKURITAS INDONESIA",
+          },
+          links: [
+            at("ASRI", link("5%", "M", 900)),
+            at("ENRG", {
+              ...link("5%", "M", 1000),
+              move: { kind: "up", shareChange: 10, percentageChange: 5 },
+            }),
+            at("ASRI", link("5%", "T", 2000)),
+          ],
+          custodians: [
+            through("M", "ZP", 900_000, "ASRI"),
+            through("M", "ZP", 400_000, "ENRG"),
+            through("M", "PD", 600_000, "ENRG"),
+            through("T", "ZP", 1_000, "ASRI"),
+            through("T", "PD", 1_999_000, "ASRI"),
+          ],
+          issuers: [
+            { code: StockCode.make("ASRI"), issuerName: "ALAM SUTERA" },
+            { code: StockCode.make("ENRG"), issuerName: "ENERGI MEGA" },
+          ],
+        })
+        const custodian = view.focus
+        expect(custodian?.kind).toBe("custodian")
+        expect(custodian?.title).toBe("MAYBANK SEKURITAS INDONESIA")
+        expect(custodian?.bands).toEqual([])
+        // Its book: each holder and stock with the shares held through it.
+        const book =
+          custodian?.kind === "custodian" ? custodian.book : undefined
+        expect(
+          book?.holders.map(({ key, name, shares, stocks }) => [
+            key,
+            name,
+            shares,
+            stocks,
+          ])
+        ).toEqual([
+          ["M", "M", 1_300_000, ["ASRI", "ENRG"]],
+          ["T", "T", 1_000, ["ASRI"]],
+        ])
+        expect(
+          book?.stocks.map(({ code, issuerName, shares, holders }) => [
+            code,
+            issuerName,
+            shares,
+            holders,
+          ])
+        ).toEqual([
+          ["ASRI", "ALAM SUTERA", 901_000, 2],
+          ["ENRG", "ENERGI MEGA", 400_000, 1],
+        ])
+        // Its other custodians, not itself.
+        expect(custodian?.custodians.map(({ id }) => id)).toEqual(["PD"])
+        expect(
+          custodian?.graph.nodes.map(({ id, focus, labelled, refocus }) => [
+            id,
+            focus,
+            labelled,
+            refocus,
+          ])
+        ).toEqual([
+          ["custodian:ZP", true, true, { custodian: "ZP" }],
+          ["holder:M", false, true, { holder: "M" }],
+          ["holder:T", false, true, { holder: "T" }],
+          ["stock:ASRI", false, false, { stock: "ASRI" }],
+          ["stock:ENRG", false, false, { stock: "ENRG" }],
+          ["custodian:PD", false, false, { custodian: "PD" }],
+        ])
+        expect(
+          custodian?.graph.links.map(({ source, target, move }) => [
+            source,
+            target,
+            move,
+          ])
+        ).toEqual([
+          ["holder:M", "stock:ASRI", "unchanged"],
+          ["holder:T", "stock:ASRI", "unchanged"],
+          ["holder:M", "stock:ENRG", "up"],
+          ["custodian:PD", "holder:M", undefined],
+          ["custodian:PD", "holder:T", undefined],
+          ["custodian:ZP", "holder:M", undefined],
+          ["custodian:ZP", "holder:T", undefined],
+        ])
+        expect(custodian?.graph.key).toBe("custodian:ZP@2026-11-20")
       })
   )
 

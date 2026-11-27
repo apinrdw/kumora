@@ -1,9 +1,10 @@
 // The Holder map page (spec apinrdw/kumora#733; apinrdw/kumora#734,
-// #735, #736, #737, #738): a stock and holder search and an as-of day
-// picker, then the focus's holdings as of one trading day, drawn as a map
-// above a side panel of two bands, each with its move, and its Off list,
-// or, with no focus, the stocks with the most ≥1% holders. A stock focus's
-// holdings are its holders, a holder focus's its stocks.
+// #735, #736, #737, #738, #739): a stock, holder and custodian search and
+// an as-of day picker, then the focus's holdings as of one trading day,
+// drawn as a map above a side panel of two bands, each with its move, the
+// custodians drawn, and its Off list, or, with no focus, the stocks with
+// the most ≥1% holders. A stock focus's holdings are its holders, a holder
+// focus's its stocks, and a custodian focus's book its holders and stocks.
 import { Link } from "@tanstack/react-router"
 import { WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
@@ -29,8 +30,10 @@ import { count, lotsOfShares } from "@/lib/format"
 import {
   BAND_TITLE,
   type BandSection,
+  type CustodianBook,
   type FocusView,
   type HolderMapView,
+  type MapCustodian,
   type MapHolder,
   ORIGIN_LABEL,
   type Refocus,
@@ -53,7 +56,36 @@ export type HolderMapPageProps = {
 
 // A search match's refocus.
 const refocusOf = (match: FocusMatch): Refocus =>
-  match.kind === "stock" ? { stock: match.code } : { holder: match.key }
+  match.kind === "stock"
+    ? { stock: match.code }
+    : match.kind === "holder"
+      ? { holder: match.key }
+      : { custodian: match.id }
+
+// What a focus's heading says it is.
+const kindLabel = (focus: FocusView) =>
+  focus.kind === "stock"
+    ? focus.issuerName
+    : focus.kind === "holder"
+      ? "Holder"
+      : focus.broker === undefined
+        ? "Custodian"
+        : `Custodian · ${focus.broker}`
+
+// A focus with nothing to draw: a stock with no holders, a holder with no
+// stocks, a custodian holding for no one.
+const emptyText = (focus: FocusView, day: WibDate | undefined) => {
+  const on = day === undefined ? "" : ` on ${Effect.runSync(dayDateLabel(day))}`
+  if (focus.kind === "custodian")
+    return {
+      title: `Nothing held through ${focus.title}${on}`,
+      description: `No securities account on the day's above-5% report is at ${focus.title}. Search another custodian, or pick another day.`,
+    }
+  return {
+    title: `${focus.kind === "stock" ? "No holders of" : "No stocks held by"} ${focus.title}${on}`,
+    description: `Neither the day's above-5% report nor the month's above-1% report lists ${focus.title}. ${focus.kind === "stock" ? "Check the code, or search another stock." : "Search another stock or holder."}`,
+  }
+}
 
 // A link to the map refocused, keeping the day picked.
 function RefocusLink({
@@ -229,7 +261,11 @@ function Focus({
   month: WibDate | undefined
   onRefocus: (refocus: Refocus) => void
 }) {
-  const empty = focus.bands.every(({ holders }) => holders.length === 0)
+  const empty =
+    focus.kind === "custodian"
+      ? focus.book.holders.length === 0
+      : focus.bands.every(({ holders }) => holders.length === 0)
+  const nothing = emptyText(focus, day)
   // On by default; hides both the Off list section and the map's Off list
   // nodes.
   const [showOffList, setShowOffList] = useState(true)
@@ -242,7 +278,7 @@ function Focus({
         <h2 id="holder-map-focus" className="text-[17px] font-semibold">
           {focus.title}{" "}
           <span className="font-medium text-muted-foreground">
-            {focus.kind === "stock" ? focus.issuerName : "Holder"}
+            {kindLabel(focus)}
           </span>
         </h2>
         {focus.kind === "stock" && (
@@ -264,8 +300,8 @@ function Focus({
         <KEmptyState
           bare
           kind="no-data"
-          title={`${focus.kind === "stock" ? "No holders of" : "No stocks held by"} ${focus.title}${day === undefined ? "" : ` on ${Effect.runSync(dayDateLabel(day))}`}`}
-          description={`Neither the day's above-5% report nor the month's above-1% report lists ${focus.title}. ${focus.kind === "stock" ? "Check the code, or search another stock." : "Search another stock or holder."}`}
+          title={nothing.title}
+          description={nothing.description}
         />
       ) : (
         <>
@@ -277,6 +313,8 @@ function Focus({
           {focus.bands.map((band) => (
             <Band key={band.band} band={band} day={day} focus={focus} />
           ))}
+          {focus.kind === "custodian" && <Book book={focus.book} />}
+          <Custodians custodians={focus.custodians} focus={focus.kind} />
         </>
       )}
       <OffList
@@ -285,6 +323,167 @@ function Focus({
         shown={showOffList}
         onShown={setShowOffList}
       />
+    </section>
+  )
+}
+
+const TABLE =
+  "w-full text-[13px] [&_td]:px-2 [&_td]:py-1.5 [&_td]:align-top [&_th]:px-2 [&_th]:py-1.5 [&_th]:align-top [&_tr]:border-b [&_tr]:border-border"
+
+// A table's header row: each column's name, the first left, the rest right.
+function Head({ columns }: { columns: ReadonlyArray<string> }) {
+  return (
+    <thead className="[&_th]:font-medium [&_th]:whitespace-nowrap [&_th]:text-muted-foreground">
+      <tr>
+        {columns.map((column, at) => (
+          <th
+            key={column}
+            scope="col"
+            className={at === 0 ? "text-left" : "text-right"}
+          >
+            {column}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  )
+}
+
+// A custodian focus's book: the holders it holds for, each with its stocks
+// through it, then those stocks, each with the shares held through it.
+function Book({ book }: { book: CustodianBook }) {
+  return (
+    <>
+      <section aria-labelledby="book-holders" className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 id="book-holders" className="text-[15px] font-semibold">
+            Holders through it
+          </h3>
+          <p className="text-[13px] text-muted-foreground">
+            {Effect.runSync(count(book.holders.length, "holder", "holders"))}{" "}
+            above 5%
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table aria-label="Holders through it" className={TABLE}>
+            <Head columns={["Holder", "Stocks", "Lots through it"]} />
+            <tbody>
+              {/* Decision: a page renders a list of stored rows through BoundedRows
+                  (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md) */}
+              <BoundedRows rows={book.holders}>
+                {(holder) => (
+                  <tr key={holder.key}>
+                    <th scope="row" className="text-left font-medium">
+                      <RefocusLink to={{ holder: holder.key }}>
+                        {holder.name}
+                      </RefocusLink>
+                    </th>
+                    <td className="text-right">
+                      <span className="flex flex-wrap justify-end gap-x-2">
+                        {holder.stocks.map((code) => (
+                          <RefocusLink key={code} to={{ stock: code }}>
+                            {code}
+                          </RefocusLink>
+                        ))}
+                      </span>
+                    </td>
+                    <td className="num text-right whitespace-nowrap">
+                      {Effect.runSync(lotsOfShares(holder.shares))}
+                    </td>
+                  </tr>
+                )}
+              </BoundedRows>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section aria-labelledby="book-stocks" className="flex flex-col gap-2">
+        <h3 id="book-stocks" className="text-[15px] font-semibold">
+          Stocks through it
+        </h3>
+        <div className="overflow-x-auto">
+          <table aria-label="Stocks through it" className={TABLE}>
+            <Head columns={["Stock", "Holders", "Lots through it"]} />
+            <tbody>
+              {/* Decision: a page renders a list of stored rows through BoundedRows
+                  (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md) */}
+              <BoundedRows rows={book.stocks}>
+                {(stock) => (
+                  <tr key={stock.code}>
+                    <th scope="row" className="text-left font-normal">
+                      <div className="font-medium">
+                        <RefocusLink to={{ stock: stock.code }}>
+                          {stock.code}
+                        </RefocusLink>
+                      </div>
+                      <div className="mt-0.5 text-[12px] text-muted-foreground">
+                        {stock.issuerName ?? "Issuer unknown"}
+                      </div>
+                    </th>
+                    <td className="num text-right">{stock.holders}</td>
+                    <td className="num text-right whitespace-nowrap">
+                      {Effect.runSync(lotsOfShares(stock.shares))}
+                    </td>
+                  </tr>
+                )}
+              </BoundedRows>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  )
+}
+
+// The custodians the map draws, each a link refocusing the map on it.
+function Custodians({
+  custodians,
+  focus,
+}: {
+  custodians: ReadonlyArray<MapCustodian>
+  focus: FocusView["kind"]
+}) {
+  if (custodians.length === 0) return null
+  const title = focus === "custodian" ? "Other custodians" : "Custodians"
+  return (
+    <section aria-labelledby="custodians" className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 id="custodians" className="text-[15px] font-semibold">
+          {title}
+        </h3>
+        <p className="text-[13px] text-muted-foreground">
+          Of the above-5% holders' securities accounts
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table aria-label={title} className={TABLE}>
+          <Head columns={["Custodian", "Holders", "Lots"]} />
+          <tbody>
+            {/* Decision: a page renders a list of stored rows through BoundedRows
+                (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md) */}
+            <BoundedRows rows={custodians}>
+              {(custodian) => (
+                <tr key={custodian.id}>
+                  <th scope="row" className="text-left font-normal">
+                    <div className="font-medium">
+                      <RefocusLink to={{ custodian: custodian.id }}>
+                        {custodian.name}
+                      </RefocusLink>
+                    </div>
+                    <div className="mt-0.5 text-[12px] text-muted-foreground">
+                      {custodian.broker ?? "No broker code"}
+                    </div>
+                  </th>
+                  <td className="num text-right">{custodian.holders}</td>
+                  <td className="num text-right whitespace-nowrap">
+                    {Effect.runSync(lotsOfShares(custodian.shares))}
+                  </td>
+                </tr>
+              )}
+            </BoundedRows>
+          </tbody>
+        </table>
+      </div>
     </section>
   )
 }

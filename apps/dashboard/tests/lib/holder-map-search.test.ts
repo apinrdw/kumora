@@ -1,8 +1,8 @@
 import { describe, expect, it } from "@effect/vitest"
-import { StockCode, WibDate } from "@workspace/relay"
+import { BrokerCode, StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { HolderKey } from "@/domain/holdings"
+import { CustodianId, HolderKey } from "@/domain/holdings"
 
 import {
   holderMapMoveSearch,
@@ -22,6 +22,7 @@ describe("parseHolderMapSearch", () => {
       expect(search).toEqual({
         stock: "TRUE",
         holder: undefined,
+        custodian: undefined,
         day: "2026-06-25",
       })
       expect(yield* queryOf(search)).toEqual({
@@ -39,6 +40,7 @@ describe("parseHolderMapSearch", () => {
       expect(search).toEqual({
         stock: undefined,
         holder: "INDONESIA MAYBANK SEKURITAS",
+        custodian: undefined,
         day: undefined,
       })
       expect(yield* queryOf(search)).toEqual({
@@ -58,9 +60,42 @@ describe("parseHolderMapSearch", () => {
       expect(search).toEqual({
         stock: undefined,
         holder: undefined,
+        custodian: undefined,
         day: "2026-06-25",
       })
     })
+  )
+
+  it.effect("keeps a custodian focus by its id, in any case", () =>
+    Effect.gen(function* () {
+      const search = yield* parseHolderMapSearch({ custodian: "zp" })
+      expect(search).toEqual({
+        stock: undefined,
+        holder: undefined,
+        custodian: "ZP",
+        day: undefined,
+      })
+      expect(yield* queryOf(search)).toEqual({
+        focus: { kind: "custodian", id: "ZP" },
+        day: undefined,
+      })
+    })
+  )
+
+  it.effect(
+    "drops every focus when the URL names a custodian and another",
+    () =>
+      Effect.gen(function* () {
+        for (const other of [{ stock: "TRUE" }, { holder: "DJONI" }])
+          expect(
+            yield* parseHolderMapSearch({ custodian: "ZP", ...other })
+          ).toEqual({
+            stock: undefined,
+            holder: undefined,
+            custodian: undefined,
+            day: undefined,
+          })
+      })
   )
 
   it.effect("drops a blank or overlong holder key", () =>
@@ -80,6 +115,7 @@ describe("parseHolderMapSearch", () => {
       expect(search).toEqual({
         stock: undefined,
         holder: undefined,
+        custodian: undefined,
         day: undefined,
       })
       expect(yield* queryOf(search)).toEqual({
@@ -98,6 +134,27 @@ describe("refocused", () => {
         { holder: HolderKey.make("DJONI") }
       )
       expect(yield* queryOf(next)).toEqual({
+        focus: { kind: "holder", key: "DJONI" },
+        day: "2026-06-25",
+      })
+    })
+  )
+
+  it.effect("clears the stock when focusing a custodian, and back", () =>
+    Effect.gen(function* () {
+      const custodian = yield* refocused(
+        { stock: StockCode.make("TRUE"), day: WibDate.make("2026-06-25") },
+        { custodian: CustodianId.make("YP") }
+      )
+      expect(yield* queryOf(custodian)).toEqual({
+        focus: { kind: "custodian", id: "YP" },
+        day: "2026-06-25",
+      })
+      expect(
+        yield* queryOf(
+          yield* refocused(custodian, { holder: HolderKey.make("DJONI") })
+        )
+      ).toEqual({
         focus: { kind: "holder", key: "DJONI" },
         day: "2026-06-25",
       })
@@ -155,21 +212,47 @@ describe("findFoci", () => {
       },
       { key: "AGUNG INVESTINDO PERKASA", name: "PT AGUNG PERKASA INVESTINDO" },
     ],
+    custodians: [
+      {
+        id: "A CITIBANK N",
+        broker: undefined,
+        name: "CITIBANK, N. A",
+      },
+      {
+        id: "ZP",
+        broker: BrokerCode.make("ZP"),
+        name: "MAYBANK SEKURITAS INDONESIA",
+      },
+    ],
   }
   const found = (query: string, shown = 50) =>
     Effect.map(findFoci(list, query, shown), (foci) =>
       foci.map((focus) =>
-        focus.kind === "stock" ? focus.code : `holder ${focus.key}`
+        focus.kind === "stock"
+          ? focus.code
+          : focus.kind === "holder"
+            ? `holder ${focus.key}`
+            : `custodian ${focus.id}`
       )
     )
 
-  it.effect("finds stocks by code first, then by name, then holders", () =>
+  it.effect(
+    "finds stocks by code first, then by name, then custodians, then holders",
+    () =>
+      Effect.gen(function* () {
+        expect(yield* found("may")).toEqual([
+          "MAYA",
+          "custodian ZP",
+          "holder INDONESIA MAYBANK SEKURITAS",
+        ])
+        expect(yield* found("dinamik")).toEqual(["TRUE"])
+      })
+  )
+
+  it.effect("finds a custodian by its broker code or its name", () =>
     Effect.gen(function* () {
-      expect(yield* found("may")).toEqual([
-        "MAYA",
-        "holder INDONESIA MAYBANK SEKURITAS",
-      ])
-      expect(yield* found("dinamik")).toEqual(["TRUE"])
+      expect(yield* found("zp")).toEqual(["custodian ZP"])
+      expect(yield* found("citibank")).toEqual(["custodian A CITIBANK N"])
     })
   )
 

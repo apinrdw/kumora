@@ -1,12 +1,13 @@
 // The Holder map's view model (spec apinrdw/kumora#733, "View model"): the
 // read turned into what the page shows, the focus's side panel, a section
-// per band, and the graph's nodes, links and legend, or the landing view's
-// stocks.
-import type { StockCode, WibDate } from "@workspace/relay"
+// per band, its custodians and a custodian focus's book, and the graph's
+// nodes, links and legend, or the landing view's stocks.
+import type { BrokerCode, StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { HolderKey, type KseiType } from "@/domain/holdings"
+import { type CustodianId, HolderKey, type KseiType } from "@/domain/holdings"
 import type {
+  HolderMapCustodianLink,
   HolderMapLink,
   HolderMapOffList,
   HolderMapRead,
@@ -60,25 +61,26 @@ export interface BandSection {
   readonly totalHundredths: number
 }
 
-// The search a node's click navigates to. A custodian gains one with
-// custodian focus (apinrdw/kumora#739).
+// The search a node's click navigates to.
 export type Refocus =
   | { readonly stock: StockCode }
   | { readonly holder: HolderKey }
+  | { readonly custodian: CustodianId }
 
 // One dot of the graph.
 export interface MapNode {
-  // `stock:<code>` or `holder:<holder key>`: unique in the graph, stable
-  // across reloads.
+  // `stock:<code>`, `holder:<holder key>` or `custodian:<id>`: unique in
+  // the graph, stable across reloads.
   readonly id: string
-  readonly kind: "stock" | "holder"
-  // A stock's code; a holder's name as published.
+  readonly kind: "stock" | "holder" | "custodian"
+  // A stock's code; a holder's name as published; a custodian's name.
   readonly name: string
   // A stock's issuer name; undefined on a holder.
   readonly issuerName: string | undefined
   // The name shortened for a label beside the dot.
   readonly label: string
-  // What the dot prints inside: a stock's code, a holder's KSEI type.
+  // What the dot prints inside: a stock's code, a holder's KSEI type, a
+  // custodian's broker code.
   readonly inside: string | undefined
   // Its holding's band, filled or outlined; undefined on the focus and a
   // stock of the outer ring.
@@ -92,6 +94,7 @@ export interface MapNode {
     | undefined
   // That holding's % × 100.
   readonly stakeHundredths: number | undefined
+  // Its holding's; a custodian's, its links' summed.
   readonly shares: number | undefined
   // In layout units, following the stake.
   readonly radius: number
@@ -107,17 +110,20 @@ export interface MapNode {
   readonly refocus: Refocus | undefined
 }
 
-// One line between two nodes, a holding.
+// One line between two nodes: a holding, or a holder's shares at a
+// custodian.
 export interface MapLink {
   readonly id: string
   readonly source: string
   readonly target: string
   readonly band: Band
+  // A custodian link's: the % its shares there are of each stock, summed.
   readonly stakeHundredths: number
   // In layout units, following the stake.
   readonly width: number
-  // What its holding's row shows, the link's colour.
-  readonly move: LinkMove
+  // What its holding's row shows, the link's colour; undefined on a
+  // custodian link.
+  readonly move: LinkMove | undefined
 }
 
 export type LegendEntry =
@@ -127,6 +133,38 @@ export type LegendEntry =
       readonly label: string
     }
   | { readonly kind: "move"; readonly key: LinkMove; readonly label: string }
+
+// A custodian the map draws, as its side panel lists it.
+export interface MapCustodian {
+  readonly id: CustodianId
+  readonly broker: BrokerCode | undefined
+  readonly name: string
+  // Its links' shares, summed.
+  readonly shares: number
+  // The holders whose links they are.
+  readonly holders: number
+}
+
+// A custodian focus's book: what it holds, for whom.
+export interface CustodianBook {
+  // Most shares first, then by name.
+  readonly holders: ReadonlyArray<{
+    readonly key: HolderKey
+    readonly name: string
+    // Held through it, in every stock.
+    readonly shares: number
+    // By code.
+    readonly stocks: ReadonlyArray<StockCode>
+  }>
+  // Most shares first, then by code.
+  readonly stocks: ReadonlyArray<{
+    readonly code: StockCode
+    readonly issuerName: string | undefined
+    // Held through it, by every holder.
+    readonly shares: number
+    readonly holders: number
+  }>
+}
 
 // What the map is drawn around.
 export type FocusView = (
@@ -140,14 +178,24 @@ export type FocusView = (
       readonly key: HolderKey
       readonly name: string | undefined
     }
+  | {
+      readonly kind: "custodian"
+      readonly id: CustodianId
+      readonly broker: BrokerCode | undefined
+      readonly name: string | undefined
+      readonly book: CustodianBook
+    }
 ) & {
-  // What the map is of: a stock's code, a holder's name, else its key.
+  // What the map is of: a stock's code, a holder's or custodian's name,
+  // else its key or id.
   readonly title: string
   // The 5% band, then the 1% band; the 5% band only for a day before any
-  // above-1% month, none for a refused day.
+  // above-1% month, none for a refused day or a custodian focus.
   readonly bands: ReadonlyArray<BandSection>
+  // The custodians the graph draws, but the focus; most shares first.
+  readonly custodians: ReadonlyArray<MapCustodian>
   // The focus first, then the side panel's holdings in its order, the Off
-  // list, then the second hop.
+  // list, the second hop, then the custodians.
   readonly graph: {
     // The focus and the day it is drawn as of: the layout's key, so a
     // reload of one focus and day lays out the same picture.
@@ -240,6 +288,7 @@ const widthOf = (hundredths: number) =>
 
 const stockId = (code: string) => `stock:${code}`
 const holderId = (key: string) => `holder:${key}`
+const custodianId = (id: string) => `custodian:${id}`
 
 // A node with nothing drawn on it yet but its kind, id and name.
 const bare = (
@@ -247,7 +296,7 @@ const bare = (
   name: string,
   refocus: Refocus
 ): MapNode => ({
-  id: kind === "stock" ? stockId(name) : holderId(name),
+  id: `${kind}:${name}`,
   kind,
   name,
   issuerName: undefined,
@@ -259,7 +308,7 @@ const bare = (
   holding: undefined,
   stakeHundredths: undefined,
   shares: undefined,
-  radius: kind === "stock" ? STOCK_RADIUS : HOLDER_RADIUS,
+  radius: kind === "holder" ? HOLDER_RADIUS : STOCK_RADIUS,
   focus: false,
   offList: false,
   move: undefined,
@@ -338,7 +387,7 @@ const linkOf = (
   target: string,
   band: Band,
   hundredths: number,
-  move: LinkMove
+  move: LinkMove | undefined
 ): MapLink => ({
   id: `${source}->${target}`,
   source,
@@ -396,9 +445,175 @@ const outerNodes = (
 const byPlace = (a: HolderMapLink, b: HolderMapLink) =>
   a.code.localeCompare(b.code) || a.holder.localeCompare(b.holder)
 
-const graphOf = (
-  focus: FocusView,
-  asOf: WibDate | undefined,
+const placeOf = (code: string, holder: string) => `${code} ${holder}`
+
+// A custodian's node: its broker code inside, unlabelled but as the focus.
+const custodianNode = (custodian: MapCustodian): MapNode => ({
+  ...bare("custodian", custodian.id, { custodian: custodian.id }),
+  name: custodian.name,
+  label: labelOf(custodian.name),
+  inside: custodian.broker,
+  shares: custodian.shares,
+})
+
+// The custodians of `links`, each once, by id.
+const custodiansOf = (links: ReadonlyArray<HolderMapCustodianLink>) =>
+  Effect.sync((): ReadonlyArray<MapCustodian> => {
+    const byId = new Map<
+      CustodianId,
+      { custodian: MapCustodian; holders: Set<string> }
+    >()
+    for (const link of links) {
+      const known = byId.get(link.custodian)
+      const holders = known?.holders ?? new Set<string>()
+      holders.add(link.holder)
+      byId.set(link.custodian, {
+        custodian: {
+          id: link.custodian,
+          broker: link.broker,
+          name: link.name,
+          shares: (known?.custodian.shares ?? 0) + link.shares,
+          holders: holders.size,
+        },
+        holders,
+      })
+    }
+    return [...byId.values()]
+      .map(({ custodian }) => custodian)
+      .sort((a, b) => b.shares - a.shares || a.name.localeCompare(b.name))
+  })
+
+// One link a custodian and holder, however many stocks the holder holds
+// there: the % of each stock its shares there are, summed.
+const custodianLinksOf = (
+  custodians: ReadonlyArray<HolderMapCustodianLink>,
+  holdings: ReadonlyArray<HolderMapLink>
+) =>
+  Effect.sync(() => {
+    const held = new Map(
+      holdings.map((holding) => [
+        placeOf(holding.code, holding.holder),
+        holding,
+      ])
+    )
+    const stakes = new Map<
+      string,
+      { source: string; target: string; hundredths: number }
+    >()
+    for (const link of custodians) {
+      const holding = held.get(placeOf(link.code, link.holder))
+      const hundredths =
+        holding === undefined || holding.shares === 0
+          ? 0
+          : (holding.percentageHundredths * link.shares) / holding.shares
+      const source = custodianId(link.custodian)
+      const target = holderId(link.holder)
+      const id = `${source}->${target}`
+      stakes.set(id, {
+        source,
+        target,
+        hundredths: (stakes.get(id)?.hundredths ?? 0) + hundredths,
+      })
+    }
+    return [...stakes.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, { source, target, hundredths }]) =>
+        linkOf(source, target, "5%", hundredths, undefined)
+      )
+  })
+
+// A custodian focus's book, from its own links.
+const bookOf = (
+  id: CustodianId,
+  custodians: ReadonlyArray<HolderMapCustodianLink>,
+  holdings: ReadonlyArray<HolderMapLink>,
+  issuers: ReadonlyMap<StockCode, string>
+) =>
+  Effect.sync((): CustodianBook => {
+    const names = new Map(
+      holdings.map((holding) => [holding.holder, holding.name])
+    )
+    const holders = new Map<
+      string,
+      { shares: number; stocks: Set<StockCode> }
+    >()
+    const stocks = new Map<
+      StockCode,
+      { shares: number; holders: Set<string> }
+    >()
+    for (const link of custodians) {
+      if (link.custodian !== id) continue
+      const holder = holders.get(link.holder) ?? {
+        shares: 0,
+        stocks: new Set<StockCode>(),
+      }
+      holder.shares += link.shares
+      holder.stocks.add(link.code)
+      holders.set(link.holder, holder)
+      const stock = stocks.get(link.code) ?? {
+        shares: 0,
+        holders: new Set<string>(),
+      }
+      stock.shares += link.shares
+      stock.holders.add(link.holder)
+      stocks.set(link.code, stock)
+    }
+    return {
+      holders: [...holders]
+        .map(([key, { shares, stocks: of }]) => ({
+          key: HolderKey.make(key),
+          name: names.get(key) ?? key,
+          shares,
+          stocks: [...of].sort(),
+        }))
+        .sort((a, b) => b.shares - a.shares || a.name.localeCompare(b.name)),
+      stocks: [...stocks]
+        .map(([code, { shares, holders: of }]) => ({
+          code,
+          issuerName: issuers.get(code),
+          shares,
+          holders: of.size,
+        }))
+        .sort((a, b) => b.shares - a.shares || a.code.localeCompare(b.code)),
+    }
+  })
+
+// A custodian focus's graph: the focus, its holders each once at their
+// largest holding through it, then the stocks they hold through it.
+const custodianGraph = (
+  head: MapNode,
+  book: CustodianBook,
+  holdings: ReadonlyArray<HolderMapLink>,
+  issuers: ReadonlyMap<StockCode, string>
+) =>
+  Effect.sync(() => {
+    const largest = new Map<string, HolderMapLink>()
+    for (const holding of holdings) {
+      const known = largest.get(holding.holder)
+      if (
+        known === undefined ||
+        holding.percentageHundredths > known.percentageHundredths
+      )
+        largest.set(holding.holder, holding)
+    }
+    const nodes: Array<MapNode> = [head]
+    for (const { key } of book.holders) {
+      const holding = largest.get(key)
+      if (holding !== undefined)
+        nodes.push({ ...heldNode(holding, "holder", issuers), labelled: true })
+    }
+    const ordered = [...holdings].sort(byPlace)
+    for (const stock of new Set(ordered.map((held) => held.code)))
+      nodes.push(stockNode(stock, issuers))
+    return {
+      nodes,
+      links: ordered.map((holding) => holdingLink(holding, "holder")),
+    }
+  })
+
+// The graph's first nodes and links: the focus and its hops.
+const hopsGraph = (
+  focus: Exclude<FocusView, { kind: "custodian" }>,
   bands: ReadonlyArray<BandSection>,
   offList: ReadonlyArray<HolderMapOffList>,
   hops: ReadonlyArray<HolderMapLink>,
@@ -445,8 +660,58 @@ const graphOf = (
       }),
       ...ordered.map((hop) => holdingLink(hop, near)),
     ]
-    return { key: `${head.id}@${asOf ?? ""}`, nodes, links }
+    return { nodes, links }
   })
+
+const graphOf = Effect.fnUntraced(function* (
+  focus: FocusView,
+  asOf: WibDate | undefined,
+  read: Pick<HolderMapRead, "links" | "hops" | "custodians">,
+  offList: ReadonlyArray<HolderMapOffList>,
+  issuers: ReadonlyMap<StockCode, string>
+) {
+  const { nodes, links } =
+    focus.kind === "custodian"
+      ? yield* custodianGraph(
+          {
+            ...custodianNode({
+              id: focus.id,
+              broker: focus.broker,
+              name: focus.title,
+              shares: focus.book.holders.reduce(
+                (sum, { shares }) => sum + shares,
+                0
+              ),
+              holders: focus.book.holders.length,
+            }),
+            radius: FOCUS_RADIUS,
+            focus: true,
+            labelled: true,
+          },
+          focus.book,
+          read.links,
+          issuers
+        )
+      : yield* hopsGraph(focus, focus.bands, offList, read.hops, issuers)
+  const [head] = nodes
+  return {
+    key: `${head?.id ?? ""}@${asOf ?? ""}`,
+    // The custodians after the rest, by id: the layout's stable order.
+    nodes: [
+      ...nodes,
+      ...[...focus.custodians]
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map(custodianNode),
+    ],
+    links: [
+      ...links,
+      ...(yield* custodianLinksOf(read.custodians, [
+        ...read.links,
+        ...read.hops,
+      ])),
+    ],
+  }
+})
 
 const ORIGIN_ORDER = ["local", "foreign", "mixed", undefined] as const
 
@@ -474,6 +739,9 @@ const legendOf = (
       ...(holders.length > 0
         ? [{ kind: "node" as const, key: "holder", label: "Holder" }]
         : []),
+      ...(drawn.some(({ kind }) => kind === "custodian")
+        ? [{ kind: "node" as const, key: "custodian", label: "Custodian" }]
+        : []),
     ]
     const bands = (["5%", "1%"] as const)
       .filter((band) => drawn.some((node) => node.band === band))
@@ -500,27 +768,39 @@ const legendOf = (
   })
 
 // The focus as the page names it.
-const focusOf = (focus: NonNullable<HolderMapRead["focus"]>) =>
-  Effect.sync(() =>
-    focus.kind === "stock"
-      ? {
-          kind: "stock" as const,
-          code: focus.code,
-          issuerName: focus.issuerName,
-          title: focus.code as string,
-        }
-      : {
-          kind: "holder" as const,
-          key: HolderKey.make(focus.key),
-          name: focus.name,
-          title: focus.name ?? focus.key,
-        }
-  )
+const focusOf = Effect.fnUntraced(function* (
+  read: HolderMapRead,
+  focus: NonNullable<HolderMapRead["focus"]>,
+  issuers: ReadonlyMap<StockCode, string>
+) {
+  if (focus.kind === "stock")
+    return {
+      kind: "stock" as const,
+      code: focus.code,
+      issuerName: focus.issuerName,
+      title: focus.code as string,
+    }
+  if (focus.kind === "holder")
+    return {
+      kind: "holder" as const,
+      key: HolderKey.make(focus.key),
+      name: focus.name,
+      title: focus.name ?? focus.key,
+    }
+  return {
+    kind: "custodian" as const,
+    id: focus.id,
+    broker: focus.broker,
+    name: focus.name,
+    title: focus.name ?? focus.id,
+    book: yield* bookOf(focus.id, read.custodians, read.links, issuers),
+  }
+})
 
 export const holderMapView = Effect.fnUntraced(function* (
   read: HolderMapRead
 ): Effect.fn.Return<HolderMapView> {
-  const { day, month, refused, days, focus, links, hops, offList } = read
+  const { day, month, refused, days, focus, links, offList } = read
   if (focus === undefined)
     return {
       day,
@@ -534,31 +814,29 @@ export const holderMapView = Effect.fnUntraced(function* (
     read.issuers.map(({ code, issuerName }) => [code, issuerName])
   )
   const bands: Array<BandSection> = []
-  if (day !== undefined) bands.push(yield* section("5%", day, links, issuers))
-  if (month !== undefined)
-    bands.push(yield* section("1%", month, links, issuers))
+  if (focus.kind !== "custodian") {
+    if (day !== undefined) bands.push(yield* section("5%", day, links, issuers))
+    if (month !== undefined)
+      bands.push(yield* section("1%", month, links, issuers))
+  }
   const earlier = [...offList].sort(
     (a, b) =>
       b.since.localeCompare(a.since) ||
       a.name.localeCompare(b.name) ||
       a.code.localeCompare(b.code)
   )
-  const named = yield* focusOf(focus)
+  const named = yield* focusOf(read, focus, issuers)
   const partial = {
     ...named,
     bands,
+    custodians: (yield* custodiansOf(read.custodians)).filter(
+      ({ id }) => focus.kind !== "custodian" || id !== focus.id
+    ),
     graph: { key: "", nodes: [], links: [] },
     legend: [],
     offList: earlier,
   } satisfies FocusView
-  const graph = yield* graphOf(
-    partial,
-    day ?? month,
-    bands,
-    earlier,
-    hops,
-    issuers
-  )
+  const graph = yield* graphOf(partial, day ?? month, read, earlier, issuers)
   return {
     day,
     month,

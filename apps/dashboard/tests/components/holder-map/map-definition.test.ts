@@ -117,4 +117,32 @@ describe("tooltipText", () => {
         ).toBe("TLKM · TELKOM INDONESIA (PERSERO) Tbk")
       })
   )
+
+  it.effect("names a custodian, its broker code and the lots it holds", () =>
+    Effect.gen(function* () {
+      const custodian: MapNode = {
+        ...holder(undefined),
+        id: "custodian:YP",
+        kind: "custodian",
+        name: "MIRAE ASSET SEKURITAS INDONESIA",
+        inside: "YP",
+        band: undefined,
+        origin: undefined,
+        investorType: undefined,
+        holding: undefined,
+        stakeHundredths: undefined,
+        shares: 4_525_939_584,
+      }
+      expect((yield* tooltipText(custodian)).split("\n")).toEqual([
+        "MIRAE ASSET SEKURITAS INDONESIA · YP",
+        "Custodian of 45,259,395.84 lots in view",
+      ])
+      expect(
+        (yield* tooltipText({ ...custodian, inside: undefined })).split("\n")
+      ).toEqual([
+        "MIRAE ASSET SEKURITAS INDONESIA",
+        "Custodian of 45,259,395.84 lots in view",
+      ])
+    })
+  )
 })

@@ -11,6 +11,7 @@ import { Effect } from "effect"
 
 import { percentChangeText, percentOf } from "@/components/stocks/holder-cells"
 import { KSEI_TYPE_LABELS } from "@/domain/holdings"
+import { lotsOfShares } from "@/lib/format"
 import {
   type HolderMapView,
   type LinkMove,
@@ -38,6 +39,8 @@ export const ORIGIN_COLOR: Record<
   unknown: "var(--text-muted)",
 }
 export const STOCK_COLOR = "var(--accent-primary)"
+// A custodian's dot and its links to the holders it holds for.
+export const CUSTODIAN_COLOR = "var(--semantic-warning)"
 // A link's colour by its holder's move: Holder moves' tones, a crossing of
 // 5% toned as the Up or Down it is.
 export const MOVE_COLOR: Record<LinkMove, string> = {
@@ -75,11 +78,11 @@ const stakeText = Effect.fnUntraced(function* (node: MapNode) {
   return `${yield* percentOf(node.stakeHundredths)} ${of}${node.offList ? " last" : ""}`
 })
 
-// A listed holder's origin and KSEI type; none for a stock or an Off list
-// holder, which no longer has them.
+// A listed holder's origin and KSEI type; none for a stock, a custodian or
+// an Off list holder, which no longer has them.
 const metaText = (node: MapNode) =>
   Effect.sync(() =>
-    node.kind === "stock" || node.offList
+    node.kind !== "holder" || node.offList
       ? undefined
       : [
           node.origin === undefined
@@ -95,6 +98,11 @@ const metaText = (node: MapNode) =>
 // type, and its move.
 export const tooltipText = Effect.fnUntraced(function* (node: MapNode) {
   if (node.kind === "stock" && node.focus) return `${node.name} · focus stock`
+  if (node.kind === "custodian")
+    return [
+      node.inside === undefined ? node.name : `${node.name} · ${node.inside}`,
+      `Custodian of ${yield* lotsOfShares(node.shares ?? 0)} lots in view`,
+    ].join("\n")
   const name =
     node.kind === "stock" && node.issuerName !== undefined
       ? `${node.name} · ${node.issuerName}`
@@ -122,7 +130,9 @@ const placed = (
         ? MOVE_COLOR["off list"]
         : node.kind === "stock"
           ? STOCK_COLOR
-          : ORIGIN_COLOR[node.origin ?? "unknown"]
+          : node.kind === "custodian"
+            ? CUSTODIAN_COLOR
+            : ORIGIN_COLOR[node.origin ?? "unknown"]
       return [{ ...node, ...at, r: node.radius / view.unit, color }]
     })
     const byId = new Map(nodes.map((node) => [node.id, node]))
@@ -218,8 +228,14 @@ export const mapDefinition = Effect.fnUntraced(function* (options: {
   const { graph, layout, view, size, hovered, showOffList, nodeOf } = options
   const domains = yield* viewportDomains(view, size)
   const { nodes, links } = yield* placed(graph, layout, view, showOffList)
-  const held = links.filter(({ move }) => move !== "off list")
+  const held = links.flatMap((each) =>
+    each.move === undefined || each.move === "off list"
+      ? []
+      : [{ ...each, move: each.move }]
+  )
   const left = links.filter(({ move }) => move === "off list")
+  // A custodian link has no move.
+  const through = links.filter(({ move }) => move === undefined)
   const inside = nodes.filter(
     (node) => node.inside !== undefined && node.r >= INSIDE_FROM
   )
@@ -245,6 +261,19 @@ export const mapDefinition = Effect.fnUntraced(function* (options: {
           strokeOpacity: OFF_LIST_OPACITY,
           strokeWidth: 1,
           strokeDasharray: OFF_LIST_DASH,
+          renderer: canvasChartRenderer,
+        })
+      ),
+      decorative(
+        link(through, {
+          x1: "x1",
+          y1: "y1",
+          x2: "x2",
+          y2: "y2",
+          key: "id",
+          stroke: CUSTODIAN_COLOR,
+          strokeOpacity: 0.45,
+          strokeWidth: (row) => Math.max(0.5, row.strokeWidth),
           renderer: canvasChartRenderer,
         })
       ),

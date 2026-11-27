@@ -26,6 +26,7 @@ import type {
 } from "@/lib/holder-map"
 
 import {
+  CUSTODIAN_COLOR,
   mapDefinition,
   MOVE_COLOR,
   ORIGIN_COLOR,
@@ -59,13 +60,16 @@ const counted = (count: number, one: string, many: string) =>
   `${count} ${count === 1 ? one : many}`
 
 // The chart's name: what it is of, its first hop's holdings, its Off list
-// while shown, and the hop beyond.
+// while shown, and the hop beyond: a custodian focus's holders, then the
+// stocks it holds for them.
 const mapLabel = (focus: Focus, showOffList: boolean) =>
   Effect.sync(() => {
     const [near, far] =
       focus.kind === "stock"
         ? (["holder", "stock"] as const)
-        : (["stock", "holder"] as const)
+        : focus.kind === "holder"
+          ? (["stock", "holder"] as const)
+          : (["holder", "stock"] as const)
     const drawn = focus.graph.nodes.filter(
       (node) => !node.focus && !node.offList
     )
@@ -82,7 +86,9 @@ const mapLabel = (focus: Focus, showOffList: boolean) =>
       offList === 0 ? "" : ` and ${offList} Off list`,
       beyond === 0
         ? ""
-        : `, ${far === "stock" ? counted(beyond, "other stock", "other stocks") : counted(beyond, "other holder", "other holders")} a hop beyond`,
+        : focus.kind === "custodian"
+          ? `, in ${counted(beyond, "stock", "stocks")}`
+          : `, ${far === "stock" ? counted(beyond, "other stock", "other stocks") : counted(beyond, "other holder", "other holders")} a hop beyond`,
       ". The tables below list each.",
     ].join("")
   })
@@ -231,6 +237,7 @@ function ZoomButton({
 const SWATCH: Record<string, CSSProperties> = {
   stock: { background: STOCK_COLOR },
   holder: { background: "var(--text-secondary)" },
+  custodian: { background: CUSTODIAN_COLOR },
   "5%": { background: "var(--text-secondary)" },
   "1%": { border: "2px solid var(--text-secondary)" },
   local: { background: ORIGIN_COLOR.local },
@@ -253,6 +260,7 @@ const moveSwatch = (move: LinkMove): CSSProperties =>
 const LEGEND_NOTE: Partial<Record<string, string>> = {
   stock: "code inside",
   holder: "KSEI type inside, size by stake",
+  custodian: "broker code inside, links by shares held",
   "5%": "filled",
   "1%": "outlined",
 }

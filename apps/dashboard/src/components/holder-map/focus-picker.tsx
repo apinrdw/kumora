@@ -1,5 +1,6 @@
 // The Holder map's search (spec apinrdw/kumora#733, story 2): a combobox
-// over the stocks and holders the newest reports list, by code or name.
+// over the stocks, holders and custodians the newest reports list, by code
+// or name.
 // Type to filter, arrows to move, Enter or a click to pick.
 import { IconSearch } from "@tabler/icons-react"
 import { cn } from "@workspace/ui/lib/utils"
@@ -16,8 +17,8 @@ import type { FocusListState } from "./use-focus-list"
 const SHOWN = 50
 
 const EMPTY_TEXT: Record<FocusListState["_tag"], string> = {
-  Loading: "Loading stocks and holders…",
-  Ready: "No stock or holder matches.",
+  Loading: "Loading stocks, holders and custodians…",
+  Ready: "No stock, holder or custodian matches.",
 }
 
 export type FocusPickerProps = {
@@ -53,7 +54,7 @@ export function FocusPicker({ state, onPick, className }: FocusPickerProps) {
         label="Focus"
         hideLabel
         icon={IconSearch}
-        placeholder="Search a stock or holder"
+        placeholder="Search a stock, holder or custodian"
         role="combobox"
         aria-expanded={focused}
         aria-controls={listId}
@@ -94,7 +95,13 @@ export function FocusPicker({ state, onPick, className }: FocusPickerProps) {
           )}
           {matches.map((match, index) => (
             <div
-              key={match.kind === "stock" ? match.code : `holder ${match.key}`}
+              key={
+                match.kind === "stock"
+                  ? match.code
+                  : match.kind === "holder"
+                    ? `holder ${match.key}`
+                    : `custodian ${match.id}`
+              }
               id={`${listId}-${index}`}
               role="option"
               aria-selected={index === at}
@@ -123,7 +130,11 @@ export function FocusPicker({ state, onPick, className }: FocusPickerProps) {
                 <>
                   <span className="truncate">{match.name}</span>
                   <span className="ml-auto shrink-0 rounded-xs border border-border px-1 text-[11px] text-muted-foreground">
-                    Holder
+                    {match.kind === "holder"
+                      ? "Holder"
+                      : match.broker === undefined
+                        ? "Custodian"
+                        : `Custodian ${match.broker}`}
                   </span>
                 </>
               )}
