@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react"
 
 import { signInAgain } from "@/components/market-live/sign-in-again"
 import type { FocusList } from "@/lib/holder-map-search"
+import type { HolderMapRead } from "@/server/holdings/holder-map-schema"
 import { holderMapSearchListFn } from "@/server/stocks/stocks.functions"
 
 export type FocusListState =
@@ -56,4 +57,13 @@ export function useFocusList(
         : { _tag: "Ready", list: loaded.list },
     [loaded, day]
   )
+}
+
+// The search list of the map `read`, `asked` the day its URL asks for.
+export function useMapFocusList(
+  href: string,
+  read: Pick<HolderMapRead, "day">,
+  asked: WibDate | undefined
+): FocusListState {
+  return useFocusList(href, asked)
 }

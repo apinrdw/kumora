@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import { useMemo, useState } from "react"
 
 import { HolderMapPage } from "@/components/holder-map/holder-map"
-import { useFocusList } from "@/components/holder-map/use-focus-list"
+import { useMapFocusList } from "@/components/holder-map/use-focus-list"
 import { holderMapView } from "@/lib/holder-map"
 import {
   parseHolderMapSearch,
@@ -58,7 +58,7 @@ function HolderMapRoute() {
     useLocation({ select: (location) => location.href })
   )
   const map = useMemo(() => Effect.runSync(holderMapView(read)), [read])
-  const list = useFocusList(opened, search.day)
+  const list = useMapFocusList(opened, read, search.day)
   return (
     <HolderMapPage
       map={map}

@@ -7,6 +7,7 @@ import { afterEach, expect, test, vi } from "vitest"
 import {
   type FocusListState,
   useFocusList,
+  useMapFocusList,
 } from "@/components/holder-map/use-focus-list"
 import type { FocusList } from "@/lib/holder-map-search"
 
@@ -57,5 +58,53 @@ test("loads again, not the day before's list, when the day changes and its load 
   await settle()
   expect(mocks.list).toHaveBeenCalledTimes(2)
   expect(seen.at(-1)).toEqual({ _tag: "Loading" })
+  act(() => root.unmount())
+})
+
+const THURSDAYS: FocusList = {
+  stocks: [{ code: StockCode.make("ASRI"), issuerName: "ASRI" }],
+  holders: [],
+  custodians: [],
+}
+
+test("loads the newer day's list when the map with no day asked moves onto it", async () => {
+  // The newest day is Thursday's until Friday's is parsed (codex review of
+  // apinrdw/kumora#741, round 10).
+  let newest = THURSDAYS
+  mocks.list.mockImplementation(({ data }) =>
+    Promise.resolve(
+      data.day === FRIDAY ? FRIDAYS : data.day === THURSDAY ? THURSDAYS : newest
+    )
+  )
+  const seen: Array<FocusListState> = []
+  const Probe = ({ day }: { day: WibDate }) => {
+    seen.push(useMapFocusList("/holder-map", { day }, undefined))
+    return null
+  }
+  const root = createRoot(document.createElement("div"))
+  const settle = () =>
+    act(() => new Promise((settled) => setTimeout(settled, 50)))
+  act(() => root.render(<Probe day={THURSDAY} />))
+  await settle()
+  expect(seen.at(-1)).toEqual({ _tag: "Ready", list: THURSDAYS })
+  newest = FRIDAYS
+  act(() => root.render(<Probe day={FRIDAY} />))
+  await settle()
+  expect(seen.at(-1)).toEqual({ _tag: "Ready", list: FRIDAYS })
+  act(() => root.unmount())
+})
+
+test("loads the day asked for when the map refused it", async () => {
+  mocks.list.mockImplementation(() => Promise.resolve(FRIDAYS))
+  const Probe = () => {
+    useMapFocusList("/holder-map", { day: undefined }, THURSDAY)
+    return null
+  }
+  const root = createRoot(document.createElement("div"))
+  act(() => root.render(<Probe />))
+  await act(() => new Promise((settled) => setTimeout(settled, 50)))
+  expect(mocks.list.mock.calls.map(([{ data }]) => data.day)).toEqual([
+    THURSDAY,
+  ])
   act(() => root.unmount())
 })
