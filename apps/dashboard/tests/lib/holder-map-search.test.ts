@@ -12,6 +12,7 @@ import {
   queryOf,
   refocused,
 } from "@/lib/holder-map-search"
+import { mapDrawn } from "@/lib/holder-map-graph"
 
 describe("parseHolderMapSearch", () => {
   it.effect("keeps a stock focus, in any case, and an as-of day", () =>
@@ -389,6 +390,28 @@ describe("pickOf", () => {
         expect(yield* pickOf(left, abadi, { showOffList: true })).toEqual({
           highlight: "holder:ABADI",
         })
+      })
+  )
+
+  it.effect(
+    "highlights only on a map the page draws, as a holder that left all its stocks",
+    () =>
+      Effect.gen(function* () {
+        // A holder focus whose only stock is on its Off list.
+        const left = [
+          { id: "holder:DJONI", focus: true, offList: false },
+          { id: "stock:TRUE", focus: false, offList: true },
+        ]
+        const pick = { kind: "stock", code: TRUE, name: "TRUE" } as const
+        for (const showOffList of [true, false]) {
+          const picked = yield* pickOf(left, pick, { showOffList })
+          expect(yield* mapDrawn(left, showOffList)).toBe(showOffList)
+          expect(picked).toEqual(
+            showOffList
+              ? { highlight: "stock:TRUE" }
+              : { refocus: { stock: "TRUE" } }
+          )
+        }
       })
   )
 })

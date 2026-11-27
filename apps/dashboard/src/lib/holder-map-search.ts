@@ -11,7 +11,7 @@ import {
   type MoveKind,
 } from "@/domain/holdings"
 
-import type { Refocus } from "./holder-map-graph"
+import { type Refocus, shownNodes } from "./holder-map-graph"
 import { nodeId } from "./holder-map-ids"
 import { field } from "./search-field"
 
@@ -203,7 +203,8 @@ const matchKey = (match: FocusMatch) =>
  * flag: focus and first hop always, others on hover or search"): a match
  * the map draws, but its focus, is highlighted in place, labelled; any
  * other refocuses the map on it, so the search still reaches what is out
- * of view. An Off list node the toggle hides isn't drawn.
+ * of view. An Off list node the toggle hides isn't shown, and a map
+ * that shows no node but its focus isn't drawn (`mapDrawn`).
  */
 export const pickOf = Effect.fnUntraced(function* (
   nodes:
@@ -220,9 +221,8 @@ export const pickOf = Effect.fnUntraced(function* (
 > {
   const { key, refocus } = yield* matchKey(match)
   const id = yield* nodeId(match.kind, key)
-  return nodes?.some(
-    (node) => node.id === id && !node.focus && (showOffList || !node.offList)
-  )
+  const shown = yield* shownNodes(nodes ?? [], showOffList)
+  return shown.some((node) => node.id === id && !node.focus)
     ? { highlight: id }
     : { refocus }
 })

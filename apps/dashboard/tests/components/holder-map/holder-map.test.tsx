@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { describe, expect, test } from "vitest"
 
 import { HolderMapPage } from "@/components/holder-map/holder-map"
+import { HolderMapGraph } from "@/components/holder-map/holder-map-graph"
 import { HolderKey } from "@/domain/holdings"
 import { type HolderMapView, holderMapView } from "@/lib/holder-map"
 
@@ -96,5 +97,29 @@ describe("HolderMapPage's focus with only Off list holdings", () => {
     )
     expect(html).not.toContain('id="holder-map-graph"')
     expect(html).toContain("No stocks held by DJONI")
+  })
+})
+
+describe("HolderMapGraph's search note", () => {
+  const focus = leftEverything.focus
+  const graph = (showOffList: boolean) => () =>
+    focus && (
+      <HolderMapGraph
+        focus={focus}
+        showOffList={showOffList}
+        onRefocus={() => undefined}
+        searched="stock:TRUE"
+        onClearSearched={() => undefined}
+      />
+    )
+
+  test("names a searched Off list node while it is shown", async () => {
+    const html = await renderAt("/holder-map?holder=DJONI", graph(true))
+    expect(html).toContain("is labelled on the map")
+  })
+
+  test("names none once the Off list toggle hides it", async () => {
+    const html = await renderAt("/holder-map?holder=DJONI", graph(false))
+    expect(html).not.toContain("is labelled on the map")
   })
 })

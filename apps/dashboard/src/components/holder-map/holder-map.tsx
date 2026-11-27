@@ -37,6 +37,7 @@ import type {
 import {
   BAND_TITLE,
   type MapCustodian,
+  mapDrawn,
   ORIGIN_LABEL,
   type Refocus,
   type ShownMove,
@@ -290,6 +291,7 @@ function Focus({
       ? focus.book.holders.length === 0
       : focus.bands.every(({ holders }) => holders.length === 0)
   const nothing = Effect.runSync(emptyText(focus, day))
+  const drawn = Effect.runSync(mapDrawn(focus.graph.nodes, showOffList))
   return (
     <section
       aria-labelledby="holder-map-focus"
@@ -317,6 +319,15 @@ function Focus({
           {`No above-1% report is parsed on or before ${Effect.runSync(dayDateLabel(day))}, so the map shows the 5% band only.`}
         </p>
       )}
+      {drawn && (
+        <HolderMapGraph
+          focus={focus}
+          showOffList={showOffList}
+          onRefocus={onRefocus}
+          searched={searched}
+          onClearSearched={onClearSearched}
+        />
+      )}
       {empty ? (
         <KEmptyState
           bare
@@ -326,13 +337,6 @@ function Focus({
         />
       ) : (
         <>
-          <HolderMapGraph
-            focus={focus}
-            showOffList={showOffList}
-            onRefocus={onRefocus}
-            searched={searched}
-            onClearSearched={onClearSearched}
-          />
           {focus.bands.map((band) => (
             <Band key={band.band} band={band} day={day} focus={focus} />
           ))}

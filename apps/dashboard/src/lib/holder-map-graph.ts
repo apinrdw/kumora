@@ -583,6 +583,25 @@ export const graphOf = Effect.fnUntraced(function* (
   return { key: `${head.id}@${input.asOf ?? ""}`, nodes, links }
 })
 
+// The nodes the map shows: every node, but the Off list's while its toggle
+// hides them.
+export const shownNodes = <Node extends { readonly offList: boolean }>(
+  nodes: ReadonlyArray<Node>,
+  showOffList: boolean
+) =>
+  Effect.succeed(showOffList ? nodes : nodes.filter(({ offList }) => !offList))
+
+// Whether the page draws the map: only while it shows a node but its
+// focus, so a holder that left all its stocks keeps it while its Off list
+// is shown. A search highlights only such a node (`pickOf` in
+// lib/holder-map-search.ts), so a highlight always has a map to show it.
+export const mapDrawn = Effect.fnUntraced(function* (
+  nodes: ReadonlyArray<{ readonly focus: boolean; readonly offList: boolean }>,
+  showOffList: boolean
+) {
+  return (yield* shownNodes(nodes, showOffList)).some(({ focus }) => !focus)
+})
+
 const ORIGIN_ORDER = ["local", "foreign", "mixed", undefined] as const
 
 const NODE_LABEL: Record<NodeKind, string> = {

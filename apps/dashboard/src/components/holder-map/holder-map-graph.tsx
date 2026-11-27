@@ -19,7 +19,12 @@ import {
 
 import { KButton } from "@/components/k/button"
 import type { HolderMapView } from "@/lib/holder-map"
-import type { LegendEntry, LinkMove, Refocus } from "@/lib/holder-map-graph"
+import {
+  type LegendEntry,
+  type LinkMove,
+  type Refocus,
+  shownNodes,
+} from "@/lib/holder-map-graph"
 
 import {
   CUSTODIAN_COLOR,
@@ -124,6 +129,14 @@ export function HolderMapGraph({
     () => new Map(graph.nodes.map((node) => [node.id, node])),
     [graph]
   )
+  const shown = useMemo(
+    () => Effect.runSync(shownNodes(graph.nodes, showOffList)),
+    [graph, showOffList]
+  )
+  // The searched node while the map shows it: one the Off list toggle
+  // hid since is neither labelled nor named.
+  const searchedNode =
+    searched === undefined ? undefined : shown.find(({ id }) => id === searched)
   // The node a chart point draws.
   const nodeOf = useCallback(
     (datum: unknown) =>
@@ -144,15 +157,13 @@ export function HolderMapGraph({
           view,
           size,
           hovered,
-          searched,
+          searched: searchedNode?.id,
           showOffList,
           nodeOf,
         })
       ),
-    [layout, view, size, graph, hovered, searched, showOffList, nodeOf]
+    [layout, view, size, graph, hovered, searchedNode, showOffList, nodeOf]
   )
-  const searchedNode =
-    searched === undefined ? undefined : nodeById.get(searched)
   const ariaLabel = useMemo(
     () => Effect.runSync(mapLabel(focus, showOffList)),
     [focus, showOffList]
