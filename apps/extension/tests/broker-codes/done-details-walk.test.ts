@@ -104,7 +104,8 @@ const paramOf = (path: string, name: string) =>
   new URL(path, "https://ht2.ajaib.co.id/api/").searchParams.get(name)
 
 // Ajaib's Done Details route: each code's rows, `page_size` at a time, with
-// `has_next` while more follow.
+// `has_next` while more follow by its count. Like Ajaib's, page k starts at
+// offset (k - 1)(page_size + 1), so the row at each page boundary is skipped.
 const fakeAjaib = (
   options: {
     readonly details?: Readonly<Record<string, ReadonlyArray<unknown>>>
@@ -140,7 +141,8 @@ const fakeAjaib = (
         const rows = details[paramOf(request.path, "code") ?? ""] ?? []
         const page = Number(paramOf(request.path, "page"))
         const size = Number(paramOf(request.path, "page_size"))
-        const answered = rows.slice((page - 1) * size, page * size)
+        const start = (page - 1) * (size + 1)
+        const answered = rows.slice(start, start + size)
         return Option.some(
           OK({
             err_code: "EC0000000",
@@ -210,7 +212,11 @@ const memoryStore = () => {
     page: (of, next, fetched) =>
       Effect.sync(() => {
         if (!Option.contains(day, of)) return
-        if (next._tag !== "Walking" || next.page === 1) rows = []
+        if (
+          next._tag !== "Walking" ||
+          (next.pass === "first" && next.page === 1)
+        )
+          rows = []
         if (next._tag === "Posted") trades = []
         rows = [...rows, ...fetched]
         position = Option.some(next)
@@ -405,7 +411,7 @@ describe("the Done Details walk", () => {
           ),
           ["09:47:59"]
         )
-        // Two pages of 1,000 for HOPE.
+        // Two pages of 1,000 for HOPE, then two of 999.
         assert.deepStrictEqual(
           tab.paths.map((path) => [
             path.split("?")[0],
@@ -417,6 +423,8 @@ describe("the Done Details walk", () => {
           [
             [DETAILS_PATH, "HOPE", DAY, "1", "1000"],
             [DETAILS_PATH, "HOPE", DAY, "2", "1000"],
+            [DETAILS_PATH, "HOPE", DAY, "1", "999"],
+            [DETAILS_PATH, "HOPE", DAY, "2", "999"],
           ]
         )
       })
@@ -605,6 +613,32 @@ describe("the Done Details walk", () => {
     })
   )
 
+  // 999 rows of 11:00:00 come first, newest first, then the three tied
+  // trades' rows at offsets 999 to 1,001: the walk at 1,000 a page skips the
+  // middle one, at offset 1,000, and the walk at 999 the first.
+  it.effect(
+    "gives a tie straddling a page boundary its rows in Ajaib's order, the row the boundary skipped included",
+    () =>
+      Effect.gen(function* () {
+        const earlier = Array.from({ length: 999 }, (_, at) => ({
+          ...tiedDetail(1_000 + at, 50),
+          time: "11:00:00",
+        }))
+        const orders = yield* tiedOrders(
+          [tied("1"), tied("2"), tied("3")],
+          [
+            ...earlier,
+            tiedDetail(300, 50),
+            tiedDetail(200, 50),
+            tiedDetail(100, 50),
+          ]
+        )
+        assert.deepStrictEqual(orders.get("3"), orderPair(300, 50))
+        assert.deepStrictEqual(orders.get("2"), orderPair(200, 50))
+        assert.deepStrictEqual(orders.get("1"), orderPair(100, 50))
+      })
+  )
+
   // An NG trade of a fractional lot reads 1 lot on the tape and 0 in Done
   // Details. Trade 2, of 1 lot on both, takes the 1-lot row first.
   it.effect(
@@ -727,7 +761,7 @@ describe("the Done Details walk", () => {
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
         assert.deepStrictEqual(
           tab.paths.map((path) => paramOf(path, "code")),
-          ["BBCA", "HOPE", "HOPE"]
+          ["BBCA", "HOPE", "HOPE", "HOPE", "HOPE"]
         )
         assert.deepStrictEqual(done, [
           [0, 2],
@@ -773,10 +807,12 @@ describe("the Done Details walk", () => {
           Option.some({
             _tag: "Walking",
             code: StockCode.make("HOPE"),
+            pass: "first",
             page: 2,
           })
         )
-        // A restarted worker's walk asks HOPE's second page first.
+        // A restarted worker's walk asks HOPE's second page first, then
+        // walks it at 999.
         const production = fakeProduction()
         const second = fakeAjaib()
         const secondWalk = yield* walkWith(second, memory.store, production)
@@ -784,8 +820,57 @@ describe("the Done Details walk", () => {
           _tag: "walked",
         })
         assert.deepStrictEqual(
-          second.paths.map((path) => paramOf(path, "page")),
-          ["2"]
+          second.paths.map((path) => [
+            paramOf(path, "page"),
+            paramOf(path, "page_size"),
+          ]),
+          [
+            ["2", "1000"],
+            ["1", "999"],
+            ["2", "999"],
+          ]
+        )
+        assert.strictEqual(production.orders().size, 1_311)
+      })
+  )
+
+  it.effect(
+    "resumes its walk at 999 a page at its stored page after a restart, with both walks' rows",
+    () =>
+      Effect.gen(function* () {
+        yield* evening
+        const memory = yield* keptStore()
+        // The first worker's tab stops answering after HOPE's first page at
+        // 999.
+        const first = fakeAjaib({
+          answer: (call) => (call >= 4 ? Option.none() : undefined),
+        })
+        const firstWalk = yield* walkWith(first, memory.store)
+        const fiber = yield* Effect.forkChild(firstWalk.walk(DAY))
+        for (let turn = 0; turn < 100 && first.paths.length < 4; turn++)
+          yield* Effect.yieldNow
+        yield* Fiber.interrupt(fiber)
+        assert.deepStrictEqual(
+          memory.position(),
+          Option.some({
+            _tag: "Walking",
+            code: StockCode.make("HOPE"),
+            pass: "second",
+            page: 2,
+          })
+        )
+        const production = fakeProduction()
+        const second = fakeAjaib()
+        const secondWalk = yield* walkWith(second, memory.store, production)
+        assert.deepStrictEqual(yield* secondWalk.walk(DAY), {
+          _tag: "walked",
+        })
+        assert.deepStrictEqual(
+          second.paths.map((path) => [
+            paramOf(path, "page"),
+            paramOf(path, "page_size"),
+          ]),
+          [["2", "999"]]
         )
         assert.strictEqual(production.orders().size, 1_311)
       })
@@ -824,7 +909,7 @@ describe("the Done Details walk", () => {
       assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
       assert.deepStrictEqual(
         tab.paths.map((path) => paramOf(path, "page")),
-        ["1", "1", "2"]
+        ["1", "1", "2", "1", "2"]
       )
       assert.strictEqual(production.orders().size, 1_311)
       assert.isAtLeast(yield* Clock.currentTimeMillis, wib("17:30:10"))
@@ -855,7 +940,7 @@ describe("the Done Details walk's walk token", () => {
         })
         const walk = yield* walkWith(tab, store, fakeProduction())
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
-        assert.deepStrictEqual(tab.bearers, [first, second])
+        assert.deepStrictEqual(tab.bearers, [first, second, second, second])
       })
   )
 
@@ -866,7 +951,7 @@ describe("the Done Details walk's walk token", () => {
       const tab = fakeAjaib({ cookie: () => "" })
       const walk = yield* walkWith(tab, store, fakeProduction())
       assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
-      assert.deepStrictEqual(tab.bearers, ["token", "token"])
+      assert.deepStrictEqual(tab.bearers, ["token", "token", "token", "token"])
     })
   )
 
@@ -885,7 +970,13 @@ describe("the Done Details walk's walk token", () => {
       })
       const walk = yield* walkWith(tab, store, production)
       assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
-      assert.deepStrictEqual(tab.bearers, [cookie, "token", "token"])
+      assert.deepStrictEqual(tab.bearers, [
+        cookie,
+        "token",
+        "token",
+        "token",
+        "token",
+      ])
       assert.strictEqual(production.orders().size, 1_311)
     })
   )
@@ -917,6 +1008,8 @@ describe("the Done Details walk's walk token", () => {
           cookie,
           cookie,
           cookie,
+          "token",
+          "token",
           "token",
         ])
         assert.strictEqual(production.orders().size, 1_311)

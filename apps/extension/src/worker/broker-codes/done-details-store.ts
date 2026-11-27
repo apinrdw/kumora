@@ -29,13 +29,32 @@ const decodeTrade = Schema.decodeUnknownOption(TapeTrade)
 const decodeRow = Schema.decodeUnknownOption(DetailRow)
 const decodeMatched = Schema.decodeUnknownOption(MatchedTrade)
 const decodeCode = Schema.decodeUnknownOption(StockCode)
+// A version 4 store's position on a code, whose rows had no offsets: the
+// upgrade walks that code again from its first page.
+const decodeV4Walking = Schema.decodeUnknownOption(
+  Schema.TaggedStruct("Walking", { code: StockCode })
+)
 
 // Decision: Done Details store v4 keys trades by number; older walks are dropped
 // (apps/extension/docs/adr/0003-the-done-details-store-keys-trades-by-trade-number.md)
 const openDatabase = Effect.callback<IDBDatabase>((resume) => {
-  const request = indexedDB.open(DATABASE, 4)
-  request.onupgradeneeded = () => {
+  const request = indexedDB.open(DATABASE, 5)
+  request.onupgradeneeded = (event) => {
     const db = request.result
+    // Decision: a code of more than one page is walked again at 999 rows a page
+    // (apps/extension/docs/adr/0027-a-multi-page-done-details-code-is-walked-again-at-999-rows.md)
+    if (event.oldVersion === 4 && request.transaction !== null) {
+      const tx = request.transaction
+      tx.objectStore(ROWS).clear()
+      const meta = tx.objectStore(META)
+      const held = meta.get(POSITION_KEY)
+      held.onsuccess = () => {
+        const walking = decodeV4Walking(held.result)
+        if (Option.isSome(walking))
+          meta.put({ ...walking.value, pass: "first", page: 1 }, POSITION_KEY)
+      }
+      return
+    }
     for (const name of Array.from(db.objectStoreNames))
       db.deleteObjectStore(name)
     db.createObjectStore(TRADES).createIndex(BY_CODE, "code")
@@ -176,7 +195,11 @@ export const doneDetailsStore = Effect.gen(function* () {
     page: (day, next, rows) =>
       inTransaction<void>("readwrite", (stores, stored) => {
         if (!Option.contains(stored, day)) return
-        if (next._tag !== "Walking" || next.page === 1) stores.rows.clear()
+        if (
+          next._tag !== "Walking" ||
+          (next.pass === "first" && next.page === 1)
+        )
+          stores.rows.clear()
         if (next._tag === "Posted") stores.trades.clear()
         if (next._tag === "Walking")
           for (const row of rows) stores.rows.add({ ...row, code: next.code })

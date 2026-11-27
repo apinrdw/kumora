@@ -39,7 +39,11 @@ const DETAILS_PATH = "v1/stock/data/broker-transaction"
 // Cloudflare 403. The window 00:00 to 23:59:59 holds the pre-opening, the
 // auctions and the negotiated board after the close. See
 // apinrdw/kumora#622.
-const PAGE_SIZE = 1_000
+// Decision: a code of more than one page is walked again at 999 rows a page
+// (apps/extension/docs/adr/0027-a-multi-page-done-details-code-is-walked-again-at-999-rows.md)
+const PASS_SIZES = { first: 1_000, second: 999 } as const
+const Pass = Schema.Literals(["first", "second"])
+type Pass = typeof Pass.Type
 
 // A trade the tape walk kept for this walk to match: its number and codes,
 // and the fields its key reads, its time as the WIB second `HH:mm:ss`.
@@ -79,9 +83,11 @@ const MatchFields = Schema.Struct({
 })
 type MatchFields = typeof MatchFields.Type
 
-// One Done Details row as the walk keeps it between pages: its fields and
-// the trade's buy and sell order numbers, or that it couldn't be read.
+// One Done Details row as the walk keeps it between pages: its offset in
+// Ajaib's list of the code's rows, with its fields and the trade's buy and
+// sell order numbers, or that it couldn't be read.
 const ReadRow = Schema.TaggedStruct("Read", {
+  offset: Schema.Finite,
   fields: MatchFields,
   buy: OrderNumber,
   sell: OrderNumber,
@@ -89,10 +95,9 @@ const ReadRow = Schema.TaggedStruct("Read", {
 type ReadRow = typeof ReadRow.Type
 export const DetailRow = Schema.Union([
   ReadRow,
-  Schema.TaggedStruct("Unread", {}),
+  Schema.TaggedStruct("Unread", { offset: Schema.Finite }),
 ])
 export type DetailRow = typeof DetailRow.Type
-const UNREAD: DetailRow = { _tag: "Unread" }
 
 // A kept trade given its Done Details row's order numbers, held until the
 // walk posts it.
@@ -105,10 +110,17 @@ export const MatchedTrade = Schema.Struct({
 export type MatchedTrade = typeof MatchedTrade.Type
 
 // Where the walk of a day stands: at the page it asks next, of a code the
-// tape trades hold; past the last code, posting the matched trades; or
-// done, its matched trades held for the extra target's catch-up.
+// tape trades hold, in its first walk at 1,000 rows a page or its second at
+// 999; past the last code, posting the matched trades; or done, its matched
+// trades held for the extra target's catch-up.
+// Decision: a code of more than one page is walked again at 999 rows a page
+// (apps/extension/docs/adr/0027-a-multi-page-done-details-code-is-walked-again-at-999-rows.md)
 export const DoneDetailsPosition = Schema.Union([
-  Schema.TaggedStruct("Walking", { code: StockCode, page: Schema.Finite }),
+  Schema.TaggedStruct("Walking", {
+    code: StockCode,
+    pass: Pass,
+    page: Schema.Finite,
+  }),
   Schema.TaggedStruct("Posting", {}),
   Schema.TaggedStruct("Posted", {}),
 ])
@@ -135,16 +147,17 @@ export interface DoneDetailsStore {
   readonly position: (
     day: WibDate
   ) => Effect.Effect<Option.Option<DoneDetailsPosition>>
-  // The rows of `code` fetched before its position's page, in the order
-  // Ajaib answered them.
+  // The rows of `code` fetched before its position's page, its first walk's
+  // then its second's, each in the order Ajaib answered them.
   readonly rows: (
     day: WibDate,
     code: StockCode
   ) => Effect.Effect<ReadonlyArray<DetailRow>>
   // Moves the walk to `next`, with the rows of `next.code` the page before
-  // it gave; another code's rows are forgotten. One write, so a restart
-  // never holds a page's rows twice. At Posted the tape trades are
-  // forgotten too, and the matched ones stay.
+  // it gave; another code's rows are forgotten, at a code's first page of
+  // its first walk. One write, so a restart never holds a page's rows
+  // twice. At Posted the tape trades are forgotten too, and the matched
+  // ones stay.
   readonly page: (
     day: WibDate,
     next: DoneDetailsPosition,
@@ -225,24 +238,27 @@ export const keptTrade = (
     codes,
   }))
 
-// A page's rows of `day` with their fields and both order numbers, or
-// unread without either.
+// A page's rows of `day` with their offsets from `start`, their fields and
+// both order numbers, or unread without either.
 const detailRows = Effect.fnUntraced(function* (
   day: WibDate,
+  start: number,
   transactions: ReadonlyArray<unknown>
 ) {
   const rows: Array<DetailRow> = []
-  for (const raw of transactions) {
+  for (const [at, raw] of transactions.entries()) {
+    const offset = start + at
     const row = decodeKeyRow(raw)
     const orders = yield* ajaibDetailOrderNumbers(day, raw)
     if (Option.isNone(row) || Option.isNone(orders)) {
-      rows.push(UNREAD)
+      rows.push({ _tag: "Unread", offset })
       continue
     }
     const { time, code, board, price, qty, buyer, seller } = row.value
     const [buy, sell] = orders.value
     rows.push({
       _tag: "Read",
+      offset,
       fields: {
         code,
         second: time.length === 5 ? `${time}:00` : time,
@@ -350,10 +366,24 @@ const matched = Effect.fnUntraced(function* (
   return [...first.found, ...second.found]
 })
 
-const detailsPath = (day: WibDate, code: StockCode, page: number) =>
+const detailsPath = (
+  day: WibDate,
+  code: StockCode,
+  page: number,
+  size: number
+) =>
   Effect.succeed(
-    `${DETAILS_PATH}?code=${code}&group=BS&type=TRADE&market_date=${day}&start_time=00:00&end_time=23:59:59&page=${page}&page_size=${PAGE_SIZE}`
+    `${DETAILS_PATH}?code=${code}&group=BS&type=TRADE&market_date=${day}&start_time=00:00&end_time=23:59:59&page=${page}&page_size=${size}`
   )
+
+// Both walks' rows, each offset once (the first walk's), in offset order:
+// Ajaib's order.
+const byOffset = (rows: ReadonlyArray<DetailRow>) =>
+  Effect.sync(() => {
+    const at = new Map<number, DetailRow>()
+    for (const row of rows) if (!at.has(row.offset)) at.set(row.offset, row)
+    return [...at.values()].sort((a, b) => a.offset - b.offset)
+  })
 
 export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
   readonly tab: AjaibWalkTab
@@ -411,30 +441,62 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
     }
   })
 
-  // One code's pages from `page` on, then its matched trades held.
-  const walkCode = Effect.fnUntraced(function* (
+  // One walk of a code's pages from `from` on, each page's rows kept with
+  // the next page as it goes. It answers its last page and that page's
+  // rows, which it leaves to the caller to keep. Page k holds the rows from
+  // offset (k - 1)(size + 1), so the walk skips one at each page boundary.
+  const walkPass = Effect.fnUntraced(function* (
     day: WibDate,
     windowEnd: DateTime.Utc,
     code: StockCode,
+    pass: Pass,
     from: number
   ) {
+    const size = PASS_SIZES[pass]
     for (let page = from; ; page++) {
       yield* locate({ day, code, page })
       const answer = yield* detailsPage(
         windowEnd,
-        yield* detailsPath(day, code, page)
+        yield* detailsPath(day, code, page, size)
       )
-      const rows = yield* detailRows(day, answer.transactions)
-      if (answer.has_next && answer.transactions.length > 0) {
-        yield* store.page(day, { _tag: "Walking", code, page: page + 1 }, rows)
-        continue
-      }
-      const all = [...(yield* store.rows(day, code)), ...rows]
-      return yield* store.match(
+      const start = (page - 1) * (size + 1)
+      const rows = yield* detailRows(day, start, answer.transactions)
+      if (!answer.has_next || answer.transactions.length === 0)
+        return { page, rows }
+      yield* store.page(
         day,
-        yield* matched(yield* store.trades(day, code), all)
+        { _tag: "Walking", code, pass, page: page + 1 },
+        rows
       )
     }
+  })
+
+  // One code's pages from `from` on, then its matched trades held. A code
+  // whose first walk took more than one page is walked again at 999 a
+  // page, whose boundaries skip other rows, and the two walks' rows merge
+  // by offset.
+  // Decision: a code of more than one page is walked again at 999 rows a page
+  // (apps/extension/docs/adr/0027-a-multi-page-done-details-code-is-walked-again-at-999-rows.md)
+  const walkCode = Effect.fnUntraced(function* (
+    day: WibDate,
+    windowEnd: DateTime.Utc,
+    code: StockCode,
+    from: { readonly pass: Pass; readonly page: number }
+  ) {
+    let last = yield* walkPass(day, windowEnd, code, from.pass, from.page)
+    if (from.pass === "first" && last.page > 1) {
+      const second = { _tag: "Walking", code, pass: "second", page: 1 } as const
+      yield* store.page(day, second, last.rows)
+      last = yield* walkPass(day, windowEnd, code, "second", 1)
+    }
+    const all = yield* byOffset([
+      ...(yield* store.rows(day, code)),
+      ...last.rows,
+    ])
+    return yield* store.match(
+      day,
+      yield* matched(yield* store.trades(day, code), all)
+    )
   })
 
   // Every kept code's pages from the held position on, then on to posting.
@@ -456,15 +518,20 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
     for (let at = start; at < codes.length; at++) {
       const code = codes[at]!
       yield* codesDone(at, codes.length)
-      const page = Option.match(walking, {
-        onNone: () => 1,
-        onSome: (position) => (position.code === code ? position.page : 1),
-      })
-      yield* walkCode(day, windowEnd, code, page)
+      const from = Option.match(
+        Option.filter(walking, (position) => position.code === code),
+        {
+          onNone: () => ({ pass: "first", page: 1 }) as const,
+          onSome: ({ pass, page }) => ({ pass, page }),
+        }
+      )
+      yield* walkCode(day, windowEnd, code, from)
       const next = codes[at + 1]
       yield* store.page(
         day,
-        next === undefined ? POSTING : { _tag: "Walking", code: next, page: 1 },
+        next === undefined
+          ? POSTING
+          : { _tag: "Walking", code: next, pass: "first", page: 1 },
         []
       )
     }
