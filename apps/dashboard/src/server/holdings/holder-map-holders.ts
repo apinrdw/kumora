@@ -1,7 +1,7 @@
 // The Holder map's holders (spec apinrdw/kumora#733): a holder is one
 // holder key's blocks of one stock, report and period, summed. The read
 // takes rows per block or per identity: a day's blocks, the day before's
-// blocks of a key of several, a month's rows, Holder moves' leavings, a
+// blocks, a month's rows, Holder moves' leavings, a
 // custodian's earlier blocks. Each kind becomes holders through
 // `holdersByKey` here and nowhere else, so no part of the map (the bands,
 // moves, crossings, hops, Off lists, custodian links and books) sees one

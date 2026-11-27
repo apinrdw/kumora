@@ -126,8 +126,8 @@ export const storedMoves = Effect.fnUntraced(function* (
   return moves
 })
 
-// A stock's 5%-band holders of the day and the day before, by key: the
-// day before's only of keys with several blocks on either day.
+// A stock's 5%-band holders of the day and the day before, by key, each
+// day's repeats folded alike (`listedHolders`).
 interface DayHolders {
   readonly now: ReadonlyMap<HolderKey, KeyHolder<Listed>>
   readonly before: ReadonlyMap<HolderKey, KeyHolder<Listed>>

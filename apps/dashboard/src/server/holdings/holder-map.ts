@@ -113,25 +113,27 @@ const STOCKS_IN_VIEW = "stock_code IN (SELECT stock_code FROM in_view)"
 const DAY_BEFORE = `(SELECT MAX(data_date) FROM above_5_day
   WHERE data_date < (SELECT day FROM asof))`
 
-// The day before's blocks `h` of the stocks in view whose key has another
-// block that day or several on the day.
-const BEFORE_SEVERAL = `FROM above_5_holder AS h
-    WHERE h.stock_code IN (SELECT stock_code FROM in_view)
-      AND h.data_date = ${DAY_BEFORE}
-      AND (
-        EXISTS (
-          SELECT 1 FROM above_5_holder AS other
-          WHERE other.data_date = h.data_date
-            AND other.stock_code = h.stock_code
-            AND other.holder_key = h.holder_key AND other.no <> h.no
-        )
-        OR (
-          SELECT COUNT(*) FROM above_5_holder AS listed
-          WHERE listed.data_date = (SELECT day FROM asof)
-            AND listed.stock_code = h.stock_code
-            AND listed.holder_key = h.holder_key
-        ) > 1
-      )`
+// One day's blocks and accounts of the stocks `and` picks, the day `day`
+// selects: the day's and the day before's go through this one statement
+// pair, so both are folded alike (`stockLinks`).
+const dayBlocks = (and: string, day: string): ReadonlyArray<Budgeted> => [
+  {
+    sql: `SELECT stock_code, data_date, no, issuer_name, holder_name,
+      holder_key, scripless, percentage_hundredths
+    FROM above_5_holder
+    WHERE ${and} data_date = ${day}
+    ORDER BY stock_code, no`,
+    rows: DAY_ROWS,
+  },
+  {
+    sql: `SELECT stock_code, data_date, no, custodian, account_name,
+      origin, domicile, scripless
+    FROM above_5_account
+    WHERE ${and} data_date = ${day}
+    ORDER BY stock_code, no, ordinal`,
+    rows: DAY_ROWS,
+  },
+]
 
 // The day's blocks and accounts and the month's ≥1% rows that `links`
 // are made of, of the stocks `where` picks, or of every stock with none:
@@ -143,22 +145,7 @@ const BEFORE_SEVERAL = `FROM above_5_holder AS h
 export const linkRows = (where?: string): ReadonlyArray<Budgeted> => {
   const and = where === undefined ? "" : `${where} AND`
   return [
-    {
-      sql: `SELECT stock_code, data_date, no, issuer_name, holder_name,
-        holder_key, scripless, percentage_hundredths
-      FROM above_5_holder
-      WHERE ${and} data_date = (SELECT day FROM asof)
-      ORDER BY stock_code, no`,
-      rows: DAY_ROWS,
-    },
-    {
-      sql: `SELECT stock_code, data_date, no, custodian, account_name,
-        origin, domicile, scripless
-      FROM above_5_account
-      WHERE ${and} data_date = (SELECT day FROM asof)
-      ORDER BY stock_code, no, ordinal`,
-      rows: DAY_ROWS,
-    },
+    ...dayBlocks(and, "(SELECT day FROM asof)"),
     {
       sql: `SELECT stock_code, data_date, holder_key, investor_name,
         classification, investor_type, origin, domicile, controller,
@@ -231,30 +218,16 @@ const IN_VIEW_ROWS: ReadonlyArray<Budgeted> = [
     GROUP BY stock_code, holder_key`,
     rows: MONTH_ROWS,
   },
-  // The day before's blocks of each key with several blocks on the day or
-  // on the day before, and their securities accounts: such a key moves by
-  // its blocks summed on both days (`dayMove`). One day's, at most its
-  // rows.
+  // The day before's blocks and accounts of the stocks in view, read and
+  // folded as the day's are: a key of several blocks on either day moves
+  // by its blocks summed on both days (`dayMove`), and a repeat folds into
+  // the block it repeats whatever its key, so the day before's are read
+  // whole, not by key (apinrdw/kumora#741's tenth review). One day's, at
+  // most its rows.
   //
   // Decision: the Holder map matches holders across stocks and reports by
   // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
-  {
-    sql: `SELECT h.stock_code, h.data_date, h.no, h.issuer_name,
-      h.holder_name, h.holder_key, h.scripless, h.percentage_hundredths
-    ${BEFORE_SEVERAL}
-    ORDER BY h.stock_code, h.no`,
-    rows: DAY_ROWS,
-  },
-  {
-    sql: `SELECT a.stock_code, a.data_date, a.no, a.custodian,
-      a.account_name, a.origin, a.domicile, a.scripless
-    FROM above_5_account AS a
-    JOIN (SELECT h.stock_code, h.data_date, h.no ${BEFORE_SEVERAL}) AS b
-      ON b.stock_code = a.stock_code AND b.data_date = a.data_date
-        AND b.no = a.no
-    ORDER BY a.stock_code, a.no, a.ordinal`,
-    rows: DAY_ROWS,
-  },
+  ...dayBlocks(`${STOCKS_IN_VIEW} AND`, DAY_BEFORE),
   // The stocks in view first listed on the day, whose holders Holder moves
   // compares with no day: at most the day's blocks.
   {
@@ -314,8 +287,7 @@ const originOf = (origins: ReadonlyArray<SplitOrigin | undefined>) =>
     return [...set][0]
   })
 
-// One stock's rows of the day and the month, and of the day before its
-// keys of several blocks'.
+// One stock's rows of the day and the month, and of the day before.
 export interface StockRows {
   readonly holders: Array<typeof Above5MapRow.Type>
   readonly accounts: Array<typeof Above5AccountMapRow.Type>
@@ -413,8 +385,8 @@ export const stockLinks = Effect.fnUntraced(function* (
   }
   return {
     links,
-    // Each 5%-band holder of the day, and of the day before of a key of
-    // several blocks, repeats collapsed, by key.
+    // Each 5%-band holder of the day and of the day before, repeats
+    // collapsed alike, by key.
     now: new Map(above5.map((holder) => [holder.key, holder])),
     before: new Map(before.map((holder) => [holder.key, holder])),
     inMonth: new Map(above1.map(({ key, sum }) => [key, sum.hundredths])),
