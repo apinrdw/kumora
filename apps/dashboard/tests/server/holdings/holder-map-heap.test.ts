@@ -1,12 +1,12 @@
 // The Holder map's read at its bound (CODING_STANDARDS.md, "Bounded memory
 // on a Worker"): a focus has no cap, so a nominee holding a block of every
-// stock reads one whole day and one whole month, each at its parse's cap
-// (ADR 0045), and every stored line of them.
+// stock, or a custodian of every account, reads one whole day and one whole
+// month, each at its parse's cap (ADR 0045), and every stored line of them.
 import { assert, describe, it } from "@effect/vitest"
 import { StockCode } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { HolderKey } from "@/domain/holdings"
+import { CustodianId, HolderKey } from "@/domain/holdings"
 import { holderMapView } from "@/lib/holder-map"
 import { holderMapRead } from "@/server/holdings/holder-map"
 
@@ -18,8 +18,9 @@ import { memoryHoldingsDb } from "./memory-holdings-db.ts"
 // Decision: a stock's holders are read from its newest periods that fit a
 // row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
 //
-// The holder focus retained 25.7 MiB on 27 Nov 2026, its 20,001 nodes with
-// it; the stock focus 2.3 MiB.
+// The holder focus retained 28.5 MiB on 27 Nov 2026, its 20,005 nodes and
+// 8,000 custodian links with it; the custodian focus 12.5 MiB; the stock
+// focus 2.7 MiB.
 const HEAP_LIMIT_MIB = 40
 
 // The most stocks a report lists (ADR 0045), each with the day's blocks
@@ -33,6 +34,7 @@ const MONTH_HOLDERS = 7
 const DAY = "2026-01-05"
 const MONTH = "2025-12-31"
 const HUB = "HUB NOMINEE"
+const HUB_CUSTODIAN = "PT HUB CUSTODIAN"
 
 // A day and a month at the caps, the first block and row of every stock
 // the hub's, and a stored line for every block and row.
@@ -80,7 +82,46 @@ describe("the Holder map's read of a hub", () => {
           read.hops.length,
           STOCKS.length * (BLOCKS - 1 + MONTH_HOLDERS - 1)
         )
-        assert.strictEqual(view.focus?.graph.nodes.length, 1 + 2_000 + 18_000)
+        // And the custodians of the day's accounts.
+        assert.strictEqual(
+          view.focus?.graph.nodes.length,
+          1 + 2_000 + 18_000 + BLOCKS
+        )
+        assert.isBelow(
+          retained,
+          HEAP_LIMIT_MIB,
+          `${retained.toFixed(1)} MiB retained`
+        )
+      }),
+    { timeout: 120_000 }
+  )
+
+  it.effect(
+    "focuses a custodian of every account at the parse's caps, in 40 MiB",
+    () =>
+      Effect.gen(function* () {
+        const db = hub()
+        db.database
+          .prepare("UPDATE above_5_account SET custodian = ?")
+          .run(HUB_CUSTODIAN)
+        const before = yield* retainedHeap
+        const read = yield* holderMapRead({
+          focus: {
+            kind: "custodian",
+            id: CustodianId.make("CUSTODIAN HUB"),
+          },
+          day: undefined,
+        }).pipe(Effect.provide(db.layer))
+        const view = yield* holderMapView(read)
+        const retained = ((yield* retainedHeap) - before) / 2 ** 20
+        // Every block of the day, through it.
+        assert.strictEqual(read.links.length, ABOVE_5_DAY_ROWS)
+        assert.strictEqual(read.custodians.length, ABOVE_5_DAY_ROWS)
+        // It, the hub and every other block's holder, and every stock.
+        assert.strictEqual(
+          view.focus?.graph.nodes.length,
+          1 + 1 + (ABOVE_5_DAY_ROWS - STOCKS.length) + STOCKS.length
+        )
         assert.isBelow(
           retained,
           HEAP_LIMIT_MIB,
