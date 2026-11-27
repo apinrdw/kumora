@@ -471,7 +471,7 @@ const linksInView = Effect.fnUntraced(function* (
 
 // The places of `links`.
 const placesOf = Effect.fnUntraced(function* (
-  links: Iterable<{ readonly code: string; readonly holder: HolderKey }>
+  links: Iterable<{ readonly code: StockCode; readonly holder: HolderKey }>
 ) {
   const places = new Set<string>()
   for (const { code, holder } of links) places.add(yield* placeOf(code, holder))

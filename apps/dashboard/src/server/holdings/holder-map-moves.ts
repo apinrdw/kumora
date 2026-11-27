@@ -49,14 +49,14 @@ export const leavings = Effect.fnUntraced(function* (
 ) {
   const byPlace = new Map<string, HolderMapOffList>()
   for (const row of rows) {
-    const key = yield* holderKey(row.name)
+    const key = HolderKey.make(yield* holderKey(row.name))
     const place = yield* placeOf(row.stock_code, key)
     const known = byPlace.get(place)
     if (known !== undefined && known.since >= row.data_date) continue
     byPlace.set(place, {
       code: row.stock_code,
       band: row.band,
-      holder: HolderKey.make(key),
+      holder: key,
       name: row.name,
       since: row.data_date,
       percentageHundredths: row.stake_before,
@@ -66,8 +66,11 @@ export const leavings = Effect.fnUntraced(function* (
 })
 
 // A move's place: its band and its holding's place.
-const movePlace = (band: HolderMapLink["band"], code: string, holder: string) =>
-  Effect.map(placeOf(code, holder), (place) => `${band} ${place}`)
+const movePlace = (
+  band: HolderMapLink["band"],
+  code: StockCode,
+  holder: HolderKey
+) => Effect.map(placeOf(code, holder), (place) => `${band} ${place}`)
 
 // Each stock's bands' stored moves by holder key. Holder moves follows a
 // holder by its identity within the stock (ADR 0129), the map by key, so a
@@ -83,7 +86,7 @@ export const movesByKey = Effect.fnUntraced(function* (
     const place = yield* movePlace(
       row.band,
       row.stock_code,
-      yield* holderKey(row.name)
+      HolderKey.make(yield* holderKey(row.name))
     )
     const known = lines.get(place)
     if (known === undefined) lines.set(place, [row])
