@@ -3,7 +3,7 @@ import { StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { tooltipText } from "@/components/holder-map/map-definition"
-import type { MapNode } from "@/lib/holder-map"
+import type { MapNode } from "@/lib/holder-map-graph"
 
 const holder = (move: MapNode["move"]): MapNode => ({
   id: "holder:PERINTIS",

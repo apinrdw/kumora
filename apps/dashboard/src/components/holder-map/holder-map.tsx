@@ -27,18 +27,20 @@ import {
 import { MOVEMENT } from "@/components/stocks/holder-movement"
 import { KSEI_TYPE_LABELS } from "@/domain/holdings"
 import { count, lotsOfShares } from "@/lib/format"
+import type {
+  BandSection,
+  CustodianBook,
+  FocusView,
+  HolderMapView,
+  MapHolder,
+} from "@/lib/holder-map"
 import {
   BAND_TITLE,
-  type BandSection,
-  type CustodianBook,
-  type FocusView,
-  type HolderMapView,
   type MapCustodian,
-  type MapHolder,
   ORIGIN_LABEL,
   type Refocus,
   type ShownMove,
-} from "@/lib/holder-map"
+} from "@/lib/holder-map-graph"
 import { type FocusMatch, refocused } from "@/lib/holder-map-search"
 import { dayDateLabel, monthLabel } from "@/lib/stock-page-display"
 import type { HolderMapOffList } from "@/server/holdings/holder-map-schema"
@@ -55,27 +57,34 @@ export type HolderMapPageProps = {
 }
 
 // A search match's refocus.
-const refocusOf = (match: FocusMatch): Refocus =>
-  match.kind === "stock"
-    ? { stock: match.code }
-    : match.kind === "holder"
-      ? { holder: match.key }
-      : { custodian: match.id }
+const refocusOf = (match: FocusMatch) =>
+  Effect.succeed<Refocus>(
+    match.kind === "stock"
+      ? { stock: match.code }
+      : match.kind === "holder"
+        ? { holder: match.key }
+        : { custodian: match.id }
+  )
 
 // What a focus's heading says it is.
 const kindLabel = (focus: FocusView) =>
-  focus.kind === "stock"
-    ? focus.issuerName
-    : focus.kind === "holder"
-      ? "Holder"
-      : focus.broker === undefined
-        ? "Custodian"
-        : `Custodian · ${focus.broker}`
+  Effect.succeed(
+    focus.kind === "stock"
+      ? focus.issuerName
+      : focus.kind === "holder"
+        ? "Holder"
+        : focus.broker === undefined
+          ? "Custodian"
+          : `Custodian · ${focus.broker}`
+  )
 
 // A focus with nothing to draw: a stock with no holders, a holder with no
 // stocks, a custodian holding for no one.
-const emptyText = (focus: FocusView, day: WibDate | undefined) => {
-  const on = day === undefined ? "" : ` on ${Effect.runSync(dayDateLabel(day))}`
+const emptyText = Effect.fnUntraced(function* (
+  focus: FocusView,
+  day: WibDate | undefined
+) {
+  const on = day === undefined ? "" : ` on ${yield* dayDateLabel(day)}`
   if (focus.kind === "custodian")
     return {
       title: `Nothing held through ${focus.title}${on}`,
@@ -85,7 +94,7 @@ const emptyText = (focus: FocusView, day: WibDate | undefined) => {
     title: `${focus.kind === "stock" ? "No holders of" : "No stocks held by"} ${focus.title}${on}`,
     description: `Neither the day's above-5% report nor the month's above-1% report lists ${focus.title}. ${focus.kind === "stock" ? "Check the code, or search another stock." : "Search another stock or holder."}`,
   }
-}
+})
 
 // A link to the map refocused, keeping the day picked.
 function RefocusLink({
@@ -174,7 +183,7 @@ export function HolderMapPage({
           <FocusPicker
             state={list}
             className="w-full sm:w-80"
-            onPick={(match) => onRefocus(refocusOf(match))}
+            onPick={(match) => onRefocus(Effect.runSync(refocusOf(match)))}
           />
         </div>
       </header>
@@ -265,7 +274,7 @@ function Focus({
     focus.kind === "custodian"
       ? focus.book.holders.length === 0
       : focus.bands.every(({ holders }) => holders.length === 0)
-  const nothing = emptyText(focus, day)
+  const nothing = Effect.runSync(emptyText(focus, day))
   // On by default; hides both the Off list section and the map's Off list
   // nodes.
   const [showOffList, setShowOffList] = useState(true)
@@ -278,7 +287,7 @@ function Focus({
         <h2 id="holder-map-focus" className="text-[17px] font-semibold">
           {focus.title}{" "}
           <span className="font-medium text-muted-foreground">
-            {kindLabel(focus)}
+            {Effect.runSync(kindLabel(focus))}
           </span>
         </h2>
         {focus.kind === "stock" && (

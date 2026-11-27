@@ -18,12 +18,8 @@ import {
 } from "react"
 
 import { KButton } from "@/components/k/button"
-import type {
-  HolderMapView,
-  LegendEntry,
-  LinkMove,
-  Refocus,
-} from "@/lib/holder-map"
+import type { HolderMapView } from "@/lib/holder-map"
+import type { LegendEntry, LinkMove, Refocus } from "@/lib/holder-map-graph"
 
 import {
   CUSTODIAN_COLOR,
@@ -57,41 +53,44 @@ function useWidth(element: RefObject<HTMLDivElement | null>) {
 }
 
 const counted = (count: number, one: string, many: string) =>
-  `${count} ${count === 1 ? one : many}`
+  Effect.succeed(`${count} ${count === 1 ? one : many}`)
+
+// What each focus's hops are: its first hop's, and the hop beyond's.
+const HOPS: Record<
+  Focus["kind"],
+  readonly ["holder" | "stock", "holder" | "stock"]
+> = {
+  stock: ["holder", "stock"],
+  holder: ["stock", "holder"],
+  custodian: ["holder", "stock"],
+}
 
 // The chart's name: what it is of, its first hop's holdings, its Off list
 // while shown, and the hop beyond: a custodian focus's holders, then the
 // stocks it holds for them.
-const mapLabel = (focus: Focus, showOffList: boolean) =>
-  Effect.sync(() => {
-    const [near, far] =
-      focus.kind === "stock"
-        ? (["holder", "stock"] as const)
-        : focus.kind === "holder"
-          ? (["stock", "holder"] as const)
-          : (["holder", "stock"] as const)
-    const drawn = focus.graph.nodes.filter(
-      (node) => !node.focus && !node.offList
-    )
-    const first = drawn.filter(({ kind }) => kind === near).length
-    const beyond = drawn.filter(({ kind }) => kind === far).length
-    const offList = showOffList
-      ? focus.graph.nodes.filter((node) => node.offList).length
-      : 0
-    return [
-      `Holder map of ${focus.title}: `,
-      near === "holder"
-        ? counted(first, "holder", "holders")
-        : counted(first, "stock", "stocks"),
-      offList === 0 ? "" : ` and ${offList} Off list`,
-      beyond === 0
-        ? ""
-        : focus.kind === "custodian"
-          ? `, in ${counted(beyond, "stock", "stocks")}`
-          : `, ${far === "stock" ? counted(beyond, "other stock", "other stocks") : counted(beyond, "other holder", "other holders")} a hop beyond`,
-      ". The tables below list each.",
-    ].join("")
-  })
+const mapLabel = Effect.fnUntraced(function* (
+  focus: Focus,
+  showOffList: boolean
+) {
+  const [near, far] = HOPS[focus.kind]
+  const drawn = focus.graph.nodes.filter((node) => !node.focus && !node.offList)
+  const first = drawn.filter(({ kind }) => kind === near).length
+  const beyond = drawn.filter(({ kind }) => kind === far).length
+  const offList = showOffList
+    ? focus.graph.nodes.filter((node) => node.offList).length
+    : 0
+  return [
+    `Holder map of ${focus.title}: `,
+    yield* counted(first, near, `${near}s`),
+    offList === 0 ? "" : ` and ${offList} Off list`,
+    beyond === 0
+      ? ""
+      : focus.kind === "custodian"
+        ? `, in ${yield* counted(beyond, "stock", "stocks")}`
+        : `, ${yield* counted(beyond, `other ${far}`, `other ${far}s`)} a hop beyond`,
+    ". The tables below list each.",
+  ].join("")
+})
 
 export type HolderMapGraphProps = {
   focus: Focus
@@ -248,14 +247,18 @@ const SWATCH: Record<string, CSSProperties> = {
 
 // A move's swatch is a short stroke, as its link is drawn: Off list's
 // dashed.
-const moveSwatch = (move: LinkMove): CSSProperties =>
-  move === "off list"
-    ? {
-        height: 2,
-        width: 12,
-        background: `repeating-linear-gradient(90deg, ${MOVE_COLOR[move]} 0 3px, transparent 3px 5px)`,
-      }
-    : { height: 3, width: 12, borderRadius: 2, background: MOVE_COLOR[move] }
+const MOVE_SWATCH = Object.fromEntries(
+  Object.entries(MOVE_COLOR).map(([move, color]) => [
+    move,
+    move === "off list"
+      ? {
+          height: 2,
+          width: 12,
+          background: `repeating-linear-gradient(90deg, ${color} 0 3px, transparent 3px 5px)`,
+        }
+      : { height: 3, width: 12, borderRadius: 2, background: color },
+  ])
+) as Record<LinkMove, CSSProperties>
 
 const LEGEND_NOTE: Partial<Record<string, string>> = {
   stock: "code inside",
@@ -280,7 +283,7 @@ function Legend({ entries }: { entries: ReadonlyArray<LegendEntry> }) {
             <span
               aria-hidden
               className="inline-block shrink-0"
-              style={moveSwatch(entry.key)}
+              style={MOVE_SWATCH[entry.key]}
             />
           ) : (
             <span

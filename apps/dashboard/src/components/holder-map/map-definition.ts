@@ -12,14 +12,14 @@ import { Effect } from "effect"
 import { percentChangeText, percentOf } from "@/components/stocks/holder-cells"
 import { KSEI_TYPE_LABELS } from "@/domain/holdings"
 import { lotsOfShares } from "@/lib/format"
+import type { HolderMapView } from "@/lib/holder-map"
 import {
-  type HolderMapView,
   type LinkMove,
   type MapNode,
   MOVE_LABEL,
   type NodeMove,
   ORIGIN_LABEL,
-} from "@/lib/holder-map"
+} from "@/lib/holder-map-graph"
 import type { Layout } from "@/lib/holder-map-layout"
 import { type Viewport, viewportDomains } from "@/lib/holder-map-viewport"
 import { dayDateLabel, monthLabel } from "@/lib/stock-page-display"
