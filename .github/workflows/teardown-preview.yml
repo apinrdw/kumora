@@ -89,6 +89,8 @@ jobs:
       group: preview-sweep
     permissions:
       contents: read
+      # The stale rule reads each branch's PRs.
+      pull-requests: read
       id-token: write
     steps:
       - uses: actions/checkout@v5
