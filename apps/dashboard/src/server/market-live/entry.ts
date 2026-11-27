@@ -1,8 +1,9 @@
 // Market Live's routes in the custom Worker entry (src/worker.ts), ahead of
 // TanStack Start: the ingest socket and the viewer socket. Both reach today's
 // trading-day Durable Object, named by the WIB date; the recorded day GETs
-// (days.ts) and the broker codes route (broker-codes-route.ts) reach the
-// object of the day they name, and the day strip the index object. The
+// (days.ts), the broker codes route (broker-codes-route.ts) and an admin's
+// held order numbers route (order-numbers-route.ts) reach the object of the
+// day they name, and the day strip the index object. The
 // sector map (../sectors/map.ts) and the Special Monitoring Board list
 // (../special-board/list.ts) read HoldingsDb.
 import {
@@ -25,6 +26,7 @@ import { brokerCodesRoute } from "./broker-codes-route.ts"
 import { dayStripRoute, makeColdDays, recordedDayRoute } from "./days.ts"
 import { gateLiveViewer } from "./gate.ts"
 import { marketClockOffset, marketToday } from "./market-clock.ts"
+import { orderNumbersRoute } from "./order-numbers-route.ts"
 import { ObjectPath, SessionEnd, ViewerHeader } from "./routes.ts"
 
 const encodeSessionEnd = Schema.encodeSync(SessionEnd)
@@ -108,6 +110,9 @@ export const marketLiveRoute = Effect.fnUntraced(function* (request: Request) {
   const brokerCodes = yield* brokerCodesDay(pathname)
   if (Option.isSome(brokerCodes))
     return Option.some(brokerCodesRoute(request, brokerCodes.value))
+  const orderNumbers = yield* orderNumbersRoute(request)
+  if (Option.isSome(orderNumbers))
+    return Option.some(orderNumbers.value.pipe(Effect.provide(Auth.layer)))
   if (pathname === SectorsPath)
     return Option.some(
       sectorsRoute(request).pipe(

@@ -49,6 +49,7 @@ type Resources = {
   readonly "admin.view-disclosure-archive": { readonly feature: "admin" }
   readonly "admin.run-disclosure-archive": { readonly feature: "admin" }
   readonly "admin.run-sector-sync": { readonly feature: "admin" }
+  readonly "admin.read-order-numbers": { readonly feature: "admin" }
   readonly "admin.ban": Target
   readonly "admin.unban": Target
   readonly "admin.set-role": Target
@@ -167,6 +168,8 @@ const rules: Rules = {
   "admin.run-shareholding-parse": (account, { feature }) =>
     featureAccess(account, feature),
   "admin.run-sector-sync": (account, { feature }) =>
+    featureAccess(account, feature),
+  "admin.read-order-numbers": (account, { feature }) =>
     featureAccess(account, feature),
   "admin.ban": (account, target) =>
     adminOn(account, target.configAdmin || target.isSelf),
