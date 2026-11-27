@@ -4,7 +4,7 @@
 // above-5% holders, each against the trading day before by shares with its
 // securities accounts listed under it, the day's Off list greyed below them,
 // then every earlier holder as Off list since the day it left.
-import type { StockCode } from "@workspace/relay"
+import type { StockCode, WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 
@@ -45,7 +45,7 @@ export type DailyHoldersProps = {
   days: ReadonlyArray<DailyHoldersDay>
   // The URL's `YYYY-MM-DD`; a day the stock doesn't have shows its newest.
   day: string | undefined
-  onDay: (dataDate: string) => void
+  onDay: (dataDate: WibDate) => void
 }
 
 export function DailyHolders({ code, days, day, onDay }: DailyHoldersProps) {

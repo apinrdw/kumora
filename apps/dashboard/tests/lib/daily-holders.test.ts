@@ -1,7 +1,7 @@
 // The Daily holders view model over one hand-built day: which blocks of a
 // stock-day collapse as repeats.
 import { assert, describe, it } from "@effect/vitest"
-import { BrokerCode } from "@workspace/relay"
+import { BrokerCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { dailyHolders } from "@/lib/daily-holders"
@@ -31,7 +31,7 @@ describe("the Daily holders view model's repeat blocks", () => {
         const day = yield* dailyHolders(
           [
             {
-              dataDate: "2026-11-20",
+              dataDate: WibDate.make("2026-11-20"),
               listedShares: undefined,
               holders: [
                 block("PT SAMA NAMA 1", "PT CUSTODIAN A"),
@@ -77,8 +77,16 @@ const twoDays = (
 ) =>
   dailyHolders(
     [
-      { dataDate: "2026-11-23", listedShares: undefined, holders: before },
-      { dataDate: "2026-11-24", listedShares: undefined, holders: now },
+      {
+        dataDate: WibDate.make("2026-11-23"),
+        listedShares: undefined,
+        holders: before,
+      },
+      {
+        dataDate: WibDate.make("2026-11-24"),
+        listedShares: undefined,
+        holders: now,
+      },
     ],
     undefined
   )

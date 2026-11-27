@@ -1,5 +1,6 @@
 // A trading day picker: the day before, a select of the days, the day after.
 // The stock page's Daily holders and the Holder map pick their day with it.
+import type { WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 
@@ -12,12 +13,12 @@ const ICON_BUTTON = cn(
 )
 
 export type DayPickerProps = {
-  // `YYYY-MM-DD`, oldest first.
-  days: ReadonlyArray<string>
+  // Oldest first.
+  days: ReadonlyArray<WibDate>
   // The day shown; one missing from `days` shows as a disabled option, with
   // the days either side of it a step away.
-  day: string
-  onDay: (day: string) => void
+  day: WibDate
+  onDay: (day: WibDate) => void
 }
 
 export function DayPicker({ days, day, onDay }: DayPickerProps) {
@@ -39,7 +40,11 @@ export function DayPicker({ days, day, onDay }: DayPickerProps) {
       <select
         aria-label="Trading day"
         value={day}
-        onChange={(event) => onDay(event.target.value)}
+        onChange={(event) => {
+          // An option's value is one of `days`: the only ones enabled.
+          const picked = days.find((each) => each === event.target.value)
+          if (picked !== undefined) onDay(picked)
+        }}
         className={cn(
           "num bg-surface rounded-md border border-border px-2 py-1 text-[13px] font-semibold",
           kFocus

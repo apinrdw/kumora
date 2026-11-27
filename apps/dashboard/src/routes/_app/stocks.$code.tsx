@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
-import { WibDate } from "@workspace/relay"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
@@ -342,7 +341,7 @@ function StockDailyHolders({
       day={holdersDay}
       onDay={(dataDate) =>
         setSearch({
-          holdersDay: dataDate === newest ? undefined : WibDate.make(dataDate),
+          holdersDay: dataDate === newest ? undefined : dataDate,
         })
       }
     />

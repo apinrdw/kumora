@@ -2,7 +2,7 @@
 // "Stock page read model"): everything /stocks/$CODE shows for a code, and
 // the list of stocks its picker offers.
 import { Effect, Schema } from "effect"
-import { StockCode } from "@workspace/relay"
+import { StockCode, WibDate } from "@workspace/relay"
 
 import {
   CLASSIFICATIONS,
@@ -166,7 +166,7 @@ export type Above5Holder = typeof Above5Holder.Type
 // A parsed above-5% day: the stock's blocks in report order, none when no
 // holder of it is above 5% that day, and its listed shares then.
 const DailyHoldersDay = Schema.Struct({
-  dataDate: Schema.String,
+  dataDate: WibDate,
   // The newest parsed investor-type report's on or before the day;
   // undefined when none lists the stock.
   listedShares: Schema.UndefinedOr(Schema.Number),
@@ -426,7 +426,7 @@ const ABOVE_5_ACCOUNTS = `${READ}
   ORDER BY data_date, no, ordinal`
 
 const Above5DayRow = Schema.Struct({
-  data_date: Schema.String,
+  data_date: WibDate,
   listed_shares: Schema.NullOr(Schema.Number),
 })
 export const Above5HolderRow = Schema.Struct({

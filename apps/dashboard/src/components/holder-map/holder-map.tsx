@@ -6,7 +6,7 @@
 // the most ≥1% holders. A stock focus's holdings are its holders, a holder
 // focus's its stocks, and a custodian focus's book its holders and stocks.
 import { Link } from "@tanstack/react-router"
-import { WibDate } from "@workspace/relay"
+import type { WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import { type ReactNode, useState } from "react"
@@ -174,11 +174,7 @@ export function HolderMapPage({
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           {shown !== undefined && (
-            <DayPicker
-              days={map.days}
-              day={shown}
-              onDay={(day) => onDay(WibDate.make(day))}
-            />
+            <DayPicker days={map.days} day={shown} onDay={onDay} />
           )}
           <FocusPicker
             state={list}

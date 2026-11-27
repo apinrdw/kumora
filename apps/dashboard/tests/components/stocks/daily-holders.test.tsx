@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { StockCode } from "@workspace/relay"
+import { StockCode, WibDate } from "@workspace/relay"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, describe, expect, test } from "vitest"
@@ -40,7 +40,11 @@ const block = (
 const day = (
   dataDate: string,
   holders: ReadonlyArray<Above5Holder>
-): DailyHoldersDay => ({ dataDate, listedShares: 10_000, holders })
+): DailyHoldersDay => ({
+  dataDate: WibDate.make(dataDate),
+  listedShares: 10_000,
+  holders,
+})
 
 // 17 Nov: Alpha 10% (listed twice, a repeat block), Beta 7%, Gamma 6%.
 // 18 Nov: Alpha up 100 shares at KB with its accounts shuffled, Beta renamed
