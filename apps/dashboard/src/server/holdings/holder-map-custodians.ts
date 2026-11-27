@@ -71,7 +71,8 @@ export const custodianNames = Effect.fnUntraced(function* (
 })
 
 // Each holding's shares at each custodian, its accounts there summed, by
-// stock, holder and custodian.
+// stock, holder and custodian. An account emptied to 0 shares holds
+// nothing there.
 export const custodianLinks = Effect.fnUntraced(function* (
   holdings: ReadonlyArray<HoldingAccounts>
 ) {
@@ -79,6 +80,7 @@ export const custodianLinks = Effect.fnUntraced(function* (
   const summed = new Map<string, Omit<HolderMapCustodianLink, "name">>()
   for (const { code, holder, accounts } of holdings)
     for (const { custodian, scripless } of accounts) {
+      if (scripless <= 0) continue
       spellings.add(custodian)
       const { id, broker } = yield* custodianOf(custodian)
       const place = `${yield* placeOf(code, holder)} ${id}`

@@ -94,12 +94,13 @@ const IN_VIEW: Record<Focus["kind"], string> = {
     WHERE holder_key = ?2 AND data_date = (SELECT month FROM band_month)
   )`,
   // Through above_5_account_by_custodian: the custodian's accounts of the
-  // day, not the whole day's.
+  // day, not the whole day's. An account emptied to 0 shares holds nothing
+  // there (`custodianLinks`).
   custodian: `${PERIODS},
   in_view AS (
     SELECT DISTINCT stock_code FROM above_5_account
     WHERE custodian IN (SELECT value FROM json_each(?2))
-      AND data_date = (SELECT day FROM asof)
+      AND data_date = (SELECT day FROM asof) AND scripless > 0
   )`,
 }
 
@@ -213,8 +214,8 @@ const OFF_LIST: Record<Focus["kind"], string> = {
   // An identity is `<key>#<n>`: those of the key sort from `<key>#` up to,
   // not including, `<key>$`.
   holder: `${PERIODS} ${OFF_LIST_LINES("holder >= ?2 || '#' AND holder < ?2 || '$'")}`,
-  // A custodian's earlier holders: each above-5% holding with an account
-  // at one of its spellings of the day (?2) on a day before it, by its
+  // A custodian's earlier holders: each above-5% holding with shares in an
+  // account at one of its spellings of the day (?2) on a day before it, by its
   // last such day, the period it left the first above-5% day after. A
   // holding still there is dropped after (`offListOf`). Holder moves store
   // no custodian, so this reads the accounts through
@@ -225,7 +226,7 @@ const OFF_LIST: Record<Focus["kind"], string> = {
   through AS (
     SELECT DISTINCT data_date, stock_code, no FROM above_5_account
     WHERE custodian IN (SELECT value FROM json_each(?2))
-      AND data_date < (SELECT day FROM asof)
+      AND data_date < (SELECT day FROM asof) AND scripless > 0
   ),
   last_through AS (
     SELECT holder.stock_code, holder.holder_key,
