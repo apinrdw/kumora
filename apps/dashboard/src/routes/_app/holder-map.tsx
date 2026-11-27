@@ -23,8 +23,9 @@ export const Route = createFileRoute("/_app/holder-map")({
   validateSearch: (raw: Record<string, unknown>) =>
     Effect.runSync(parseHolderMapSearch(raw)),
   loaderDeps: ({ search }) => ({ query: Effect.runSync(queryOf(search)) }),
-  // Declared, so the route's type doesn't depend on itself through
-  // loadServerFn.
+  // The return type is declared, so the route's type doesn't depend on
+  // itself through loadServerFn.
+  //
   // A holder focus the read took under another key opens under that key,
   // in place of this entry.
   //
