@@ -18,7 +18,9 @@ Both kinds share one derivation (`server/holdings/derived-moves.ts`). Stocks are
 
 The page renders its table and its Entered or left list through `BoundedRows` (ADR 0133): the server renders each list's first 200 lines, by stock code, and the browser every line once the page hydrates. The filters' counts, the headline and the search cover every line. A real day passes 200 lines, since each of its 263 to 343 moving stocks has at least one, so the server's table of a real day is cut until the page hydrates. Rendered whole, a period at the caps did not fit 96 MiB. The same test file holds the render's bound: a worker that holds a period's lines as the read gives them, 16,000 of a day or 30,000 of a month, and renders the page from them (`holder-moves-page-worker.tsx`) fits 96 MiB of heap, about 30 MiB of it the worker's own. A day fit 64 MiB and a month 88, not always 84, on 25 Nov 2026.
 
-The cost is one more step per derived period in a run, twice the rows written for each line, and a derivation whose reads grow with the parsed periods: it reads each moving stock's every period that fits the budget, where its Trend alone read 21. By the days above, that is about 2,500 more securities account rows a derived day for each parsed day before it, read in turns of the budget's rows. Undoing this means reading moves on demand again, which needs another bound on the read, such as computing the rail's counts at parse time and reading fewer trend periods.
+The cost is one more step per derived period in a run, twice the rows written for each line, and a derivation whose reads grow with the parsed periods: it reads each moving stock's every period that fits the budget, where its Trend alone read 21. By the days above, that is about 2,500 more securities account rows a derived day for each parsed day before it, read in turns of the budget's rows. The Holder map (apinrdw/kumora#733, #736) reads the same lines for its links' moves and its Off list holders, matched to its holders by the holder key of each line's name (ADR 0141).
+
+Undoing this means reading moves on demand again, which needs another bound on the read, such as computing the rail's counts at parse time and reading fewer trend periods.
 
 Sites:
 
@@ -26,6 +28,7 @@ Sites:
 - `apps/dashboard/src/server/holdings/above-5-moves.ts`
 - `apps/dashboard/src/server/holdings/above-1-moves.ts`
 - `apps/dashboard/src/server/holdings/holder-moves.ts`
+- `apps/dashboard/src/server/holdings/holder-map.ts`
 - `apps/dashboard/src/lib/major-holders.ts`
 - `apps/dashboard/src/server/shareholding/above-5-parse.ts`
 - `apps/dashboard/src/server/shareholding/above-1-parse.ts`
