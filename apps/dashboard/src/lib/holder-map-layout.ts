@@ -44,11 +44,11 @@ export const layoutInputOf = (graph: LayoutGraph) =>
 
 export interface Layout {
   readonly positions: Readonly<Record<string, { x: number; y: number }>>
-  // Every node's dot, plus a margin for its label: what fit-to-view shows.
-  readonly extent: {
-    readonly x: readonly [number, number]
-    readonly y: readonly [number, number]
-  }
+}
+
+export interface Extent {
+  readonly x: readonly [number, number]
+  readonly y: readonly [number, number]
 }
 
 // The seeded ring's radius, the gap a link keeps between its dots, the
@@ -97,33 +97,34 @@ export const holderMapLayout = (graph: LayoutGraph) =>
       ],
     })
     const positions: Record<string, { x: number; y: number }> = {}
+    for (const node of result.nodes)
+      positions[node.id] = { x: node.x, y: node.y }
+    return { positions }
+  })
+
+// What fit-to-view shows of `layout`: the nodes shown, each dot plus a
+// margin for its label. The Off list toggle changes what is shown, never
+// the layout, so the map refits without moving a node.
+export const fitExtent = (
+  layout: Layout,
+  nodes: ReadonlyArray<{ readonly id: string; readonly radius: number }>
+) =>
+  Effect.sync((): Extent => {
     let x0 = Infinity
     let x1 = -Infinity
     let y0 = Infinity
     let y1 = -Infinity
-    for (const node of result.nodes) {
-      positions[node.id] = { x: node.x, y: node.y }
-      x0 = Math.min(x0, node.x - node.radius)
-      x1 = Math.max(x1, node.x + node.radius)
-      y0 = Math.min(y0, node.y - node.radius)
-      y1 = Math.max(y1, node.y + node.radius)
+    for (const { id, radius } of nodes) {
+      const at = layout.positions[id]
+      if (at === undefined) continue
+      x0 = Math.min(x0, at.x - radius)
+      x1 = Math.max(x1, at.x + radius)
+      y0 = Math.min(y0, at.y - radius)
+      y1 = Math.max(y1, at.y + radius)
     }
-    if (result.nodes.length === 0) {
-      x0 = y0 = 0
-      x1 = y1 = 0
-    }
+    if (x0 > x1) x0 = x1 = y0 = y1 = 0
     return {
-      positions,
-      extent: {
-        x: [x0 - MARGIN, x1 + MARGIN],
-        y: [y0 - MARGIN, y1 + MARGIN],
-      },
+      x: [x0 - MARGIN, x1 + MARGIN],
+      y: [y0 - MARGIN, y1 + MARGIN],
     }
   })
-
-// What fit-to-view shows of `layout`: the nodes shown, each dot plus a
-// margin for its label.
-export const fitExtent = (
-  layout: Layout,
-  _nodes: ReadonlyArray<{ readonly id: string; readonly radius: number }>
-) => Effect.succeed(layout.extent)

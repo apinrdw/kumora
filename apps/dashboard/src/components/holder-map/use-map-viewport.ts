@@ -1,6 +1,6 @@
 // The Holder map's own pan and zoom (lib/holder-map-viewport.ts): the
-// wheel zooms round the pointer, a drag pans, and a new layout starts
-// fitted to view.
+// wheel zooms round the pointer, a drag pans, and a new extent to fit (a
+// new layout, or the Off list toggled) starts fitted to view.
 import { Effect } from "effect"
 import {
   type PointerEvent,
@@ -12,7 +12,7 @@ import {
 } from "react"
 
 import { CLICK_SLOP } from "@/lib/bubble-drag"
-import type { Layout } from "@/lib/holder-map-layout"
+import type { Extent } from "@/lib/holder-map-layout"
 import {
   fitViewport,
   panViewport,
@@ -30,37 +30,37 @@ interface Size {
 
 export function useMapViewport(
   frame: RefObject<HTMLDivElement | null>,
-  layout: Layout | undefined,
+  extent: Extent | undefined,
   size: Size | undefined
 ) {
   const fitted = useMemo(
     () =>
-      layout === undefined || size === undefined
+      extent === undefined || size === undefined
         ? undefined
-        : Effect.runSync(fitViewport(layout.extent, size)),
-    [layout, size]
+        : Effect.runSync(fitViewport(extent, size)),
+    [extent, size]
   )
-  // The viewport the reader moved to, for the layout it was moved over.
-  const [moved, setMoved] = useState<{ layout: Layout; view: Viewport }>()
+  // The viewport the reader moved to, for the extent it was moved over.
+  const [moved, setMoved] = useState<{ extent: Extent; view: Viewport }>()
   const view =
-    moved !== undefined && moved.layout === layout ? moved.view : fitted
+    moved !== undefined && moved.extent === extent ? moved.view : fitted
   const drag = useRef<{ x: number; y: number; dragging: boolean }>(undefined)
   // Set by a drag, so the click that ends it refocuses nothing.
   const dragged = useRef(false)
 
   // Functional, so moves between two renders (a fast wheel) add up.
   const move = (next: (current: Viewport) => Viewport) => {
-    if (layout === undefined || fitted === undefined) return
+    if (extent === undefined || fitted === undefined) return
     setMoved((previous) => ({
-      layout,
-      view: next(previous?.layout === layout ? previous.view : fitted),
+      extent,
+      view: next(previous?.extent === extent ? previous.view : fitted),
     }))
   }
 
   // React's wheel listener is passive, and the page would scroll too.
   useEffect(() => {
     const current = frame.current
-    if (current === null || layout === undefined) return
+    if (current === null || extent === undefined) return
     if (fitted === undefined || size === undefined) return
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
@@ -68,10 +68,10 @@ export function useMapViewport(
       const at = { x: event.clientX - box.left, y: event.clientY - box.top }
       const factor = Math.exp(-event.deltaY * WHEEL_ZOOM)
       setMoved((previous) => ({
-        layout,
+        extent,
         view: Effect.runSync(
           zoomViewport(
-            previous?.layout === layout ? previous.view : fitted,
+            previous?.extent === extent ? previous.view : fitted,
             size,
             at,
             factor
@@ -81,7 +81,7 @@ export function useMapViewport(
     }
     current.addEventListener("wheel", onWheel, { passive: false })
     return () => current.removeEventListener("wheel", onWheel)
-  }, [frame, layout, fitted, size])
+  }, [frame, extent, fitted, size])
 
   return {
     view,

@@ -49,29 +49,32 @@ describe("holderMapLayout", () => {
     })
   )
 
-  it.effect("bounds every node inside its extent", () =>
-    Effect.gen(function* () {
-      const layout = yield* holderMapLayout(graph(12))
-      for (const { x, y } of Object.values(layout.positions)) {
-        expect(x).toBeGreaterThanOrEqual(layout.extent.x[0])
-        expect(x).toBeLessThanOrEqual(layout.extent.x[1])
-        expect(y).toBeGreaterThanOrEqual(layout.extent.y[0])
-        expect(y).toBeLessThanOrEqual(layout.extent.y[1])
-      }
-    })
-  )
-
   it.effect("lays out a focus with no holders", () =>
     Effect.gen(function* () {
       const layout = yield* holderMapLayout(graph(0))
       expect(layout.positions).toEqual({ "stock:TRUE": { x: 0, y: 0 } })
-      expect(layout.extent.x[0]).toBeLessThan(layout.extent.x[1])
-      expect(layout.extent.y[0]).toBeLessThan(layout.extent.y[1])
+      const extent = yield* fitExtent(layout, graph(0).nodes)
+      expect(extent.x[0]).toBeLessThan(extent.x[1])
+      expect(extent.y[0]).toBeLessThan(extent.y[1])
     })
   )
 })
 
 describe("fitExtent", () => {
+  it.effect("bounds every node shown", () =>
+    Effect.gen(function* () {
+      const all = graph(12)
+      const layout = yield* holderMapLayout(all)
+      const extent = yield* fitExtent(layout, all.nodes)
+      for (const { x, y } of Object.values(layout.positions)) {
+        expect(x).toBeGreaterThanOrEqual(extent.x[0])
+        expect(x).toBeLessThanOrEqual(extent.x[1])
+        expect(y).toBeGreaterThanOrEqual(extent.y[0])
+        expect(y).toBeLessThanOrEqual(extent.y[1])
+      }
+    })
+  )
+
   it.effect(
     "fits the nodes shown only, as with the Off list hidden, on the same layout",
     () =>

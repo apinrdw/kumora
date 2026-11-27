@@ -28,7 +28,6 @@ class FakeWorker extends EventTarget {
       positions: Object.fromEntries(
         request.graph.nodes.map(({ id }) => [id, { x: 0, y: 0 }])
       ),
-      extent: { x: [0, 0], y: [0, 0] },
     }
     setTimeout(() =>
       this.dispatchEvent(

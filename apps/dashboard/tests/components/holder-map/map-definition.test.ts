@@ -175,7 +175,6 @@ describe("printedInside", () => {
       "stock:BSDE": { x: 0, y: 0 },
       "holder:PERINTIS": { x: 40, y: 0 },
     },
-    extent: { x: [-2000, 2000] as const, y: [-1000, 1000] as const },
   }
   const printed = (unit: number) =>
     Effect.map(
@@ -212,7 +211,6 @@ describe("mapDefinition", () => {
     positions: Object.fromEntries(
       nodes.map(({ id }, at) => [id, { x: at % 300, y: Math.floor(at / 300) }])
     ),
-    extent: { x: [0, 300] as const, y: [0, 200] as const },
   }
 
   it.effect("defines a hub's dots of one style in linear time", () =>

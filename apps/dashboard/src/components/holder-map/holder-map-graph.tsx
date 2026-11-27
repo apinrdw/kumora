@@ -25,6 +25,7 @@ import {
   type Refocus,
   shownNodes,
 } from "@/lib/holder-map-graph"
+import { fitExtent, type Layout } from "@/lib/holder-map-layout"
 
 import {
   CUSTODIAN_COLOR,
@@ -97,6 +98,27 @@ const mapLabel = Effect.fnUntraced(function* (
   ].join("")
 })
 
+// What the map shows with the Off list toggle as set: the extent fit to
+// view, the shown nodes', so the toggle refits the map and keeps its
+// layout; and the searched node while shown, so one the toggle hid since
+// is neither labelled nor named.
+function useShown(
+  graph: Focus["graph"],
+  layout: Layout | undefined,
+  showOffList: boolean,
+  searched: string | undefined
+) {
+  const shown = useMemo(
+    () => Effect.runSync(shownNodes(graph.nodes, showOffList)),
+    [graph, showOffList]
+  )
+  const extent = useMemo(
+    () => layout && Effect.runSync(fitExtent(layout, shown)),
+    [layout, shown]
+  )
+  return { extent, searchedNode: shown.find(({ id }) => id === searched) }
+}
+
 export type HolderMapGraphProps = {
   focus: Focus
   // The page's Off list toggle, which hides the Off list holders' nodes.
@@ -122,21 +144,19 @@ export function HolderMapGraph({
     [width]
   )
   const layout = useHolderMapLayout(graph)
-  const viewport = useMapViewport(frame, layout, size)
+  const { extent, searchedNode } = useShown(
+    graph,
+    layout,
+    showOffList,
+    searched
+  )
+  const viewport = useMapViewport(frame, extent, size)
   const { view } = viewport
   const [hovered, setHovered] = useState<string>()
   const nodeById = useMemo(
     () => new Map(graph.nodes.map((node) => [node.id, node])),
     [graph]
   )
-  const shown = useMemo(
-    () => Effect.runSync(shownNodes(graph.nodes, showOffList)),
-    [graph, showOffList]
-  )
-  // The searched node while the map shows it: one the Off list toggle
-  // hid since is neither labelled nor named.
-  const searchedNode =
-    searched === undefined ? undefined : shown.find(({ id }) => id === searched)
   // The node a chart point draws.
   const nodeOf = useCallback(
     (datum: unknown) =>
