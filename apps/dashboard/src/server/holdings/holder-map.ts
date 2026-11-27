@@ -169,15 +169,20 @@ const IN_VIEW_ROWS = [
   WHERE nth = 1 AND move = 'off list'`,
 ]
 
-// The most earlier holders a custodian focus reads: one day's accounts at
-// the above-5% parse's cap (ADR 0045).
-const CUSTODIAN_OFF_LIST = MAX_ROWS
+// The most leavings a focus's Off list reads, newest first: one day's
+// accounts at the above-5% parse's cap (ADR 0045). Stored leavings grow
+// with every period parsed, so each focus reads one more than this, to
+// tell the side panel older ones were left out.
+//
+// Decision: a stock's holders are read from its newest periods that fit a
+// row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
+const OFF_LIST_ROWS = MAX_ROWS
 
 // The focus's leavings as of the day and the month: each identity's
-// newest leaving, unless it came back since. A stock focus's are its
-// identities', at most its holders across its periods. A holder focus's
-// are every identity first listed under its key, in any stock, its
-// listings' names matched to the key after.
+// newest leaving, unless it came back since, the newest OFF_LIST_ROWS and
+// one more. A stock focus's are its identities'. A holder focus's are
+// every identity first listed under its key, in any stock, its listings'
+// names matched to the key after.
 const OFF_LIST_LINES = (where: string) => `SELECT stock_code, issuer_name,
     band, name, data_date, stake_before FROM (
     SELECT stock_code, issuer_name, '5%' AS band, name, move, data_date,
@@ -198,7 +203,9 @@ const OFF_LIST_LINES = (where: string) => `SELECT stock_code, issuer_name,
     WHERE ${where} AND move IN ('new', 'off list')
       AND data_date <= (SELECT month FROM band_month)
   )
-  WHERE nth = 1 AND move = 'off list'`
+  WHERE nth = 1 AND move = 'off list'
+  ORDER BY data_date DESC, stock_code, name
+  LIMIT ${OFF_LIST_ROWS + 1}`
 
 // Decision: the Holder map matches holders across stocks and reports by
 // holder key (apps/dashboard/docs/adr/0141-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
@@ -213,9 +220,8 @@ const OFF_LIST: Record<Focus["kind"], string> = {
   // holding still there is dropped after (`offListOf`). Holder moves store
   // no custodian, so this reads the accounts through
   // above_5_account_by_custodian, every earlier day's at the custodian, and
-  // keeps the CUSTODIAN_OFF_LIST newest holdings: as many as one day's
-  // accounts at the parse's cap (ADR 0045). A spelling the custodian no
-  // longer uses on the day is missed.
+  // keeps the OFF_LIST_ROWS newest holdings and one more. A spelling the
+  // custodian no longer uses on the day is missed.
   custodian: `${PERIODS},
   through AS (
     SELECT DISTINCT data_date, stock_code, no FROM above_5_account
@@ -229,7 +235,7 @@ const OFF_LIST: Record<Focus["kind"], string> = {
       USING (data_date, stock_code, no)
     GROUP BY holder.stock_code, holder.holder_key
     ORDER BY last_day DESC, holder.stock_code, holder.holder_key
-    LIMIT ${CUSTODIAN_OFF_LIST}
+    LIMIT ${OFF_LIST_ROWS + 1}
   )
   SELECT last_through.stock_code, holder.issuer_name, '5%' AS band,
     holder.holder_name AS name,
@@ -240,7 +246,9 @@ const OFF_LIST: Record<Focus["kind"], string> = {
     ON holder.data_date = last_through.last_day
       AND holder.stock_code = last_through.stock_code
       AND holder.holder_key = last_through.holder_key
-  GROUP BY last_through.stock_code, last_through.holder_key`,
+  GROUP BY last_through.stock_code, last_through.holder_key
+  ORDER BY last_through.last_day DESC, last_through.stock_code,
+    last_through.holder_key`,
 }
 
 const DayRow = Schema.Struct({ data_date: WibDate })
@@ -619,6 +627,7 @@ export const holderMapRead = Effect.fnUntraced(function* ({
       custodians: [],
       issuers: [],
       offList: [],
+      offListCut: false,
       mostHeld: yield* mostHeldOf(rest[0] ?? []),
     })
   const { links, issuers, custodians } = yield* linksInView(
@@ -626,7 +635,9 @@ export const holderMapRead = Effect.fnUntraced(function* ({
     rest.slice(0, IN_VIEW_ROWS.length)
   )
   const { first, second } = yield* hopsOf(focus, links, custodians)
-  const offRows = yield* decodeRows(OffListRow)(rest[IN_VIEW_ROWS.length] ?? [])
+  const offRead = yield* decodeRows(OffListRow)(rest[IN_VIEW_ROWS.length] ?? [])
+  const offListCut = offRead.length > OFF_LIST_ROWS
+  const offRows = offListCut ? offRead.slice(0, OFF_LIST_ROWS) : offRead
   const offList = yield* offListOf(focus, first, offRows)
   for (const row of offRows)
     if (!issuers.has(row.stock_code))
@@ -653,6 +664,7 @@ export const holderMapRead = Effect.fnUntraced(function* ({
       .map(([code, issuerName]) => ({ code, issuerName }))
       .sort((a, b) => a.code.localeCompare(b.code)),
     offList,
+    offListCut,
     mostHeld: [],
   })
 })

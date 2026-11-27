@@ -40,6 +40,7 @@ const read = (links: ReadonlyArray<HolderMapLink>): HolderMapRead => ({
   custodians: [],
   issuers: [],
   offList: [],
+  offListCut: false,
   mostHeld: [],
 })
 

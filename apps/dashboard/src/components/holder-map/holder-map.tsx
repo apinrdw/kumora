@@ -344,6 +344,7 @@ function Focus({
       <OffList
         focus={focus}
         holders={focus.offList}
+        cut={focus.offListCut}
         shown={showOffList}
         onShown={onShowOffList}
       />
@@ -760,15 +761,17 @@ function ShownMoveCell({ holder }: { holder: MapHolder }) {
 }
 
 // The focus's earlier holdings, each with the period it left its list,
-// hidden by the toggle.
+// hidden by the toggle; a note when older ones were left out.
 function OffList({
   focus,
   holders,
+  cut,
   shown,
   onShown,
 }: {
   focus: FocusView
   holders: ReadonlyArray<HolderMapOffList>
+  cut: boolean
   shown: boolean
   onShown: (shown: boolean) => void
 }) {
@@ -787,6 +790,11 @@ function OffList({
           Show Off list
         </KChip>
       </div>
+      {shown && cut && (
+        <p role="note" className="text-[13px] text-muted-foreground">
+          Only the latest to leave are listed. Older ones are left out.
+        </p>
+      )}
       {shown && (
         <ul
           aria-label={OFF_LIST_LABEL[focus.kind]}

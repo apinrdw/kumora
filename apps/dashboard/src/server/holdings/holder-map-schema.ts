@@ -162,6 +162,9 @@ export const HolderMapRead = Schema.Struct({
   // in neither band now, each once, by its latest leaving. None without a
   // focus.
   offList: Schema.Array(HolderMapOffList),
+  // Whether older leavings were left out of the Off list: it reads only
+  // the newest, a day's accounts at the above-5% parse's cap (ADR 0133).
+  offListCut: Schema.Boolean,
   // With no focus, the stocks with the most ≥1% holders in the month; none
   // with a focus.
   mostHeld: Schema.Array(

@@ -105,6 +105,8 @@ export type FocusView = (
   readonly legend: ReadonlyArray<LegendEntry>
   // Its earlier holdings, latest to leave first, then by name and stock.
   readonly offList: ReadonlyArray<HolderMapOffList>
+  // Whether older leavings were left out: the read keeps the newest.
+  readonly offListCut: boolean
 }
 
 export interface HolderMapView {
@@ -369,6 +371,7 @@ export const holderMapView = Effect.fnUntraced(function* (
       graph,
       legend: yield* legendOf(graph),
       offList: earlier,
+      offListCut: read.offListCut,
     },
     mostHeld: read.mostHeld,
   }

@@ -21,7 +21,7 @@ import { memoryHoldingsDb } from "./memory-holdings-db.ts"
 // The holder focus retained 32.2 MiB on 27 Nov 2026, its 20,005 nodes,
 // 8,000 custodian links and its side panel's hop beyond with it; the
 // custodian focus 13.6 MiB, and 12.1 MiB with 8,000 Off list holdings;
-// the stock focus 3.1 MiB.
+// the stock focus 3.1 MiB, and 10.1 MiB with 80,000 stored leavings.
 const HEAP_LIMIT_MIB = 40
 
 // The most stocks a report lists (ADR 0045), each with the day's blocks
@@ -204,6 +204,7 @@ describe("the Holder map's read of a hub", () => {
         // The newest leavings, a day's accounts at the cap.
         assert.strictEqual(read.offList.length, ABOVE_5_DAY_ROWS)
         assert.strictEqual(view.focus?.offList.length, ABOVE_5_DAY_ROWS)
+        assert.isTrue(view.focus?.offListCut)
         assert.isBelow(
           retained,
           HEAP_LIMIT_MIB,
