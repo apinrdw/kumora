@@ -6,6 +6,8 @@ On the Holder map a holder is its holder key (`server/holdings/holder-key.ts`), 
 
 A link's move departs from the spec's "don't recompute" (apinrdw/kumora#733, "Moves"), the owner's call on 27 Nov 2026. A 5%-band key with one block on the day and at most one on the day before is one identity, and takes its stored move (ADR 0134). A key with several blocks on either day moves as one holder, by its blocks and securities accounts summed on both days, read from the day's and the day before's: New with none the day before (no move on the stock's first listed day, which Holder moves compares with nothing), else Up or Down by its summed shares, its % change every block's on both days, else a Transfer when shares crossed custodians between its accounts, whichever of its blocks they sit in, a custodian one by its broker code, else its name (ADR 0132). Summing its blocks' stored lines instead had a hole in three review rounds of apinrdw/kumora#741 (the second, the third and the seventh): a block arriving or leaving beside an unchanged one, two blocks' Up and Down that were a Transfer, and a block unchanged in shares with no line whose % fell as listed shares rose. A 1%-band key always takes its stored move: Major holders follows a month's holder by its key (ADR 0129), so its rows are one identity, and the above-1% report has no accounts, so no Transfer. The cost: such a key's move on the map can differ from its blocks' lines on Holder moves, and the read takes the day before's blocks and accounts of such keys, at most a day's rows (ADR 0133).
 
+A row of a stored code that isn't a Stock code, or of a name that keys blank (legal-form words only), is no holder: the read leaves it out rather than fail every other row of the read (`server/holdings/holder-map-schema.ts`, apinrdw/kumora#741's ninth review).
+
 The stock page and Holder moves keep their own rule: ADR 0129's identity within a stock and the glossary's "never matched to a ≥1% holder". The cost is false merges: two unrelated investors of one name, such as CPGT's two blocks of ASIA ARGENTUM ASSETS HONG KONG LIMITED, show as one holder, and a holder renamed beyond what the key ignores shows as two. The owner accepted both in the spec's grilling. Undoing the summed move means storing a key's move at parse time beside its identities'. Undoing the rest means storing an investor identity across reports, which neither IDX report publishes (the above-5% report's SID is not stored), and drawing a holder per stock and report, which leaves the map with no edges between stocks.
 
 Sites:
@@ -15,6 +17,7 @@ Sites:
 - `apps/dashboard/src/server/holdings/holder-map-moves.ts`
 - `apps/dashboard/src/server/holdings/holder-map-off-list.ts`
 - `apps/dashboard/src/server/holdings/holder-map-search-list.ts`
+- `apps/dashboard/src/server/holdings/holder-map-schema.ts`
 - `apps/dashboard/src/routes/_app/holder-map.tsx`
 
 Source: apinrdw/kumora#733, apinrdw/kumora#734, apinrdw/kumora#738, apinrdw/kumora#739
