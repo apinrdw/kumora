@@ -30,6 +30,13 @@ const MEMBERS = new Map(
   )
 )
 
+const NAMES: ReadonlyMap<BrokerCode, string> = new Map(EXCHANGE_MEMBERS)
+
+// The member's name as IDX lists it; undefined for a code IDX no longer
+// lists, as a closed member's.
+export const memberName = (code: BrokerCode) =>
+  Effect.sync(() => NAMES.get(code))
+
 // KSEI's holding account for a closed member names its code with a serial:
 // `CLOSED MEMBER-SM001`, `CLOSED MEMBER -IP001`, `TAMP QA001`,
 // `TAMPUNGAN MK001`.

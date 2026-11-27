@@ -312,14 +312,24 @@ export const HolderKey = Schema.String.check(
 ).pipe(Schema.brand("HolderKey"))
 export type HolderKey = typeof HolderKey.Type
 
+// A custodian as one Holder map node across stocks
+// (server/holdings/holder-map.ts, `custodianOf`): its broker code, or, with
+// none, its name keyed as a holder's name is.
+export const CustodianId = Schema.String.check(
+  Schema.isPattern(/\S/),
+  Schema.isMaxLength(256)
+).pipe(Schema.brand("CustodianId"))
+export type CustodianId = typeof CustodianId.Type
+
 // What the Holder map is drawn around, and as of which trading day: a
-// stock, a holder, or nothing for the landing view; the day absent for the
-// newest parsed.
+// stock, a holder, a custodian, or nothing for the landing view; the day
+// absent for the newest parsed.
 export const HolderMapQuery = Schema.Struct({
   focus: Schema.UndefinedOr(
     Schema.Union([
       Schema.Struct({ kind: Schema.Literal("stock"), code: StockCode }),
       Schema.Struct({ kind: Schema.Literal("holder"), key: HolderKey }),
+      Schema.Struct({ kind: Schema.Literal("custodian"), id: CustodianId }),
     ])
   ),
   day: Schema.UndefinedOr(WibDate),

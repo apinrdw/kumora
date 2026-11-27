@@ -4,14 +4,15 @@
 // above-5% and above-1% parse runs parsed them, through the Holder map view
 // model.
 import { assert, describe, it } from "@effect/vitest"
-import { StockCode, WibDate } from "@workspace/relay"
+import { BrokerCode, StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { HolderKey } from "@/domain/holdings"
+import { CustodianId, HolderKey } from "@/domain/holdings"
 import { holderMapView } from "@/lib/holder-map"
 import { holderKey } from "@/server/holdings/holder-key"
 import {
   type HolderMapLink,
+  type HolderMapRead,
   holderMapRead,
   holderMapSearchList,
 } from "@/server/holdings/holder-map"
@@ -550,6 +551,222 @@ describe("Holder map, holder focus", () => {
   )
 })
 
+// The read of a custodian focus, by its id.
+const custodianReadOf = (w: World, id: string, day?: string) =>
+  holderMapRead({
+    focus: { kind: "custodian", id: CustodianId.make(id) },
+    day: day === undefined ? undefined : WibDate.make(day),
+  }).pipe(Effect.provide(w.holdings.layer))
+
+// Custodian links as a reader sees them: stock, holder key, custodian id
+// and name, shares through it.
+const custodiansOf = (read: HolderMapRead) =>
+  read.custodians.map(({ code, holder, custodian, name, shares }) => [
+    code,
+    holder,
+    custodian,
+    name,
+    shares,
+  ])
+
+// One more securities account of a block of 20 Nov 2026.
+const addAccount = (
+  w: World,
+  code: string,
+  no: number,
+  custodian: string,
+  shares: number
+) =>
+  w.holdings.database
+    .prepare(
+      `INSERT INTO above_5_account VALUES ('2026-11-20', ?, ?, 99, ?,
+        'ACCOUNT', 'local', NULL, NULL, ?)`
+    )
+    .run(code, no, custodian, shares)
+
+const AGUNG = "AGUNG INVESTINDO PERKASA"
+const PERINTIS = "PERINTIS PROPERTI TRINITI"
+const MAYBANK = "INDONESIA MAYBANK SEKURITAS"
+const MANUNGGAL = "DEVELOPMENT MANUNGGAL PRIME"
+
+describe("Holder map, custodians", () => {
+  it.effect(
+    "links a stock focus's above-5% holders to their custodians by broker code",
+    () =>
+      Effect.gen(function* () {
+        // Both of TRUE's blocks sit at PT MIRAE ASSET SEKURITAS INDONESIA,
+        // broker YP, named as IDX lists the member.
+        assert.deepStrictEqual(
+          custodiansOf(yield* stockReadOf(yield* parsed, "TRUE")),
+          [
+            ["TRUE", AGUNG, "YP", "MIRAE ASSET SEKURITAS INDONESIA", 4e9],
+            [
+              "TRUE",
+              PERINTIS,
+              "YP",
+              "MIRAE ASSET SEKURITAS INDONESIA",
+              525_939_584,
+            ],
+          ]
+        )
+      })
+  )
+
+  it.effect(
+    "merges a custodian's spellings by broker code, and one without a code by its name",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        // Maybank spelled another way; Citibank, no member of IDX, spelled
+        // another way for a second CPGT holder.
+        addAccount(w, "ASRI", 1, "MAYBANK SEKURITAS INDONESIA, PT", 1_000)
+        addAccount(w, "CPGT", 7, "Citibank N.A.", 2_000)
+        const asri = custodiansOf(yield* stockReadOf(w, "ASRI"))
+        assert.includeDeepMembers(asri, [
+          [
+            "ASRI",
+            "ESTATE FAJAR INDUSTRIAL TANGERANG",
+            "ZP",
+            "MAYBANK SEKURITAS INDONESIA",
+            1_000,
+          ],
+          // Manunggal's two Maybank accounts, summed.
+          [
+            "ASRI",
+            MANUNGGAL,
+            "ZP",
+            "MAYBANK SEKURITAS INDONESIA",
+            2_350_449_800,
+          ],
+        ])
+        const citibank = custodiansOf(yield* stockReadOf(w, "CPGT")).filter(
+          ([, , id]) => id === "A CITIBANK N"
+        )
+        assert.deepStrictEqual(citibank, [
+          [
+            "CPGT",
+            "ARGENTUM ASIA ASSETS HONG KONG LIMITED",
+            "A CITIBANK N",
+            "CITIBANK, N. A",
+            2_000,
+          ],
+          [
+            "CPGT",
+            "LIMITED RECKSON",
+            "A CITIBANK N",
+            "CITIBANK, N. A",
+            1_156_687_126,
+          ],
+        ])
+      })
+  )
+
+  it.effect(
+    "focuses a custodian on the above-5% holders holding through it, market-wide",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        addAccount(w, "ASRI", 1, "MAYBANK SEKURITAS INDONESIA, PT", 1_000)
+        const read = yield* custodianReadOf(w, "ZP")
+        assert.strictEqual(read.day, "2026-11-20")
+        assert.deepStrictEqual(read.focus, {
+          kind: "custodian",
+          id: CustodianId.make("ZP"),
+          broker: BrokerCode.make("ZP"),
+          name: "MAYBANK SEKURITAS INDONESIA",
+        })
+        // Its holders' holdings through it, in ASRI and ENRG, each with its
+        // move, and nothing a hop beyond.
+        assert.deepStrictEqual(
+          read.links.map(({ code, band, name, move }) => [
+            code,
+            band,
+            name,
+            move?.kind,
+          ]),
+          [
+            ["ASRI", "5%", "PT TANGERANG FAJAR INDUSTRIAL ESTATE", undefined],
+            ["ASRI", "5%", "PT. MANUNGGAL PRIME DEVELOPMENT", undefined],
+            ["ASRI", "5%", "MAYBANK SEKURITAS INDONESIA", undefined],
+            ["ENRG", "5%", "MAYBANK SEKURITAS INDONESIA", "up"],
+          ]
+        )
+        assert.deepStrictEqual(read.hops, [])
+        assert.deepStrictEqual(read.offList, [])
+        // Its own links, and its holdings' other custodians.
+        assert.deepStrictEqual(
+          custodiansOf(read).filter(([, , id]) => id === "ZP"),
+          [
+            [
+              "ASRI",
+              MANUNGGAL,
+              "ZP",
+              "MAYBANK SEKURITAS INDONESIA",
+              2_350_449_800,
+            ],
+            [
+              "ASRI",
+              "ESTATE FAJAR INDUSTRIAL TANGERANG",
+              "ZP",
+              "MAYBANK SEKURITAS INDONESIA",
+              1_000,
+            ],
+            [
+              "ASRI",
+              MAYBANK,
+              "ZP",
+              "MAYBANK SEKURITAS INDONESIA",
+              1_701_000_200,
+            ],
+            [
+              "ENRG",
+              MAYBANK,
+              "ZP",
+              "MAYBANK SEKURITAS INDONESIA",
+              2_618_186_200,
+            ],
+          ]
+        )
+        assert.deepStrictEqual(
+          [...new Set(custodiansOf(read).map(([, , id]) => id))],
+          ["KI", "PD", "ZP"]
+        )
+      })
+  )
+
+  it.effect("focuses a custodian without a broker code by its name", () =>
+    Effect.gen(function* () {
+      const read = yield* custodianReadOf(yield* parsed, "A CITIBANK N")
+      assert.deepStrictEqual(read.focus, {
+        kind: "custodian",
+        id: CustodianId.make("A CITIBANK N"),
+        broker: undefined,
+        name: "CITIBANK, N. A",
+      })
+      assert.deepStrictEqual(linksOf(read.links), [
+        ["CPGT", "5%", "RECKSON LIMITED", 2912],
+      ])
+    })
+  )
+
+  it.effect("finds nothing for a custodian with no account that day", () =>
+    Effect.gen(function* () {
+      const read = yield* custodianReadOf(yield* parsed, "ZZ", "2026-06-25")
+      assert.strictEqual(read.day, "2026-06-25")
+      assert.deepStrictEqual(read.focus, {
+        kind: "custodian",
+        id: CustodianId.make("ZZ"),
+        broker: undefined,
+        name: undefined,
+      })
+      assert.deepStrictEqual(
+        [read.links, read.hops, read.custodians],
+        [[], [], []]
+      )
+    })
+  )
+})
+
 describe("Holder map, no focus", () => {
   it.effect("lists the stocks with the most ≥1% holders", () =>
     Effect.gen(function* () {
@@ -622,6 +839,30 @@ describe("Holder map, no focus", () => {
         )
         // Djoni left every list before Oct.
         assert.notInclude(keys, "DJONI")
+      })
+  )
+
+  it.effect(
+    "searches every custodian of the newest day, once each, by name",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        addAccount(w, "ASRI", 1, "MAYBANK SEKURITAS INDONESIA, PT", 1_000)
+        const { custodians } = yield* holderMapSearchList.pipe(
+          Effect.provide(w.holdings.layer)
+        )
+        const ids = custodians.map(({ id }) => id)
+        assert.strictEqual(new Set(ids).size, ids.length)
+        assert.includeDeepMembers(custodians, [
+          {
+            id: "ZP",
+            broker: "ZP",
+            name: "MAYBANK SEKURITAS INDONESIA",
+          },
+          { id: "A CITIBANK N", broker: undefined, name: "CITIBANK, N. A" },
+        ])
+        const names = custodians.map(({ name }) => name)
+        assert.deepStrictEqual(names, [...names].sort())
       })
   )
 })

@@ -4,15 +4,17 @@
 // it, and the links a hop beyond: a focus stock's holders' other stocks, or
 // a focus holder's stocks' other holders. With no focus, the stocks with
 // the most ≥1% holders.
-import { StockCode, WibDate } from "@workspace/relay"
+import { BrokerCode, StockCode, WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
 import {
+  CustodianId,
   type HolderKey,
   type HolderMapQuery,
   KseiType,
   SplitOrigin,
 } from "@/domain/holdings"
+import { brokerOf, memberName } from "@/lib/broker-code"
 import { dayHolders } from "@/lib/daily-holders"
 
 import { decodeRows } from "../d1.ts"
@@ -107,6 +109,29 @@ const HolderMapOffList = Schema.Struct({
 })
 export type HolderMapOffList = typeof HolderMapOffList.Type
 
+// An above-5% holding's shares at one custodian: its securities accounts
+// there, summed.
+const HolderMapCustodianLink = Schema.Struct({
+  // The holding's stock and holder key.
+  code: StockCode,
+  holder: Schema.String,
+  custodian: CustodianId,
+  // Undefined for a bank or other custodian no exchange member is.
+  broker: Schema.UndefinedOr(BrokerCode),
+  // The member's name as IDX lists it, else its first spelling in view.
+  name: Schema.String,
+  // Scripless.
+  shares: Schema.Number,
+})
+export type HolderMapCustodianLink = typeof HolderMapCustodianLink.Type
+
+// A custodian as the search lists it.
+interface HolderMapCustodian {
+  readonly id: CustodianId
+  readonly broker: BrokerCode | undefined
+  readonly name: string
+}
+
 const HolderMapFocus = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("stock"),
@@ -120,6 +145,14 @@ const HolderMapFocus = Schema.Union([
     key: Schema.String,
     // Its largest holding's name as published, else its latest Off list
     // name; undefined when neither report lists the key.
+    name: Schema.UndefinedOr(Schema.String),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("custodian"),
+    id: CustodianId,
+    broker: HolderMapCustodianLink.fields.broker,
+    // As its links name it; undefined when no account of the day is
+    // there.
     name: Schema.UndefinedOr(Schema.String),
   }),
 ])
@@ -142,6 +175,9 @@ const HolderMapRead = Schema.Struct({
   // The second hop: each first-hop holder's other stocks, or each
   // first-hop stock's other holders, every one, uncapped.
   hops: Schema.Array(HolderMapLink),
+  // Each 5%-band link of the two hops at each of its custodians, by stock,
+  // holder and custodian.
+  custodians: Schema.Array(HolderMapCustodianLink),
   // Each stock the links and the Off list reach, by code, with its issuer
   // name as its report prints it.
   issuers: Schema.Array(
@@ -181,12 +217,14 @@ const PERIODS = `WITH asof AS (
 
 // The stocks a focus's map reads, `in_view`, from ?2: a stock focus's code
 // and every stock its holders hold in either band, or every stock a focus
-// holder's key holds in either band. A holder holds a stock on the map by
-// its key, whatever stock it was first listed in.
+// holder's key holds in either band, or every stock with a securities
+// account of the day at a focus custodian, ?2 then its spellings as a JSON
+// array (`custodianSpellings`). A holder holds a stock on the map by its
+// key, whatever stock it was first listed in.
 //
 // Decision: the Holder map matches holders across stocks and reports by
 // holder key (apps/dashboard/docs/adr/0141-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
-const IN_VIEW: Record<"stock" | "holder", string> = {
+const IN_VIEW: Record<Focus["kind"], string> = {
   stock: `${PERIODS},
   focus_keys AS (
     SELECT holder_key FROM above_5_holder
@@ -213,6 +251,14 @@ const IN_VIEW: Record<"stock" | "holder", string> = {
     UNION
     SELECT stock_code FROM above_1_holding
     WHERE holder_key = ?2 AND data_date = (SELECT month FROM band_month)
+  )`,
+  // Through above_5_account_by_custodian: the custodian's accounts of the
+  // day, not the whole day's.
+  custodian: `${PERIODS},
+  in_view AS (
+    SELECT DISTINCT stock_code FROM above_5_account
+    WHERE custodian IN (SELECT value FROM json_each(?2))
+      AND data_date = (SELECT day FROM asof)
   )`,
 }
 
@@ -317,6 +363,10 @@ const OFF_LIST: Record<"stock" | "holder", string> = {
   // not including, `<key>$`.
   holder: `${PERIODS} ${OFF_LIST_LINES("holder >= ?2 || '#' AND holder < ?2 || '$'")}`,
 }
+
+// The day and the month the map is drawn as of.
+const PERIODS_SQL = `${PERIODS}
+  SELECT (SELECT day FROM asof) AS day, (SELECT month FROM band_month) AS month`
 
 const PeriodsRow = Schema.Struct({
   day: Schema.NullOr(WibDate),
@@ -543,6 +593,7 @@ const stockLinks = Effect.fnUntraced(function* (
       hundredths: number
       shares: number
       origins: Array<SplitOrigin>
+      accounts: Array<Account>
     }
   >()
   for (const holder of yield* dayHolders(blocks?.holders ?? [])) {
@@ -554,11 +605,13 @@ const stockLinks = Effect.fnUntraced(function* (
         hundredths: holder.percentageHundredths,
         shares: holder.scripless,
         origins,
+        accounts: [...holder.accounts],
       })
     else {
       summed.hundredths += holder.percentageHundredths
       summed.shares += holder.scripless
       summed.origins.push(...origins)
+      summed.accounts.push(...holder.accounts)
     }
   }
   const inAbove5 = new Set((blocks?.holders ?? []).map(({ key }) => key))
@@ -589,6 +642,10 @@ const stockLinks = Effect.fnUntraced(function* (
   }
   return {
     links,
+    // Each 5%-band holder's securities accounts, by key.
+    accounts: new Map(
+      [...above5].map(([key, holder]) => [key, holder.accounts])
+    ),
     inMonth: new Map(
       [...monthHolders].map(([key, holder]) => [
         key,
@@ -670,14 +727,16 @@ const NEWEST_MONTH = "(SELECT MAX(data_date) FROM above_1_month)"
 
 // What the map's search offers: the stocks and holders the newest above-5%
 // day or the newest above-1% month lists, stocks by code, holders by key
-// with a name of theirs, a code that isn't a stock code's shape left out.
+// with a name of theirs, a code that isn't a stock code's shape left out,
+// and the custodians of the newest day's securities accounts, one each.
 // The stock page's list comes from the classification, KSEI and
 // investor-type reports, which can miss a stock with holders. At most one
 // day's and one month's rows, each within its parse cap (ADR 0045).
 export const holderMapSearchList = Effect.gen(function* () {
-  const [stockRows = [], holderRows = []] = yield* (yield* HoldingsDb).batch([
-    {
-      sql: `SELECT stock_code, MAX(issuer_name) AS issuer_name FROM (
+  const [stockRows = [], holderRows = [], spellingRows = []] =
+    yield* (yield* HoldingsDb).batch([
+      {
+        sql: `SELECT stock_code, MAX(issuer_name) AS issuer_name FROM (
           SELECT stock_code, issuer_name FROM above_5_holder
           WHERE data_date = ${NEWEST_DAY}
           UNION ALL
@@ -685,10 +744,10 @@ export const holderMapSearchList = Effect.gen(function* () {
           WHERE data_date = ${NEWEST_MONTH}
         )
         GROUP BY stock_code ORDER BY stock_code`,
-      params: [],
-    },
-    {
-      sql: `SELECT holder_key, MAX(name) AS name FROM (
+        params: [],
+      },
+      {
+        sql: `SELECT holder_key, MAX(name) AS name FROM (
           SELECT holder_key, holder_name AS name FROM above_5_holder
           WHERE data_date = ${NEWEST_DAY}
           UNION ALL
@@ -696,12 +755,30 @@ export const holderMapSearchList = Effect.gen(function* () {
           WHERE data_date = ${NEWEST_MONTH}
         )
         GROUP BY holder_key ORDER BY name`,
-      params: [],
-    },
-  ])
+        params: [],
+      },
+      {
+        sql: `SELECT DISTINCT custodian FROM above_5_account
+        WHERE data_date = ${NEWEST_DAY}`,
+        params: [],
+      },
+    ])
   const isStock = Schema.is(SearchStockRow)
   const isHolder = Schema.is(SearchHolderRow)
+  const isSpelling = Schema.is(SpellingRow)
+  const spellings = spellingRows.flatMap((row) =>
+    isSpelling(row) ? [row.custodian] : []
+  )
+  const names = yield* custodianNames(spellings)
+  const custodians = new Map<CustodianId, HolderMapCustodian>()
+  for (const spelling of spellings) {
+    const { id, broker } = yield* custodianOf(spelling)
+    custodians.set(id, { id, broker, name: names.get(id) ?? spelling })
+  }
   return {
+    custodians: [...custodians.values()].sort((a, b) =>
+      a.name.localeCompare(b.name)
+    ),
     stocks: stockRows.flatMap((row) =>
       isStock(row)
         ? [{ code: row.stock_code, issuerName: row.issuer_name }]
@@ -715,8 +792,44 @@ export const holderMapSearchList = Effect.gen(function* () {
 
 type Focus = NonNullable<HolderMapQuery["focus"]>
 
-const focusParam = (focus: Focus): string =>
-  focus.kind === "stock" ? focus.code : focus.key
+// ?2 of a focus's statements: a stock code, a holder key, or a custodian's
+// spellings of the day as a JSON array.
+const focusParam = (focus: Focus, spellings: ReadonlyArray<string>): string =>
+  focus.kind === "stock"
+    ? focus.code
+    : focus.kind === "holder"
+      ? focus.key
+      : JSON.stringify(spellings)
+
+const SpellingRow = Schema.Struct({ custodian: Schema.String })
+
+// A custodian focus's spellings: the day's custodian names whose id is
+// the focus's, and the day the map is drawn as of, so the read that uses
+// them reads that day. The rest of the map is read in a batch after, so a
+// parse run replacing the day between the two can leave out a spelling
+// only its new version has.
+const custodianSpellings = Effect.fnUntraced(function* (
+  id: CustodianId,
+  asked: WibDate | null
+) {
+  const [periodRows = [], spellingRows = []] = yield* (yield* HoldingsDb).batch(
+    [
+      { sql: PERIODS_SQL, params: [asked] },
+      // A day's rows, within its parse cap (ADR 0045), by its key.
+      {
+        sql: `${PERIODS}
+      SELECT DISTINCT custodian FROM above_5_account
+      WHERE data_date = (SELECT day FROM asof)`,
+        params: [asked],
+      },
+    ]
+  )
+  const [periods] = yield* decodeRows(PeriodsRow)(periodRows)
+  const spellings: Array<string> = []
+  for (const { custodian } of yield* decodeRows(SpellingRow)(spellingRows))
+    if ((yield* custodianOf(custodian)).id === id) spellings.push(custodian)
+  return { day: periods?.day ?? asked, spellings }
+})
 
 // Each stock in view's links, with their changes.
 const linksInView = Effect.fnUntraced(function* (
@@ -741,25 +854,106 @@ const linksInView = Effect.fnUntraced(function* (
   const moves = yield* movesByKey(yield* decodeRows(MoveRow)(moveRows))
   const left = yield* leavings(yield* decodeRows(LeavingRow)(leftRows))
   const links: Array<HolderMapLink> = []
+  const accounts: Array<HoldingAccounts> = []
   const issuers = new Map<StockCode, string>()
   for (const [code, rows] of stocks) {
     const issuer = rows.holders[0]?.issuer_name ?? rows.month[0]?.issuer_name
     if (issuer !== undefined) issuers.set(code, issuer)
-    links.push(
-      ...(yield* changesOf(
-        periods,
-        yield* stockLinks(code, periods.day, periods.month, rows),
-        moves,
-        left
-      ))
-    )
+    const stock = yield* stockLinks(code, periods.day, periods.month, rows)
+    for (const [holder, of] of stock.accounts)
+      accounts.push({ code, holder, accounts: of })
+    links.push(...(yield* changesOf(periods, stock, moves, left)))
   }
-  return { links, issuers }
+  return { links, issuers, custodians: yield* custodianLinks(accounts) }
+})
+
+// A securities account as a custodian link reads it.
+interface Account {
+  readonly custodian: string
+  readonly scripless: number
+}
+
+// A 5%-band holding's securities accounts.
+interface HoldingAccounts {
+  readonly code: StockCode
+  readonly holder: string
+  readonly accounts: ReadonlyArray<Account>
+}
+
+// A custodian as one node (spec apinrdw/kumora#733, "Custodian identity"):
+// by the broker code its name looks up, else by its name keyed as a
+// holder's, as typed in any case or punctuation.
+//
+// Decision: broker codes are looked up on read
+// (apps/dashboard/docs/adr/0132-broker-codes-are-looked-up-on-read.md)
+const custodianOf = Effect.fnUntraced(function* (custodian: string) {
+  const broker = yield* brokerOf(custodian)
+  const key = broker ?? (yield* holderKey(custodian))
+  return {
+    id: CustodianId.make(key === "" ? custodian.trim().toUpperCase() : key),
+    broker,
+    member: broker === undefined ? undefined : yield* memberName(broker),
+  }
+})
+
+// Each custodian's name: its member's as IDX lists it, else the first of
+// `spellings` in code-point order, so one custodian reads one name
+// whichever stocks are in view.
+const custodianNames = Effect.fnUntraced(function* (
+  spellings: Iterable<string>
+) {
+  const names = new Map<CustodianId, string>()
+  for (const spelling of [...spellings].sort()) {
+    const { id, member } = yield* custodianOf(spelling)
+    if (!names.has(id)) names.set(id, member ?? spelling)
+  }
+  return names
+})
+
+// Each holding's shares at each custodian, its accounts there summed, by
+// stock, holder and custodian.
+const custodianLinks = Effect.fnUntraced(function* (
+  holdings: ReadonlyArray<HoldingAccounts>
+) {
+  const spellings = new Set<string>()
+  const summed = new Map<string, Omit<HolderMapCustodianLink, "name">>()
+  for (const { code, holder, accounts } of holdings)
+    for (const { custodian, scripless } of accounts) {
+      spellings.add(custodian)
+      const { id, broker } = yield* custodianOf(custodian)
+      const place = `${at(code, holder)} ${id}`
+      const known = summed.get(place)
+      summed.set(place, {
+        code,
+        holder,
+        custodian: id,
+        broker,
+        shares: (known?.shares ?? 0) + scripless,
+      })
+    }
+  const names = yield* custodianNames(spellings)
+  return [...summed.values()]
+    .map((link): HolderMapCustodianLink => ({
+      ...link,
+      name: names.get(link.custodian) ?? link.custodian,
+    }))
+    .sort(
+      (a, b) =>
+        a.code.localeCompare(b.code) ||
+        a.holder.localeCompare(b.holder) ||
+        a.custodian.localeCompare(b.custodian)
+    )
 })
 
 // The first hop and the second: a stock focus's holders and each one's
-// other stocks, or a holder focus's stocks and each one's other holders.
-const hopsOf = (focus: Focus, links: ReadonlyArray<HolderMapLink>) =>
+// other stocks, a holder focus's stocks and each one's other holders, or a
+// custodian focus's holdings, the 5%-band links with an account there, and
+// none beyond.
+const hopsOf = (
+  focus: Focus,
+  links: ReadonlyArray<HolderMapLink>,
+  custodians: ReadonlyArray<HolderMapCustodianLink>
+) =>
   Effect.sync(() => {
     if (focus.kind === "stock") {
       const first = links.filter(({ code }) => code === focus.code)
@@ -769,6 +963,20 @@ const hopsOf = (focus: Focus, links: ReadonlyArray<HolderMapLink>) =>
         second: links.filter(
           ({ code, holder }) => code !== focus.code && holders.has(holder)
         ),
+      }
+    }
+    if (focus.kind === "custodian") {
+      const through = new Set(
+        custodians
+          .filter(({ custodian }) => custodian === focus.id)
+          .map(({ code, holder }) => at(code, holder))
+      )
+      return {
+        first: links.filter(
+          ({ band, code, holder }) =>
+            band === "5%" && through.has(at(code, holder))
+        ),
+        second: [],
       }
     }
     const first = links.filter(({ holder }) => holder === focus.key)
@@ -781,6 +989,74 @@ const hopsOf = (focus: Focus, links: ReadonlyArray<HolderMapLink>) =>
     }
   })
 
+// The day asked for and a custodian focus's spellings: a custodian focus
+// reads its spellings first (`custodianSpellings`), then the map as of the
+// day they are of.
+const askOf = Effect.fnUntraced(function* (
+  focus: Focus | undefined,
+  day: WibDate | undefined
+) {
+  if (focus?.kind !== "custodian")
+    return { asked: day ?? null, spellings: [] as ReadonlyArray<string> }
+  const { day: asked, spellings } = yield* custodianSpellings(
+    focus.id,
+    day ?? null
+  )
+  return { asked, spellings }
+})
+
+// The statements a focus reads after the periods and the days: the stocks
+// most held with none, else the stocks in view and the focus's Off list. A
+// custodian holds for others: it has no Off list of its own.
+const focusStatements = (
+  focus: Focus | undefined,
+  asked: WibDate | null,
+  spellings: ReadonlyArray<string>
+) =>
+  Effect.sync(() => {
+    if (focus === undefined) return [{ sql: MOST_HELD_SQL, params: [asked] }]
+    const params = [asked, focusParam(focus, spellings)]
+    return [
+      ...IN_VIEW_ROWS.map((sql) => ({
+        sql: `${IN_VIEW[focus.kind]} ${sql}`,
+        params,
+      })),
+      ...(focus.kind === "custodian"
+        ? []
+        : [{ sql: OFF_LIST[focus.kind], params }]),
+    ]
+  })
+
+// The landing view's stocks most held.
+const mostHeldOf = Effect.fnUntraced(function* (
+  rows: ReadonlyArray<Record<string, unknown>>
+) {
+  return (yield* decodeRows(MostHeldRow)(rows)).map(
+    ({ stock_code, issuer_name, holders }) => ({
+      code: stock_code,
+      issuerName: issuer_name,
+      holders,
+    })
+  )
+})
+
+// The focus's Off list: its leavings in neither band now. A holding in
+// either band now is no earlier one: a holder that left the above-5% list
+// for the 1% band crossed down out of 5%.
+const offListOf = Effect.fnUntraced(function* (
+  focus: Focus,
+  first: ReadonlyArray<HolderMapLink>,
+  rows: ReadonlyArray<typeof OffListRow.Type>
+) {
+  const linked = new Set(first.map((link) => at(link.code, link.holder)))
+  return [...(yield* leavings(rows)).values()].filter(
+    (left) =>
+      !linked.has(at(left.code, left.holder)) &&
+      (focus.kind === "stock" ||
+        (focus.kind === "holder" && left.holder === focus.key))
+  )
+})
+
 // The map of `query`, in one batch, so a parse run replacing a period
 // mid-read can't mix two versions of it.
 export const holderMapRead = Effect.fnUntraced(function* ({
@@ -791,80 +1067,66 @@ export const holderMapRead = Effect.fnUntraced(function* ({
   HoldingsDbError,
   HoldingsDb
 > {
-  const asked = day ?? null
+  const { asked, spellings } = yield* askOf(focus, day)
   const [periodRows = [], dayRows = [], ...rest] =
     yield* (yield* HoldingsDb).batch([
-      {
-        sql: `${PERIODS}
-      SELECT (SELECT day FROM asof) AS day,
-        (SELECT month FROM band_month) AS month`,
-        params: [asked],
-      },
+      { sql: PERIODS_SQL, params: [asked] },
       {
         sql: "SELECT data_date FROM above_5_day ORDER BY data_date",
         params: [],
       },
-      ...(focus === undefined
-        ? [{ sql: MOST_HELD_SQL, params: [asked] }]
-        : [
-            ...IN_VIEW_ROWS.map((sql) => ({
-              sql: `${IN_VIEW[focus.kind]} ${sql}`,
-              params: [asked, focusParam(focus)],
-            })),
-            { sql: OFF_LIST[focus.kind], params: [asked, focusParam(focus)] },
-          ]),
+      ...(yield* focusStatements(focus, asked, spellings)),
     ])
   const [periods] = yield* decodeRows(PeriodsRow)(periodRows)
   const shownDay = periods?.day ?? undefined
   const month = periods?.month ?? undefined
-  const refused = shownDay === undefined ? day : undefined
-  const days = (yield* decodeRows(DayRow)(dayRows)).map(
-    ({ data_date }) => data_date
-  )
+  const dated = {
+    day: shownDay,
+    refused: shownDay === undefined ? day : undefined,
+    days: (yield* decodeRows(DayRow)(dayRows)).map(
+      ({ data_date }) => data_date
+    ),
+    month,
+  }
   if (focus === undefined)
     return HolderMapRead.make({
-      day: shownDay,
-      refused,
-      days,
-      month,
+      ...dated,
       focus: undefined,
       links: [],
       hops: [],
+      custodians: [],
       issuers: [],
       offList: [],
-      mostHeld: (yield* decodeRows(MostHeldRow)(rest[0] ?? [])).map(
-        ({ stock_code, issuer_name, holders }) => ({
-          code: stock_code,
-          issuerName: issuer_name,
-          holders,
-        })
-      ),
+      mostHeld: yield* mostHeldOf(rest[0] ?? []),
     })
-  const { links, issuers } = yield* linksInView(
+  const { links, issuers, custodians } = yield* linksInView(
     { day: shownDay, month },
     rest.slice(0, IN_VIEW_ROWS.length)
   )
-  const { first, second } = yield* hopsOf(focus, links)
+  const { first, second } = yield* hopsOf(focus, links, custodians)
   const offRows = yield* decodeRows(OffListRow)(rest[IN_VIEW_ROWS.length] ?? [])
-  // A holding in either band now is no earlier one: a holder that left the
-  // above-5% list for the 1% band crossed down out of 5%.
-  const linked = new Set(first.map((link) => at(link.code, link.holder)))
-  const offList = [...(yield* leavings(offRows)).values()].filter(
-    (left) =>
-      !linked.has(at(left.code, left.holder)) &&
-      (focus.kind === "stock" || left.holder === focus.key)
-  )
+  const offList = yield* offListOf(focus, first, offRows)
   for (const row of offRows)
     if (!issuers.has(row.stock_code))
       issuers.set(row.stock_code, row.issuer_name)
+  const inView = new Set(
+    [...first, ...second].map((link) => at(link.code, link.holder))
+  )
   return HolderMapRead.make({
-    day: shownDay,
-    refused,
-    days,
-    month,
-    focus: yield* focusOf(focus, first, offList, issuers),
+    ...dated,
+    focus: yield* focusOf(
+      focus,
+      first,
+      offList,
+      issuers,
+      custodians,
+      spellings
+    ),
     links: first,
     hops: second,
+    custodians: custodians.filter((link) =>
+      inView.has(at(link.code, link.holder))
+    ),
     issuers: [...issuers]
       .map(([code, issuerName]) => ({ code, issuerName }))
       .sort((a, b) => a.code.localeCompare(b.code)),
@@ -873,35 +1135,54 @@ export const holderMapRead = Effect.fnUntraced(function* ({
   })
 })
 
-const focusOf = (
+const focusOf = Effect.fnUntraced(function* (
   focus: Focus,
   links: ReadonlyArray<HolderMapLink>,
   offList: ReadonlyArray<HolderMapOffList>,
-  issuers: ReadonlyMap<StockCode, string>
-) =>
-  Effect.sync((): HolderMapFocus => {
-    if (focus.kind === "stock")
-      return {
-        kind: "stock",
-        code: focus.code,
-        issuerName: issuers.get(focus.code),
-      }
-    const largest = links.reduce<HolderMapLink | undefined>(
-      (most, link) =>
-        most === undefined ||
-        link.percentageHundredths > most.percentageHundredths
-          ? link
-          : most,
-      undefined
-    )
-    const latest = offList.reduce<HolderMapOffList | undefined>(
-      (newest, left) =>
-        newest === undefined || left.since > newest.since ? left : newest,
-      undefined
-    )
+  issuers: ReadonlyMap<StockCode, string>,
+  custodians: ReadonlyArray<HolderMapCustodianLink>,
+  spellings: ReadonlyArray<string>
+): Effect.fn.Return<HolderMapFocus> {
+  if (focus.kind === "stock")
     return {
-      kind: "holder",
-      key: focus.key satisfies HolderKey,
-      name: largest?.name ?? latest?.name,
+      kind: "stock",
+      code: focus.code,
+      issuerName: issuers.get(focus.code),
     }
-  })
+  if (focus.kind === "custodian") {
+    const named = custodians.find(({ custodian }) => custodian === focus.id)
+    const [spelling] = spellings
+    const known =
+      named ??
+      (spelling === undefined
+        ? undefined
+        : {
+            broker: (yield* custodianOf(spelling)).broker,
+            name: (yield* custodianNames([spelling])).get(focus.id),
+          })
+    return {
+      kind: "custodian",
+      id: focus.id,
+      broker: known?.broker,
+      name: known?.name,
+    }
+  }
+  const largest = links.reduce<HolderMapLink | undefined>(
+    (most, link) =>
+      most === undefined ||
+      link.percentageHundredths > most.percentageHundredths
+        ? link
+        : most,
+    undefined
+  )
+  const latest = offList.reduce<HolderMapOffList | undefined>(
+    (newest, left) =>
+      newest === undefined || left.since > newest.since ? left : newest,
+    undefined
+  )
+  return {
+    kind: "holder",
+    key: focus.key satisfies HolderKey,
+    name: largest?.name ?? latest?.name,
+  }
+})
