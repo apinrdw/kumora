@@ -9,7 +9,8 @@ import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 
 import { BoundedRows } from "@/components/k/bounded-rows"
-import { kCard, kFocus } from "@/components/k/styles"
+import { kCard } from "@/components/k/styles"
+import { DayPicker } from "@/components/stocks/day-picker"
 import {
   BrokerChip,
   Change,
@@ -64,7 +65,9 @@ export function DailyHolders({ code, days, day, onDay }: DailyHoldersProps) {
             </p>
           )}
         </div>
-        {holders && <DayPicker holders={holders} onDay={onDay} />}
+        {holders && (
+          <DayPicker days={holders.days} day={holders.dataDate} onDay={onDay} />
+        )}
       </div>
       {holders === undefined ? (
         <p className="text-muted-foreground">
@@ -120,60 +123,6 @@ const summary = Effect.fnUntraced(function* (holders: HoldersDay) {
     return `${held} · First day parsed, nothing to compare`
   return `${held} · vs ${yield* dayDateLabel(against)}: ${counts.new} new, ${counts.up} up, ${counts.down} down, ${counts.transfer > 0 ? `${counts.transfer} transfer, ` : ""}${counts.offList} off list`
 })
-
-const ICON_BUTTON = cn(
-  "bg-surface grid size-7.5 place-items-center rounded-md border border-border text-[14px] disabled:cursor-default disabled:opacity-35",
-  kFocus
-)
-
-function DayPicker({
-  holders,
-  onDay,
-}: {
-  holders: HoldersDay
-  onDay: (dataDate: string) => void
-}) {
-  const at = holders.days.indexOf(holders.dataDate)
-  const previous = holders.days[at - 1]
-  const next = holders.days[at + 1]
-  return (
-    <div className="flex items-center gap-1.5">
-      <button
-        type="button"
-        aria-label="Previous trading day"
-        disabled={previous === undefined}
-        onClick={() => previous && onDay(previous)}
-        className={ICON_BUTTON}
-      >
-        ‹
-      </button>
-      <select
-        aria-label="Trading day"
-        value={holders.dataDate}
-        onChange={(event) => onDay(event.target.value)}
-        className={cn(
-          "num bg-surface rounded-md border border-border px-2 py-1 text-[13px] font-semibold",
-          kFocus
-        )}
-      >
-        {holders.days.map((each) => (
-          <option key={each} value={each}>
-            {Effect.runSync(dayDateLabel(each))}
-          </option>
-        ))}
-      </select>
-      <button
-        type="button"
-        aria-label="Next trading day"
-        disabled={next === undefined}
-        onClick={() => next && onDay(next)}
-        className={ICON_BUTTON}
-      >
-        ›
-      </button>
-    </div>
-  )
-}
 
 function HoldersTable({ holders }: { holders: HoldersDay }) {
   const compared = holders.against !== undefined
