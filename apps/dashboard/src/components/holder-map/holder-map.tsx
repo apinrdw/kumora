@@ -176,7 +176,8 @@ function MostHeld({ map }: { map: HolderMapView }) {
             <li key={code} className="border-b border-border last:border-0">
               <Link
                 to="/holder-map"
-                search={{ stock: code }}
+                // Keeps the day picked.
+                search={(previous) => ({ ...previous, stock: code })}
                 className={cn(
                   "flex items-baseline gap-3 py-1.5 text-[13px] hover:bg-muted/50",
                   kFocus
