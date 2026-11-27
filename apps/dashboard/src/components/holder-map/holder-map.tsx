@@ -210,6 +210,9 @@ function Focus({
   onRefocus: (refocus: Refocus) => void
 }) {
   const empty = focus.bands.every(({ holders }) => holders.length === 0)
+  // On by default; hides both the Off list section and the map's Off list
+  // nodes.
+  const [showOffList, setShowOffList] = useState(true)
   return (
     <section
       aria-labelledby="holder-map-focus"
@@ -246,13 +249,21 @@ function Focus({
         />
       ) : (
         <>
-          <HolderMapGraph focus={focus} onRefocus={onRefocus} />
+          <HolderMapGraph
+            focus={focus}
+            showOffList={showOffList}
+            onRefocus={onRefocus}
+          />
           {focus.bands.map((band) => (
             <Band key={band.band} band={band} day={day} />
           ))}
         </>
       )}
-      <OffList holders={focus.offList} />
+      <OffList
+        holders={focus.offList}
+        shown={showOffList}
+        onShown={setShowOffList}
+      />
     </section>
   )
 }
@@ -400,8 +411,15 @@ function ShownMoveCell({ holder }: { holder: MapHolder }) {
 
 // The focus's earlier holders, each with the period it left its list,
 // hidden by the toggle.
-function OffList({ holders }: { holders: ReadonlyArray<HolderMapOffList> }) {
-  const [shown, setShown] = useState(true)
+function OffList({
+  holders,
+  shown,
+  onShown,
+}: {
+  holders: ReadonlyArray<HolderMapOffList>
+  shown: boolean
+  onShown: (shown: boolean) => void
+}) {
   if (holders.length === 0) return null
   return (
     <section aria-labelledby="off-list" className="flex flex-col gap-2">
@@ -411,7 +429,7 @@ function OffList({ holders }: { holders: ReadonlyArray<HolderMapOffList> }) {
         </h3>
         <KChip
           selected={shown}
-          onSelectedChange={setShown}
+          onSelectedChange={onShown}
           count={holders.length}
         >
           Show Off list

@@ -27,6 +27,23 @@ export interface MapHolder extends HolderMapLink {
   readonly shownMove: ShownMove
 }
 
+// What a link shows: its holder's move, or Off list for a holder that left.
+export type LinkMove = ShownMove | "off list"
+
+// A holder node's move, as its tooltip names it.
+export type NodeMove =
+  | {
+      readonly kind: ShownMove
+      // Its % of the focus's change × 100; undefined when none is stored.
+      readonly percentageChange: number | undefined
+    }
+  | {
+      readonly kind: "off list"
+      // The report it left, and the period it left.
+      readonly band: Band
+      readonly since: WibDate
+    }
+
 // One band's section of the side panel.
 export interface BandSection {
   readonly band: Band
@@ -65,6 +82,11 @@ export interface MapNode {
   // In layout units, following the stake.
   readonly radius: number
   readonly focus: boolean
+  // A holder that left the focus's list: drawn faded and dashed, hidden by
+  // the Off list toggle.
+  readonly offList: boolean
+  // A holder's; undefined on a stock.
+  readonly move: NodeMove | undefined
   // Always labelled: the focus and its direct neighbours. Any other node is
   // labelled only while hovered or searched.
   readonly labelled: boolean
@@ -81,7 +103,7 @@ export interface MapLink {
   // In layout units, following the stake.
   readonly width: number
   // What its holder's row shows, the link's colour.
-  readonly move: ShownMove
+  readonly move: LinkMove
 }
 
 export type LegendEntry =
@@ -90,7 +112,7 @@ export type LegendEntry =
       readonly key: string
       readonly label: string
     }
-  | { readonly kind: "move"; readonly key: ShownMove; readonly label: string }
+  | { readonly kind: "move"; readonly key: LinkMove; readonly label: string }
 
 export interface HolderMapView {
   readonly day: WibDate | undefined
@@ -174,7 +196,13 @@ const labelOf = (name: string) =>
     name.length > LABEL_LENGTH ? `${name.slice(0, LABEL_LENGTH)}…` : name
   )
 
-const holderNode = Effect.fnUntraced(function* (holder: HolderMapLink) {
+// A node's radius and a link's width, following the %.
+const radiusOf = (hundredths: number) =>
+  HOLDER_RADIUS + RADIUS_PER_ROOT_PERCENT * Math.sqrt(hundredths / 100)
+const widthOf = (hundredths: number) =>
+  LINK_WIDTH + (WIDTH_PER_PERCENT * hundredths) / 100
+
+const holderNode = Effect.fnUntraced(function* (holder: MapHolder) {
   return {
     id: `holder:${holder.holder}`,
     kind: "holder",
@@ -186,18 +214,44 @@ const holderNode = Effect.fnUntraced(function* (holder: HolderMapLink) {
     investorType: holder.investorType,
     stakeHundredths: holder.percentageHundredths,
     shares: holder.shares,
-    radius:
-      HOLDER_RADIUS +
-      RADIUS_PER_ROOT_PERCENT * Math.sqrt(holder.percentageHundredths / 100),
+    radius: radiusOf(holder.percentageHundredths),
     focus: false,
+    offList: false,
+    move: {
+      kind: holder.shownMove,
+      percentageChange: holder.move?.percentageChange,
+    },
     labelled: true,
+    refocus: undefined,
+  } satisfies MapNode
+})
+
+// An Off list holder, labelled only while hovered: it no longer holds.
+const offListNode = Effect.fnUntraced(function* (holder: HolderMapOffList) {
+  return {
+    id: `holder:${holder.holder}`,
+    kind: "holder",
+    name: holder.name,
+    label: yield* labelOf(holder.name),
+    inside: undefined,
+    band: holder.band,
+    origin: undefined,
+    investorType: undefined,
+    stakeHundredths: holder.percentageHundredths,
+    shares: undefined,
+    radius: radiusOf(holder.percentageHundredths),
+    focus: false,
+    offList: true,
+    move: { kind: "off list", band: holder.band, since: holder.since },
+    labelled: false,
     refocus: undefined,
   } satisfies MapNode
 })
 
 const graphOf = Effect.fnUntraced(function* (
   code: StockCode,
-  bands: ReadonlyArray<BandSection>
+  bands: ReadonlyArray<BandSection>,
+  offList: ReadonlyArray<HolderMapOffList>
 ) {
   const holders = bands.flatMap((band) => band.holders)
   const focus: MapNode = {
@@ -213,27 +267,41 @@ const graphOf = Effect.fnUntraced(function* (
     shares: undefined,
     radius: FOCUS_RADIUS,
     focus: true,
+    offList: false,
+    move: undefined,
     labelled: true,
     refocus: { stock: code },
   }
   const nodes: Array<MapNode> = [focus]
   for (const holder of holders) nodes.push(yield* holderNode(holder))
-  const links = holders.map((holder): MapLink => ({
+  for (const holder of offList) nodes.push(yield* offListNode(holder))
+  const linkTo = (
+    holder: { readonly holder: string; readonly band: Band },
+    hundredths: number,
+    move: LinkMove
+  ): MapLink => ({
     id: `${focus.id}->holder:${holder.holder}`,
     source: focus.id,
     target: `holder:${holder.holder}`,
     band: holder.band,
-    stakeHundredths: holder.percentageHundredths,
-    width: LINK_WIDTH + (WIDTH_PER_PERCENT * holder.percentageHundredths) / 100,
-    move: holder.shownMove,
-  }))
+    stakeHundredths: hundredths,
+    width: widthOf(hundredths),
+    move,
+  })
+  const links = [
+    ...holders.map((holder) =>
+      linkTo(holder, holder.percentageHundredths, holder.shownMove)
+    ),
+    // Off list: no longer a holding, so its link is drawn at 0%.
+    ...offList.map((holder) => linkTo(holder, 0, "off list")),
+  ]
   return { nodes, links }
 })
 
 const ORIGIN_ORDER = ["local", "foreign", "mixed", undefined] as const
 
-// Holder moves' order, then the crossings of 5%.
-const MOVE_LABEL: Record<ShownMove, string> = {
+// Holder moves' order, then the crossings of 5%, then Off list.
+export const MOVE_LABEL: Record<LinkMove, string> = {
   new: "New",
   up: "Up",
   down: "Down",
@@ -241,6 +309,7 @@ const MOVE_LABEL: Record<ShownMove, string> = {
   unchanged: "Unchanged",
   "up into 5%": "Up into 5%",
   "down out of 5%": "Down out of 5%",
+  "off list": "Off list",
 }
 
 const legendOf = (
@@ -248,7 +317,9 @@ const legendOf = (
   links: ReadonlyArray<MapLink>
 ) =>
   Effect.sync((): ReadonlyArray<LegendEntry> => {
-    const holders = nodes.filter(({ kind }) => kind === "holder")
+    const holders = nodes.filter(
+      ({ kind, offList }) => kind === "holder" && !offList
+    )
     const kinds: Array<LegendEntry> = [
       { kind: "node", key: "stock", label: "Stock" },
       ...(holders.length > 0
@@ -269,7 +340,7 @@ const legendOf = (
       key: origin ?? "unknown",
       label: origin === undefined ? "Origin unknown" : ORIGIN_LABEL[origin],
     }))
-    const moves = (Object.keys(MOVE_LABEL) as Array<ShownMove>)
+    const moves = (Object.keys(MOVE_LABEL) as Array<LinkMove>)
       .filter((move) => links.some((each) => each.move === move))
       .map((move): LegendEntry => ({
         kind: "move",
@@ -288,7 +359,10 @@ export const holderMapView = Effect.fnUntraced(function* (
   const bands: Array<BandSection> = []
   if (day !== undefined) bands.push(yield* section("5%", day, links))
   if (month !== undefined) bands.push(yield* section("1%", month, links))
-  const graph = yield* graphOf(focus.code, bands)
+  const earlier = [...offList].sort(
+    (a, b) => b.since.localeCompare(a.since) || a.name.localeCompare(b.name)
+  )
+  const graph = yield* graphOf(focus.code, bands, earlier)
   return {
     day,
     month,
@@ -300,9 +374,7 @@ export const holderMapView = Effect.fnUntraced(function* (
       bands,
       graph,
       legend: yield* legendOf(graph.nodes, graph.links),
-      offList: [...offList].sort(
-        (a, b) => b.since.localeCompare(a.since) || a.name.localeCompare(b.name)
-      ),
+      offList: earlier,
     },
     mostHeld,
   }

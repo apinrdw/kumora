@@ -9,16 +9,19 @@ import { tooltip } from "@tanstack/charts/tooltip"
 import { portal } from "@tanstack/charts/tooltip/portal"
 import { Effect } from "effect"
 
-import { percentOf } from "@/components/stocks/holder-cells"
+import { percentChangeText, percentOf } from "@/components/stocks/holder-cells"
 import { KSEI_TYPE_LABELS } from "@/domain/holdings"
 import {
   type HolderMapView,
+  type LinkMove,
   type MapNode,
+  MOVE_LABEL,
+  type NodeMove,
   ORIGIN_LABEL,
-  type ShownMove,
 } from "@/lib/holder-map"
 import type { Layout } from "@/lib/holder-map-layout"
 import { type Viewport, viewportDomains } from "@/lib/holder-map-viewport"
+import { dayDateLabel, monthLabel } from "@/lib/stock-page-display"
 
 type Graph = NonNullable<HolderMapView["focus"]>["graph"]
 
@@ -37,7 +40,7 @@ export const ORIGIN_COLOR: Record<
 export const STOCK_COLOR = "var(--accent-primary)"
 // A link's colour by its holder's move: Holder moves' tones, a crossing of
 // 5% toned as the Up or Down it is.
-export const MOVE_COLOR: Record<ShownMove, string> = {
+export const MOVE_COLOR: Record<LinkMove, string> = {
   new: "var(--semantic-info)",
   up: "var(--semantic-up)",
   down: "var(--semantic-down)",
@@ -45,13 +48,23 @@ export const MOVE_COLOR: Record<ShownMove, string> = {
   unchanged: "var(--text-muted)",
   "up into 5%": "var(--semantic-up)",
   "down out of 5%": "var(--semantic-down)",
+  "off list": "var(--semantic-neutral)",
 }
 const SURFACE = "var(--bg-surface)"
 
 // A node placed, its radius in px and its colour.
 type NodeRow = MapNode & { x: number; y: number; r: number; color: string }
 
-const tooltipText = Effect.fnUntraced(function* (
+// A holder's move: its label and change, or the period it left the list.
+const moveText = Effect.fnUntraced(function* (move: NodeMove) {
+  if (move.kind === "off list")
+    return `Off list since ${yield* move.band === "5%" ? dayDateLabel(move.since) : monthLabel(move.since)}`
+  return move.percentageChange === undefined
+    ? MOVE_LABEL[move.kind]
+    : `${MOVE_LABEL[move.kind]} ${yield* percentChangeText(move.percentageChange)}`
+})
+
+export const tooltipText = Effect.fnUntraced(function* (
   node: MapNode,
   focusCode: string
 ) {
@@ -59,7 +72,13 @@ const tooltipText = Effect.fnUntraced(function* (
     return node.focus ? `${node.name} · focus stock` : node.name
   const lines = [node.name]
   if (node.stakeHundredths !== undefined)
-    lines.push(`${yield* percentOf(node.stakeHundredths)} of ${focusCode}`)
+    lines.push(
+      `${yield* percentOf(node.stakeHundredths)} of ${focusCode}${node.offList ? " last" : ""}`
+    )
+  if (node.move !== undefined && node.move.kind === "off list") {
+    lines.push(yield* moveText(node.move))
+    return lines.join("\n")
+  }
   lines.push(
     [
       node.origin === undefined ? "Origin unknown" : ORIGIN_LABEL[node.origin],
@@ -68,18 +87,26 @@ const tooltipText = Effect.fnUntraced(function* (
         : KSEI_TYPE_LABELS[node.investorType],
     ].join(" · ")
   )
+  if (node.move !== undefined) lines.push(yield* moveText(node.move))
   return lines.join("\n")
 })
 
-const placed = (graph: Graph, layout: Layout, view: Viewport) =>
+const placed = (
+  graph: Graph,
+  layout: Layout,
+  view: Viewport,
+  showOffList: boolean
+) =>
   Effect.sync(() => {
     const nodes = graph.nodes.flatMap((node): Array<NodeRow> => {
       const at = layout.positions[node.id]
-      if (at === undefined) return []
+      if (at === undefined || (node.offList && !showOffList)) return []
       const color =
         node.kind === "stock"
           ? STOCK_COLOR
-          : ORIGIN_COLOR[node.origin ?? "unknown"]
+          : node.offList
+            ? MOVE_COLOR["off list"]
+            : ORIGIN_COLOR[node.origin ?? "unknown"]
       return [{ ...node, ...at, r: node.radius / view.unit, color }]
     })
     const byId = new Map(nodes.map((node) => [node.id, node]))
@@ -93,18 +120,45 @@ const placed = (graph: Graph, layout: Layout, view: Viewport) =>
     return { nodes, links }
   })
 
+// Off list nodes and links: faded and dashed.
+const OFF_LIST_DASH = "3 3"
+const OFF_LIST_OPACITY = 0.5
+
 // One dot mark per colour and band: a dot's fill and stroke are fixed per
-// mark. The 5% band is filled and the 1% band outlined.
+// mark. The 5% band is filled and the 1% band outlined; an Off list holder
+// outlined, faded and dashed.
 const dots = (nodes: ReadonlyArray<NodeRow>) =>
   Effect.sync(() => {
     const groups = new Map<string, Array<NodeRow>>()
     for (const node of nodes) {
-      const key = `${node.band === "1%" ? "outlined" : "filled"} ${node.color}`
+      const style = node.offList
+        ? "off list"
+        : node.band === "1%"
+          ? "outlined"
+          : "filled"
+      const key = `${style} ${node.color}`
       groups.set(key, [...(groups.get(key) ?? []), node])
     }
     return [...groups.values()].map((rows) => {
-      const outlined = rows[0]?.band === "1%"
+      const offList = rows[0]?.offList === true
+      const outlined = offList || rows[0]?.band === "1%"
       const color = rows[0]?.color ?? STOCK_COLOR
+      if (offList)
+        return dot(rows, {
+          x: "x",
+          y: "y",
+          r: "r",
+          key: "id",
+          fill: SURFACE,
+          stroke: color,
+          strokeWidth: 1.5,
+          strokeOpacity: OFF_LIST_OPACITY,
+          // A dot's dash is a state style only: one that always holds.
+          states: [
+            { when: () => true, style: { strokeDasharray: OFF_LIST_DASH } },
+          ],
+          renderer: canvasChartRenderer,
+        })
       return dot(rows, {
         x: "x",
         y: "y",
@@ -124,12 +178,16 @@ export const mapDefinition = Effect.fnUntraced(function* (options: {
   readonly view: Viewport
   readonly size: { readonly width: number; readonly height: number }
   readonly hovered: string | undefined
+  readonly showOffList: boolean
   readonly code: string
   readonly nodeOf: (datum: unknown) => MapNode | undefined
 }) {
-  const { graph, layout, view, size, hovered, code, nodeOf } = options
+  const { graph, layout, view, size, hovered, showOffList, code, nodeOf } =
+    options
   const domains = yield* viewportDomains(view, size)
-  const { nodes, links } = yield* placed(graph, layout, view)
+  const { nodes, links } = yield* placed(graph, layout, view, showOffList)
+  const held = links.filter(({ move }) => move !== "off list")
+  const left = links.filter(({ move }) => move === "off list")
   const inside = nodes.filter(
     (node) => node.inside !== undefined && node.r >= INSIDE_FROM
   )
@@ -145,7 +203,21 @@ export const mapDefinition = Effect.fnUntraced(function* (options: {
     // the arrow keys.
     marks: [
       decorative(
-        link(links, {
+        link(left, {
+          x1: "x1",
+          y1: "y1",
+          x2: "x2",
+          y2: "y2",
+          key: "id",
+          stroke: MOVE_COLOR["off list"],
+          strokeOpacity: OFF_LIST_OPACITY,
+          strokeWidth: 1,
+          strokeDasharray: OFF_LIST_DASH,
+          renderer: canvasChartRenderer,
+        })
+      ),
+      decorative(
+        link(held, {
           x1: "x1",
           y1: "y1",
           x2: "x2",

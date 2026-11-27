@@ -18,7 +18,12 @@ import {
 } from "react"
 
 import { KButton } from "@/components/k/button"
-import type { HolderMapView, LegendEntry, Refocus } from "@/lib/holder-map"
+import type {
+  HolderMapView,
+  LegendEntry,
+  LinkMove,
+  Refocus,
+} from "@/lib/holder-map"
 
 import {
   mapDefinition,
@@ -52,10 +57,16 @@ function useWidth(element: RefObject<HTMLDivElement | null>) {
 
 export type HolderMapGraphProps = {
   focus: Focus
+  // The page's Off list toggle, which hides the Off list holders' nodes.
+  showOffList: boolean
   onRefocus: (refocus: Refocus) => void
 }
 
-export function HolderMapGraph({ focus, onRefocus }: HolderMapGraphProps) {
+export function HolderMapGraph({
+  focus,
+  showOffList,
+  onRefocus,
+}: HolderMapGraphProps) {
   const { graph, legend, code } = focus
   const frame = useRef<HTMLDivElement>(null)
   const width = useWidth(frame)
@@ -85,11 +96,25 @@ export function HolderMapGraph({ focus, onRefocus }: HolderMapGraphProps) {
       view &&
       size &&
       Effect.runSync(
-        mapDefinition({ graph, layout, view, size, hovered, code, nodeOf })
+        mapDefinition({
+          graph,
+          layout,
+          view,
+          size,
+          hovered,
+          showOffList,
+          code,
+          nodeOf,
+        })
       ),
-    [layout, view, size, graph, hovered, code, nodeOf]
+    [layout, view, size, graph, hovered, showOffList, code, nodeOf]
   )
-  const holders = graph.nodes.length - 1
+  const holders = graph.nodes.filter(
+    (node) => node.kind === "holder" && !node.offList
+  ).length
+  const offList = showOffList
+    ? graph.nodes.filter((node) => node.offList).length
+    : 0
   return (
     <section aria-labelledby="holder-map-graph" className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -129,7 +154,7 @@ export function HolderMapGraph({ focus, onRefocus }: HolderMapGraphProps) {
         {definition ? (
           <Chart
             definition={definition}
-            ariaLabel={`Holder map of ${code}: ${holders} ${holders === 1 ? "holder" : "holders"}. The tables below list each.`}
+            ariaLabel={`Holder map of ${code}: ${holders} ${holders === 1 ? "holder" : "holders"}${offList === 0 ? "" : ` and ${offList} Off list`}. The tables below list each.`}
             height={HEIGHT}
             onFocusChange={(point: ChartPoint | null) =>
               setHovered(nodeOf(point?.datum)?.id)
@@ -185,13 +210,12 @@ const SWATCH: Record<string, CSSProperties> = {
   unknown: { background: ORIGIN_COLOR.unknown },
 }
 
-// A move's swatch is a short stroke, as its link is drawn.
-const moveSwatch = (color: string): CSSProperties => ({
-  height: 3,
-  width: 12,
-  borderRadius: 2,
-  background: color,
-})
+// A move's swatch is a short stroke, as its link is drawn: Off list's
+// dashed.
+const moveSwatch = (move: LinkMove): CSSProperties =>
+  move === "off list"
+    ? { width: 12, borderTop: `2px dashed ${MOVE_COLOR[move]}` }
+    : { height: 3, width: 12, borderRadius: 2, background: MOVE_COLOR[move] }
 
 const LEGEND_NOTE: Partial<Record<string, string>> = {
   stock: "code inside",
@@ -215,7 +239,7 @@ function Legend({ entries }: { entries: ReadonlyArray<LegendEntry> }) {
             <span
               aria-hidden
               className="inline-block shrink-0"
-              style={moveSwatch(MOVE_COLOR[entry.key])}
+              style={moveSwatch(entry.key)}
             />
           ) : (
             <span

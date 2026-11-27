@@ -3,7 +3,11 @@ import { StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { holderMapView } from "@/lib/holder-map"
-import type { HolderMapLink, HolderMapRead } from "@/server/holdings/holder-map"
+import type {
+  HolderMapLink,
+  HolderMapOffList,
+  HolderMapRead,
+} from "@/server/holdings/holder-map"
 
 const link = (
   band: HolderMapLink["band"],
@@ -32,6 +36,19 @@ const read = (links: ReadonlyArray<HolderMapLink>): HolderMapRead => ({
   links,
   offList: [],
   mostHeld: [],
+})
+
+const off = (
+  band: HolderMapLink["band"],
+  name: string,
+  since: string
+): HolderMapOffList => ({
+  code: StockCode.make("TRUE"),
+  band,
+  holder: name,
+  name,
+  since: WibDate.make(since),
+  percentageHundredths: 300,
 })
 
 describe("holderMapView", () => {
@@ -129,18 +146,6 @@ describe("holderMapView", () => {
 
   it.effect("lists Off list holders latest to leave first, then by name", () =>
     Effect.gen(function* () {
-      const off = (
-        band: HolderMapLink["band"],
-        name: string,
-        since: string
-      ) => ({
-        code: StockCode.make("TRUE"),
-        band,
-        holder: name,
-        name,
-        since: WibDate.make(since),
-        percentageHundredths: 300,
-      })
       const view = yield* holderMapView({
         ...read([]),
         offList: [
@@ -211,6 +216,48 @@ describe("holderMapView", () => {
         ["holder:C", "unchanged"],
       ])
     })
+  )
+
+  it.effect(
+    "draws each Off list holder after the holders, linked as Off list, and names it in the legend",
+    () =>
+      Effect.gen(function* () {
+        const view = yield* holderMapView({
+          ...read([link("5%", "A", 900)]),
+          offList: [off("1%", "B", "2026-08-31"), off("5%", "C", "2026-11-19")],
+        })
+        const graph = view.focus?.graph
+        expect(
+          graph?.nodes.map(({ name, offList, move }) => [name, offList, move])
+        ).toEqual([
+          ["TRUE", false, undefined],
+          ["A", false, { kind: "unchanged", percentageChange: undefined }],
+          [
+            "C",
+            true,
+            { kind: "off list", band: "5%", since: WibDate.make("2026-11-19") },
+          ],
+          [
+            "B",
+            true,
+            { kind: "off list", band: "1%", since: WibDate.make("2026-08-31") },
+          ],
+        ])
+        expect(graph?.links.map(({ target, move }) => [target, move])).toEqual([
+          ["holder:A", "unchanged"],
+          ["holder:C", "off list"],
+          ["holder:B", "off list"],
+        ])
+        // An Off list holder's band and unknown origin aren't drawn.
+        expect(view.focus?.legend.map(({ label }) => label)).toEqual([
+          "Stock",
+          "Holder",
+          "5% and above",
+          "Local",
+          "Unchanged",
+          "Off list",
+        ])
+      })
   )
 
   it.effect("sizes a holder's node and link by its stake", () =>
