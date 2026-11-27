@@ -3,6 +3,7 @@ import { StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import {
+  mapDefinition,
   printedInside,
   tooltipText,
 } from "@/components/holder-map/map-definition"
@@ -194,6 +195,41 @@ describe("printedInside", () => {
         ["stock:BSDE", "BSDE"],
         ["holder:PERINTIS", "CP"],
       ])
+    })
+  )
+})
+
+describe("mapDefinition", () => {
+  // A hub focus's holders, every one in one style: the dots a hover, pan
+  // or zoom defines again on the main thread.
+  const HOLDERS = 60_000
+  const nodes = Array.from({ length: HOLDERS }, (_, at): MapNode => ({
+    ...holder(undefined),
+    id: `holder:H${at}`,
+  }))
+  const graph = { key: "holder:HUB@2026-11-20", nodes, links: [] }
+  const layout = {
+    positions: Object.fromEntries(
+      nodes.map(({ id }, at) => [id, { x: at % 300, y: Math.floor(at / 300) }])
+    ),
+    extent: { x: [0, 300] as const, y: [0, 200] as const },
+  }
+
+  it.effect("defines a hub's dots of one style in linear time", () =>
+    Effect.gen(function* () {
+      const start = performance.now()
+      yield* mapDefinition({
+        graph,
+        layout,
+        view: { cx: 150, cy: 100, unit: 1 },
+        size: { width: 800, height: 600 },
+        hovered: undefined,
+        searched: undefined,
+        showOffList: true,
+        nodeOf: () => undefined,
+      })
+      // Grouping by copying a style's group for each dot took seconds.
+      expect(performance.now() - start).toBeLessThan(1_000)
     })
   )
 })
