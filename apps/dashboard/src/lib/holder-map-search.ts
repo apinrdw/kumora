@@ -203,19 +203,26 @@ const matchKey = (match: FocusMatch) =>
  * flag: focus and first hop always, others on hover or search"): a match
  * the map draws, but its focus, is highlighted in place, labelled; any
  * other refocuses the map on it, so the search still reaches what is out
- * of view.
+ * of view. An Off list node the toggle hides isn't drawn.
  */
 export const pickOf = Effect.fnUntraced(function* (
   nodes:
-    | ReadonlyArray<{ readonly id: string; readonly focus: boolean }>
+    | ReadonlyArray<{
+        readonly id: string
+        readonly focus: boolean
+        readonly offList: boolean
+      }>
     | undefined,
-  match: FocusMatch
+  match: FocusMatch,
+  { showOffList }: { readonly showOffList: boolean }
 ): Effect.fn.Return<
   { readonly highlight: string } | { readonly refocus: Refocus }
 > {
   const { key, refocus } = yield* matchKey(match)
   const id = yield* nodeId(match.kind, key)
-  return nodes?.some((node) => node.id === id && !node.focus)
+  return nodes?.some(
+    (node) => node.id === id && !node.focus && (showOffList || !node.offList)
+  )
     ? { highlight: id }
     : { refocus }
 })

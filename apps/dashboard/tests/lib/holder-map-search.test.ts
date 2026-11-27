@@ -315,19 +315,27 @@ describe("pickOf", () => {
   it.effect("highlights a match the map draws, in place", () =>
     Effect.gen(function* () {
       expect(
-        yield* pickOf(nodes, {
-          kind: "holder",
-          key: HolderKey.make("DJONI"),
-          name: "DJONI",
-        })
+        yield* pickOf(
+          nodes,
+          {
+            kind: "holder",
+            key: HolderKey.make("DJONI"),
+            name: "DJONI",
+          },
+          { showOffList: true }
+        )
       ).toEqual({ highlight: "holder:DJONI" })
       expect(
-        yield* pickOf(nodes, {
-          kind: "custodian",
-          id: CustodianId.make("YP"),
-          broker: undefined,
-          name: "MIRAE",
-        })
+        yield* pickOf(
+          nodes,
+          {
+            kind: "custodian",
+            id: CustodianId.make("YP"),
+            broker: undefined,
+            name: "MIRAE",
+          },
+          { showOffList: true }
+        )
       ).toEqual({ highlight: "custodian:YP" })
     })
   )
@@ -335,17 +343,29 @@ describe("pickOf", () => {
   it.effect("refocuses on a match the map doesn't draw, or its focus", () =>
     Effect.gen(function* () {
       expect(
-        yield* pickOf(nodes, {
-          kind: "stock",
-          code: StockCode.make("BSDE"),
-          name: "BUMI",
-        })
+        yield* pickOf(
+          nodes,
+          {
+            kind: "stock",
+            code: StockCode.make("BSDE"),
+            name: "BUMI",
+          },
+          { showOffList: true }
+        )
       ).toEqual({ refocus: { stock: "BSDE" } })
       expect(
-        yield* pickOf(nodes, { kind: "stock", code: TRUE, name: "TRUE" })
+        yield* pickOf(
+          nodes,
+          { kind: "stock", code: TRUE, name: "TRUE" },
+          { showOffList: true }
+        )
       ).toEqual({ refocus: { stock: "TRUE" } })
       expect(
-        yield* pickOf(undefined, { kind: "stock", code: TRUE, name: "TRUE" })
+        yield* pickOf(
+          undefined,
+          { kind: "stock", code: TRUE, name: "TRUE" },
+          { showOffList: true }
+        )
       ).toEqual({ refocus: { stock: "TRUE" } })
     })
   )

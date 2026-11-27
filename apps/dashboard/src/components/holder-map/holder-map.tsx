@@ -178,7 +178,9 @@ export function HolderMapPage({
             state={list}
             className="w-full sm:w-80"
             onPick={(match) => {
-              const pick = Effect.runSync(pickOf(graph?.nodes, match))
+              const pick = Effect.runSync(
+                pickOf(graph?.nodes, match, { showOffList })
+              )
               if ("refocus" in pick) onRefocus(pick.refocus)
               else if (graph !== undefined)
                 setSearched({ map: graph.key, node: pick.highlight })
