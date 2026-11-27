@@ -64,31 +64,48 @@ const moveText = Effect.fnUntraced(function* (move: NodeMove) {
     : `${MOVE_LABEL[move.kind]} ${yield* percentChangeText(move.percentageChange)}`
 })
 
-export const tooltipText = Effect.fnUntraced(function* (
-  node: MapNode,
-  focusCode: string
-) {
-  if (node.kind === "stock")
-    return node.focus ? `${node.name} · focus stock` : node.name
-  const lines = [node.name]
-  if (node.stakeHundredths !== undefined)
-    lines.push(
-      `${yield* percentOf(node.stakeHundredths)} of ${focusCode}${node.offList ? " last" : ""}`
-    )
-  if (node.move !== undefined && node.move.kind === "off list") {
-    lines.push(yield* moveText(node.move))
-    return lines.join("\n")
-  }
-  lines.push(
-    [
-      node.origin === undefined ? "Origin unknown" : ORIGIN_LABEL[node.origin],
-      node.investorType === undefined
-        ? "Type unknown"
-        : KSEI_TYPE_LABELS[node.investorType],
-    ].join(" · ")
+// A node's holding: a holder's % of a stock, or a stock's held by a holder.
+const stakeText = Effect.fnUntraced(function* (node: MapNode) {
+  if (node.stakeHundredths === undefined || node.holding === undefined)
+    return undefined
+  const of =
+    node.kind === "stock"
+      ? `held by ${node.holding.holderName}`
+      : `of ${node.holding.code}`
+  return `${yield* percentOf(node.stakeHundredths)} ${of}${node.offList ? " last" : ""}`
+})
+
+// A listed holder's origin and KSEI type; none for a stock or an Off list
+// holder, which no longer has them.
+const metaText = (node: MapNode) =>
+  Effect.sync(() =>
+    node.kind === "stock" || node.offList
+      ? undefined
+      : [
+          node.origin === undefined
+            ? "Origin unknown"
+            : ORIGIN_LABEL[node.origin],
+          node.investorType === undefined
+            ? "Type unknown"
+            : KSEI_TYPE_LABELS[node.investorType],
+        ].join(" · ")
   )
-  if (node.move !== undefined) lines.push(yield* moveText(node.move))
-  return lines.join("\n")
+
+// A node's tooltip: its name, its holding's stake, a holder's origin and
+// type, and its move.
+export const tooltipText = Effect.fnUntraced(function* (node: MapNode) {
+  if (node.kind === "stock" && node.focus) return `${node.name} · focus stock`
+  const name =
+    node.kind === "stock" && node.issuerName !== undefined
+      ? `${node.name} · ${node.issuerName}`
+      : node.name
+  const lines = [
+    name,
+    yield* stakeText(node),
+    yield* metaText(node),
+    node.move === undefined ? undefined : yield* moveText(node.move),
+  ]
+  return lines.filter((line) => line !== undefined).join("\n")
 })
 
 const placed = (
@@ -101,12 +118,11 @@ const placed = (
     const nodes = graph.nodes.flatMap((node): Array<NodeRow> => {
       const at = layout.positions[node.id]
       if (at === undefined || (node.offList && !showOffList)) return []
-      const color =
-        node.kind === "stock"
+      const color = node.offList
+        ? MOVE_COLOR["off list"]
+        : node.kind === "stock"
           ? STOCK_COLOR
-          : node.offList
-            ? MOVE_COLOR["off list"]
-            : ORIGIN_COLOR[node.origin ?? "unknown"]
+          : ORIGIN_COLOR[node.origin ?? "unknown"]
       return [{ ...node, ...at, r: node.radius / view.unit, color }]
     })
     const byId = new Map(nodes.map((node) => [node.id, node]))
@@ -197,11 +213,9 @@ export const mapDefinition = Effect.fnUntraced(function* (options: {
   readonly size: { readonly width: number; readonly height: number }
   readonly hovered: string | undefined
   readonly showOffList: boolean
-  readonly code: string
   readonly nodeOf: (datum: unknown) => MapNode | undefined
 }) {
-  const { graph, layout, view, size, hovered, showOffList, code, nodeOf } =
-    options
+  const { graph, layout, view, size, hovered, showOffList, nodeOf } = options
   const domains = yield* viewportDomains(view, size)
   const { nodes, links } = yield* placed(graph, layout, view, showOffList)
   const held = links.filter(({ move }) => move !== "off list")
@@ -268,7 +282,9 @@ export const mapDefinition = Effect.fnUntraced(function* (options: {
           key: "id",
           text: (node) => node.inside,
           fill: (node) =>
-            node.band === "1%" ? node.color : "var(--bg-canvas)",
+            node.band === "1%" || node.offList
+              ? node.color
+              : "var(--bg-canvas)",
           fontSize: 10,
           fontWeight: 650,
           dy: 3.5,
@@ -305,7 +321,7 @@ export const mapDefinition = Effect.fnUntraced(function* (options: {
       sticky: false,
       format: (point) => {
         const node = nodeOf(point.datum)
-        return node === undefined ? "" : Effect.runSync(tooltipText(node, code))
+        return node === undefined ? "" : Effect.runSync(tooltipText(node))
       },
     },
   })

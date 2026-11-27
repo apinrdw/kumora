@@ -55,6 +55,38 @@ function useWidth(element: RefObject<HTMLDivElement | null>) {
   return width
 }
 
+const counted = (count: number, one: string, many: string) =>
+  `${count} ${count === 1 ? one : many}`
+
+// The chart's name: what it is of, its first hop's holdings, its Off list
+// while shown, and the hop beyond.
+const mapLabel = (focus: Focus, showOffList: boolean) =>
+  Effect.sync(() => {
+    const [near, far] =
+      focus.kind === "stock"
+        ? (["holder", "stock"] as const)
+        : (["stock", "holder"] as const)
+    const drawn = focus.graph.nodes.filter(
+      (node) => !node.focus && !node.offList
+    )
+    const first = drawn.filter(({ kind }) => kind === near).length
+    const beyond = drawn.filter(({ kind }) => kind === far).length
+    const offList = showOffList
+      ? focus.graph.nodes.filter((node) => node.offList).length
+      : 0
+    return [
+      `Holder map of ${focus.title}: `,
+      near === "holder"
+        ? counted(first, "holder", "holders")
+        : counted(first, "stock", "stocks"),
+      offList === 0 ? "" : ` and ${offList} Off list`,
+      beyond === 0
+        ? ""
+        : `, ${far === "stock" ? counted(beyond, "other stock", "other stocks") : counted(beyond, "other holder", "other holders")} a hop beyond`,
+      ". The tables below list each.",
+    ].join("")
+  })
+
 export type HolderMapGraphProps = {
   focus: Focus
   // The page's Off list toggle, which hides the Off list holders' nodes.
@@ -67,7 +99,7 @@ export function HolderMapGraph({
   showOffList,
   onRefocus,
 }: HolderMapGraphProps) {
-  const { graph, legend, code } = focus
+  const { graph, legend } = focus
   const frame = useRef<HTMLDivElement>(null)
   const width = useWidth(frame)
   const size = useMemo(
@@ -103,18 +135,15 @@ export function HolderMapGraph({
           size,
           hovered,
           showOffList,
-          code,
           nodeOf,
         })
       ),
-    [layout, view, size, graph, hovered, showOffList, code, nodeOf]
+    [layout, view, size, graph, hovered, showOffList, nodeOf]
   )
-  const holders = graph.nodes.filter(
-    (node) => node.kind === "holder" && !node.offList
-  ).length
-  const offList = showOffList
-    ? graph.nodes.filter((node) => node.offList).length
-    : 0
+  const ariaLabel = useMemo(
+    () => Effect.runSync(mapLabel(focus, showOffList)),
+    [focus, showOffList]
+  )
   return (
     <section aria-labelledby="holder-map-graph" className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -154,7 +183,7 @@ export function HolderMapGraph({
         {definition ? (
           <Chart
             definition={definition}
-            ariaLabel={`Holder map of ${code}: ${holders} ${holders === 1 ? "holder" : "holders"}${offList === 0 ? "" : ` and ${offList} Off list`}. The tables below list each.`}
+            ariaLabel={ariaLabel}
             height={HEIGHT}
             onFocusChange={(point: ChartPoint | null) =>
               setHovered(nodeOf(point?.datum)?.id)

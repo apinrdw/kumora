@@ -45,7 +45,12 @@ export interface HolderMovesSearch {
   readonly q?: string | undefined
 }
 
-const field = <S extends Schema.Decoder<unknown>>(schema: S, raw: unknown) =>
+// A search param parsed by `schema`, undefined when it doesn't parse; the
+// Holder map's search (holder-map-search.ts) parses its fields so too.
+export const field = <S extends Schema.Decoder<unknown>>(
+  schema: S,
+  raw: unknown
+) =>
   Effect.sync((): S["Type"] | undefined =>
     Option.getOrUndefined(Schema.decodeUnknownOption(schema)(raw))
   )

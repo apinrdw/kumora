@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
-import { WibDate } from "@workspace/relay"
+import { StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { tooltipText } from "@/components/holder-map/map-definition"
@@ -8,6 +8,11 @@ import type { MapNode } from "@/lib/holder-map"
 const holder = (move: MapNode["move"]): MapNode => ({
   id: "holder:PERINTIS",
   kind: "holder",
+  issuerName: undefined,
+  holding: {
+    code: StockCode.make("TRUE"),
+    holderName: "PT PERINTIS TRINITI PROPERTI TBK",
+  },
   name: "PT PERINTIS TRINITI PROPERTI TBK",
   label: "PT PERINTIS TRINITI PROPERTI…",
   inside: "CP",
@@ -28,8 +33,7 @@ describe("tooltipText", () => {
   it.effect("names a holder's move and its change", () =>
     Effect.gen(function* () {
       const text = yield* tooltipText(
-        holder({ kind: "down", percentageChange: -77 }),
-        "TRUE"
+        holder({ kind: "down", percentageChange: -77 })
       )
       expect(text.split("\n")).toEqual([
         "PT PERINTIS TRINITI PROPERTI TBK",
@@ -43,13 +47,11 @@ describe("tooltipText", () => {
   it.effect("names a crossing of 5%, and Unchanged with no change", () =>
     Effect.gen(function* () {
       const up = yield* tooltipText(
-        holder({ kind: "up into 5%", percentageChange: undefined }),
-        "TRUE"
+        holder({ kind: "up into 5%", percentageChange: undefined })
       )
       expect(up.split("\n").at(-1)).toBe("Up into 5%")
       const unchanged = yield* tooltipText(
-        holder({ kind: "unchanged", percentageChange: undefined }),
-        "TRUE"
+        holder({ kind: "unchanged", percentageChange: undefined })
       )
       expect(unchanged.split("\n").at(-1)).toBe("Unchanged")
     })
@@ -57,19 +59,16 @@ describe("tooltipText", () => {
 
   it.effect("names an Off list holder's last % and the period it left", () =>
     Effect.gen(function* () {
-      const month = yield* tooltipText(
-        {
-          ...holder({
-            kind: "off list",
-            band: "1%",
-            since: WibDate.make("2026-09-30"),
-          }),
-          origin: undefined,
-          investorType: undefined,
-          stakeHundredths: 300,
-        },
-        "TRUE"
-      )
+      const month = yield* tooltipText({
+        ...holder({
+          kind: "off list",
+          band: "1%",
+          since: WibDate.make("2026-09-30"),
+        }),
+        origin: undefined,
+        investorType: undefined,
+        stakeHundredths: 300,
+      })
       expect(month.split("\n")).toEqual([
         "PT PERINTIS TRINITI PROPERTI TBK",
         "3.00% of TRUE last",
@@ -80,10 +79,42 @@ describe("tooltipText", () => {
           kind: "off list",
           band: "5%",
           since: WibDate.make("2026-11-19"),
-        }),
-        "TRUE"
+        })
       )
       expect(day.split("\n").at(-1)).toBe("Off list since 19 Nov 2026")
     })
+  )
+
+  it.effect(
+    "names a stock with its issuer, and a holder focus's stake in it",
+    () =>
+      Effect.gen(function* () {
+        const stock: MapNode = {
+          ...holder({ kind: "up", percentageChange: 28 }),
+          id: "stock:TLKM",
+          kind: "stock",
+          name: "TLKM",
+          issuerName: "TELKOM INDONESIA (PERSERO) Tbk",
+          holding: {
+            code: StockCode.make("TLKM"),
+            holderName: "THE BANK OF NEW YORK MELLON",
+          },
+          stakeHundredths: 652,
+        }
+        expect((yield* tooltipText(stock)).split("\n")).toEqual([
+          "TLKM · TELKOM INDONESIA (PERSERO) Tbk",
+          "6.52% held by THE BANK OF NEW YORK MELLON",
+          "Up +0.28%",
+        ])
+        // A stock of the outer ring: no holding of its own.
+        expect(
+          yield* tooltipText({
+            ...stock,
+            holding: undefined,
+            stakeHundredths: undefined,
+            move: undefined,
+          })
+        ).toBe("TLKM · TELKOM INDONESIA (PERSERO) Tbk")
+      })
   )
 })

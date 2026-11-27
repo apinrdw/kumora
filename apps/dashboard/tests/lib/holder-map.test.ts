@@ -34,6 +34,8 @@ const read = (links: ReadonlyArray<HolderMapLink>): HolderMapRead => ({
   days: [WibDate.make("2026-11-20")],
   focus: { kind: "stock", code: StockCode.make("TRUE"), issuerName: "TRUE" },
   links,
+  hops: [],
+  issuers: [],
   offList: [],
   mostHeld: [],
 })
@@ -292,7 +294,7 @@ describe("holderMapView", () => {
   )
 
   it.effect(
-    "marks the focus, labels it and its holders, and refocuses only on a stock",
+    "marks the focus, labels it and its holders, and refocuses a click on a holder",
     () =>
       Effect.gen(function* () {
         const view = yield* holderMapView(read([link("5%", "A", 900)]))
@@ -305,8 +307,147 @@ describe("holderMapView", () => {
         expect(holder).toMatchObject({
           focus: false,
           labelled: true,
-          refocus: undefined,
+          refocus: { holder: "A" },
         })
+      })
+  )
+
+  it.effect(
+    "rings each holder's other stocks round it, unlabelled, their code inside",
+    () =>
+      Effect.gen(function* () {
+        const view = yield* holderMapView({
+          ...read([link("5%", "A", 900), link("1%", "B", 200)]),
+          hops: [
+            { ...link("1%", "A", 300), code: StockCode.make("TLKM") },
+            {
+              ...link("5%", "B", 700),
+              code: StockCode.make("BSDE"),
+              move: { kind: "up", shareChange: 10, percentageChange: 5 },
+            },
+            { ...link("1%", "B", 120), code: StockCode.make("TLKM") },
+          ],
+          issuers: [
+            { code: StockCode.make("BSDE"), issuerName: "BUMI SERPONG" },
+            { code: StockCode.make("TLKM"), issuerName: "TELKOM" },
+          ],
+        })
+        const graph = view.focus?.graph
+        // One node a stock, however many of the focus's holders hold it.
+        expect(
+          graph?.nodes
+            .slice(3)
+            .map(({ id, labelled, inside, refocus, issuerName }) => [
+              id,
+              labelled,
+              inside,
+              refocus,
+              issuerName,
+            ])
+        ).toEqual([
+          ["stock:BSDE", false, "BSDE", { stock: "BSDE" }, "BUMI SERPONG"],
+          ["stock:TLKM", false, "TLKM", { stock: "TLKM" }, "TELKOM"],
+        ])
+        expect(
+          graph?.links
+            .slice(2)
+            .map(({ source, target, band, move }) => [
+              source,
+              target,
+              band,
+              move,
+            ])
+          // By stock, then holder: a stable order for the layout.
+        ).toEqual([
+          ["holder:B", "stock:BSDE", "5%", "up"],
+          ["holder:A", "stock:TLKM", "1%", "unchanged"],
+          ["holder:B", "stock:TLKM", "1%", "unchanged"],
+        ])
+        expect(graph?.links.map(({ id }) => id)).toEqual([
+          ...new Set(graph?.links.map(({ id }) => id)),
+        ])
+      })
+  )
+
+  it.effect(
+    "draws a holder focus linked to its stocks, and their other holders once each",
+    () =>
+      Effect.gen(function* () {
+        const at = (code: string, held: HolderMapLink) => ({
+          ...held,
+          code: StockCode.make(code),
+        })
+        const view = yield* holderMapView({
+          ...read([]),
+          focus: { kind: "holder", key: "A", name: "PT A" },
+          links: [
+            at("TLKM", { ...link("1%", "A", 240), name: "PT A" }),
+            at("BSDE", { ...link("5%", "A", 900), name: "PT A" }),
+          ],
+          hops: [
+            at("BSDE", link("1%", "B", 300)),
+            at("TLKM", link("5%", "B", 600)),
+            at("TLKM", link("1%", "C", 150)),
+          ],
+          issuers: [
+            { code: StockCode.make("BSDE"), issuerName: "BUMI SERPONG" },
+            { code: StockCode.make("TLKM"), issuerName: "TELKOM" },
+          ],
+          offList: [
+            { ...off("1%", "A", "2026-08-31"), code: StockCode.make("TRUE") },
+          ],
+        })
+        const held = view.focus
+        expect(held?.kind).toBe("holder")
+        expect(held?.title).toBe("PT A")
+        // Its stocks, by band, most % first.
+        expect(
+          held?.bands.map(({ band, holders }) => [
+            band,
+            holders.map(({ code }) => code),
+          ])
+        ).toEqual([
+          ["5%", ["BSDE"]],
+          ["1%", ["TLKM"]],
+        ])
+        expect(
+          held?.graph.nodes.map(({ id, focus, labelled, offList, refocus }) => [
+            id,
+            focus,
+            labelled,
+            offList,
+            refocus,
+          ])
+        ).toEqual([
+          ["holder:A", true, true, false, { holder: "A" }],
+          ["stock:BSDE", false, true, false, { stock: "BSDE" }],
+          ["stock:TLKM", false, true, false, { stock: "TLKM" }],
+          ["stock:TRUE", false, false, true, { stock: "TRUE" }],
+          ["holder:B", false, false, false, { holder: "B" }],
+          ["holder:C", false, false, false, { holder: "C" }],
+        ])
+        // B holds two of its stocks: its node takes its largest holding.
+        const b = held?.graph.nodes.find(({ id }) => id === "holder:B")
+        expect([b?.band, b?.stakeHundredths, b?.holding]).toEqual([
+          "5%",
+          600,
+          { code: "TLKM", holderName: "B" },
+        ])
+        expect(
+          held?.graph.links.map(({ source, target, move }) => [
+            source,
+            target,
+            move,
+          ])
+        ).toEqual([
+          ["holder:A", "stock:BSDE", "unchanged"],
+          ["holder:A", "stock:TLKM", "unchanged"],
+          ["holder:A", "stock:TRUE", "off list"],
+          ["stock:BSDE", "holder:B", "unchanged"],
+          ["stock:TLKM", "holder:B", "unchanged"],
+          ["stock:TLKM", "holder:C", "unchanged"],
+        ])
+        expect(held?.graph.key).toBe("holder:A@2026-11-20")
       })
   )
 
