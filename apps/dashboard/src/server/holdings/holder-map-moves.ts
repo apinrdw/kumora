@@ -81,7 +81,10 @@ export const leavings = Effect.fnUntraced(function* (
 })
 
 // Each month holder's day it left the above-5% list since the month, by
-// its place.
+// its place: its key's, one row each, grouped in the query.
+//
+// Decision: the Holder map matches holders across stocks and reports by
+// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 export const crossingsDown = Effect.fnUntraced(function* (
   rows: ReadonlyArray<typeof CrossingRow.Type>
 ) {

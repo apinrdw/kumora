@@ -110,6 +110,9 @@ export const custodianLinks = Effect.fnUntraced(function* (
 })
 
 // The custodian names of the map's day: at most its accounts.
+//
+// Decision: a stock's holders are read from its newest periods that fit a
+// row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
 export const DAY_SPELLINGS_SQL = {
   sql: `${PERIODS}
   SELECT DISTINCT custodian FROM above_5_account

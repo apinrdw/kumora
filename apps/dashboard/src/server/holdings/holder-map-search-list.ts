@@ -40,6 +40,9 @@ const DAY = "(SELECT day FROM asof)"
 const MONTH = "(SELECT month FROM band_month)"
 
 // The stocks of the day and the month, by code: at most a stock per row.
+//
+// Decision: a stock's holders are read from its newest periods that fit a
+// row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
 const STOCKS_SQL = {
   sql: `${PERIODS} SELECT stock_code, MAX(issuer_name) AS issuer_name FROM (
     SELECT stock_code, issuer_name FROM above_5_holder
@@ -53,6 +56,9 @@ const STOCKS_SQL = {
 } satisfies Budgeted
 
 // One holder per key across the two reports: at most a key per row.
+//
+// Decision: a stock's holders are read from its newest periods that fit a
+// row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
 //
 // Decision: the Holder map matches holders across stocks and reports by
 // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)

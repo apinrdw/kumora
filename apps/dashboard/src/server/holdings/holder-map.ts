@@ -190,9 +190,11 @@ const IN_VIEW_ROWS: ReadonlyArray<Budgeted> = [
   // first listed under (lib/holder-identity.ts), so matching it to the
   // month's keys and grouping by that key returns a row per month holder,
   // at most the month's rows, however many identities left under one key
-  // (apinrdw/kumora#741's sixth review: 20 keys that each left 4,000 times
-  // returned 80,000 rows). One renamed since is missed, and shows its move,
-  // not Down out of 5%.
+  // (ADR 0133). One renamed since is missed, and shows its move, not Down
+  // out of 5%.
+  //
+  // Decision: the Holder map matches holders across stocks and reports by
+  // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
   {
     sql: `SELECT stock_code, holder_key, MAX(data_date) AS data_date FROM (
       SELECT stock_code, substr(holder, 1, instr(holder, '#') - 1)
@@ -263,6 +265,10 @@ const MostHeldRow = Schema.Struct({
   holders: Schema.Number,
 })
 
+// The landing view's stocks most held.
+//
+// Decision: a stock's holders are read from its newest periods that fit a
+// row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
 const MOST_HELD_SQL = {
   sql: `${PERIODS}
   SELECT stock_code, MAX(issuer_name) AS issuer_name,
@@ -276,6 +282,9 @@ const MOST_HELD_SQL = {
 
 // The as-of picker's days: the newest that fit a day's rows at the cap,
 // over 30 years of trading days, oldest first.
+//
+// Decision: a stock's holders are read from its newest periods that fit a
+// row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
 const DAYS_SQL = {
   sql: `SELECT data_date FROM (
     SELECT data_date FROM above_5_day ORDER BY data_date DESC LIMIT ${DAY_ROWS}
