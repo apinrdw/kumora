@@ -31,7 +31,8 @@ export type LinkMove = ShownMove | "off list"
 export type NodeMove =
   | {
       readonly kind: ShownMove
-      // Its % of the stock's change × 100; undefined when none is stored.
+      // Its % of the stock's change × 100; undefined when none is stored,
+      // and for a crossing of 5%.
       readonly percentageChange: number | undefined
     }
   | {
@@ -292,9 +293,12 @@ const heldNode = Effect.fnUntraced(function* (
     holding: { code: link.code, holderName: link.name },
     stakeHundredths: link.percentageHundredths,
     shares: link.shares,
+    // A crossing is across the bands' periods: the stored move's change,
+    // the day's or the month's alone, is not its.
     move: {
       kind: yield* shownMoveOf(link),
-      percentageChange: link.move?.percentageChange,
+      percentageChange:
+        link.crossing === undefined ? link.move?.percentageChange : undefined,
     },
   } satisfies MapNode as MapNode
 })
