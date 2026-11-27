@@ -1295,6 +1295,58 @@ describe("Holder map, one key's blocks", () => {
   )
 })
 
+describe("Holder map, a repeat block of another key", () => {
+  // ASRI's later Manunggal blocks of 19 Nov repeat its first (the same
+  // accounts and shares): under another name, so another key, they still
+  // fold into the first (codex review of apinrdw/kumora#741, round 8).
+  const DAY = "2026-11-19"
+  const ALIAS = "MANUNGGAL PRIME DEVELOPMENT HOLDINGS LTD"
+  const renamed = Effect.gen(function* () {
+    const w = yield* parsed
+    w.holdings.database
+      .prepare(
+        `UPDATE above_5_holder SET holder_name = ?2, holder_key = ?3
+          WHERE stock_code = 'ASRI' AND data_date = ?1 AND holder_key = ?4
+            AND no > (
+              SELECT MIN(no) FROM above_5_holder
+              WHERE stock_code = 'ASRI' AND data_date = ?1 AND holder_key = ?4
+            )`
+      )
+      .run(DAY, ALIAS, yield* holderKey(ALIAS), MANUNGGAL)
+    return w
+  })
+
+  it.effect("searches the holder by the key the map draws it under", () =>
+    Effect.gen(function* () {
+      const w = yield* renamed
+      const { holders } = yield* holderMapSearchList(WibDate.make(DAY)).pipe(
+        Effect.provide(w.holdings.layer)
+      )
+      const keys = holders.map(({ key }) => key)
+      assert.include(keys, HolderKey.make(MANUNGGAL))
+      assert.notInclude(keys, HolderKey.make(yield* holderKey(ALIAS)))
+    })
+  )
+
+  it.effect("focuses the holder it folds into on its own key", () =>
+    Effect.gen(function* () {
+      const read = yield* holderReadOf(yield* renamed, ALIAS, DAY)
+      assert.deepInclude(read.focus, {
+        kind: "holder",
+        key: HolderKey.make(MANUNGGAL),
+      })
+      assert.deepStrictEqual(
+        linksOf(read.links).map(([code, band, , hundredths]) => [
+          code,
+          band,
+          hundredths,
+        ]),
+        [["ASRI", "5%", 2103]]
+      )
+    })
+  )
+})
+
 describe("Holder map, no focus", () => {
   it.effect("lists the stocks with the most ≥1% holders", () =>
     Effect.gen(function* () {
