@@ -6,6 +6,7 @@ import type { Page } from "@playwright/test"
 import { expect } from "./test"
 
 import { DASHBOARD } from "./accounts"
+import { seedAbove1Months, seedAbove5Days } from "./holdings"
 import { seedReportFixture } from "./shareholding"
 
 const SHAREHOLDING = `${DASHBOARD}/admin/shareholding`
@@ -26,8 +27,7 @@ const ABOVE_5_DAYS = [
 ]
 const INVESTOR_TYPE_MONTHS = ["2026-05-29", "2026-10-30"]
 
-// The trimmed above-1% fixtures. Their Sep and Oct replace whatever the
-// stocks spec seeded there, so Oct against Sep is theirs alone.
+// The trimmed above-1% fixtures.
 const ABOVE_1_MONTHS = [
   "2026-02-27",
   "2026-04-30",
@@ -36,8 +36,16 @@ const ABOVE_1_MONTHS = [
   "2026-10-30",
 ]
 
-/** Archives every fixture the parse runs read. */
+/**
+ * Empties the parsed above-1% months and above-5% days, then archives every
+ * fixture the parse runs read, so they parse into these alone.
+ */
 export async function seedHoldingsFixtures() {
+  // The stocks spec seeds parsed periods no archive holds, which a parse
+  // keeps: its Jul 2026, with no TRUE rows, made TRUE's Aug a gap after
+  // Apr, so no move, Djoni's Off list among them, was derived for it.
+  seedAbove1Months({})
+  seedAbove5Days({})
   for (const month of INVESTOR_TYPE_MONTHS)
     await seedReportFixture(
       "investor-type",
