@@ -136,8 +136,6 @@ export type FocusMatch =
       readonly name: string
     }
 
-const words = (text: string) => text.toUpperCase().split(/\s+/).filter(Boolean)
-
 /**
  * The search's first `shown` matches of `query`: stocks whose code starts
  * with it, then stocks whose code or issuer name holds every word typed,
@@ -147,7 +145,7 @@ const words = (text: string) => text.toUpperCase().split(/\s+/).filter(Boolean)
  */
 export const findFoci = (list: FocusList, query: string, shown: number) =>
   Effect.sync((): ReadonlyArray<FocusMatch> => {
-    const typed = words(query)
+    const typed = query.toUpperCase().split(/\s+/).filter(Boolean)
     const holds = (text: string) => {
       const upper = text.toUpperCase()
       return typed.every((word) => upper.includes(word))
