@@ -87,7 +87,11 @@ const Response = Schema.Struct({
 const branches = Effect.gen(function* () {
   const repository = yield* Config.String("GITHUB_REPOSITORY")
   const token = yield* Config.Redacted("GITHUB_TOKEN")
-  const [owner, name] = repository.split("/")
+  const [, owner, name] = /^([^/]+)\/([^/]+)$/.exec(repository) ?? []
+  if (owner === undefined || name === undefined)
+    return yield* new GitHubError({
+      cause: `GITHUB_REPOSITORY is not owner/name: "${repository}"`,
+    })
   const client = (yield* HttpClient.HttpClient).pipe(
     HttpClient.mapRequest((request) =>
       request.pipe(
@@ -131,6 +135,10 @@ const branches = Effect.gen(function* () {
       }))
     )
     if (!refs.pageInfo.hasNextPage) return all
+    // A null cursor would restart at page 1 forever, and stopping short would
+    // leave live branches out, so the sweep would destroy their Previews.
+    if (refs.pageInfo.endCursor === null)
+      return yield* new GitHubError({ cause: "a next page with no cursor" })
     after = refs.pageInfo.endCursor
   }
 }).pipe(
