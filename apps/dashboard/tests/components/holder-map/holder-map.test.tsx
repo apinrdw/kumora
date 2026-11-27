@@ -123,3 +123,49 @@ describe("HolderMapGraph's search note", () => {
     expect(html).not.toContain("is labelled on the map")
   })
 })
+
+// A focus whose newest group of leavings alone passes the Off list's row
+// budget: none of its earlier holdings fit, and older ones were left out
+// (ADR 0133).
+const cutEmpty = Effect.runSync(
+  holderMapView({
+    day: WibDate.make("2026-11-20"),
+    month: WibDate.make("2026-10-30"),
+    refused: undefined,
+    days: [WibDate.make("2026-11-20")],
+    focus: { kind: "holder", key: HolderKey.make("DJONI"), name: "DJONI" },
+    links: [],
+    hops: [],
+    custodians: [],
+    issuers: [],
+    offList: [],
+    offListCut: true,
+    mostHeld: [],
+  })
+)
+
+const cutEmptyPage = (showOffList: boolean) => () => (
+  <HolderMapPage
+    map={cutEmpty}
+    list={{ _tag: "Loading" }}
+    onRefocus={() => undefined}
+    onDay={() => undefined}
+    showOffList={showOffList}
+    onShowOffList={() => undefined}
+  />
+)
+
+describe("HolderMapPage's Off list cut to none", () => {
+  test("says older holdings were left out", async () => {
+    const html = await renderAt("/holder-map?holder=DJONI", cutEmptyPage(true))
+    expect(html).toContain("Older ones are left out.")
+  })
+
+  test("says so while the Off list is hidden too", async () => {
+    const html = await renderAt(
+      "/holder-map?holder=DJONI&offList=hide",
+      cutEmptyPage(false)
+    )
+    expect(html).toContain("Older ones are left out.")
+  })
+})
