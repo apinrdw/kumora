@@ -214,7 +214,11 @@ const SWATCH: Record<string, CSSProperties> = {
 // dashed.
 const moveSwatch = (move: LinkMove): CSSProperties =>
   move === "off list"
-    ? { width: 12, borderTop: `2px dashed ${MOVE_COLOR[move]}` }
+    ? {
+        height: 2,
+        width: 12,
+        background: `repeating-linear-gradient(90deg, ${MOVE_COLOR[move]} 0 3px, transparent 3px 5px)`,
+      }
     : { height: 3, width: 12, borderRadius: 2, background: MOVE_COLOR[move] }
 
 const LEGEND_NOTE: Partial<Record<string, string>> = {

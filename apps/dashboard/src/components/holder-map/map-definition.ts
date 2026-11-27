@@ -143,6 +143,7 @@ const dots = (nodes: ReadonlyArray<NodeRow>) =>
       const offList = rows[0]?.offList === true
       const outlined = offList || rows[0]?.band === "1%"
       const color = rows[0]?.color ?? STOCK_COLOR
+      // Its ring is drawn dashed by `rings`: a dot has no dash of its own.
       if (offList)
         return dot(rows, {
           x: "x",
@@ -150,13 +151,8 @@ const dots = (nodes: ReadonlyArray<NodeRow>) =>
           r: "r",
           key: "id",
           fill: SURFACE,
-          stroke: color,
-          strokeWidth: 1.5,
-          strokeOpacity: OFF_LIST_OPACITY,
-          // A dot's dash is a state style only: one that always holds.
-          states: [
-            { when: () => true, style: { strokeDasharray: OFF_LIST_DASH } },
-          ],
+          stroke: SURFACE,
+          strokeWidth: 0,
           renderer: canvasChartRenderer,
         })
       return dot(rows, {
@@ -171,6 +167,28 @@ const dots = (nodes: ReadonlyArray<NodeRow>) =>
       })
     })
   })
+
+// An Off list holder's dashed ring: every other chord of a polygon round
+// its dot, in layout units, so it zooms with the dot.
+const RING_CHORDS = 24
+const rings = (nodes: ReadonlyArray<NodeRow>) =>
+  Effect.sync(() =>
+    nodes
+      .filter(({ offList }) => offList)
+      .flatMap((node) =>
+        Array.from({ length: RING_CHORDS / 2 }, (_, index) => {
+          const from = (4 * Math.PI * index) / RING_CHORDS
+          const to = from + (2 * Math.PI) / RING_CHORDS
+          return {
+            id: `${node.id} ring ${index}`,
+            x1: node.x + node.radius * Math.cos(from),
+            y1: node.y + node.radius * Math.sin(from),
+            x2: node.x + node.radius * Math.cos(to),
+            y2: node.y + node.radius * Math.sin(to),
+          }
+        })
+      )
+  )
 
 export const mapDefinition = Effect.fnUntraced(function* (options: {
   readonly graph: Graph
@@ -230,6 +248,19 @@ export const mapDefinition = Effect.fnUntraced(function* (options: {
         })
       ),
       ...(yield* dots(nodes)),
+      decorative(
+        link(yield* rings(nodes), {
+          x1: "x1",
+          y1: "y1",
+          x2: "x2",
+          y2: "y2",
+          key: "id",
+          stroke: MOVE_COLOR["off list"],
+          strokeOpacity: OFF_LIST_OPACITY + 0.2,
+          strokeWidth: 1.5,
+          renderer: canvasChartRenderer,
+        })
+      ),
       decorative(
         text(inside, {
           x: "x",
