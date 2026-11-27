@@ -58,7 +58,7 @@ export interface KeyHolder<S> extends KeyPeriod {
 }
 
 // A KeyPeriod as one string.
-export const keyPeriodId = (at: KeyPeriod) =>
+const keyPeriodId = (at: KeyPeriod) =>
   Effect.map(
     placeOf(at.code, at.key),
     (place) => `${at.band} ${at.period} ${place}`
@@ -212,7 +212,7 @@ export interface Lines {
 
 // A line's or a leaving's KeyPeriod, by its name's key, as the map
 // matches lines to holders.
-export const leavingAt = Effect.fnUntraced(function* (line: {
+const leavingAt = Effect.fnUntraced(function* (line: {
   readonly stock_code: StockCode
   readonly band: Band
   readonly name: string
