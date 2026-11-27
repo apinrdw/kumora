@@ -1232,6 +1232,33 @@ describe("Holder map, one key's blocks", () => {
         )
       })
   )
+
+  it.effect(
+    "changes a key's % by every block's, an unchanged block's too",
+    () =>
+      Effect.gen(function* () {
+        // Listed shares doubled: the unchanged block went 12% → 6%, the
+        // other 2,000 → 2,200 shares and 20% → 11%: 32% → 17%.
+        assert.deepStrictEqual(
+          yield* contohOf(yield* parsed, {
+            "2026-11-19": [
+              { custodian: HSBC, shares: 1_200, hundredths: 1200 },
+              { custodian: PROFINDO, shares: 2_000, hundredths: 2000 },
+            ],
+            "2026-11-20": [
+              { custodian: HSBC, shares: 1_200, hundredths: 600 },
+              { custodian: PROFINDO, shares: 2_200, hundredths: 1100 },
+            ],
+          }),
+          [
+            [
+              "PT CONTOH",
+              { kind: "up", shareChange: 200, percentageChange: -1500 },
+            ],
+          ]
+        )
+      })
+  )
 })
 
 describe("Holder map, no focus", () => {
