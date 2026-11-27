@@ -2,7 +2,7 @@
 // (ticket apinrdw/kumora#344): trades go in through the ingest socket, the
 // day seals, broker codes batches go in as the Worker hands them over, and
 // the test reads the sweep brokers GET.
-import { gunzipSync } from "node:zlib"
+import { gunzipSync, gzipSync } from "node:zlib"
 
 import { assert, describe, it } from "@effect/vitest"
 import {
@@ -790,15 +790,13 @@ const cutOffAt = (time: string) => (sql: Sql) =>
       String(DateTime.toEpochMillis(wib(time)))
     )
   })
-const BEFORE_PIECES = `[["3",[["BK","D",6]],[["ZP","F",6]]]]`
+const BEFORE_PIECES = gzipSync(`[["3",[["BK","D",6]],[["ZP","F",6]]]]`)
 
-// Whether every stored row, plain or gzipped, reads in the current shape.
+// Whether every stored row reads in the current shape.
 const rowsRead = (sql: Sql) =>
   Effect.forEach(sql.exec("SELECT sweeps FROM sweep_brokers"), (row) =>
     decodeSweepBrokersText(
-      typeof row.sweeps === "string"
-        ? row.sweeps
-        : new TextDecoder().decode(gunzipSync(row.sweeps as Uint8Array))
+      new TextDecoder().decode(gunzipSync(row.sweeps as Uint8Array))
     )
   )
 
@@ -991,25 +989,6 @@ const rowForms = (sql: Sql) =>
         ).slice(11, 16)} ${typeof row.sweeps === "string" ? "text" : "gzip"}`
     )
 
-// Turns the rows of the minutes at `times` back into plain text of the same
-// JSON, as a day recorded before rows were gzipped holds them.
-const plainAt = (sql: Sql, times: ReadonlyArray<string>) =>
-  Effect.sync(() => {
-    for (const time of times) {
-      const minute = DateTime.toEpochMillis(wib(time))
-      for (const row of sql.exec(
-        "SELECT code, sweeps FROM sweep_brokers WHERE minute = ?",
-        minute
-      ))
-        sql.exec(
-          "UPDATE sweep_brokers SET sweeps = ? WHERE code = ? AND minute = ?",
-          new TextDecoder().decode(gunzipSync(row.sweeps as Uint8Array)),
-          row.code,
-          minute
-        )
-    }
-  })
-
 describe("a day's sweep brokers rows", () => {
   it.effect("are stored gzipped, and answer the same", () =>
     Effect.gen(function* () {
@@ -1026,44 +1005,5 @@ describe("a day's sweep brokers rows", () => {
       ])
       yield* rowsRead(sql)
     })
-  )
-
-  it.effect(
-    "answer a day holding plain and gzipped rows without rebuilding it, and rewrite only the rows a batch changes",
-    () =>
-      Effect.gen(function* () {
-        const sql = memorySql()
-        yield* sealedBeforeSweepBrokers(sql)
-        const built = yield* tradingDay(sql)
-        yield* built.recordedSweepBrokers("UNTR")
-        yield* built.evicted
-        yield* plainAt(sql, ["09:00:00", "09:02:00"])
-
-        const again = watched(sql)
-        const day = yield* tradingDay(again.sql)
-        const writes = again.counts.writes
-        const { answer } = yield* day.recordedSweepBrokers("UNTR")
-        assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), ALL_WHOLE)
-        const bbca = yield* day.recordedSweepBrokers("BBCA")
-        assert.deepStrictEqual(bbca.answer.sweeps.flatMap(brokersOf), [
-          [3, ["KZ D 7"], ["PD F 7"]],
-        ])
-        assert.strictEqual(again.counts.writes, writes)
-
-        // Trade 6's new codes change only its 09:02 row, written gzipped.
-        yield* day.brokerCodes("Ajaib", [[6, "AK F ZP F"]])
-        assert.deepStrictEqual(rowForms(sql), [
-          "09:00 text",
-          "09:00 text",
-          "09:01 gzip",
-          "09:02 gzip",
-        ])
-        const changed = yield* day.recordedSweepBrokers("UNTR")
-        assert.deepStrictEqual(changed.answer.sweeps.flatMap(brokersOf), [
-          ...ALL_WHOLE.slice(0, 3),
-          [6, ["AK F 6"], ["ZP F 6"]],
-        ])
-        yield* rowsRead(sql)
-      })
   )
 })

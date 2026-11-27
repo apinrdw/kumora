@@ -33,15 +33,12 @@ import {
   chunkSlices,
   endBookOf,
   heldChunkOf,
-  slicesFromText,
-  storedEndBook,
   type HeatRow,
 } from "./heat-rows.ts"
 import type { StoredAjaibBook } from "./order-books.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 import { sweepsFromText, sweepsText } from "./sweep-rows.ts"
-import { TRADE_CODES_FACT } from "./tape-chunks.ts"
-import { makeTape } from "./tape.ts"
+import { TRADE_CODES_FACT, makeTape } from "./tape-chunks.ts"
 
 export type SqlValue = string | number | null | Uint8Array
 
@@ -193,17 +190,6 @@ const SCHEMA = [
     code TEXT PRIMARY KEY,
     chunk BLOB NOT NULL
   ) WITHOUT ROWID`,
-  // A stock's book heatmap slices for one minute (heat-rows.ts), which a
-  // day recorded before heatmaps were worked out on read holds beside each
-  // book chunk.
-  // Decision: a new day still creates the old table, empty, so all days read alike
-  // (apps/dashboard/docs/adr/0079-a-new-day-still-creates-the-retired-table-empty.md)
-  `CREATE TABLE IF NOT EXISTS heatmaps (
-    code TEXT NOT NULL,
-    minute INTEGER NOT NULL,
-    slices TEXT NOT NULL,
-    PRIMARY KEY (code, minute)
-  ) WITHOUT ROWID`,
   // One book event (level-ledger.ts), its kind's own figures in `detail`.
   // No index on `time`, so a flush writes one row an event
   // (`newestBookEvents`).
@@ -238,10 +224,6 @@ const SCHEMA = [
     value TEXT NOT NULL
   ) WITHOUT ROWID`,
 ]
-
-// Decision: an old day store gains buy and sell value last; sealed days keep 0
-// (apps/dashboard/docs/adr/0080-old-day-stores-gain-candle-buy-and-sell-value-columns-last.md)
-const ADDED_CANDLE_COLUMNS = ["buy_value", "sell_value"]
 
 // The keys of the facts table.
 export const Fact = {
@@ -407,28 +389,10 @@ const livePriceOf = (frame: SqlValue | undefined) =>
 const chunkOf = (blob: SqlValue | undefined) =>
   Effect.sync(() => new TextDecoder().decode(gunzipSync(blob as Uint8Array)))
 
-// `today` when the store holds today's WIB date.
-export const makeDayStore = (
-  sql: Sql,
-  { today }: { readonly today: boolean }
-) =>
+export const makeDayStore = (sql: Sql) =>
   Effect.gen(function* () {
     for (const statement of SCHEMA) sql.exec(statement)
     const tape = makeTape(sql)
-    const columns = new Set(
-      sql.exec("PRAGMA table_info(candles)").map((row) => String(row.name))
-    )
-    const added = ADDED_CANDLE_COLUMNS.filter((column) => !columns.has(column))
-    const sealed =
-      sql.exec("SELECT 1 FROM facts WHERE key = ?", Fact.sealed).length > 0
-    if (added.length > 0)
-      sql.transaction(() => {
-        for (const column of added)
-          sql.exec(
-            `ALTER TABLE candles ADD COLUMN ${column} REAL NOT NULL DEFAULT 0`
-          )
-        if (today || !sealed) tape.rebuildCandleSides()
-      })
 
     let meter = yield* emptyMeter
     // Runs `work`, adding the rows the database counted meanwhile to the
@@ -840,19 +804,6 @@ export const makeDayStore = (
     // ascending; none when it holds none of them.
     const minutesOfTrades = tape.minutesOf
 
-    // One code's stored book chunk for exactly `minute`, as stored.
-    const chunkOfMinute = Effect.fnUntraced(function* (
-      code: StockCode,
-      minute: number
-    ) {
-      const [row] = sql.exec(
-        "SELECT chunk FROM book_chunks WHERE code = ? AND minute = ?",
-        code,
-        minute
-      )
-      return row === undefined ? undefined : yield* chunkOf(row.chunk)
-    })
-
     // Whether the day stored neither a trade nor a book chunk.
     const storedNothing = Effect.gen(function* () {
       if (tape.highestNumber() !== undefined) return false
@@ -860,7 +811,7 @@ export const makeDayStore = (
     })
 
     // One stock's regular-board trades in one minute, ascending by trade
-    // number. The tape has no code index (tape.ts, tape-chunks.ts), so this
+    // number. The tape has no code index (tape-chunks.ts), so this
     // reads the whole market's minute; the book asks only when a late trade
     // lands in a stored minute (candles.ts, `slotSweeps`).
     const storedMinuteTrades = Effect.fnUntraced(function* (
@@ -881,15 +832,10 @@ export const makeDayStore = (
       const [footprints] = sql.exec(
         "SELECT count(*) AS rows, coalesce(sum(length(cells) + length(sweeps)), 0) AS bytes FROM footprints"
       )
-      const [heatmaps] = sql.exec(
-        "SELECT count(*) AS rows, coalesce(sum(length(slices)), 0) AS bytes FROM heatmaps"
-      )
       const bytes = sql.usage?.().bytes
       return {
         footprintRows: Number(footprints?.rows),
         footprintBytes: Number(footprints?.bytes),
-        heatmapRows: Number(heatmaps?.rows),
-        heatmapBytes: Number(heatmaps?.bytes),
         ...(bytes === undefined ? {} : { databaseBytes: bytes }),
       }
     })
@@ -1071,27 +1017,14 @@ export const makeDayStore = (
     })
 
     // One stock's book heatmap rows by minute, ascending, each with the book
-    // its chunk ended with: its stored heatmap rows, then from the minute
-    // after the last of them each stored chunk's slices, worked out on read.
+    // its chunk ended with: each stored chunk's slices, worked out on read.
     // Decision: a day stores no heatmap row; a GET works it out from book chunks
     // (apps/dashboard/docs/adr/0086-heatmaps-are-worked-out-on-read-from-book-chunks.md)
     const heatmapOf = Effect.fnUntraced(function* (code: StockCode) {
       const rows: Array<HeatRow> = []
       for (const row of sql.exec(
-        "SELECT minute, slices FROM heatmaps WHERE code = ? ORDER BY minute",
+        "SELECT chunk FROM book_chunks WHERE code = ? ORDER BY minute",
         code
-      )) {
-        const minute = Number(row.minute)
-        rows.push({
-          minute,
-          slices: yield* slicesFromText(minute, String(row.slices)),
-          endBook: Effect.flatMap(chunkOfMinute(code, minute), storedEndBook),
-        })
-      }
-      for (const row of sql.exec(
-        "SELECT chunk FROM book_chunks WHERE code = ? AND minute > ? ORDER BY minute",
-        code,
-        rows.at(-1)?.minute ?? -1
       )) {
         const chunk = yield* heldChunkOf(yield* chunkOf(row.chunk))
         // The ending book is worked out now, so the row keeps one book, not
@@ -1112,12 +1045,7 @@ export const makeDayStore = (
     // 13 K book chunks, or every candle). See spec apinrdw/kumora#556,
     // "The move".
     const codesOf = (
-      table:
-        | "candles"
-        | "book_chunks"
-        | "heatmaps"
-        | "book_events"
-        | "order_flow_events"
+      table: "candles" | "book_chunks" | "book_events" | "order_flow_events"
     ) =>
       Effect.sync(() =>
         sql
@@ -1144,16 +1072,10 @@ export const makeDayStore = (
     // The codes with a stored order flow event, ascending.
     const orderFlowEventCodes = codesOf("order_flow_events")
 
-    // Every code the day holds a candle, book, heatmap or book event of,
-    // ascending.
+    // Every code the day holds a candle, book or book event of, ascending.
     const dayCodes = Effect.gen(function* () {
       const codes = new Set<StockCode>()
-      for (const table of [
-        "candles",
-        "book_chunks",
-        "heatmaps",
-        "book_events",
-      ] as const)
+      for (const table of ["candles", "book_chunks", "book_events"] as const)
         for (const code of yield* codesOf(table)) codes.add(code)
       return [...codes].sort()
     })
@@ -1219,12 +1141,10 @@ export const makeDayStore = (
       orderFlowMinutes,
       minuteTrades,
       minutesOfTrades,
-      chunkOfMinute,
       storedNothing,
       takeMeter,
       takeUsage,
       orderFlowStorage,
-      tapeShape: tape.shape,
       hasTrade: tape.has,
       highestTrade,
       // How many trades the day stored so far.

@@ -3,8 +3,7 @@
 // view to the close. Envelopes go in through the ingest socket, time moves
 // only by TestClock, and the test reads the recorded Book and heatmap GETs.
 // Handing a second trading day the first's database is the object
-// restarting, and a row-per-trade tape (`rowShapedSql`) is a day recorded
-// before the change.
+// restarting.
 import { assert, describe, it } from "@effect/vitest"
 import {
   StockCode,
@@ -17,7 +16,7 @@ import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
 import { stockbitBook, stockbitTrade, tradingDay } from "./day-harness"
-import { memorySql, rowLimited, rowShapedSql } from "./sql"
+import { memorySql, rowLimited } from "./sql"
 
 const wib = (time: string) => DateTime.makeUnsafe(`2026-11-09T${time}+07:00`)
 const at = (time: string) =>
@@ -381,59 +380,6 @@ describe("a day's recorded order books", () => {
         assert.deepStrictEqual(yield* bookOf(day, "14:03:00", "14:03:30"), {
           status: 200,
           bids: [90],
-        })
-      })
-  )
-
-  it.effect(
-    "keep every code's chunks to the close, past restarts, on a day recorded before the change",
-    () =>
-      Effect.gen(function* () {
-        yield* at("14:00:00")
-        const sql = rowShapedSql()
-        const before = yield* tradingDay(sql)
-        yield* before.trades([RELAYED])
-        yield* TestClock.adjust("2 minutes")
-        yield* before.evicted
-
-        const deployed = yield* tradingDay(sql)
-        yield* untrBook(deployed, "14:05:03", 50)
-        yield* TestClock.adjust("2 minutes")
-        yield* untrBook(deployed, "14:10:03", 60)
-        yield* TestClock.adjust("2 minutes")
-        yield* deployed.evicted
-
-        const restarted = yield* tradingDay(sql)
-        yield* untrBook(restarted, "15:59:50", 70)
-        yield* at("17:00:00")
-        yield* restarted.alarm
-        for (const [minute, bids] of [
-          ["14:05:00", 50],
-          ["14:10:00", 60],
-          ["15:59:00", 70],
-        ] as const)
-          assert.deepStrictEqual(
-            yield* bookOf(restarted, minute, `${minute.slice(0, 6)}55`),
-            { status: 200, bids: [bids] }
-          )
-      })
-  )
-
-  it.effect(
-    "answer a heatmap without the not recorded mark on a day recorded before the change",
-    () =>
-      Effect.gen(function* () {
-        yield* at("14:00:00")
-        const sql = rowShapedSql()
-        const first = yield* tradingDay(sql)
-        yield* first.trades([RELAYED])
-        yield* TestClock.adjust("2 minutes")
-        yield* first.evicted
-
-        const restarted = yield* tradingDay(sql)
-        assert.deepStrictEqual(yield* heatmapOf(restarted), {
-          notRecorded: false,
-          first: undefined,
         })
       })
   )

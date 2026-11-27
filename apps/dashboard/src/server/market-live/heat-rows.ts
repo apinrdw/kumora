@@ -1,15 +1,13 @@
 // A stock code's book heatmap row for one minute (spec apinrdw/kumora#263,
 // "The trading-day Durable Object"): the six 10-second slices of its book
 // chunk (book-chunks.ts), worked out on read (day-store.ts, `heatmapOf`). A
-// day recorded before that stored them beside each chunk. A minute with no
-// frame has no chunk and no row: the heatmap GET's answer fills it from the
-// chunk before.
+// minute with no frame has no chunk and no row: the heatmap GET's answer
+// fills it from the chunk before.
 import {
   HEAT_SLICE_MS,
   decodeBookChunk,
   encodeRecordedHeatmap,
   type BookDelta,
-  type HeatLevel,
   type HeatSlice,
   type OrderBook,
   type StockCode,
@@ -66,12 +64,6 @@ export const heldChunkOf = Effect.fnUntraced(function* (text: string) {
 export const endBookOf = (chunk: HeldChunk) =>
   Effect.map(changesOf(chunk), (changes) => changes.at(-1)?.book)
 
-// The same of a stored chunk's text; none for a minute that stored no chunk.
-export const storedEndBook = (text: string | undefined) =>
-  text === undefined
-    ? Effect.succeed(undefined)
-    : Effect.flatMap(heldChunkOf(text), endBookOf)
-
 // A chunk's slices that end by `through`, all six by default.
 export const chunkSlices = Effect.fnUntraced(function* (
   chunk: HeldChunk,
@@ -81,23 +73,8 @@ export const chunkSlices = Effect.fnUntraced(function* (
   return yield* heatSlices(yield* changesOf(chunk), chunk.minute, end)
 })
 
-// A stored row's slices, [slice index, levels] for each slice with lots: the
-// store's own write, read back without a decode.
-export const slicesFromText = Effect.fnUntraced(function* (
-  minute: number,
-  text: string
-) {
-  const stored = JSON.parse(text) as ReadonlyArray<
-    readonly [number, ReadonlyArray<HeatLevel>]
-  >
-  return stored.map(([index, levels]): HeatSlice => ({
-    at: DateTime.makeUnsafe(minute + index * HEAT_SLICE_MS),
-    levels,
-  }))
-})
-
-// One minute's slices, as stored or still held, and the book its chunk
-// ended with, read only when the minute after it has no row.
+// One minute's slices, from its stored or still-held chunk, and the book
+// that chunk ended with, read only when the minute after it has no row.
 export interface HeatRow {
   readonly minute: number
   readonly slices: ReadonlyArray<HeatSlice>

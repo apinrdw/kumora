@@ -56,7 +56,7 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
     )
 
     // Spec apinrdw/kumora#555: a page reads its trades' chunks and the number
-    // search's, never a row per trade.
+    // search's.
     it.effect(
       "a recorded tape GET at the day's end reads at most 50 rows, and writes nothing",
       () => withinBudget("recorded tape GET", { rowsRead: 50, rowsWritten: 0 }),

@@ -75,7 +75,6 @@ describe("the cost meter", () => {
           yield* day.alarm
           assert.strictEqual(lines.length, 1)
           assert.strictEqual(lines[0]!.footprintRows, 3)
-          assert.strictEqual(lines[0]!.heatmapRows, 0)
           assert.isAbove(Number(lines[0]!.footprintBytes), 0)
           assert.strictEqual(lines[0]!.sweepBrokerRows, 0)
         })

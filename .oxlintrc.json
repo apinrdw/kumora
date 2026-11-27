@@ -109,21 +109,6 @@
       }
     },
     {
-      // Decision: the tape is the one dashboard module that runs SQL on a trades table
-      // (docs/adr/0013-the-tape-is-the-one-module-that-runs-sql-on-a-trades-table.md)
-      "files": ["apps/dashboard/src/**"],
-      "jsPlugins": ["./scripts/oxlint-plugin.mts"],
-      "rules": {
-        "kumora/tape-owns-trades": "error"
-      }
-    },
-    {
-      "files": ["apps/dashboard/src/server/market-live/tape.ts"],
-      "rules": {
-        "kumora/tape-owns-trades": "off"
-      }
-    },
-    {
       // Root scripts hold none of the exceptions to CODING_STANDARDS.md's
       // "Every non-component function returns an Effect" but the ones the
       // next override names, so lint holds the rule there.

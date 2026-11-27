@@ -547,7 +547,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
   const todayDate = yield* wibDateAt(yield* DateTime.now)
   const today = todayDate === options.date
-  const store = yield* makeDayStore(options.sql, { today })
+  const store = yield* makeDayStore(options.sql)
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
   const sealAt = yield* sealInstant(options.date)
   // Decision: a day's tape source is relay or walk, set once and kept for good

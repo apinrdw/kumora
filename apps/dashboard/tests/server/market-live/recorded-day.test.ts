@@ -350,7 +350,7 @@ describe("a restarted trading day", () => {
       Effect.gen(function* () {
         yield* TestClock.setTime(wib("16:20:00").epochMilliseconds)
         const sql = memorySql()
-        const store = yield* makeDayStore(sql, { today: true })
+        const store = yield* makeDayStore(sql)
         const first = DateTime.toEpochMillis(wib("08:58:00"))
         const codes = Array.from({ length: FULL_DAY_CODES }, (_, index) =>
           StockCode.make(`C${String(index).padStart(3, "0")}`)

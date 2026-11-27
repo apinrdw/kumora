@@ -11,8 +11,8 @@ import {
   NO_ORDER_NUMBERS,
   OrderNumber,
   OrderNumberCounts,
+  StockCode,
   TradeNumber,
-  type StockCode,
   brokerCodesAfter,
   decodeBrokerCodesBatch,
   encodeBrokerCodesStatus,
@@ -34,9 +34,8 @@ import {
   type Sql,
   type SqlValue,
 } from "./day-store.ts"
-import type { Tape } from "./tape-backing.ts"
-import { TRADE_CHUNK } from "./tape-chunks.ts"
-import { fieldsOf, makeTape } from "./tape.ts"
+import type { Tape, TapeFields } from "./tape-backing.ts"
+import { TRADE_CHUNK, makeTape } from "./tape-chunks.ts"
 
 // Decision: a codes chunk holds 1,000 fixed 7-byte records with a source byte
 // (apps/dashboard/docs/adr/0055-broker-codes-are-stored-as-7-byte-records-in-1-000-trade-chunks.md)
@@ -196,6 +195,17 @@ const writeSummaryRow = (
 const holesOf = (row: Record<string, SqlValue>) =>
   JSON.parse(String(row.holes)) as Holes
 
+// A walk row's fields, read back without a decode: the rows are the day's
+// own writes.
+const fieldsOf = (row: Record<string, SqlValue>) =>
+  Effect.sync((): TapeFields => ({
+    number: Number(row.number),
+    code: StockCode.make(String(row.code)),
+    price: Number(row.price),
+    lots: Number(row.lots),
+    board: String(row.board) as RunningTrade["board"],
+  }))
+
 // The summary rows of chunks first..last that hold a tape trade, from one
 // read of their trades' numbers, inside a transaction.
 // The runs are worked out here, not in SQL: one statement that
@@ -255,7 +265,7 @@ const summarizeWhole = (sql: Sql) => {
 // batches kept summarized isn't again.
 // The seal summarizes the tape in its own transaction, after the
 // sealed marker: on a busy day 5.9 K rows read and 1,460 written from trade
-// chunks, 1.46 M read from a row per trade (row-budgets.workerd.test.ts).
+// chunks (row-budgets.workerd.test.ts).
 export const summarizeTape = (sql: Sql) =>
   Effect.sync(() =>
     sql.transaction(() => {
@@ -1148,7 +1158,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       }
     })
 
-  // The same, read from the tape itself (tape.ts, `markLacking`).
+  // The same, read from the tape itself (tape-chunks.ts, `markLacking`).
   const tapeHoles = (first: number, last: number, unfielded: Uint8Array) =>
     tape.markLacking(first * CHUNK + 1, (last + 1) * CHUNK, unfielded)
 

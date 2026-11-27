@@ -251,7 +251,7 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   const day = WibDate.make(wibToday())
   // The sweeps are stamped now, not a minute back as the first
   // test's. A codes batch reads their minute through the day store's search
-  // on trade numbers (`highestWithin`, tape.ts), which takes numbers
+  // on trade numbers (`highestWithin`, tape-chunks.ts), which takes numbers
   // to run in time order: stamped back, they lost their brokers once it
   // read an earlier spec's lower-numbered, later trade. PR apinrdw/kumora#349.
   const time = wibTime(marketNow())
@@ -759,7 +759,7 @@ test("a recorded day's Auction row shows its lead buyer and seller, and a broker
   // prints sideless, but not at 08:58, where market-live.spec.ts counts the
   // opening match's fold. It is numbered below every other spec's trades,
   // all stamped later, so the day store's search on trade numbers
-  // (`highestWithin`, tape.ts) reads its minute.
+  // (`highestWithin`, tape-chunks.ts) reads its minute.
   const auction = Math.floor(earlier / 1_000)
   // As the test above: the sweep stamped now, above another code's trades.
   const time = wibTime(marketNow())

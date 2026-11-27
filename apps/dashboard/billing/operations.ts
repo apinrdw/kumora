@@ -97,7 +97,7 @@ const flushTrade = (number: number): RunningTrade => ({
 
 const liveFlush = (_day: TradingDay, sql: Sql) =>
   Effect.gen(function* () {
-    const store = yield* makeDayStore(sql, { today: true })
+    const store = yield* makeDayStore(sql)
     yield* store.write({
       trades: [
         ...BUSY_DAY.holes.map(flushTrade),
@@ -141,7 +141,7 @@ const sessionBooksAt = (time: string) =>
 // of the session (session-books.ts), taken in the phase after it.
 const sessionEndWrite = (sql: Sql, time: string) =>
   Effect.gen(function* () {
-    const store = yield* makeDayStore(sql, { today: true })
+    const store = yield* makeDayStore(sql)
     const books = yield* makeSessionBooks
     yield* books.served(sessionBooksAt(time), "session-1")
     yield* store.write({
@@ -174,7 +174,7 @@ const bookEventsGet = (day: TradingDay) =>
 // the close, as the day store writes them: a sealed day's object takes none.
 const eventsFlush = (_day: TradingDay, sql: Sql) =>
   Effect.gen(function* () {
-    const store = yield* makeDayStore(sql, { today: false })
+    const store = yield* makeDayStore(sql)
     const close = DateTime.toEpochMillis(
       DateTime.makeUnsafe("2026-11-09T16:15:00+07:00")
     )

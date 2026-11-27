@@ -1,6 +1,6 @@
-// A new day's tape as 1,000-number trade chunks (spec apinrdw/kumora#555,
-// "Trade chunks", ticket #571): the tape's second backing (tape.ts), with
-// the same reads and writes as its row per trade.
+// A trading day's tape: every read and write of the day's trades, kept as
+// 1,000-number trade chunks (spec apinrdw/kumora#555, "Trade chunks", ticket
+// #571).
 import {
   Board,
   Side,
@@ -9,8 +9,6 @@ import {
   TradeSource,
   type RunningTrade,
   type TapeCursor,
-  MINUTE_MS,
-  SHARES_PER_LOT,
 } from "@workspace/relay"
 import { DateTime, Effect, Schema } from "effect"
 
@@ -158,7 +156,7 @@ const chunkOfRow = (row: Record<string, unknown>) =>
 
 // Decision: code run inside a synchronous transaction stays plain, not an Effect
 // (apps/dashboard/docs/adr/0076-methods-called-inside-a-synchronous-transaction-stay-plain.md)
-export const makeChunkTape = (sql: Sql): Tape => {
+export const makeTape = (sql: Sql): Tape => {
   sql.exec(TRADE_CHUNKS_SCHEMA)
 
   // The code list, loaded when a record indexes past what is loaded.
@@ -300,32 +298,6 @@ export const makeChunkTape = (sql: Sql): Tape => {
   const numbersBetween = (low: number, high: number) =>
     Array.from(eachStored(low, high), ([chunk, slot]) => chunk.number(slot))
 
-  // Each stored candle's buy and sell value from the chunks, as tape.ts's
-  // REBUILD_CANDLE_SIDES works them out from trade rows.
-  const rebuildCandleSides = () => {
-    const sides = new Map<string, { buy: number; sell: number }>()
-    for (const [chunk, slot] of eachStored(1, Number.MAX_SAFE_INTEGER)) {
-      if (chunk.board(slot) !== "RG") continue
-      const minute = chunk.time(slot) - (chunk.time(slot) % MINUTE_MS)
-      const key = `${codeAt(chunk.code(slot))} ${minute}`
-      const sum = sides.get(key) ?? { buy: 0, sell: 0 }
-      const value = chunk.price(slot) * chunk.lots(slot) * SHARES_PER_LOT
-      if (chunk.side(slot) === "buy") sum.buy += value
-      if (chunk.side(slot) === "sell") sum.sell += value
-      sides.set(key, sum)
-    }
-    for (const [key, { buy, sell }] of sides) {
-      const [code, minute] = key.split(" ")
-      sql.exec(
-        "UPDATE candles SET buy_value = ?, sell_value = ? WHERE code = ? AND minute = ?",
-        buy,
-        sell,
-        code!,
-        Number(minute)
-      )
-    }
-  }
-
   const has = (tradeNumber: TradeNumber) =>
     Effect.sync(() => {
       const number = Number(tradeNumber)
@@ -370,9 +342,11 @@ export const makeChunkTape = (sql: Sql): Tape => {
   // Within the chunk the search lands on, the bound is its highest trade at
   // or before the target; every later chunk starts after it.
   // The trades up to an instant are bounded by a binary search on
-  // the chunks by each one's first trade's time, as tape.ts searches rows:
-  // IDX hands numbers out in time order. It targets the instant plus
-  // TIME_SKEW_MS, and reads about 11 chunk rows on a busy day.
+  // the chunks by each one's first trade's time: IDX hands numbers out in
+  // time order, so the tape needs no time index. Stored times can run up to
+  // TIME_SKEW_MS backwards, so the search targets the instant plus the skew
+  // and the reads' time filter drops the rest (apinrdw/kumora#157). It reads
+  // about 11 chunk rows on a busy day.
   const highestWithin = Effect.fnUntraced(function* (cutoff: number) {
     const bound = cutoff + TIME_SKEW_MS
     const first = (yield* lowest)?.chunk
@@ -410,8 +384,10 @@ export const makeChunkTape = (sql: Sql): Tape => {
     return yield* tradesDown(from, cutoff, limit)
   })
 
-  // The trades after `after` and at or before `through`, ascending, from a
-  // search two skews before `after`, as tape.ts's.
+  // The trades after `after` and at or before `through`, ascending. The
+  // numbers start from a search two skews before `after`: every trade at or
+  // below that number is at or before `after`, so none is missed, and the
+  // time filter decides the rest.
   const tradesBetween = Effect.fnUntraced(function* (
     after: DateTime.Utc,
     through: DateTime.Utc
@@ -431,8 +407,10 @@ export const makeChunkTape = (sql: Sql): Tape => {
     })
   })
 
-  // The first and last minute that can hold a stored trade, widened by
-  // TIME_SKEW_MS as tape.ts's; none when the day stored none.
+  // The first and last minute that can hold a stored trade; none when the
+  // day stored none. They come off the tape's ends, widened by TIME_SKEW_MS:
+  // a later-numbered trade can be stored up to that much before the first,
+  // and an earlier one that much after the last.
   const minuteSpan = Effect.gen(function* () {
     const first = yield* lowest
     const last = highest()
@@ -482,11 +460,9 @@ export const makeChunkTape = (sql: Sql): Tape => {
     )
 
   return {
-    shape: "chunks",
     write,
     highestNumber,
     numbersBetween,
-    rebuildCandleSides,
     has,
     count,
     newest,

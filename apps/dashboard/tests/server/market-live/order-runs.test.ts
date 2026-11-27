@@ -2,6 +2,8 @@
 // apinrdw/kumora#629): trades go in through the ingest socket, the day
 // seals, broker codes batches carry order numbers, and the test reads the
 // sweep brokers GET.
+import { gzipSync } from "node:zlib"
+
 import { assert, describe, it } from "@effect/vitest"
 import { StockCode, type SweepBrokers, type SweepPiece } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
@@ -170,8 +172,8 @@ describe("a whole sweep every one of whose trades has order numbers", () => {
   )
 })
 
-// UNTR's 09:00 row as a day recorded before order runs stored it, in plain
-// text: one sell sweep of AK's trade 1 and CC's trade 2, each piece
+// UNTR's 09:00 row's text as a day recorded before order runs stored it:
+// one sell sweep of AK's trade 1 and CC's trade 2, each piece
 // [sweep, aggressor, other] with no orders.
 const OLD_ROW =
   '[["1",[[["sell","1",1794189610100,23300,23300,2,4660000,1],[["AK","D",2]],[["KZ","D",2]]],[["sell","2",1794189610200,23300,23300,3,6990000,1],[["CC","D",3]],[["KZ","F",3]]]]]]'
@@ -189,7 +191,8 @@ describe("a sweep brokers row stored before order runs", () => {
         ],
         2
       )
-      sql.exec("UPDATE sweep_brokers SET sweeps = ?", OLD_ROW)
+      const stored = gzipSync(OLD_ROW)
+      sql.exec("UPDATE sweep_brokers SET sweeps = ?", stored)
       const response = yield* day.recorded({
         _tag: "SweepBrokers",
         code: StockCode.make("UNTR"),
@@ -198,7 +201,7 @@ describe("a sweep brokers row stored before order runs", () => {
       assert.include(text, `"sweeps":${OLD_ROW}`)
       assert.deepStrictEqual(
         sql.exec("SELECT sweeps FROM sweep_brokers").map((row) => row.sweeps),
-        [OLD_ROW]
+        [new Uint8Array(stored)]
       )
       const { answer } = yield* day.recordedSweepBrokers("UNTR")
       assert.deepStrictEqual(answer.sweeps.flatMap(piecesOf), [

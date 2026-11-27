@@ -141,7 +141,7 @@ describe("the alert rule at the worst day", () => {
     () =>
       Effect.gen(function* () {
         const { watched, watch } = watchedSql()
-        const store = yield* makeDayStore(watched, { today: true })
+        const store = yield* makeDayStore(watched)
         yield* storeDay(store)
         watch.base = yield* retainedHeap
         const book = yield* makeCandleBook(store, () => {})
