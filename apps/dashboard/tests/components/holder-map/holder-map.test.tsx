@@ -19,7 +19,6 @@ const page = () => (
   <HolderMapPage
     map={landing}
     list={{ _tag: "Loading" }}
-    onStock={() => undefined}
     onRefocus={() => undefined}
     onDay={() => undefined}
   />
@@ -31,7 +30,7 @@ const mostHeldHref = (html: string) =>
 describe("HolderMapPage's stocks most held", () => {
   test("keep the day picked", async () => {
     const html = await renderAt("/holder-map?day=2026-06-25", page)
-    expect(mostHeldHref(html)).toBe("/holder-map?day=2026-06-25&stock=FLMC")
+    expect(mostHeldHref(html)).toBe("/holder-map?stock=FLMC&day=2026-06-25")
   })
 
   test("open the newest day when none is picked", async () => {

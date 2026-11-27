@@ -1,20 +1,19 @@
 // The Holder map page (spec apinrdw/kumora#733; apinrdw/kumora#734,
-// #735, #736, #737): a stock search and an as-of day picker, then the focus
-// stock's holders as of one trading day, drawn as a map above a side panel
-// of two bands, each with its move, and its Off list holders, or, with no
-// focus, the stocks with the most ≥1% holders.
+// #735, #736, #737, #738): a stock and holder search and an as-of day
+// picker, then the focus's holdings as of one trading day, drawn as a map
+// above a side panel of two bands, each with its move, and its Off list,
+// or, with no focus, the stocks with the most ≥1% holders. A stock focus's
+// holdings are its holders, a holder focus's its stocks.
 import { Link } from "@tanstack/react-router"
-import { type StockCode, WibDate } from "@workspace/relay"
+import { WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 
 import { BoundedRows } from "@/components/k/bounded-rows"
 import { KChip } from "@/components/k/chip"
 import { KEmptyState } from "@/components/k/empty-state"
 import { kCard, kFocus } from "@/components/k/styles"
-import type { StockCodeList } from "@/components/market-live/use-stock-code-list"
-import { StockCodePicker } from "@/components/market-live/stock-code-picker"
 import { DayPicker } from "@/components/stocks/day-picker"
 import {
   Delta,
@@ -25,28 +24,56 @@ import {
   percentOf,
 } from "@/components/stocks/holder-cells"
 import { MOVEMENT } from "@/components/stocks/holder-movement"
-import { KSEI_TYPE_LABELS } from "@/domain/holdings"
+import { HolderKey, KSEI_TYPE_LABELS } from "@/domain/holdings"
 import { count, lotsOfShares } from "@/lib/format"
 import {
   BAND_TITLE,
   type BandSection,
+  type FocusView,
   type HolderMapView,
   type MapHolder,
   ORIGIN_LABEL,
   type Refocus,
   type ShownMove,
 } from "@/lib/holder-map"
+import { type FocusMatch, refocused } from "@/lib/holder-map-search"
 import { dayDateLabel, monthLabel } from "@/lib/stock-page-display"
 import type { HolderMapOffList } from "@/server/holdings/holder-map"
 
+import { FocusPicker } from "./focus-picker"
 import { HolderMapGraph } from "./holder-map-graph"
+import type { FocusListState } from "./use-focus-list"
 
 export type HolderMapPageProps = {
   map: HolderMapView
-  list: StockCodeList
-  onStock: (code: StockCode) => void
+  list: FocusListState
   onRefocus: (refocus: Refocus) => void
   onDay: (day: WibDate) => void
+}
+
+// A search match's refocus.
+const refocusOf = (match: FocusMatch): Refocus =>
+  match.kind === "stock" ? { stock: match.code } : { holder: match.key }
+
+// A link to the map refocused, keeping the day picked.
+function RefocusLink({
+  to,
+  children,
+  className,
+}: {
+  to: Refocus
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <Link
+      to="/holder-map"
+      search={(previous) => Effect.runSync(refocused(previous, to))}
+      className={cn("hover:underline", kFocus, className)}
+    >
+      {children}
+    </Link>
+  )
 }
 
 // A link's move as the side panel's chip shows it: Holder moves' chips,
@@ -87,7 +114,6 @@ const datesLine = Effect.fnUntraced(function* (
 export function HolderMapPage({
   map,
   list,
-  onStock,
   onRefocus,
   onDay,
 }: HolderMapPageProps) {
@@ -113,12 +139,10 @@ export function HolderMapPage({
               onDay={(day) => onDay(WibDate.make(day))}
             />
           )}
-          <StockCodePicker
-            list={list}
-            label="Focus stock"
-            placeholder="Search stock code or name"
-            className="w-full sm:w-72"
-            onPick={onStock}
+          <FocusPicker
+            state={list}
+            className="w-full sm:w-80"
+            onPick={(match) => onRefocus(refocusOf(match))}
           />
         </div>
       </header>
@@ -174,14 +198,9 @@ function MostHeld({ map }: { map: HolderMapView }) {
         <ol aria-label="Most held stocks" className="flex flex-col">
           {map.mostHeld.map(({ code, issuerName, holders }) => (
             <li key={code} className="border-b border-border last:border-0">
-              <Link
-                to="/holder-map"
-                // Keeps the day picked.
-                search={(previous) => ({ ...previous, stock: code })}
-                className={cn(
-                  "flex items-baseline gap-3 py-1.5 text-[13px] hover:bg-muted/50",
-                  kFocus
-                )}
+              <RefocusLink
+                to={{ stock: code }}
+                className="flex items-baseline gap-3 py-1.5 text-[13px] hover:bg-muted/50 hover:no-underline"
               >
                 <span className="w-14 font-semibold">{code}</span>
                 <span className="flex-1 truncate text-muted-foreground">
@@ -190,7 +209,7 @@ function MostHeld({ map }: { map: HolderMapView }) {
                 <span className="num">
                   {Effect.runSync(count(holders, "holder", "holders"))}
                 </span>
-              </Link>
+              </RefocusLink>
             </li>
           ))}
         </ol>
@@ -205,7 +224,7 @@ function Focus({
   month,
   onRefocus,
 }: {
-  focus: NonNullable<HolderMapView["focus"]>
+  focus: FocusView
   day: WibDate | undefined
   month: WibDate | undefined
   onRefocus: (refocus: Refocus) => void
@@ -221,20 +240,20 @@ function Focus({
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 id="holder-map-focus" className="text-[17px] font-semibold">
-          {focus.code}{" "}
-          {focus.issuerName && (
-            <span className="font-medium text-muted-foreground">
-              {focus.issuerName}
-            </span>
-          )}
+          {focus.title}{" "}
+          <span className="font-medium text-muted-foreground">
+            {focus.kind === "stock" ? focus.issuerName : "Holder"}
+          </span>
         </h2>
-        <Link
-          to="/stocks/$code"
-          params={{ code: focus.code }}
-          className={cn("text-info text-[13px]", kFocus)}
-        >
-          Open stock page
-        </Link>
+        {focus.kind === "stock" && (
+          <Link
+            to="/stocks/$code"
+            params={{ code: focus.code }}
+            className={cn("text-info text-[13px]", kFocus)}
+          >
+            Open stock page
+          </Link>
+        )}
       </div>
       {day !== undefined && month === undefined && (
         <p role="note" className="text-[13px] text-muted-foreground">
@@ -245,8 +264,8 @@ function Focus({
         <KEmptyState
           bare
           kind="no-data"
-          title={`No holders of ${focus.code}${day === undefined ? "" : ` on ${Effect.runSync(dayDateLabel(day))}`}`}
-          description={`Neither the day's above-5% report nor the month's above-1% report lists ${focus.code}. Check the code, or search another stock.`}
+          title={`${focus.kind === "stock" ? "No holders of" : "No stocks held by"} ${focus.title}${day === undefined ? "" : ` on ${Effect.runSync(dayDateLabel(day))}`}`}
+          description={`Neither the day's above-5% report nor the month's above-1% report lists ${focus.title}. ${focus.kind === "stock" ? "Check the code, or search another stock." : "Search another stock or holder."}`}
         />
       ) : (
         <>
@@ -256,11 +275,12 @@ function Focus({
             onRefocus={onRefocus}
           />
           {focus.bands.map((band) => (
-            <Band key={band.band} band={band} day={day} />
+            <Band key={band.band} band={band} day={day} focus={focus} />
           ))}
         </>
       )}
       <OffList
+        focus={focus}
         holders={focus.offList}
         shown={showOffList}
         onShown={setShowOffList}
@@ -269,8 +289,17 @@ function Focus({
   )
 }
 
-function Band({ band, day }: { band: BandSection; day: WibDate | undefined }) {
+function Band({
+  band,
+  day,
+  focus,
+}: {
+  band: BandSection
+  day: WibDate | undefined
+  focus: FocusView
+}) {
   const title = BAND_TITLE[band.band]
+  const noun = focus.kind === "stock" ? "holder" : "stock"
   const id = `band-${band.band === "5%" ? "5" : "1"}`
   return (
     <section aria-labelledby={id} className="flex flex-col gap-2">
@@ -279,7 +308,7 @@ function Band({ band, day }: { band: BandSection; day: WibDate | undefined }) {
           {title}
         </h3>
         <p className="text-[13px] text-muted-foreground">
-          {Effect.runSync(count(band.holders.length, "holder", "holders"))} ·{" "}
+          {Effect.runSync(count(band.holders.length, noun, `${noun}s`))} ·{" "}
           {Effect.runSync(percentOf(band.totalHundredths))}
           {band.date &&
             ` · ${Effect.runSync(
@@ -291,7 +320,7 @@ function Band({ band, day }: { band: BandSection; day: WibDate | undefined }) {
       </div>
       {band.holders.length === 0 ? (
         <p className="text-[13px] text-muted-foreground">
-          No holder in this band.
+          No {noun} in this band.
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -302,7 +331,7 @@ function Band({ band, day }: { band: BandSection; day: WibDate | undefined }) {
             <thead className="[&_th]:font-medium [&_th]:whitespace-nowrap [&_th]:text-muted-foreground">
               <tr>
                 <th scope="col" className="text-left">
-                  Holder
+                  {focus.kind === "stock" ? "Holder" : "Stock"}
                 </th>
                 <th scope="col" className="text-left">
                   Move
@@ -320,7 +349,12 @@ function Band({ band, day }: { band: BandSection; day: WibDate | undefined }) {
                   (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md) */}
               <BoundedRows rows={band.holders}>
                 {(holder) => (
-                  <HolderRow key={holder.holder} holder={holder} day={day} />
+                  <HolderRow
+                    key={`${holder.code} ${holder.holder}`}
+                    holder={holder}
+                    day={day}
+                    focus={focus.kind}
+                  />
                 )}
               </BoundedRows>
             </tbody>
@@ -331,25 +365,40 @@ function Band({ band, day }: { band: BandSection; day: WibDate | undefined }) {
   )
 }
 
+// A holding's row: a stock focus's holder, or a holder focus's stock,
+// each a link refocusing the map on it.
 function HolderRow({
   holder,
   day,
+  focus,
 }: {
   holder: MapHolder
   day: WibDate | undefined
+  focus: FocusView["kind"]
 }) {
-  const meta = [
-    holder.origin === undefined
-      ? "Origin unknown"
-      : ORIGIN_LABEL[holder.origin],
-    holder.investorType === undefined
-      ? "Type unknown"
-      : KSEI_TYPE_LABELS[holder.investorType],
-  ]
+  const meta =
+    focus === "stock"
+      ? [
+          holder.origin === undefined
+            ? "Origin unknown"
+            : ORIGIN_LABEL[holder.origin],
+          holder.investorType === undefined
+            ? "Type unknown"
+            : KSEI_TYPE_LABELS[holder.investorType],
+        ]
+      : [holder.issuerName ?? "Issuer unknown"]
   return (
     <tr>
       <th scope="row" className="text-left font-normal">
-        <div className="font-medium">{holder.name}</div>
+        <div className="font-medium">
+          {focus === "stock" ? (
+            <RefocusLink to={{ holder: HolderKey.make(holder.holder) }}>
+              {holder.name}
+            </RefocusLink>
+          ) : (
+            <RefocusLink to={{ stock: holder.code }}>{holder.code}</RefocusLink>
+          )}
+        </div>
         <div className="mt-0.5 text-[12px] text-muted-foreground">
           {meta.join(" · ")}
         </div>
@@ -410,13 +459,15 @@ function ShownMoveCell({ holder }: { holder: MapHolder }) {
   )
 }
 
-// The focus's earlier holders, each with the period it left its list,
+// The focus's earlier holdings, each with the period it left its list,
 // hidden by the toggle.
 function OffList({
+  focus,
   holders,
   shown,
   onShown,
 }: {
+  focus: FocusView
   holders: ReadonlyArray<HolderMapOffList>
   shown: boolean
   onShown: (shown: boolean) => void
@@ -437,11 +488,22 @@ function OffList({
         </KChip>
       </div>
       {shown && (
-        <ul aria-label="Off list holders" className="flex flex-col text-[13px]">
+        <ul
+          aria-label={
+            focus.kind === "stock" ? "Off list holders" : "Off list stocks"
+          }
+          className="flex flex-col text-[13px]"
+        >
           {/* Decision: a page renders a list of stored rows through BoundedRows
               (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md) */}
           <BoundedRows rows={holders}>
-            {(holder) => <OffListRow key={holder.holder} holder={holder} />}
+            {(holder) => (
+              <OffListRow
+                key={`${holder.code} ${holder.holder}`}
+                holder={holder}
+                focus={focus.kind}
+              />
+            )}
           </BoundedRows>
         </ul>
       )}
@@ -449,11 +511,25 @@ function OffList({
   )
 }
 
-function OffListRow({ holder }: { holder: HolderMapOffList }) {
+function OffListRow({
+  holder,
+  focus,
+}: {
+  holder: HolderMapOffList
+  focus: FocusView["kind"]
+}) {
   const since = Effect.runSync(periodLabel(holder.band, holder.since))
   return (
     <li className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border py-1.5 text-muted-foreground opacity-80 last:border-0">
-      <span className="font-medium">{holder.name}</span>
+      <span className="font-medium">
+        {focus === "stock" ? (
+          <RefocusLink to={{ holder: HolderKey.make(holder.holder) }}>
+            {holder.name}
+          </RefocusLink>
+        ) : (
+          <RefocusLink to={{ stock: holder.code }}>{holder.code}</RefocusLink>
+        )}
+      </span>
       <span className="flex items-baseline gap-2">
         <span className="num">
           {Effect.runSync(percentOf(holder.percentageHundredths))} last

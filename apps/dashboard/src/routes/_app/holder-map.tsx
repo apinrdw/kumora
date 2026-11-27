@@ -1,17 +1,18 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useLocation } from "@tanstack/react-router"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { Effect } from "effect"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 
 import { HolderMapPage } from "@/components/holder-map/holder-map"
-import { useStockList } from "@/components/stocks/use-stock-list"
+import { useFocusList } from "@/components/holder-map/use-focus-list"
 import { holderMapView } from "@/lib/holder-map"
-import { parseHolderMapSearch, queryOf } from "@/lib/holder-map-search"
-import type { HolderMapRead } from "@/server/holdings/holder-map"
 import {
-  holderMapFn,
-  holderMapStocksFn,
-} from "@/server/stocks/stocks.functions"
+  parseHolderMapSearch,
+  queryOf,
+  refocused,
+} from "@/lib/holder-map-search"
+import type { HolderMapRead } from "@/server/holdings/holder-map"
+import { holderMapFn } from "@/server/stocks/stocks.functions"
 
 export const Route = createFileRoute("/_app/holder-map")({
   staticData: {
@@ -31,25 +32,24 @@ export const Route = createFileRoute("/_app/holder-map")({
 
 function HolderMapRoute() {
   const read: HolderMapRead = Route.useLoaderData()
-  const search = Route.useSearch()
   const navigate = Route.useNavigate()
-  const map = useMemo(() => Effect.runSync(holderMapView(read)), [read])
-  const list = useStockList(
-    search.stock === undefined
-      ? "/holder-map"
-      : `/holder-map?stock=${encodeURIComponent(search.stock)}`,
-    holderMapStocksFn
+  // The page the search's sign-in returns to: the one it opened on, so a
+  // refocus doesn't load the list again.
+  const [opened] = useState(
+    useLocation({ select: (location) => location.href })
   )
+  const map = useMemo(() => Effect.runSync(holderMapView(read)), [read])
+  const list = useFocusList(opened)
   return (
     <HolderMapPage
       map={map}
       list={list}
-      // A new focus is a new entry, so back returns to the one before.
-      onStock={(stock) =>
-        void navigate({ search: (previous) => ({ ...previous, stock }) })
-      }
+      // A new focus is a new entry, so back returns to the one before; it
+      // clears the focus before it and keeps the day.
       onRefocus={(refocus) =>
-        void navigate({ search: (previous) => ({ ...previous, ...refocus }) })
+        void navigate({
+          search: (previous) => Effect.runSync(refocused(previous, refocus)),
+        })
       }
       // A new day is a new entry too, and keeps the focus.
       onDay={(day) =>
