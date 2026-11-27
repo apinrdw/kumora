@@ -308,6 +308,7 @@ describe("pickOf", () => {
   const nodes = ["stock:TRUE", "holder:DJONI", "custodian:YP"].map((id) => ({
     id,
     focus: id === "stock:TRUE",
+    offList: false,
   }))
   const TRUE = StockCode.make("TRUE")
 
@@ -347,5 +348,27 @@ describe("pickOf", () => {
         yield* pickOf(undefined, { kind: "stock", code: TRUE, name: "TRUE" })
       ).toEqual({ refocus: { stock: "TRUE" } })
     })
+  )
+
+  it.effect(
+    "refocuses on an Off list match the map hides, highlights it shown",
+    () =>
+      Effect.gen(function* () {
+        const left = [
+          ...nodes,
+          { id: "holder:ABADI", focus: false, offList: true },
+        ]
+        const abadi = {
+          kind: "holder",
+          key: HolderKey.make("ABADI"),
+          name: "ABADI",
+        } as const
+        expect(yield* pickOf(left, abadi, { showOffList: false })).toEqual({
+          refocus: { holder: "ABADI" },
+        })
+        expect(yield* pickOf(left, abadi, { showOffList: true })).toEqual({
+          highlight: "holder:ABADI",
+        })
+      })
   )
 })
