@@ -84,13 +84,27 @@ export const holderMapFn = createServerFn({ method: "GET" })
     )
   )
 
-// The Holder map search's stocks, holders and custodians; `data` is the page the visitor returns to
-// after signing in again.
+const decodeSearchListDay = Schema.decodeUnknownSync(
+  Schema.Struct({ day: Schema.UndefinedOr(WibDate) })
+)
+
+// The Holder map search's stocks, holders and custodians as of the map's
+// `day` (the newest when undefined); `href` is the page the visitor returns
+// to after signing in again.
 export const holderMapSearchListFn = createServerFn({ method: "GET" })
-  .validator((href: unknown) => Effect.runSync(safeRedirect(href)))
+  .validator((data: unknown) => ({
+    href: Effect.runSync(
+      safeRedirect(
+        typeof data === "object" && data !== null && "href" in data
+          ? data.href
+          : undefined
+      )
+    ),
+    day: decodeSearchListDay(data).day,
+  }))
   .handler(({ data }) =>
     runServerEffect(
-      holderMapSearchListView(getRequest().headers, data).pipe(
+      holderMapSearchListView(getRequest().headers, data.href, data.day).pipe(
         Effect.provide(services)
       )
     )

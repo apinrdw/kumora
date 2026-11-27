@@ -32,7 +32,7 @@ export const Route = createFileRoute("/_app/holder-map")({
 
 function HolderMapRoute() {
   const read: HolderMapRead = Route.useLoaderData()
-  const { offList } = Route.useSearch()
+  const search = Route.useSearch()
   const navigate = Route.useNavigate()
   // The page the search's sign-in returns to: the one it opened on, so a
   // refocus doesn't load the list again.
@@ -40,7 +40,7 @@ function HolderMapRoute() {
     useLocation({ select: (location) => location.href })
   )
   const map = useMemo(() => Effect.runSync(holderMapView(read)), [read])
-  const list = useFocusList(opened)
+  const list = useFocusList(opened, search.day)
   return (
     <HolderMapPage
       map={map}
@@ -58,7 +58,7 @@ function HolderMapRoute() {
       }
       // A filter, so a new entry too; it hides the map's Off list nodes
       // and its Off list rows.
-      showOffList={offList !== "hide"}
+      showOffList={search.offList !== "hide"}
       onShowOffList={(shown) =>
         void navigate({
           search: (previous) => ({

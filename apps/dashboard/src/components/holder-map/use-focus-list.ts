@@ -1,7 +1,9 @@
-// The Holder map search's stocks, holders and custodians, loaded once the page opens.
+// The Holder map search's stocks, holders and custodians as of the map's
+// day, loaded once the page opens and again for each day picked.
 import { isRedirect } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
 import { Effect, Fiber } from "effect"
+import type { WibDate } from "@workspace/relay"
 import { useEffect, useState } from "react"
 
 import { signInAgain } from "@/components/market-live/sign-in-again"
@@ -18,12 +20,16 @@ const LOADING: FocusListState = { _tag: "Loading" }
 // arrives as the router's redirect, and sends them there, the list still
 // loading. A failed load keeps the search loading, with a warning logged;
 // the page itself still shows.
-export function useFocusList(href: string): FocusListState {
+// `day` is the map's as-of day, undefined for the newest.
+export function useFocusList(
+  href: string,
+  day: WibDate | undefined
+): FocusListState {
   const [state, setState] = useState<FocusListState>(LOADING)
   useEffect(() => {
     const fiber = clientRuntime.runFork(
       Effect.tryPromise({
-        try: () => holderMapSearchListFn({ data: href }),
+        try: () => holderMapSearchListFn({ data: { href, day } }),
         catch: (thrown) => thrown,
       }).pipe(
         Effect.map((list): FocusListState => ({ _tag: "Ready", list })),
@@ -38,6 +44,6 @@ export function useFocusList(href: string): FocusListState {
     return () => {
       clientRuntime.runFork(Fiber.interrupt(fiber))
     }
-  }, [href])
+  }, [href, day])
   return state
 }

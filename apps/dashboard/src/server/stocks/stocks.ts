@@ -1,7 +1,7 @@
 // The stock page's server side, /stocks/$CODE (spec apinrdw/kumora#363,
 // "Stock page UI"): open to every signed-in member, through the access
 // policy's `stocks` feature.
-import { StockCode } from "@workspace/relay"
+import { StockCode, type WibDate } from "@workspace/relay"
 import { NotFound } from "@workspace/server"
 import { Effect, Option, Schema } from "effect"
 
@@ -75,12 +75,12 @@ export const holderMapPageView = Effect.fn("holderMapPageView")(function* (
   return yield* holderMapRead(query)
 })
 
-// The Holder map search's stocks, holders and custodians; `href` is the page the visitor returns
-// to after signing in again.
+// The Holder map search's stocks, holders and custodians as of `day`;
+// `href` is the page the visitor returns to after signing in again.
 export const holderMapSearchListView = Effect.fn("holderMapSearchListView")(
-  function* (headers: Headers, href: string) {
+  function* (headers: Headers, href: string, day: WibDate | undefined) {
     yield* authorize(headers, href)
-    return yield* holderMapSearchList
+    return yield* holderMapSearchList(day)
   }
 )
 

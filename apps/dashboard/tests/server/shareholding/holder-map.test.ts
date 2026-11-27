@@ -826,7 +826,7 @@ describe("Holder map, no focus", () => {
     () =>
       Effect.gen(function* () {
         const w = yield* parsed
-        const { stocks } = yield* holderMapSearchList.pipe(
+        const { stocks } = yield* holderMapSearchList(undefined).pipe(
           Effect.provide(w.holdings.layer)
         )
         assert.deepStrictEqual(
@@ -857,7 +857,7 @@ describe("Holder map, no focus", () => {
     "searches every holder of the newest day's and month's reports, once a key",
     () =>
       Effect.gen(function* () {
-        const { holders } = yield* holderMapSearchList.pipe(
+        const { holders } = yield* holderMapSearchList(undefined).pipe(
           Effect.provide((yield* parsed).holdings.layer)
         )
         const keys = holders.map(({ key }) => key)
@@ -877,12 +877,27 @@ describe("Holder map, no focus", () => {
   )
 
   it.effect(
+    "searches the holders of the day in view and its month, not the newest",
+    () =>
+      Effect.gen(function* () {
+        const { holders } = yield* holderMapSearchList(
+          WibDate.make("2026-06-25")
+        ).pipe(Effect.provide((yield* parsed).holdings.layer))
+        // Djoni was still a ≥1% holder of TRUE in Apr, the month of 25 Jun.
+        assert.include(
+          holders.map(({ key }) => key),
+          HolderKey.make("DJONI")
+        )
+      })
+  )
+
+  it.effect(
     "searches every custodian of the newest day, once each, by name",
     () =>
       Effect.gen(function* () {
         const w = yield* parsed
         addAccount(w, "ASRI", 1, "MAYBANK SEKURITAS INDONESIA, PT", 1_000)
-        const { custodians } = yield* holderMapSearchList.pipe(
+        const { custodians } = yield* holderMapSearchList(undefined).pipe(
           Effect.provide(w.holdings.layer)
         )
         const ids = custodians.map(({ id }) => id)
