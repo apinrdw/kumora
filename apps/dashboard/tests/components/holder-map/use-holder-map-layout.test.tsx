@@ -18,29 +18,48 @@ import type {
 // React's `act` warns outside a test environment that declares itself.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-// A layout worker that answers each request with every node it was asked
-// for, at the origin.
+// A layout worker that lays out each request with every node it was asked
+// for, at the origin. Like the real one, it lays out one request at a time,
+// in the order asked, and a terminated one lays out nothing more. It
+// answers on its own unless `answering` is off, when the test steps it.
 const requests: Array<LayoutRequest> = []
+const workers: Array<FakeWorker> = []
+let answering = true
 class FakeWorker extends EventTarget {
+  private readonly queue: Array<LayoutRequest> = []
+  private terminated = false
+  constructor() {
+    super()
+    workers.push(this)
+  }
   postMessage(request: LayoutRequest) {
     requests.push(request)
+    this.queue.push(request)
+    if (answering) setTimeout(() => this.work())
+  }
+  // Lays out its oldest request, if it has one.
+  work() {
+    const request = this.queue.shift()
+    if (request === undefined || this.terminated) return
     const layout: Layout = {
       positions: Object.fromEntries(
         request.graph.nodes.map(({ id }) => [id, { x: 0, y: 0 }])
       ),
     }
-    setTimeout(() =>
-      this.dispatchEvent(
-        new MessageEvent("message", { data: { id: request.id, layout } })
-      )
+    this.dispatchEvent(
+      new MessageEvent("message", { data: { id: request.id, layout } })
     )
   }
-  terminate() {}
+  terminate() {
+    this.terminated = true
+  }
 }
 vi.stubGlobal("Worker", FakeWorker)
 
 afterEach(() => {
   requests.length = 0
+  workers.length = 0
+  answering = true
 })
 
 const link = (name: string): HolderMapLink => ({
@@ -109,5 +128,24 @@ test("lays out again a graph of the same focus and day with new nodes, not an eq
   await settle()
   expect(requests).toHaveLength(2)
   expect(placed()).toBe(3)
+  act(() => root.unmount())
+})
+
+test("lays out a refocus as soon as one layout's time passes, not behind the graph it replaced", async () => {
+  answering = false
+  const seen: Array<Layout | undefined> = []
+  const Probe = ({ graph }: { graph: Graph }) => {
+    seen.push(useHolderMapLayout(graph))
+    return null
+  }
+  const root = createRoot(document.createElement("div"))
+  // A hub focus, still laying out when the reader refocuses.
+  act(() => root.render(<Probe graph={graphOf(["A", "B", "C"])} />))
+  act(() => root.render(<Probe graph={graphOf(["D"])} />))
+  // One layout's time passes on every worker the page has started.
+  act(() => {
+    for (const worker of workers) worker.work()
+  })
+  expect(Object.keys(seen.at(-1)?.positions ?? {})).toEqual(["TRUE", "D"])
   act(() => root.unmount())
 })
