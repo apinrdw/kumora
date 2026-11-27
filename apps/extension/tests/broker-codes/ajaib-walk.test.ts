@@ -18,6 +18,10 @@ import {
 import type { TapeTrade } from "../../src/worker/broker-codes/done-details-walk.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
 import type { WalkPhase } from "../../src/worker/broker-codes/run-queue.ts"
+import {
+  withStallRecord,
+  type StallRecord,
+} from "../../src/worker/broker-codes/stall-records.ts"
 import type { Answer, TabRequest } from "../../src/worker/broker.ts"
 
 const DAY = WibDate.make("2026-11-12")
@@ -770,6 +774,14 @@ describe("Ajaib's walk: when it starts", () => {
           { step: "awaiting-close", since: start },
           // The close is seen on the minute's poll after the token wait.
           { step: "fetching", since: start + 150_000 },
+          // Each pass takes the quiet day in one page.
+          ...(["first", "second"] as const).map((pass) => ({
+            step: "fetching" as const,
+            since: start + 150_000,
+            pass,
+            page: 1,
+            pages: 1,
+          })),
         ])
       })
   )
@@ -1460,6 +1472,135 @@ describe("Ajaib's walk: its walk token", () => {
           { step: "awaiting-close", since: start },
         ])
       })
+  )
+
+  it.effect(
+    "while fetching, names each page it asks with its pass and the pass's pages",
+    () =>
+      Effect.gen(function* () {
+        const start = wib("2026-11-12", "17:30:00")
+        yield* TestClock.setTime(start)
+        const { walk, phases } = yield* phasedWalk(
+          fakeAjaib({ rows: busyRows() })
+        )
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        const page = (pass: "first" | "second", at: number) => ({
+          step: "fetching" as const,
+          since: start,
+          pass,
+          page: at,
+          pages: 2,
+        })
+        assert.deepStrictEqual(
+          phases.filter((phase) => phase.step === "fetching"),
+          [
+            { step: "fetching", since: start },
+            page("first", 1),
+            page("first", 2),
+            page("second", 1),
+            page("second", 2),
+          ]
+        )
+      }),
+    BUSY_TIMEOUT
+  )
+
+  it.effect(
+    "keeps a stall record of a stall from its first failure to the call that answered, with its pass and page",
+    () =>
+      Effect.gen(function* () {
+        const start = wib("2026-11-12", "17:30:00")
+        yield* TestClock.setTime(start)
+        const first = jwt("first")
+        const second = jwt("second")
+        let secondPass = 0
+        const tab = fakeAjaib({
+          // Ajaib rotates the cookie's token 20 s in.
+          cookie: (now) => (now >= start + 20_000 ? second : first),
+          // The second pass's page times out twice.
+          answer: (request) =>
+            request._tag === "page-fetch" &&
+            sizeOf(request.path) === 49_999 &&
+            ++secondPass <= 2
+              ? Effect.as(Effect.sleep("15 seconds"), undefined)
+              : undefined,
+        })
+        const writes: Array<StallRecord> = []
+        const walk = yield* makeAjaibWalk({
+          tab,
+          post: fakeProduction().post,
+          store: memoryStore().store,
+          stalls: (record) =>
+            Effect.sync(() => {
+              writes.push(record)
+            }),
+        })
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("0 millis")
+        yield* TestClock.adjust("1 minute")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        const stall = {
+          began: start,
+          walk: "tape",
+          day: DAY,
+          pass: "second",
+          page: 1,
+          pages: 1,
+          kind: "timeout",
+          reloads: 0,
+        } as const
+        assert.deepStrictEqual(writes.reduce(withStallRecord, []), [
+          {
+            ...stall,
+            ended: start + 50_000,
+            failures: 2,
+            tokenChanged: true,
+            kinds: { "refused-token": 0, "no-answer": 0, timeout: 2 },
+          },
+        ])
+        // Written as it began, so a stall the worker never ended still shows.
+        assert.deepStrictEqual(writes[0], {
+          ...stall,
+          began: start,
+          ended: null,
+          failures: 1,
+          tokenChanged: false,
+          kinds: { "refused-token": 0, "no-answer": 0, timeout: 1 },
+        })
+        const shown = JSON.stringify(writes)
+        assert.notInclude(shown, first)
+        assert.notInclude(shown, second)
+      })
+  )
+
+  it.effect("ends a stall's record when the walk is interrupted", () =>
+    Effect.gen(function* () {
+      const start = wib("2026-11-12", "17:30:00")
+      yield* TestClock.setTime(start)
+      const tab = fakeAjaib({
+        answer: (request) =>
+          request._tag === "page-fetch" && isWalkPage(request.path)
+            ? Effect.as(Effect.sleep("15 seconds"), undefined)
+            : undefined,
+      })
+      const writes: Array<StallRecord> = []
+      const walk = yield* makeAjaibWalk({
+        tab,
+        post: fakeProduction().post,
+        store: memoryStore().store,
+        stalls: (record) =>
+          Effect.sync(() => {
+            writes.push(record)
+          }),
+      })
+      const fiber = yield* Effect.forkChild(walk.walk(DAY))
+      yield* TestClock.adjust("0 millis")
+      yield* TestClock.adjust("15 seconds")
+      yield* Fiber.interrupt(fiber)
+      const [record] = writes.reduce(withStallRecord, [])
+      assert.strictEqual(record?.pass, "first")
+      assert.strictEqual(record?.ended, start + 15_000)
+    })
   )
 
   it.effect(

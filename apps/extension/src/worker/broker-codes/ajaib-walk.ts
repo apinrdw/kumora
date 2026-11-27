@@ -35,6 +35,7 @@ import {
   type WalkPhase,
   type WalkResult,
 } from "./run-queue.ts"
+import type { StallRecord } from "./stall-records.ts"
 
 const STATUS_PATH = "v1/stock/data/trading-day/time/"
 const TAPE_PATH = "v1/stock/detail/running_trades/"
@@ -232,6 +233,8 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   ) => Effect.Effect<void>
   // For the options page too: what the walk is doing, and since when.
   readonly phase?: (phase: WalkPhase) => Effect.Effect<void>
+  // Keeps each stall's record for Copy diagnostics (stall-records.ts).
+  readonly stalls?: (record: StallRecord) => Effect.Effect<void>
   // Keeps each page's trades for the Done Details walk, once the page's
   // batches went up (done-details-walk.ts).
   readonly keep?: (
@@ -243,7 +246,11 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   const keep = options.keep ?? (() => Effect.void)
   const trades = options.trades ?? (() => Effect.void)
   const report = options.phase ?? (() => Effect.void)
-  const { enter, guard, call, readPage } = yield* makeAjaibCalls(tab, report)
+  const { enter, locate, guard, call, readPage } = yield* makeAjaibCalls(
+    tab,
+    report,
+    { walk: "tape", record: options.stalls }
+  )
 
   // One tape page, retried in place until it answers one.
   const tapePage = (windowEnd: DateTime.Utc, path: string) =>
@@ -330,10 +337,17 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     const { day, pass, lastTimestamp } = from
     const size = PASS_SIZES[pass]
     const missed = firstMissed(from)
+    // The pass's pages for the options page: page k holds offsets from
+    // (k - 1)(size + 1), and the pass ends at the first page short of size,
+    // so N rows take floor((N + 1) / (size + 1)) + 1 pages. N is the day's
+    // highest trade number, not quite its rows, so a page past that count
+    // counts itself.
+    const pages = Math.floor((n + 1) / (size + 1)) + 1
     let position = from
     while (position.page <= MAX_PAGES) {
       const here = position
       const { page } = here
+      yield* locate({ day, pass, page, pages: Math.max(pages, page) })
       const answer = yield* tapePage(
         windowEnd,
         yield* tapePath(lastTimestamp, page, size)
@@ -371,6 +385,7 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     const held = Option.filter(yield* store.load, (kept) => kept.day === day)
     if (Option.isSome(held) && held.value.pass === "done")
       return { _tag: "walked" } satisfies WalkResult
+    yield* locate({ day })
     const n = yield* awaitClose(day, windowEnd)
     yield* enter("fetching")
     let position: Walking =

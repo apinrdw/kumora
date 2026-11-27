@@ -1,10 +1,10 @@
 import { assert, describe, it } from "@effect/vitest"
 import { WibDate } from "@workspace/relay"
-import { Effect, Option } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
 import { makeProgress } from "../../src/worker/broker-codes/progress.ts"
-import type { BrokerCodesProgress } from "../../src/worker/broker-codes/run-queue.ts"
+import { BrokerCodesProgress } from "../../src/worker/broker-codes/run-queue.ts"
 
 const DAY = WibDate.make("2026-11-12")
 const WALKING: BrokerCodesProgress = {
@@ -116,6 +116,40 @@ describe("the broker codes progress", () => {
           ...WALKING,
           phase: { step: "fetching", since: 1 },
         })
+      })
+  )
+
+  it.effect(
+    "writes the tape walk's pass and page at each page, as the options page reads them back",
+    () =>
+      Effect.gen(function* () {
+        // Through the stored shape, as settings.ts writes it.
+        const stored: Array<BrokerCodesProgress> = []
+        const progress = yield* makeProgress((each) =>
+          Effect.sync(() => {
+            stored.push(
+              Schema.decodeUnknownSync(BrokerCodesProgress)(
+                Schema.encodeSync(BrokerCodesProgress)(each)
+              )
+            )
+          })
+        )
+        const tape = { ...WALKING, feed: "Ajaib" } as const
+        yield* progress.report(tape)
+        const page = (at: number) =>
+          ({
+            step: "fetching",
+            since: 1,
+            pass: "second",
+            page: at,
+            pages: 23,
+          }) as const
+        yield* progress.phase(page(6))
+        yield* progress.phase(page(7))
+        assert.deepStrictEqual(stored.slice(1), [
+          { ...tape, phase: page(6) },
+          { ...tape, phase: page(7) },
+        ])
       })
   )
 

@@ -97,17 +97,28 @@ export interface CatchUpWalk {
 // While a call retries in place, each carries its stall cause: what the
 // last call met, how many calls in a row failed, and whether the walk token
 // changed since the first of them. Never the token itself.
+// While the tape walk fetches, it also names its pass, the page it asks and
+// the pass's pages (ajaib-walk.ts).
+export const StallKind = Schema.Literals([
+  "refused-token",
+  "no-answer",
+  "timeout",
+])
 const StallCause = Schema.Struct({
-  kind: Schema.Literals(["refused-token", "no-answer", "timeout"]),
+  kind: StallKind,
   failures: Schema.Finite,
   tokenChanged: Schema.Boolean,
 })
 export type StallCause = typeof StallCause.Type
+export const TapePass = Schema.Literals(["first", "second"])
 
 const WalkPhase = Schema.Union([
   Schema.Struct({
     step: Schema.Literals(["awaiting-close", "fetching"]),
     since: Schema.Finite,
+    pass: Schema.optionalKey(TapePass),
+    page: Schema.optionalKey(Schema.Finite),
+    pages: Schema.optionalKey(Schema.Finite),
     stall: Schema.optionalKey(StallCause),
   }),
   Schema.Struct({

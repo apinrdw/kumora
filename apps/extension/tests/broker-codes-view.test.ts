@@ -306,6 +306,17 @@ describe("the walk's phase", () => {
         yield* phaseOf({ step: "fetching", since: wibAt("17:05:00") }),
         "fetching since 17:05"
       )
+      // The tape walk names its pass and page, of the pass's pages.
+      assert.strictEqual(
+        yield* phaseOf({
+          step: "fetching",
+          since: wibAt("17:05:00"),
+          pass: "second",
+          page: 7,
+          pages: 23,
+        }),
+        "fetching since 17:05, second pass, page 7 of 23"
+      )
     })
   )
 
@@ -340,6 +351,18 @@ describe("the walk's phase", () => {
             stall: { kind: "no-answer", failures: 2, tokenChanged: true },
           }),
           "fetching since 17:05, retrying: the Ajaib tab got no answer, 2 calls failed in a row, walk token changed since the first"
+        )
+        // The stall cause follows the tape walk's pass and page.
+        assert.strictEqual(
+          yield* phaseOf({
+            step: "fetching",
+            since,
+            pass: "first",
+            page: 1,
+            pages: 22,
+            stall: { kind: "timeout", failures: 3, tokenChanged: false },
+          }),
+          "fetching since 17:05, first pass, page 1 of 22, retrying: the Ajaib tab didn't answer in time, 3 calls failed in a row, walk token unchanged"
         )
         assert.strictEqual(
           yield* phaseOf({

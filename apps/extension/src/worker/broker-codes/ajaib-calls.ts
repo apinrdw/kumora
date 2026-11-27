@@ -10,6 +10,7 @@ import type { RequestingTab } from "../pacer.ts"
 import { REQUEST_TIMEOUT } from "../tab.ts"
 import { inStreamingHours, scheduleNow } from "./hours.ts"
 import { halt, type StallCause, type WalkPhase } from "./run-queue.ts"
+import type { StallPlace, StallRecord } from "./stall-records.ts"
 
 // The walk starts once Ajaib says CLOSED and the newest page
 // carries valid codes, polling once a minute until then. A failed call
@@ -59,8 +60,14 @@ type Step = Extract<WalkPhase, { step: "awaiting-close" | "fetching" }>
 
 export const makeAjaibCalls = Effect.fnUntraced(function* (
   tab: AjaibWalkTab,
-  report: (phase: WalkPhase) => Effect.Effect<void>
+  report: (phase: WalkPhase) => Effect.Effect<void>,
+  // Where each stall's record goes (stall-records.ts), named by its walk.
+  stalls: {
+    readonly walk: StallRecord["walk"]
+    readonly record?: (record: StallRecord) => Effect.Effect<void>
+  }
 ) {
+  const keepStall = stalls.record ?? (() => Effect.void)
   // The phase a token wait returns to: waiting for the close, or fetching.
   let phase = Option.none<Step>()
   // The stall cause of the call retrying in place, none once a call answers.
@@ -83,6 +90,57 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
   ) {
     phase = Option.some({ step, since: yield* Clock.currentTimeMillis })
     yield* show
+  })
+
+  // Where the walk is: its day, and the tape's pass and page or the Done
+  // Details code and page. A tape page also shows in the fetching phase.
+  let place = Option.none<StallPlace>()
+  const locate = (where: StallPlace) =>
+    Effect.suspend(() => {
+      place = Option.some(where)
+      const { pass, page, pages } = where
+      if (pass === undefined || page === undefined || pages === undefined)
+        return Effect.void
+      if (!Option.exists(phase, (step) => step.step === "fetching"))
+        return Effect.void
+      phase = Option.map(phase, (step) => ({ ...step, pass, page, pages }))
+      return show
+    })
+
+  // The record of the stall in progress, kept at its first failure and at
+  // each one after, so a stall the worker never ended still shows; none
+  // between stalls, or before the walk says where it is.
+  let open = Option.none<StallRecord>()
+  const failed = Effect.fnUntraced(function* (cause: StallCause, sent: number) {
+    const where = place
+    if (Option.isNone(where)) return
+    const before = Option.getOrElse(open, (): StallRecord => ({
+      began: sent,
+      ended: null,
+      walk: stalls.walk,
+      ...where.value,
+      kind: cause.kind,
+      failures: 0,
+      tokenChanged: false,
+      kinds: { "refused-token": 0, "no-answer": 0, timeout: 0 },
+      reloads: 0,
+    }))
+    const record: StallRecord = {
+      ...before,
+      ...cause,
+      kinds: { ...before.kinds, [cause.kind]: before.kinds[cause.kind] + 1 },
+    }
+    open = Option.some(record)
+    yield* keepStall(record)
+  })
+  // Ends the stall in progress, if any: a call answered, or the walk ended.
+  const ended = Effect.suspend(() => {
+    if (Option.isNone(open)) return Effect.void
+    const record = open.value
+    open = Option.none()
+    return Effect.flatMap(Clock.currentTimeMillis, (now) =>
+      keepStall({ ...record, ended: now })
+    )
   })
 
   // Before each call: Streaming hours stop the walk in place; past
@@ -178,6 +236,11 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
         yield* tab.reload
         waited = 0
         reloads++
+        open = Option.map(open, (record) => ({
+          ...record,
+          reloads: record.reloads + 1,
+        }))
+        if (Option.isSome(open)) yield* keepStall(open.value)
         yield* report(stalled({ step: "awaiting-token", since, reloads }))
       }
       yield* guard(windowEnd)
@@ -211,7 +274,7 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
   // One call on Ajaib's API, signed with the walk token and retried in place
   // until the tab answers it. A refused token is retried at once with the
   // next walk token; a call the tab didn't answer, every RETRY.
-  const call = Effect.fnUntraced(function* (
+  const retried = Effect.fnUntraced(function* (
     windowEnd: DateTime.Utc,
     path: string
   ) {
@@ -225,6 +288,7 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
       const token = yield* awaitToken(windowEnd)
       if (!Option.contains(last, token)) unanswered = 0
       last = Option.some(token)
+      const sent = yield* Clock.currentTimeMillis
       const outcome = yield* attempt(path, token)
       if (typeof outcome !== "string") {
         if (Option.isSome(stall)) {
@@ -235,11 +299,13 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
       }
       if (Option.isNone(first)) first = Option.some(token)
       failures++
-      stall = Option.some({
+      const cause: StallCause = {
         kind: outcome,
         failures,
         tokenChanged: !Option.contains(first, token),
-      })
+      }
+      stall = Option.some(cause)
+      yield* failed(cause, sent)
       yield* show
       // Only calls in a row that got no answer refuse a token.
       unanswered = outcome === "no-answer" ? unanswered + 1 : 0
@@ -251,6 +317,11 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
       yield* guard(windowEnd)
     }
   })
+  // A stall ends with its call's answer, or with the walk: halted, or
+  // interrupted by a Pause or a new run. A worker stopped mid-stall leaves
+  // its record open.
+  const call = (windowEnd: DateTime.Utc, path: string) =>
+    Effect.ensuring(retried(windowEnd, path), ended)
 
   // One page: the call's answer as `read` takes it, made again every RETRY
   // until Ajaib answers one `read` takes.
@@ -270,5 +341,5 @@ export const makeAjaibCalls = Effect.fnUntraced(function* (
     }
   })
 
-  return { enter, guard, call, readPage }
+  return { enter, locate, guard, call, readPage }
 })
