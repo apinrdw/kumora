@@ -16,6 +16,7 @@ import { dayHolders } from "@/lib/daily-holders"
 import { placeOf } from "@/lib/holder-map-ids"
 
 import { decodeRows } from "../d1.ts"
+import { MAX_ROWS } from "./above-5.ts"
 import { HoldingsDb, type HoldingsDbError } from "./db.ts"
 import {
   type Account,
@@ -168,6 +169,10 @@ const IN_VIEW_ROWS = [
   WHERE nth = 1 AND move = 'off list'`,
 ]
 
+// The most earlier holders a custodian focus reads: one day's accounts at
+// the above-5% parse's cap (ADR 0045).
+const CUSTODIAN_OFF_LIST = MAX_ROWS
+
 // The focus's leavings as of the day and the month: each identity's
 // newest leaving, unless it came back since. A stock focus's are its
 // identities', at most its holders across its periods. A holder focus's
@@ -197,11 +202,45 @@ const OFF_LIST_LINES = (where: string) => `SELECT stock_code, issuer_name,
 
 // Decision: the Holder map matches holders across stocks and reports by
 // holder key (apps/dashboard/docs/adr/0141-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
-const OFF_LIST: Record<"stock" | "holder", string> = {
+const OFF_LIST: Record<Focus["kind"], string> = {
   stock: `${PERIODS} ${OFF_LIST_LINES("stock_code = ?2")}`,
   // An identity is `<key>#<n>`: those of the key sort from `<key>#` up to,
   // not including, `<key>$`.
   holder: `${PERIODS} ${OFF_LIST_LINES("holder >= ?2 || '#' AND holder < ?2 || '$'")}`,
+  // A custodian's earlier holders: each above-5% holding with an account
+  // at one of its spellings of the day (?2) on a day before it, by its
+  // last such day, the period it left the first above-5% day after. A
+  // holding still there is dropped after (`offListOf`). Holder moves store
+  // no custodian, so this reads the accounts through
+  // above_5_account_by_custodian, every earlier day's at the custodian, and
+  // keeps the CUSTODIAN_OFF_LIST newest holdings: as many as one day's
+  // accounts at the parse's cap (ADR 0045). A spelling the custodian no
+  // longer uses on the day is missed.
+  custodian: `${PERIODS},
+  through AS (
+    SELECT DISTINCT data_date, stock_code, no FROM above_5_account
+    WHERE custodian IN (SELECT value FROM json_each(?2))
+      AND data_date < (SELECT day FROM asof)
+  ),
+  last_through AS (
+    SELECT holder.stock_code, holder.holder_key,
+      MAX(holder.data_date) AS last_day
+    FROM through JOIN above_5_holder AS holder
+      USING (data_date, stock_code, no)
+    GROUP BY holder.stock_code, holder.holder_key
+    ORDER BY last_day DESC, holder.stock_code, holder.holder_key
+    LIMIT ${CUSTODIAN_OFF_LIST}
+  )
+  SELECT last_through.stock_code, holder.issuer_name, '5%' AS band,
+    holder.holder_name AS name,
+    (SELECT MIN(data_date) FROM above_5_day
+      WHERE data_date > last_through.last_day) AS data_date,
+    MAX(holder.percentage_hundredths) AS stake_before
+  FROM last_through JOIN above_5_holder AS holder
+    ON holder.data_date = last_through.last_day
+      AND holder.stock_code = last_through.stock_code
+      AND holder.holder_key = last_through.holder_key
+  GROUP BY last_through.stock_code, last_through.holder_key`,
 }
 
 const DayRow = Schema.Struct({ data_date: WibDate })
@@ -490,8 +529,7 @@ const askOf = Effect.fnUntraced(function* (
 })
 
 // The statements a focus reads after the periods and the days: the stocks
-// most held with none, else the stocks in view and the focus's Off list. A
-// custodian holds for others: it has no Off list of its own.
+// most held with none, else the stocks in view and the focus's Off list.
 const focusStatements = Effect.fnUntraced(function* (
   focus: Focus | undefined,
   asked: WibDate | null,
@@ -504,9 +542,7 @@ const focusStatements = Effect.fnUntraced(function* (
       sql: `${IN_VIEW[focus.kind]} ${sql}`,
       params,
     })),
-    ...(focus.kind === "custodian"
-      ? []
-      : [{ sql: OFF_LIST[focus.kind], params }]),
+    { sql: OFF_LIST[focus.kind], params },
   ]
 })
 
@@ -525,7 +561,8 @@ const mostHeldOf = Effect.fnUntraced(function* (
 
 // The focus's Off list: its leavings in neither band now. A holding in
 // either band now is no earlier one: a holder that left the above-5% list
-// for the 1% band crossed down out of 5%.
+// for the 1% band crossed down out of 5%. A custodian's are holdings no
+// longer through it, whether they left the list or moved their account.
 const offListOf = Effect.fnUntraced(function* (
   focus: Focus,
   first: ReadonlyArray<HolderMapLink>,
@@ -536,8 +573,7 @@ const offListOf = Effect.fnUntraced(function* (
   for (const [place, left] of yield* leavings(rows))
     if (
       !linked.has(place) &&
-      (focus.kind === "stock" ||
-        (focus.kind === "holder" && left.holder === focus.key))
+      (focus.kind !== "holder" || left.holder === focus.key)
     )
       offList.push(left)
   return offList

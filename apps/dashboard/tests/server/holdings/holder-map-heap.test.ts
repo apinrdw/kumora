@@ -18,9 +18,10 @@ import { memoryHoldingsDb } from "./memory-holdings-db.ts"
 // Decision: a stock's holders are read from its newest periods that fit a
 // row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
 //
-// The holder focus retained 28.5 MiB on 27 Nov 2026, its 20,005 nodes and
-// 8,000 custodian links with it; the custodian focus 12.5 MiB; the stock
-// focus 2.7 MiB.
+// The holder focus retained 32.2 MiB on 27 Nov 2026, its 20,005 nodes,
+// 8,000 custodian links and its side panel's hop beyond with it; the
+// custodian focus 13.6 MiB, and 12.1 MiB with 8,000 Off list holdings;
+// the stock focus 3.1 MiB.
 const HEAP_LIMIT_MIB = 40
 
 // The most stocks a report lists (ADR 0045), each with the day's blocks
@@ -32,15 +33,17 @@ const STOCKS = Array.from(
 const BLOCKS = ABOVE_5_DAY_ROWS / STOCKS.length
 const MONTH_HOLDERS = 7
 const DAY = "2026-01-05"
+// The trading day before DAY.
+const PREV = "2026-01-02"
 const MONTH = "2025-12-31"
 const HUB = "HUB NOMINEE"
 const HUB_CUSTODIAN = "PT HUB CUSTODIAN"
 
 // A day and a month at the caps, the first block and row of every stock
 // the hub's, and a stored line for every block and row.
-const hub = () => {
+const hub = (days: ReadonlyArray<string> = [DAY]) => {
   const db = memoryHoldingsDb()
-  seedAbove5AtCap(db, [DAY], STOCKS, BLOCKS)
+  seedAbove5AtCap(db, days, STOCKS, BLOCKS)
   seedAbove1AtCap(db, [MONTH], STOCKS, MONTH_HOLDERS)
   const { database } = db
   database
@@ -122,6 +125,47 @@ describe("the Holder map's read of a hub", () => {
           view.focus?.graph.nodes.length,
           1 + 1 + (ABOVE_5_DAY_ROWS - STOCKS.length) + STOCKS.length
         )
+        assert.isBelow(
+          retained,
+          HEAP_LIMIT_MIB,
+          `${retained.toFixed(1)} MiB retained`
+        )
+      }),
+    { timeout: 120_000 }
+  )
+
+  it.effect(
+    "focuses a custodian that held every account the day before, in 40 MiB",
+    () =>
+      Effect.gen(function* () {
+        const db = hub([PREV, DAY])
+        db.database
+          .prepare(
+            "UPDATE above_5_account SET custodian = ? WHERE data_date = ?"
+          )
+          .run(HUB_CUSTODIAN, PREV)
+        // Still holding one block through it.
+        db.database
+          .prepare(
+            "UPDATE above_5_account SET custodian = ? WHERE data_date = ? AND no = 1"
+          )
+          .run(HUB_CUSTODIAN, DAY)
+        const before = yield* retainedHeap
+        const read = yield* holderMapRead({
+          focus: {
+            kind: "custodian",
+            id: CustodianId.make("NAME:CUSTODIAN HUB"),
+          },
+          day: undefined,
+        }).pipe(Effect.provide(db.layer))
+        const view = yield* holderMapView(read)
+        const retained = ((yield* retainedHeap) - before) / 2 ** 20
+        // Every block of the day before, a day's at the cap: the seed's
+        // stored keys aren't its names' keys, so the block still held
+        // through it isn't matched off here (the fixture test holds that).
+        assert.strictEqual(read.links.length, 1)
+        assert.strictEqual(read.offList.length, ABOVE_5_DAY_ROWS)
+        assert.strictEqual(view.focus?.offList.length, ABOVE_5_DAY_ROWS)
         assert.isBelow(
           retained,
           HEAP_LIMIT_MIB,

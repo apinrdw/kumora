@@ -569,20 +569,22 @@ const custodiansOf = (read: HolderMapRead) =>
     shares,
   ])
 
-// One more securities account of a block of 20 Nov 2026.
+// One more securities account of a block of a day, 20 Nov 2026 unless
+// told.
 const addAccount = (
   w: World,
   code: string,
   no: number,
   custodian: string,
-  shares: number
+  shares: number,
+  day = "2026-11-20"
 ) =>
   w.holdings.database
     .prepare(
-      `INSERT INTO above_5_account VALUES ('2026-11-20', ?, ?, 99, ?,
+      `INSERT INTO above_5_account VALUES (?, ?, ?, 99, ?,
         'ACCOUNT', 'local', NULL, NULL, ?)`
     )
-    .run(code, no, custodian, shares)
+    .run(day, code, no, custodian, shares)
 
 const AGUNG = "AGUNG INVESTINDO PERKASA"
 const PERINTIS = "PERINTIS PROPERTI TRINITI"
@@ -691,8 +693,8 @@ describe("Holder map, custodians", () => {
             ["ENRG", "5%", "MAYBANK SEKURITAS INDONESIA", "up"],
           ]
         )
+        // Nothing a hop beyond; its Off list has its own test.
         assert.deepStrictEqual(read.hops, [])
-        assert.deepStrictEqual(read.offList, [])
         // Its own links, and its holdings' other custodians.
         assert.deepStrictEqual(
           custodiansOf(read).filter(([, , id]) => id === "ZP"),
@@ -747,6 +749,49 @@ describe("Holder map, custodians", () => {
         ["CPGT", "5%", "RECKSON LIMITED", 2912],
       ])
     })
+  )
+
+  it.effect(
+    "lists a custodian's earlier holders as its Off list, since the day after their last",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        const offListOf = (read: HolderMapRead) =>
+          read.offList.map(({ code, band, holder, since }) => [
+            code,
+            band,
+            holder,
+            since,
+          ])
+        // A bank's accounts: ASRI's and ENRG's first blocks on 19 Nov, and
+        // ENRG's on 20 Nov.
+        addAccount(w, "ASRI", 1, "PT ZP", 1_000, "2026-11-19")
+        addAccount(w, "ENRG", 1, "PT ZP", 1_000, "2026-11-19")
+        addAccount(w, "ENRG", 1, "PT ZP", 1_000)
+        // Tangerang held ASRI through it on 19 Nov and not on 20 Nov; ENRG's
+        // holder still does.
+        assert.deepStrictEqual(
+          offListOf(yield* custodianReadOf(w, "NAME:ZP")),
+          [["ASRI", "5%", "ESTATE FAJAR INDUSTRIAL TANGERANG", "2026-11-20"]]
+        )
+        // As of 19 Nov, both held through it.
+        assert.deepStrictEqual(
+          offListOf(yield* custodianReadOf(w, "NAME:ZP", "2026-11-19")),
+          []
+        )
+      })
+  )
+
+  it.effect(
+    "draws nothing earlier through a custodian with no earlier holders",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        assert.deepStrictEqual(
+          (yield* custodianReadOf(w, "NAME:A CITIBANK N")).offList,
+          []
+        )
+      })
   )
 
   it.effect(

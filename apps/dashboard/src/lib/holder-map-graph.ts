@@ -542,8 +542,13 @@ const hopsGraph = Effect.fnUntraced(function* (
       })
       links.push(yield* holdingLink(holding, focus.kind))
     }
+  // A custodian's Off list is by holding: a holder drawn already, as still
+  // holding through it or as left in another stock, is drawn once.
+  const drawn = new Set(nodes.map(({ id }) => id))
   for (const left of offList) {
     const node = yield* offListNode(left, near, issuers)
+    if (drawn.has(node.id)) continue
+    drawn.add(node.id)
     nodes.push(node)
     // Off list: no longer a holding, so its link is drawn at 0%.
     links.push(yield* linkOf(head.id, node.id, left.band, 0, "off list"))

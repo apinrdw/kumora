@@ -789,9 +789,7 @@ function OffList({
       </div>
       {shown && (
         <ul
-          aria-label={
-            focus.kind === "stock" ? "Off list holders" : "Off list stocks"
-          }
+          aria-label={OFF_LIST_LABEL[focus.kind]}
           className="flex flex-col text-[13px]"
         >
           {/* Decision: a page renders a list of stored rows through BoundedRows
@@ -811,6 +809,14 @@ function OffList({
   )
 }
 
+// What a focus's Off list lists: a stock's earlier holders, a holder's
+// earlier stocks, a custodian's earlier holdings through it.
+const OFF_LIST_LABEL: Record<FocusView["kind"], string> = {
+  stock: "Off list holders",
+  holder: "Off list stocks",
+  custodian: "Off list holdings",
+}
+
 function OffListRow({
   holder,
   focus,
@@ -822,11 +828,13 @@ function OffListRow({
   return (
     <li className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border py-1.5 text-muted-foreground opacity-80 last:border-0">
       <span className="font-medium">
-        {focus === "stock" ? (
+        {focus !== "holder" && (
           <RefocusLink to={{ holder: holder.holder }}>
             {holder.name}
           </RefocusLink>
-        ) : (
+        )}
+        {focus === "custodian" && " in "}
+        {focus !== "stock" && (
           <RefocusLink to={{ stock: holder.code }}>{holder.code}</RefocusLink>
         )}
       </span>

@@ -706,6 +706,43 @@ describe("holderMapView", () => {
       })
   )
 
+  it.effect(
+    "draws a custodian's Off list holders once each, not those still holding through it",
+    () =>
+      Effect.gen(function* () {
+        const view = yield* holderMapView({
+          ...read([]),
+          focus: {
+            kind: "custodian",
+            id: CustodianId.make("ZP"),
+            broker: BrokerCode.make("ZP"),
+            name: "MAYBANK SEKURITAS INDONESIA",
+          },
+          links: [link("5%", "M", 900)],
+          custodians: [through("M", "ZP", 900_000)],
+          offList: [
+            // M left TLKM through it, but still holds TRUE through it.
+            { ...off("5%", "M", "2026-11-19"), code: StockCode.make("TLKM") },
+            { ...off("5%", "D", "2026-11-19"), code: StockCode.make("TLKM") },
+            { ...off("5%", "D", "2026-11-18"), code: StockCode.make("BSDE") },
+          ],
+        })
+        const graph = view.focus?.graph
+        expect(view.focus?.offList).toHaveLength(3)
+        expect(graph?.nodes.map(({ id, offList }) => [id, offList])).toEqual([
+          ["custodian:ZP", false],
+          ["holder:M", false],
+          ["holder:D", true],
+          ["stock:TRUE", false],
+        ])
+        expect(
+          graph?.links
+            .filter(({ move }) => move === "off list")
+            .map(({ source, target }) => [source, target])
+        ).toEqual([["custodian:ZP", "holder:D"]])
+      })
+  )
+
   it.effect("shortens a long holder name for its label", () =>
     Effect.gen(function* () {
       const name =
