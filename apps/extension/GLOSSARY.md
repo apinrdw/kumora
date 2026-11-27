@@ -61,7 +61,7 @@ Why an Ajaib walk's last call failed while it retries in place: a refused token,
 _Avoid_: error, stuck reason
 
 **Stall record**:
-What is kept of one stall of an Ajaib walk (the tape or Done Details) after the card stops showing its stall cause: when its first failed call was sent and when a call answered or the walk ended, the day and where the walk was (the tape's pass and page, or the Done Details code, its pass at 1,000 or 999 rows a page and its page), the last failure's kind, failures in a row, whether the walk token changed, each kind's count and the tab reloads meanwhile. The last 50 live in `chrome.storage.session`, and Copy diagnostics lists them. One the worker never ended stays open. Never a token, a header or a path.
+What is kept of one stall of an Ajaib walk (the tape or Done Details) after the card stops showing its stall cause: when its first failed call was sent and when a call answered or the walk ended, the day and where the walk was (the tape's pass and page, or the Done Details code, its pass and its page), the last failure's kind, failures in a row, whether the walk token changed, each kind's count and the tab reloads meanwhile. The last 50 live in `chrome.storage.session`, and Copy diagnostics lists them. One the worker never ended stays open. Never a token, a header or a path.
 _Avoid_: stall log, retry history
 
 **Static headers**:

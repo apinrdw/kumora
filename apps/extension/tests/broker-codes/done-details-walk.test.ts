@@ -643,7 +643,7 @@ describe("the Done Details walk", () => {
   // pages at 1,000. The walk at 1,000 can't read trade 2's row on its first
   // page; the walk at 999 reads it.
   it.effect(
-    "pairs a row the first walk couldn't read with the copy the walk at 999 read",
+    "pairs a row the first pass couldn't read with the copy the second pass read",
     () =>
       Effect.gen(function* () {
         yield* evening
@@ -880,7 +880,7 @@ describe("the Done Details walk", () => {
   )
 
   it.effect(
-    "resumes its walk at 999 a page at its stored page after a restart, with both walks' rows",
+    "resumes its second pass at its stored page after a restart, with both passes' rows",
     () =>
       Effect.gen(function* () {
         yield* evening
@@ -1183,7 +1183,7 @@ describe("the Done Details walk's walk token", () => {
   )
 
   // HOPE's first page at 999, its third call, gets no answer once.
-  it.effect("names the 999 walk in the record of a stall of that walk", () =>
+  it.effect("names the second pass in the record of a stall of that pass", () =>
     Effect.gen(function* () {
       yield* evening
       const { store } = yield* keptStore()

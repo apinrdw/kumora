@@ -35,7 +35,7 @@ const decodeV4Walking = Schema.decodeUnknownOption(
   Schema.TaggedStruct("Walking", { code: StockCode })
 )
 
-// Decision: Done Details store v4 keys trades by number; older walks are dropped
+// Decision: Done Details store keys trades by number; pre-v4 walks are dropped
 // (apps/extension/docs/adr/0003-the-done-details-store-keys-trades-by-trade-number.md)
 const openDatabase = Effect.callback<IDBDatabase>((resume) => {
   const request = indexedDB.open(DATABASE, 5)

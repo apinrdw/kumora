@@ -109,8 +109,7 @@ export const MatchedTrade = Schema.Struct({
 export type MatchedTrade = typeof MatchedTrade.Type
 
 // Where the walk of a day stands: at the page it asks next, of a code the
-// tape trades hold, in its first walk at 1,000 rows a page or its second at
-// 999; past the last code, posting the matched trades; or done, its matched
+// tape trades hold, in its first pass or its second (`PASS_SIZES`); past the last code, posting the matched trades; or done, its matched
 // trades held for the extra target's catch-up.
 // Decision: a code of more than one page is walked again at 999 rows a page
 // (apps/extension/docs/adr/0027-a-multi-page-done-details-code-is-walked-again-at-999-rows.md)
@@ -147,7 +146,7 @@ export interface DoneDetailsStore {
   readonly position: (
     day: WibDate
   ) => Effect.Effect<Option.Option<DoneDetailsPosition>>
-  // The rows of `code` fetched before its position's page, its first walk's
+  // The rows of `code` fetched before its position's page, its first pass's
   // then its second's, each in the order Ajaib answered them.
   readonly rows: (
     day: WibDate,
@@ -155,7 +154,7 @@ export interface DoneDetailsStore {
   ) => Effect.Effect<ReadonlyArray<DetailRow>>
   // Moves the walk to `next`, with the rows of `next.code` the page before
   // it gave; another code's rows are forgotten, at a code's first page of
-  // its first walk. One write, so a restart never holds a page's rows
+  // its first pass. One write, so a restart never holds a page's rows
   // twice. At Posted the tape trades are forgotten too, and the matched
   // ones stay.
   readonly page: (
@@ -383,9 +382,9 @@ const detailsPath = (
     `${DETAILS_PATH}?code=${code}&group=BS&type=TRADE&market_date=${day}&start_time=00:00&end_time=23:59:59&page=${page}&page_size=${size}`
   )
 
-// Both walks' rows, each offset once, in offset order: Ajaib's order. A
-// copy either walk read wins over one it couldn't, so only an offset
-// neither walk read stays unread; else the first walk's.
+// Both passes' rows, each offset once, in offset order: Ajaib's order. A
+// copy either pass read wins over one it couldn't, so only an offset
+// neither pass read stays unread; else the first pass's.
 const byOffset = (rows: ReadonlyArray<DetailRow>) =>
   Effect.sync(() => {
     const at = new Map<number, DetailRow>()
@@ -479,9 +478,9 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
   })
 
   // One code's pages from `from` on, then its matched trades held. A code
-  // whose first walk took more than one page is walked again at 999 a
-  // page, whose boundaries skip other rows, and the two walks' rows merge
-  // by offset.
+  // whose first pass took more than one page gets a second pass, whose
+  // page boundaries skip other rows, and the two passes' rows merge by
+  // offset.
   // Decision: a code of more than one page is walked again at 999 rows a page
   // (apps/extension/docs/adr/0027-a-multi-page-done-details-code-is-walked-again-at-999-rows.md)
   const walkCode = Effect.fnUntraced(function* (

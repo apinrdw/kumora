@@ -110,9 +110,8 @@ const StallCause = Schema.Struct({
   tokenChanged: Schema.Boolean,
 })
 export type StallCause = typeof StallCause.Type
-// An Ajaib walk's pass over its pages: the tape's first at 50,000 rows a
-// page or its second at 49,999, or a Done Details code's first at 1,000 or
-// its second at 999.
+// An Ajaib walk's pass over its pages, each at the page size `PASS_SIZES`
+// names in `ajaib-walk.ts` (the tape) and `done-details-walk.ts`.
 export const WalkPass = Schema.Literals(["first", "second"])
 
 const WalkPhase = Schema.Union([

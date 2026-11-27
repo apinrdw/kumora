@@ -51,7 +51,8 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-// A version 4 store as the walk before the 999 walk left it: on HOPE's
+// A version 4 store (its names as `done-details-store.ts` defines them) as
+// the walk before the second pass left it: on HOPE's
 // third page, with a row of no offset, a tape trade and a matched trade.
 const versionFour = Effect.callback<void>((resume) => {
   const request = indexedDB.open("brokerCodesDoneDetails", 4)
