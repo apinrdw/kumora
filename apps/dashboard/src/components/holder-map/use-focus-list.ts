@@ -1,4 +1,4 @@
-// The Holder map search's stocks and holders, loaded once the page opens.
+// The Holder map search's stocks, holders and custodians, loaded once the page opens.
 import { isRedirect } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
 import { Effect, Fiber } from "effect"

@@ -84,7 +84,7 @@ export const holderMapFn = createServerFn({ method: "GET" })
     )
   )
 
-// The Holder map search's stocks and holders; `data` is the page the visitor returns to
+// The Holder map search's stocks, holders and custodians; `data` is the page the visitor returns to
 // after signing in again.
 export const holderMapSearchListFn = createServerFn({ method: "GET" })
   .validator((href: unknown) => Effect.runSync(safeRedirect(href)))

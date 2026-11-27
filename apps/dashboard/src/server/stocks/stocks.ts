@@ -77,7 +77,7 @@ export const holderMapPageView = Effect.fn("holderMapPageView")(function* (
   return yield* holderMapRead(query)
 })
 
-// The Holder map search's stocks and holders; `href` is the page the visitor returns
+// The Holder map search's stocks, holders and custodians; `href` is the page the visitor returns
 // to after signing in again.
 export const holderMapSearchListView = Effect.fn("holderMapSearchListView")(
   function* (headers: Headers, href: string) {
