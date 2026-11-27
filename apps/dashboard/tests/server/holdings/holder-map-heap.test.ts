@@ -464,3 +464,89 @@ describe("the Holder map's read of a hub", () => {
     { timeout: 120_000 }
   )
 })
+
+// The slowest an Off list read may take at the parse's caps: each of its
+// statements joins rows once over, never a block with every block of its
+// day (codex review of apinrdw/kumora#741, round 9: 8,000 former holdings
+// of one stock-day at the same shares paired 64 million blocks, 20 s and
+// more a statement). Generous, so a slow machine still passes.
+const OFF_LIST_SECONDS = 10
+
+// How long `read` took, in seconds.
+const timed = <A, E, R>(read: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const start = performance.now()
+    const value = yield* read
+    return { value, seconds: (performance.now() - start) / 1000 }
+  })
+
+describe("the Holder map's Off list in time", () => {
+  // A stock-day at the cap whose every block was held through the hub
+  // custodian, none of them still held on DAY, through which it holds one
+  // block of another key.
+  const leftThroughHub = (shares: "same" | "distinct") => {
+    const db = memoryHoldingsDb()
+    seedAbove5AtCap(db, [PREV, DAY], ["S0000"], ABOVE_5_DAY_ROWS)
+    const { database } = db
+    if (shares === "same")
+      database.exec(`UPDATE above_5_holder SET scripless = 1000
+        WHERE data_date = '${PREV}'`)
+    database
+      .prepare(
+        `UPDATE above_5_account SET custodian = ?1
+          WHERE data_date = '${PREV}' OR no = 1`
+      )
+      .run(HUB_CUSTODIAN)
+    database.exec(`UPDATE above_5_holder SET holder_key = holder_key || 'Y'
+      WHERE data_date = '${DAY}'`)
+    return db
+  }
+
+  for (const shares of ["same", "distinct"] as const)
+    it.effect(
+      `reads a custodian's Off list of a stock-day's every block at ${shares} shares in ${OFF_LIST_SECONDS} s`,
+      () =>
+        Effect.gen(function* () {
+          const db = leftThroughHub(shares)
+          const { value: read, seconds } = yield* timed(
+            holderMapRead({
+              focus: {
+                kind: "custodian",
+                id: CustodianId.make("NAME:CUSTODIAN HUB"),
+              },
+              day: undefined,
+            }).pipe(Effect.provide(db.layer))
+          )
+          assert.isNotEmpty(read.offList)
+          assert.isBelow(seconds, OFF_LIST_SECONDS, `${seconds.toFixed(1)} s`)
+        }),
+      { timeout: 600_000 }
+    )
+
+  it.effect(
+    `reads a holder's Off list of a leaving a day across 8,000 days in ${OFF_LIST_SECONDS} s`,
+    () =>
+      Effect.gen(function* () {
+        const db = hub()
+        // The hub's identities left one stock a day, ten each, 8,000 days.
+        db.database.exec(`WITH RECURSIVE n(at) AS (
+            SELECT 1 UNION ALL SELECT at + 1 FROM n WHERE at < ${CHURNED}
+          )
+          INSERT INTO above_5_move
+          SELECT date('2000-01-01', '+' || (at % ${ABOVE_5_DAY_ROWS}) || ' days'),
+            'S' || printf('%04d', at % ${STOCKS.length}),
+            '${HUB}#' || (at + 1), 'ISSUER', '${HUB}', '[]', NULL,
+            'off list', '[]', NULL, 600, NULL, NULL, '[]', NULL
+          FROM n`)
+        const { value: read, seconds } = yield* timed(
+          holderMapRead({
+            focus: { kind: "holder", key: HolderKey.make(HUB) },
+            day: undefined,
+          }).pipe(Effect.provide(db.layer))
+        )
+        assert.isTrue(read.offListCut)
+        assert.isBelow(seconds, OFF_LIST_SECONDS, `${seconds.toFixed(1)} s`)
+      }),
+    { timeout: 600_000 }
+  )
+})
