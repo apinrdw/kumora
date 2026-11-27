@@ -20,6 +20,28 @@ export interface LayoutGraph {
   }>
 }
 
+// What the layout of `graph` is laid out from, and its key: the same for
+// two graphs only when they would lay out the same, so a reload of one
+// picture keeps its layout and a graph that gained a node is laid out again.
+export const layoutInputOf = (graph: LayoutGraph) =>
+  Effect.sync(() => {
+    const input: LayoutGraph = {
+      nodes: graph.nodes.map(({ id, radius, focus }) => ({
+        id,
+        radius,
+        focus,
+      })),
+      links: graph.links.map(({ source, target }) => ({ source, target })),
+    }
+    return {
+      input,
+      key: JSON.stringify([
+        input.nodes.map(({ id, radius, focus }) => [id, radius, focus]),
+        input.links.map(({ source, target }) => [source, target]),
+      ]),
+    }
+  })
+
 export interface Layout {
   readonly positions: Readonly<Record<string, { x: number; y: number }>>
   // Every node's dot, plus a margin for its label: what fit-to-view shows.

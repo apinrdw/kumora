@@ -1,17 +1,19 @@
 // The Holder map's layout, run in a web worker (layout.worker.ts) so a hub
 // focus never blocks the page.
-import { useEffect, useRef, useState } from "react"
+import { Effect } from "effect"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import type { HolderMapView } from "@/lib/holder-map"
-import type { Layout } from "@/lib/holder-map-layout"
+import { type Layout, layoutInputOf } from "@/lib/holder-map-layout"
 
 import type { LayoutRequest } from "./layout.worker"
 
 type Graph = NonNullable<HolderMapView["focus"]>["graph"]
 
-// The graph's layout, keyed on its focus and day: undefined until the worker
-// answers for that key. A new graph of the same focus and day, as a reload
-// or revalidation gives, keeps the layout it has.
+// The graph's layout, keyed on its nodes and links (`layoutInputOf`):
+// undefined until the worker answers for that key. A new graph that would
+// lay out the same, as a reload or revalidation gives, keeps the layout it
+// has; one that gained or lost a node or link is laid out again.
 export function useHolderMapLayout(graph: Graph): Layout | undefined {
   const worker = useRef<Worker | undefined>(undefined)
   // The newest request's id and key: an answer to an older one is dropped.
@@ -20,14 +22,18 @@ export function useHolderMapLayout(graph: Graph): Layout | undefined {
     key: undefined,
   })
   const [answer, setAnswer] = useState<{ key: string; layout: Layout }>()
+  const { input, key } = useMemo(
+    () => Effect.runSync(layoutInputOf(graph)),
+    [graph]
+  )
   useEffect(() => {
     const current = new Worker(new URL("./layout.worker.ts", import.meta.url), {
       type: "module",
     })
     const onMessage = (event: MessageEvent<{ id: number; layout: Layout }>) => {
-      const { id, key } = asked.current
-      if (event.data.id === id && key !== undefined)
-        setAnswer({ key, layout: event.data.layout })
+      const { id, key: askedKey } = asked.current
+      if (event.data.id === id && askedKey !== undefined)
+        setAnswer({ key: askedKey, layout: event.data.layout })
     }
     current.addEventListener("message", onMessage)
     worker.current = current
@@ -40,21 +46,11 @@ export function useHolderMapLayout(graph: Graph): Layout | undefined {
   }, [])
   useEffect(() => {
     const current = worker.current
-    if (current === undefined || asked.current.key === graph.key) return
+    if (current === undefined || asked.current.key === key) return
     const id = asked.current.id + 1
-    asked.current = { id, key: graph.key }
-    const request: LayoutRequest = {
-      id,
-      graph: {
-        nodes: graph.nodes.map((node) => ({
-          id: node.id,
-          radius: node.radius,
-          focus: node.focus,
-        })),
-        links: graph.links.map(({ source, target }) => ({ source, target })),
-      },
-    }
+    asked.current = { id, key }
+    const request: LayoutRequest = { id, graph: input }
     current.postMessage(request)
-  }, [graph])
-  return answer?.key === graph.key ? answer.layout : undefined
+  }, [input, key])
+  return answer?.key === key ? answer.layout : undefined
 }

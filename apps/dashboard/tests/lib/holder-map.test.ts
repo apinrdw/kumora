@@ -287,7 +287,7 @@ describe("holderMapView", () => {
       })
   )
 
-  it.effect("keys the map's layout on its focus and day", () =>
+  it.effect("keys the map on its focus and day", () =>
     Effect.gen(function* () {
       const on = (day: string, code = "TRUE") =>
         holderMapView({

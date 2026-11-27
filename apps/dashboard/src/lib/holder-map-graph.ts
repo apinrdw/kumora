@@ -150,8 +150,9 @@ export type GraphFocus =
     }
 
 export interface MapGraph {
-  // The focus and the day it is drawn as of: the layout's key, so a reload
-  // of one focus and day lays out the same picture.
+  // The focus and the day it is drawn as of: one map across reloads, as a
+  // search's pick is kept for. The layout is keyed on the nodes and links
+  // (lib/holder-map-layout.ts, `layoutInputOf`).
   readonly key: string
   // The focus first, then the side panel's holdings in its order, the Off
   // list, the second hop, then the custodians.
