@@ -767,7 +767,8 @@ function ShownMoveCell({ holder }: { holder: MapHolder }) {
 }
 
 // The focus's earlier holdings, each with the period it left its list,
-// hidden by the toggle; a note when older ones were left out.
+// hidden by the toggle; a note when older ones were left out. Cut to none
+// (ADR 0133), it has no toggle and keeps the note.
 function OffList({
   focus,
   holders,
@@ -781,27 +782,33 @@ function OffList({
   shown: boolean
   onShown: (shown: boolean) => void
 }) {
-  if (holders.length === 0) return null
+  const listed = holders.length > 0
+  if (!listed && !cut) return null
   return (
     <section aria-labelledby="off-list" className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 id="off-list" className="text-[15px] font-semibold">
           Off list
         </h3>
-        <KChip
-          selected={shown}
-          onSelectedChange={onShown}
-          count={holders.length}
-        >
-          Show Off list
-        </KChip>
+        {listed && (
+          <KChip
+            selected={shown}
+            onSelectedChange={onShown}
+            count={holders.length}
+          >
+            Show Off list
+          </KChip>
+        )}
       </div>
-      {shown && cut && (
+      {cut && (shown || !listed) && (
         <p role="note" className="text-[13px] text-muted-foreground">
-          Only the latest to leave are listed. Older ones are left out.
+          {listed
+            ? "Only the latest to leave are listed."
+            : "The latest to leave are too many to list."}{" "}
+          Older ones are left out.
         </p>
       )}
-      {shown && (
+      {shown && listed && (
         <ul
           aria-label={OFF_LIST_LABEL[focus.kind]}
           className="flex flex-col text-[13px]"
