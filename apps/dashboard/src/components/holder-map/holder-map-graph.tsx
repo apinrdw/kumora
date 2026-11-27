@@ -189,7 +189,7 @@ export function HolderMapGraph({
       </div>
       {searchedNode !== undefined && (
         <p
-          role="status"
+          aria-live="polite"
           className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground"
         >
           <span>

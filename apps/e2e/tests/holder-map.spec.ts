@@ -226,9 +226,85 @@ test.describe.serial("Holder map", () => {
         () => expect(offList).toHaveCount(0, { timeout: 1000 })
       )
       await expect(mapOf(page, "TRUE", 4, 0)).toBeVisible()
+      // A filter, kept in the URL, and across a refocus.
+      await expect(page).toHaveURL(/offList=hide/)
       await toggle.click()
       await expect(offList.getByRole("listitem")).toHaveCount(2)
       await expect(mapOf(page, "TRUE", 4, 2)).toBeVisible()
+      await expect(page).not.toHaveURL(/offList=/)
+      await page.goBack()
+      await expect(page).toHaveURL(/offList=hide/)
+      await expect(offList).toHaveCount(0)
+
+      // The URL alone hides it, and a refocus keeps it hidden.
+      await page.goto(`${HOLDER_MAP}?stock=TRUE&day=2026-11-20&offList=hide`)
+      await expect(mapOf(page, "TRUE", 4, 0)).toBeVisible()
+      await expect(toggle).toHaveAttribute("aria-pressed", "false")
+      await until(
+        () =>
+          band(page, "5% and above")
+            .getByRole("link", { name: "PT AGUNG PERKASA INVESTINDO" })
+            .click(),
+        () => expect(page).toHaveURL(/holder=/, { timeout: 1000 })
+      )
+      await expect(page).toHaveURL(/offList=hide/)
+    })
+
+    test("lists the hop beyond in the side panel, each end refocusing the map", async ({
+      page,
+    }) => {
+      await page.goto(`${HOLDER_MAP}?stock=BSDE&day=2026-11-20`)
+      await expect(mapOf(page, "BSDE", 7, 4, "1 other stock")).toBeVisible()
+      // BPJS's other stock, TLKM: the ring stock the map draws.
+      const beyond = page
+        .getByRole("table", { name: "Its holders' other stocks" })
+        .locator("tbody tr")
+      await expect(beyond).toHaveCount(1)
+      await expect(beyond).toContainText(
+        new RegExp(`${BPJS}\\s*TLKM\\s*TELKOM INDONESIA.*2\\.40%`)
+      )
+      await until(
+        () => beyond.getByRole("link", { name: "TLKM" }).click(),
+        () =>
+          expect(page).toHaveURL(
+            /\/holder-map\?(?=.*stock=TLKM)(?=.*day=2026-11-20)/,
+            { timeout: 1000 }
+          )
+      )
+
+      // A holder focus lists its stocks' other holders: BSDE's six and
+      // TLKM's four.
+      await page.goto(
+        `${HOLDER_MAP}?holder=${encodeURIComponent("DJS HARI JAMINAN KETENAGAKERJAAN PROGRAM TUA")}&day=2026-11-20`
+      )
+      await expect(
+        page
+          .getByRole("table", { name: "Its stocks' other holders" })
+          .locator("tbody tr")
+      ).toHaveCount(10)
+    })
+
+    test("labels a searched node the map draws in place, and refocuses on one it doesn't", async ({
+      page,
+    }) => {
+      await page.goto(`${HOLDER_MAP}?stock=BSDE&day=2026-11-20`)
+      await expect(mapOf(page, "BSDE", 7, 4, "1 other stock")).toBeVisible()
+      // TLKM rings the map: picking it labels it, and keeps the focus.
+      await pick(page, "TLKM", page.getByRole("option", { name: /^TLKM/ }))
+      const note = page.getByText("is labelled on the map.")
+      await expect(note).toContainText("TLKM is labelled on the map.")
+      await expect(page).toHaveURL(/stock=BSDE/)
+      await page.getByRole("button", { name: "Clear" }).click()
+      await expect(note).toHaveCount(0)
+
+      await pick(page, "TLKM", page.getByRole("option", { name: /^TLKM/ }))
+      await page.getByRole("button", { name: "Focus it" }).click()
+      await expect(page).toHaveURL(
+        /\/holder-map\?(?=.*stock=TLKM)(?=.*day=2026-11-20)/
+      )
+      // TRUE isn't on TLKM's map: picking it refocuses.
+      await pick(page, "TRUE", page.getByRole("option", { name: /^TRUE/ }))
+      await expect(page).toHaveURL(/stock=TRUE/)
     })
 
     test("marks a ≥1% holder at 5% or more missing from the day's above-5% list", async ({
