@@ -31,6 +31,7 @@ import {
   settle,
   type WalkPhase,
   type WalkResult,
+  WalkPass,
 } from "./run-queue.ts"
 import type { StallRecord } from "./stall-records.ts"
 
@@ -42,8 +43,6 @@ const DETAILS_PATH = "v1/stock/data/broker-transaction"
 // Decision: a code of more than one page is walked again at 999 rows a page
 // (apps/extension/docs/adr/0027-a-multi-page-done-details-code-is-walked-again-at-999-rows.md)
 const PASS_SIZES = { first: 1_000, second: 999 } as const
-const Pass = Schema.Literals(["first", "second"])
-type Pass = typeof Pass.Type
 
 // A trade the tape walk kept for this walk to match: its number and codes,
 // and the fields its key reads, its time as the WIB second `HH:mm:ss`.
@@ -118,7 +117,7 @@ export type MatchedTrade = typeof MatchedTrade.Type
 export const DoneDetailsPosition = Schema.Union([
   Schema.TaggedStruct("Walking", {
     code: StockCode,
-    pass: Pass,
+    pass: WalkPass,
     page: Schema.Finite,
   }),
   Schema.TaggedStruct("Posting", {}),
@@ -449,12 +448,12 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
     day: WibDate,
     windowEnd: DateTime.Utc,
     code: StockCode,
-    pass: Pass,
+    pass: WalkPass,
     from: number
   ) {
     const size = PASS_SIZES[pass]
     for (let page = from; ; page++) {
-      yield* locate({ day, code, page })
+      yield* locate({ day, code, pass, page })
       const answer = yield* detailsPage(
         windowEnd,
         yield* detailsPath(day, code, page, size)
@@ -481,7 +480,7 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
     day: WibDate,
     windowEnd: DateTime.Utc,
     code: StockCode,
-    from: { readonly pass: Pass; readonly page: number }
+    from: { readonly pass: WalkPass; readonly page: number }
   ) {
     let last = yield* walkPass(day, windowEnd, code, from.pass, from.page)
     if (from.pass === "first" && last.page > 1) {

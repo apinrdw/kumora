@@ -5,17 +5,17 @@
 import { StockCode, WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
-import { StallKind, TapePass } from "./run-queue.ts"
+import { StallKind, WalkPass } from "./run-queue.ts"
 
 // The last this many stalls are kept, the oldest dropped first.
 const KEPT = 50
 
 // Where a walk call is: the day, and the tape walk's pass, page and the
-// pass's pages, or the Done Details walk's code and page. Neither while it
-// waits for Ajaib's close.
+// pass's pages, or the Done Details walk's code, pass and page. Neither
+// while it waits for Ajaib's close.
 const StallPlace = Schema.Struct({
   day: WibDate,
-  pass: Schema.optionalKey(TapePass),
+  pass: Schema.optionalKey(WalkPass),
   code: Schema.optionalKey(StockCode),
   page: Schema.optionalKey(Schema.Finite),
   pages: Schema.optionalKey(Schema.Finite),

@@ -1065,7 +1065,7 @@ describe("the Done Details walk's walk token", () => {
   )
 
   it.effect(
-    "keeps a stall record of each stall, with its code and page, from its first failure to the call that answered",
+    "keeps a stall record of each stall, with its code, pass and page, from its first failure to the call that answered",
     () =>
       Effect.gen(function* () {
         yield* evening
@@ -1100,6 +1100,7 @@ describe("the Done Details walk's walk token", () => {
           walk: "done-details",
           day: DAY,
           code: StockCode.make("HOPE"),
+          pass: "first",
           kind: "no-answer",
           tokenChanged: false,
           reloads: 0,
@@ -1134,5 +1135,36 @@ describe("the Done Details walk's walk token", () => {
         })
         assert.notInclude(JSON.stringify(writes), cookie)
       })
+  )
+
+  // HOPE's first page at 999, its third call, gets no answer once.
+  it.effect("names the 999 walk in the record of a stall of that walk", () =>
+    Effect.gen(function* () {
+      yield* evening
+      const { store } = yield* keptStore()
+      const tab = fakeAjaib({
+        answer: (call) => (call === 3 ? Option.none() : undefined),
+      })
+      const writes: Array<StallRecord> = []
+      const walk = yield* makeDoneDetailsWalk({
+        tab,
+        post: fakeProduction().post,
+        store,
+        stalls: (record) =>
+          Effect.sync(() => {
+            writes.push(record)
+          }),
+      })
+      const fiber = yield* Effect.forkChild(walk.walk(DAY))
+      yield* TestClock.adjust("0 millis")
+      yield* TestClock.adjust("10 seconds")
+      assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+      assert.deepStrictEqual(
+        writes
+          .reduce(withStallRecord, [])
+          .map(({ code, pass, page }) => ({ code, pass, page })),
+        [{ code: StockCode.make("HOPE"), pass: "second", page: 1 }]
+      )
+    })
   )
 })

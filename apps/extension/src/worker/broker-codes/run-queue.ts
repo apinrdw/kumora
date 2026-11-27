@@ -110,13 +110,17 @@ const StallCause = Schema.Struct({
   tokenChanged: Schema.Boolean,
 })
 export type StallCause = typeof StallCause.Type
-export const TapePass = Schema.Literals(["first", "second"])
+// An Ajaib walk's pass over its pages: the tape's first at 50,000 rows a
+// page or its second at 49,999, or a Done Details code's first at 1,000 or
+// its second at 999.
+export const WalkPass = Schema.Literals(["first", "second"])
+export type WalkPass = typeof WalkPass.Type
 
 const WalkPhase = Schema.Union([
   Schema.Struct({
     step: Schema.Literals(["awaiting-close", "fetching"]),
     since: Schema.Finite,
-    pass: Schema.optionalKey(TapePass),
+    pass: Schema.optionalKey(WalkPass),
     page: Schema.optionalKey(Schema.Finite),
     pages: Schema.optionalKey(Schema.Finite),
     stall: Schema.optionalKey(StallCause),
