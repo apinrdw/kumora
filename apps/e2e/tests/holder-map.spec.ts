@@ -282,6 +282,47 @@ test.describe.serial("Holder map", () => {
       ).toBeVisible()
     })
 
+    test("opens from the stock page's Major holders and Daily holders", async ({
+      page,
+    }) => {
+      for (const panel of ["Major holders", "Daily holders"]) {
+        await page.goto(`${DASHBOARD}/stocks/TRUE`)
+        await page
+          .getByRole("region", { name: panel })
+          .getByRole("link", { name: "Holder map of TRUE" })
+          .click()
+        await expect(page).toHaveURL(/\/holder-map\?stock=TRUE$/)
+        await expect(
+          page.getByRole("heading", { name: /^TRUE TRINITI DINAMIK/ })
+        ).toBeVisible()
+      }
+    })
+
+    test("opens from a Holder moves row, a Daily row as of its day", async ({
+      page,
+    }) => {
+      const mapLink = (code: string) =>
+        page
+          .getByRole("table", { name: "Holder moves" })
+          .getByRole("link", { name: `Holder map of ${code}` })
+          .first()
+
+      await page.goto(`${DASHBOARD}/holder-moves?day=2026-11-19`)
+      await mapLink("ENRG").click()
+      await expect(page).toHaveURL(
+        /\/holder-map\?(?=.*stock=ENRG)(?=.*day=2026-11-19)/
+      )
+      await expect(
+        page.getByText(/^5% band as of 19 Nov 2026 · /)
+      ).toBeVisible()
+
+      // A Monthly row's month isn't a trading day: the newest.
+      await page.goto(`${DASHBOARD}/holder-moves?kind=monthly&month=2026-09`)
+      await mapLink("TLKM").click()
+      await expect(page).toHaveURL(/\/holder-map\?stock=TLKM$/)
+      await expect(page.getByRole("heading", { name: /^TLKM / })).toBeVisible()
+    })
+
     test("shows an empty state for a code no report lists", async ({
       page,
     }) => {

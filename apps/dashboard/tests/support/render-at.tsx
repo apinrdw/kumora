@@ -5,7 +5,8 @@ import {
   createRootRoute,
   createRouter,
 } from "@tanstack/react-router"
-import type { ReactNode } from "react"
+import { act, type ReactNode } from "react"
+import type { Root } from "react-dom/client"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 import { renderToStaticMarkup } from "react-dom/server"
 
@@ -28,4 +29,17 @@ export async function renderAt(url: string, ui: () => ReactNode) {
   })
   await router.load()
   return renderToStaticMarkup(<RouterProvider router={router} />)
+}
+
+/**
+ * Mounts `ui` into `root` at `url` inside a memory router with only a root
+ * route, so `Link` works in a component test that clicks.
+ */
+export async function mountAt(root: Root, url: string, ui: () => ReactNode) {
+  const router = createRouter({
+    routeTree: createRootRoute({ component: ui }),
+    history: createMemoryHistory({ initialEntries: [url] }),
+  })
+  await act(() => router.load())
+  await act(async () => root.render(<RouterProvider router={router} />))
 }

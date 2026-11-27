@@ -4,7 +4,7 @@
 import { StockCode, WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
-import type { HolderMapQuery } from "@/domain/holdings"
+import type { HolderMapQuery, MoveKind } from "@/domain/holdings"
 
 export interface HolderMapSearch {
   // The focus stock; absent for the landing view.
@@ -34,6 +34,20 @@ export const parseHolderMapSearch = Effect.fnUntraced(function* (
     day: yield* field(WibDate, raw.day),
   }
 })
+
+/**
+ * Where a Holder moves row opens the map (spec apinrdw/kumora#733, "Links
+ * in"): its stock, as of the row's day for a Daily row; a Monthly row's month
+ * isn't a trading day, so it opens the newest.
+ */
+export const holderMapMoveSearch = (
+  kind: MoveKind,
+  stock: StockCode,
+  period: WibDate
+) =>
+  Effect.succeed<HolderMapSearch>(
+    kind === "daily" ? { stock, day: period } : { stock }
+  )
 
 export const queryOf = ({ stock, day }: HolderMapSearch) =>
   Effect.succeed<HolderMapQuery>({
