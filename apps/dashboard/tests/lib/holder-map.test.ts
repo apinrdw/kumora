@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { holderMapView } from "@/lib/holder-map"
+import { type HolderMapView, holderMapView } from "@/lib/holder-map"
 import type {
   HolderMapLink,
   HolderMapOffList,
@@ -258,6 +258,25 @@ describe("holderMapView", () => {
           "Off list",
         ])
       })
+  )
+
+  it.effect("keys the map's layout on its focus and day", () =>
+    Effect.gen(function* () {
+      const on = (day: string, code = "TRUE") =>
+        holderMapView({
+          ...read([link("5%", "A", 900)]),
+          day: WibDate.make(day),
+          focus: {
+            kind: "stock",
+            code: StockCode.make(code),
+            issuerName: code,
+          },
+        })
+      const key = (view: HolderMapView) => view.focus?.graph.key
+      expect(key(yield* on("2026-11-20"))).toBe("stock:TRUE@2026-11-20")
+      expect(key(yield* on("2026-11-19"))).toBe("stock:TRUE@2026-11-19")
+      expect(key(yield* on("2026-11-20", "FLMC"))).toBe("stock:FLMC@2026-11-20")
+    })
   )
 
   it.effect("sizes a holder's node and link by its stake", () =>

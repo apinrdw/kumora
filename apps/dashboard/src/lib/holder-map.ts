@@ -128,6 +128,9 @@ export interface HolderMapView {
         readonly bands: ReadonlyArray<BandSection>
         // The focus first, then the side panel's holders in its order.
         readonly graph: {
+          // The focus and the day it is drawn as of: the layout's key, so a
+          // reload of one focus and day lays out the same picture.
+          readonly key: string
           readonly nodes: ReadonlyArray<MapNode>
           readonly links: ReadonlyArray<MapLink>
         }
@@ -250,6 +253,7 @@ const offListNode = Effect.fnUntraced(function* (holder: HolderMapOffList) {
 
 const graphOf = Effect.fnUntraced(function* (
   code: StockCode,
+  asOf: WibDate | undefined,
   bands: ReadonlyArray<BandSection>,
   offList: ReadonlyArray<HolderMapOffList>
 ) {
@@ -295,7 +299,7 @@ const graphOf = Effect.fnUntraced(function* (
     // Off list: no longer a holding, so its link is drawn at 0%.
     ...offList.map((holder) => linkTo(holder, 0, "off list")),
   ]
-  return { nodes, links }
+  return { key: `${focus.id}@${asOf ?? ""}`, nodes, links }
 })
 
 const ORIGIN_ORDER = ["local", "foreign", "mixed", undefined] as const
@@ -362,7 +366,7 @@ export const holderMapView = Effect.fnUntraced(function* (
   const earlier = [...offList].sort(
     (a, b) => b.since.localeCompare(a.since) || a.name.localeCompare(b.name)
   )
-  const graph = yield* graphOf(focus.code, bands, earlier)
+  const graph = yield* graphOf(focus.code, day ?? month, bands, earlier)
   return {
     day,
     month,

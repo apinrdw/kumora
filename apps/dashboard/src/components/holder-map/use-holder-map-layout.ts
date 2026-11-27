@@ -9,29 +9,40 @@ import type { LayoutRequest } from "./layout.worker"
 
 type Graph = NonNullable<HolderMapView["focus"]>["graph"]
 
-// The graph's layout: undefined until the worker answers for this graph.
+// The graph's layout, keyed on its focus and day: undefined until the worker
+// answers for that key. A new graph of the same focus and day, as a reload
+// or revalidation gives, keeps the layout it has.
 export function useHolderMapLayout(graph: Graph): Layout | undefined {
   const worker = useRef<Worker | undefined>(undefined)
-  const asked = useRef(0)
-  const [answer, setAnswer] = useState<{ graph: Graph; layout: Layout }>()
+  // The newest request's id and key: an answer to an older one is dropped.
+  const asked = useRef<{ id: number; key: string | undefined }>({
+    id: 0,
+    key: undefined,
+  })
+  const [answer, setAnswer] = useState<{ key: string; layout: Layout }>()
   useEffect(() => {
     const current = new Worker(new URL("./layout.worker.ts", import.meta.url), {
       type: "module",
     })
+    const onMessage = (event: MessageEvent<{ id: number; layout: Layout }>) => {
+      const { id, key } = asked.current
+      if (event.data.id === id && key !== undefined)
+        setAnswer({ key, layout: event.data.layout })
+    }
+    current.addEventListener("message", onMessage)
     worker.current = current
     return () => {
+      current.removeEventListener("message", onMessage)
       current.terminate()
       worker.current = undefined
+      asked.current = { id: asked.current.id, key: undefined }
     }
   }, [])
   useEffect(() => {
     const current = worker.current
-    if (current === undefined) return
-    const id = ++asked.current
-    const onMessage = (event: MessageEvent<{ id: number; layout: Layout }>) => {
-      if (event.data.id === id) setAnswer({ graph, layout: event.data.layout })
-    }
-    current.addEventListener("message", onMessage)
+    if (current === undefined || asked.current.key === graph.key) return
+    const id = asked.current.id + 1
+    asked.current = { id, key: graph.key }
     const request: LayoutRequest = {
       id,
       graph: {
@@ -44,7 +55,6 @@ export function useHolderMapLayout(graph: Graph): Layout | undefined {
       },
     }
     current.postMessage(request)
-    return () => current.removeEventListener("message", onMessage)
   }, [graph])
-  return answer?.graph === graph ? answer.layout : undefined
+  return answer?.key === graph.key ? answer.layout : undefined
 }
