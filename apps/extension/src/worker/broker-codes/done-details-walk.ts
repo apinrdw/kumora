@@ -10,7 +10,6 @@ import {
   BrokerCodesProtocolVersion,
   InvestorType,
   OrderNumber,
-  Side,
   StockCode,
   TradeCodes,
   TradeNumber,
@@ -43,8 +42,7 @@ const DETAILS_PATH = "v1/stock/data/broker-transaction"
 const PAGE_SIZE = 1_000
 
 // A trade the tape walk kept for this walk to match: its number and codes,
-// and the fields its key reads, its time as the WIB second `HH:mm:ss`, and
-// its aggressor side.
+// and the fields its key reads, its time as the WIB second `HH:mm:ss`.
 const KeptTrade = Schema.TaggedStruct("Kept", {
   number: TradeNumber,
   code: StockCode,
@@ -52,7 +50,6 @@ const KeptTrade = Schema.TaggedStruct("Kept", {
   board: Board,
   price: Schema.Finite,
   lots: Schema.Finite,
-  side: Side,
   codes: TradeCodes,
 })
 export type KeptTrade = typeof KeptTrade.Type
@@ -66,9 +63,9 @@ const UnkeyedTrade = Schema.TaggedStruct("Unkeyed", {
 export const TapeTrade = Schema.Union([KeptTrade, UnkeyedTrade])
 export type TapeTrade = typeof TapeTrade.Type
 
-// Every field a Done Details row and a kept trade both report for a trade,
-// which a pair agrees on. A row's side is its order pair's later order's,
-// the larger number's.
+// The fields a Done Details row and a kept trade both report for a trade,
+// which a pair agrees on. Not the side: the tape's and the order numbers'
+// disagree in the auctions, which have no aggressor.
 const MatchFields = Schema.Struct({
   code: StockCode,
   second: Schema.String,
@@ -79,7 +76,6 @@ const MatchFields = Schema.Struct({
   buyerType: InvestorType,
   seller: BrokerCode,
   sellerType: InvestorType,
-  side: Side,
 })
 type MatchFields = typeof MatchFields.Type
 
@@ -135,18 +131,12 @@ export interface DoneDetailsStore {
     day: WibDate,
     code: StockCode
   ) => Effect.Effect<ReadonlyArray<TapeTrade>>
-  // How many of `day`'s trades numbered `from` to `to` the tape walk read
-  // with their stock code, of any code.
-  readonly read: (
-    day: WibDate,
-    from: TradeNumber,
-    to: TradeNumber
-  ) => Effect.Effect<number>
   // Where the walk of `day` stands; none before its first page.
   readonly position: (
     day: WibDate
   ) => Effect.Effect<Option.Option<DoneDetailsPosition>>
-  // The rows of `code` fetched before its position's page.
+  // The rows of `code` fetched before its position's page, in the order
+  // Ajaib answered them.
   readonly rows: (
     day: WibDate,
     code: StockCode
@@ -205,12 +195,16 @@ const decodePage = Schema.decodeUnknownOption(DetailsPage)
 const decodeKeyRow = Schema.decodeUnknownOption(DetailKeyRow)
 
 // The key a trade and a row pair under: every one of `MatchFields`, read
-// from the struct's own list, so none can be left out.
+// from the struct's own list, so none can be left out. The second pass's
+// key leaves out the lots.
 const MATCH_FIELDS = Object.keys(MatchFields.fields) as ReadonlyArray<
   keyof MatchFields
 >
+const NO_LOT_FIELDS = MATCH_FIELDS.filter((name) => name !== "lots")
 const keyOf = (fields: MatchFields) =>
   Effect.sync(() => JSON.stringify(MATCH_FIELDS.map((name) => fields[name])))
+const noLotKeyOf = (fields: MatchFields) =>
+  Effect.sync(() => JSON.stringify(NO_LOT_FIELDS.map((name) => fields[name])))
 
 // The tape walk's trade as this walk keeps it.
 export const keptTrade = (
@@ -228,7 +222,6 @@ export const keptTrade = (
     board: fields.board,
     price: fields.price,
     lots: fields.lots,
-    side: fields.side,
     codes,
   }))
 
@@ -260,7 +253,6 @@ const detailRows = Effect.fnUntraced(function* (
         buyerType: buyer.type,
         seller: seller.broker_code,
         sellerType: seller.type,
-        side: buy > sell ? "buy" : "sell",
       },
       buy,
       sell,
@@ -281,123 +273,81 @@ const tradeFields = (trade: KeptTrade) =>
     buyerType: trade.codes.buyerType,
     seller: trade.codes.seller,
     sellerType: trade.codes.sellerType,
-    side: trade.side,
   })
 
-// The rows by key. Every row also lies under its sideless key, where an
-// auction match's trades, which have no side, find it.
-const rowGroups = Effect.fnUntraced(function* (rows: ReadonlyArray<ReadRow>) {
-  const groups = new Map<string, Array<ReadRow>>()
-  for (const row of rows)
-    for (const side of [row.fields.side, "none"] as const) {
-      const at = yield* keyOf({ ...row.fields, side })
-      groups.set(at, [...(groups.get(at) ?? []), row])
-    }
-  return groups
-})
+// The rows, each once: Ajaib can list a trade's row twice, alike in every
+// field and both order numbers.
+const distinct = (rows: ReadonlyArray<ReadRow>) =>
+  Effect.sync(() => {
+    const seen = new Set<string>()
+    return rows.filter((row) => {
+      const at = JSON.stringify([
+        ...MATCH_FIELDS.map((name) => row.fields[name]),
+        row.buy,
+        row.sell,
+      ])
+      if (seen.has(at)) return false
+      seen.add(at)
+      return true
+    })
+  })
 
-// The kept trades by key, leaving out a sideless key's trades when trades
-// with a side share its other fields: its rows can't be told apart between
-// them.
-const tradeGroups = Effect.fnUntraced(function* (
-  trades: ReadonlyArray<KeptTrade>
+// One pass: each of `rows`, in Ajaib's order, takes the highest-numbered
+// trade left of its key, and the rows and trades still unpaired are left
+// for the next.
+const pairByRowOrder = Effect.fnUntraced(function* (
+  rows: ReadonlyArray<ReadRow>,
+  trades: ReadonlyArray<KeptTrade>,
+  key: (fields: MatchFields) => Effect.Effect<string>
 ) {
-  const groups = new Map<string, Array<KeptTrade>>()
-  const sided = new Set<string>()
-  for (const trade of trades) {
-    const fields = yield* tradeFields(trade)
-    const at = yield* keyOf(fields)
-    groups.set(at, [...(groups.get(at) ?? []), trade])
-    if (fields.side !== "none")
-      sided.add(yield* keyOf({ ...fields, side: "none" }))
+  const left = new Map<string, Array<KeptTrade>>()
+  const inTradeOrder = [...trades].sort(
+    (a, b) => Number(a.number) - Number(b.number)
+  )
+  for (const trade of inTradeOrder) {
+    const at = yield* key(yield* tradeFields(trade))
+    const group = left.get(at) ?? []
+    group.push(trade)
+    left.set(at, group)
   }
-  for (const at of sided) groups.delete(at)
-  return groups
+  const found: Array<MatchedTrade> = []
+  const unpaired: Array<ReadRow> = []
+  for (const row of rows) {
+    const trade = left.get(yield* key(row.fields))?.pop()
+    if (trade === undefined) {
+      unpaired.push(row)
+      continue
+    }
+    found.push({
+      number: trade.number,
+      codes: trade.codes,
+      buy: row.buy,
+      sell: row.sell,
+    })
+  }
+  return { found, rows: unpaired, trades: [...left.values()].flat() }
 })
 
-// Each of the code's trades' place among them in trade order, by trade
-// number, unkeyed ones too.
-const placesOf = (record: ReadonlyArray<TapeTrade>) =>
-  Effect.sync(
-    () =>
-      new Map(
-        record
-          .map(({ number }) => Number(number))
-          .sort((a, b) => a - b)
-          .map((number, place) => [number, place])
-      )
-  )
-
-// Whether `tied`, in trade order, are one run of their code: no other trade
-// of the code the tape walk kept, with its key or unkeyed, lies between
-// them, and it read every trade numbered between them with its code.
-const oneRun = Effect.fnUntraced(function* (
-  places: ReadonlyMap<number, number>,
-  tied: ReadonlyArray<KeptTrade>,
-  read: (from: TradeNumber, to: TradeNumber) => Effect.Effect<number>
-) {
-  const first = tied[0]!
-  const last = tied.at(-1)!
-  const span =
-    places.get(Number(last.number))! - places.get(Number(first.number))!
-  if (span + 1 !== tied.length) return false
-  if (tied.length === 1) return true
-  const between = Number(last.number) - Number(first.number) + 1
-  return (yield* read(first.number, last.number)) === between
-})
-
-// A key's rows in order of their aggressor orders, the larger of
-// each row's pair, then of their passive orders.
-const byAggressor = (rows: ReadonlyArray<ReadRow>) =>
-  Effect.sync(() =>
-    [...rows].sort(
-      (a, b) =>
-        Math.max(a.buy, a.sell) - Math.max(b.buy, b.sell) ||
-        Math.min(a.buy, a.sell) - Math.min(b.buy, b.sell)
-    )
-  )
-
-// Decision: a key's rows go to its trades only when as many and one run
-// (apps/extension/docs/adr/0004-done-details-rows-go-to-trades-only-as-one-run.md)
+// Decision: rows pair with trades in Ajaib's row order, by a key with no side
+// (apps/extension/docs/adr/0026-done-details-rows-pair-with-trades-in-ajaib-s-row-order.md)
 //
-// Proven, if Ajaib lists each trade of the code once: tied trades are alike
-// in all both report with none of the code between them, so which takes
-// which row changes no order run. Not proven: that Ajaib omitted no row. A
-// key's omitted row goes unseen when the tape walk kept a trade of that key
-// unkeyed or couldn't read one, as counts then agree. Only a code whose
-// trades the tape walk all kept with their key, on a day it read every
-// trade number of, rules that out; no field the extension holds tells such
-// a trade's key, so a single or tied key there is matched as if whole.
+// Ajaib answers a code's rows newest first, so each takes the newest trade
+// left of its key. A second pass leaves out the lots, for the NG trades
+// whose fractional lot reads 0 in Done Details and 1 on the tape. A code
+// with a row the walk can't read gets nothing: that row could be any key's,
+// and every pairing of its key after it would shift by one.
 const matched = Effect.fnUntraced(function* (
   record: ReadonlyArray<TapeTrade>,
-  rows: ReadonlyArray<DetailRow>,
-  read: (from: TradeNumber, to: TradeNumber) => Effect.Effect<number>
+  rows: ReadonlyArray<DetailRow>
 ) {
   const trades = record.flatMap((trade) =>
     trade._tag === "Kept" ? [trade] : []
   )
   const readRows = rows.flatMap((row) => (row._tag === "Read" ? [row] : []))
   if (readRows.length < rows.length) return []
-  const byGroup = yield* rowGroups(readRows)
-  const places = yield* placesOf(record)
-  const found: Array<MatchedTrade> = []
-  for (const [at, tied] of yield* tradeGroups(trades)) {
-    const groupRows = byGroup.get(at) ?? []
-    const inTradeOrder = [...tied].sort(
-      (a, b) => Number(a.number) - Number(b.number)
-    )
-    if (
-      groupRows.length !== tied.length ||
-      !(yield* oneRun(places, inTradeOrder, read))
-    )
-      continue
-    const inOrder = yield* byAggressor(groupRows)
-    for (const [index, { number, codes }] of inTradeOrder.entries()) {
-      const { buy, sell } = inOrder[index]!
-      found.push({ number, codes, buy, sell })
-    }
-  }
-  return found
+  const first = yield* pairByRowOrder(yield* distinct(readRows), trades, keyOf)
+  const second = yield* pairByRowOrder(first.rows, first.trades, noLotKeyOf)
+  return [...first.found, ...second.found]
 })
 
 const detailsPath = (day: WibDate, code: StockCode, page: number) =>
@@ -482,9 +432,7 @@ export const makeDoneDetailsWalk = Effect.fnUntraced(function* (options: {
       const all = [...(yield* store.rows(day, code)), ...rows]
       return yield* store.match(
         day,
-        yield* matched(yield* store.trades(day, code), all, (first, last) =>
-          store.read(day, first, last)
-        )
+        yield* matched(yield* store.trades(day, code), all)
       )
     }
   })

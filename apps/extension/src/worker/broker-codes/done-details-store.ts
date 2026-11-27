@@ -147,15 +147,6 @@ export const doneDetailsStore = Effect.gen(function* () {
             )
         }
       ),
-    read: (day, from, to) =>
-      inTransaction<number>("readonly", (stores, stored, answer) => {
-        answer(0)
-        if (!Option.contains(stored, day)) return
-        const request = stores.trades.count(
-          IDBKeyRange.bound(Number(from), Number(to))
-        )
-        request.onsuccess = () => answer(request.result)
-      }),
     position: (day) =>
       inTransaction<Option.Option<DoneDetailsPosition>>(
         "readonly",
@@ -167,7 +158,8 @@ export const doneDetailsStore = Effect.gen(function* () {
         }
       ),
     // A code's rows are only ever its own pages', since `page` forgets them
-    // at each code's first page.
+    // at each code's first page. An index answers its equal keys in primary
+    // key order, here the order `page` added them: Ajaib's.
     rows: (day, code) =>
       inTransaction<ReadonlyArray<DetailRow>>(
         "readonly",

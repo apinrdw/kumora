@@ -517,7 +517,6 @@ describe("Ajaib's walk of the day", () => {
           board: "RG",
           price: 8_025,
           lots: 2,
-          side: "sell",
           codes: {
             buyer: BrokerCode.make("YP"),
             buyerType: "D",
