@@ -18,10 +18,10 @@ import { memoryHoldingsDb } from "./memory-holdings-db.ts"
 // Decision: a stock's holders are read from its newest periods that fit a
 // row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
 //
-// The holder focus retained 32.2 MiB on 27 Nov 2026, its 20,005 nodes,
+// The holder focus retained 32.4 MiB on 27 Nov 2026, its 20,005 nodes,
 // 8,000 custodian links and its side panel's hop beyond with it; the
-// custodian focus 13.6 MiB, and 12.1 MiB with 8,000 Off list holdings;
-// the stock focus 3.1 MiB, and 10.1 MiB with 80,000 stored leavings.
+// custodian focus 13.6 MiB, and 8.9 MiB with 7,999 Off list holdings;
+// the stock focus 1.9 MiB, and 9.0 MiB with 80,000 stored leavings.
 const HEAP_LIMIT_MIB = 40
 
 // The most stocks a report lists (ADR 0045), each with the day's blocks
@@ -163,12 +163,11 @@ describe("the Holder map's read of a hub", () => {
         }).pipe(Effect.provide(db.layer))
         const view = yield* holderMapView(read)
         const retained = ((yield* retainedHeap) - before) / 2 ** 20
-        // Every block of the day before, a day's at the cap: the seed's
-        // stored keys aren't its names' keys, so the block still held
-        // through it isn't matched off here (the fixture test holds that).
+        // Every block of the day before, a day's at the cap, but the one
+        // still held through it.
         assert.strictEqual(read.links.length, 1)
-        assert.strictEqual(read.offList.length, ABOVE_5_DAY_ROWS)
-        assert.strictEqual(view.focus?.offList.length, ABOVE_5_DAY_ROWS)
+        assert.strictEqual(read.offList.length, ABOVE_5_DAY_ROWS - 1)
+        assert.strictEqual(view.focus?.offList.length, ABOVE_5_DAY_ROWS - 1)
         assert.isBelow(
           retained,
           HEAP_LIMIT_MIB,

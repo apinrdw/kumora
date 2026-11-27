@@ -12,14 +12,11 @@ import {
   type HolderMapQuery,
   type SplitOrigin,
 } from "@/domain/holdings"
-import { dayHolders } from "@/lib/daily-holders"
 import { placeOf } from "@/lib/holder-map-ids"
 
 import { decodeRows } from "../d1.ts"
-import { MAX_ROWS } from "./above-5.ts"
 import { HoldingsDb, type HoldingsDbError } from "./db.ts"
 import {
-  type Account,
   custodianLinks,
   custodianNames,
   custodianOf,
@@ -27,12 +24,20 @@ import {
   type HoldingAccounts,
 } from "./holder-map-custodians.ts"
 import {
+  Above1MapRow,
+  Above5AccountMapRow,
+  Above5MapRow,
+  listedHolders,
+  monthHolders,
+} from "./holder-map-holders.ts"
+import {
   changesOf,
   LeavingRow,
   leavings,
   MoveRow,
-  moveLinesByKey,
+  movesByKey,
 } from "./holder-map-moves.ts"
+import { OFF_LIST, offListOf, offListRead } from "./holder-map-off-list.ts"
 import {
   type Focus,
   type HolderMapCustodianLink,
@@ -45,13 +50,6 @@ import {
   PeriodsRow,
   type StockLink,
 } from "./holder-map-schema.ts"
-import {
-  above1Months,
-  above5Days,
-  Above1HoldingRow,
-  Above5HolderRow,
-  Above5SecuritiesAccountRow,
-} from "./stock-page.ts"
 
 // The stocks the landing view lists.
 const MOST_HELD = 20
@@ -136,12 +134,12 @@ const IN_VIEW_ROWS = [
   //
   // Decision: Holder moves are derived at parse time
   // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
-  `SELECT stock_code, '5%' AS band, name, move, share_change,
+  `SELECT stock_code, '5%' AS band, name, data_date, move, share_change,
     percentage_change, stake_before, stake_now
   FROM above_5_move
   WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
   UNION ALL
-  SELECT stock_code, '1%' AS band, name, move, share_change,
+  SELECT stock_code, '1%' AS band, name, data_date, move, share_change,
     percentage_change, stake_before, stake_now
   FROM above_1_move
   WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT month FROM band_month)`,
@@ -169,113 +167,12 @@ const IN_VIEW_ROWS = [
   WHERE nth = 1 AND move = 'off list'`,
 ]
 
-// The most leavings a focus's Off list reads, newest first: one day's
-// accounts at the above-5% parse's cap (ADR 0045). Stored leavings grow
-// with every period parsed, so each focus reads one more than this, to
-// tell the side panel older ones were left out.
-//
-// Decision: a stock's holders are read from its newest periods that fit a
-// row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
-const OFF_LIST_ROWS = MAX_ROWS
-
-// The focus's leavings as of the day and the month: each identity's
-// newest leaving, unless it came back since, the newest OFF_LIST_ROWS and
-// one more. A stock focus's are its identities'. A holder focus's are
-// every identity first listed under its key, in any stock, its listings'
-// names matched to the key after.
-const OFF_LIST_LINES = (where: string) => `SELECT stock_code, issuer_name,
-    band, name, data_date, stake_before FROM (
-    SELECT stock_code, issuer_name, '5%' AS band, name, move, data_date,
-      stake_before,
-      ROW_NUMBER() OVER (
-        PARTITION BY stock_code, holder ORDER BY data_date DESC
-      ) AS nth
-    FROM above_5_move
-    WHERE ${where} AND move IN ('new', 'off list')
-      AND data_date <= (SELECT day FROM asof)
-    UNION ALL
-    SELECT stock_code, issuer_name, '1%' AS band, name, move, data_date,
-      stake_before,
-      ROW_NUMBER() OVER (
-        PARTITION BY stock_code, holder ORDER BY data_date DESC
-      ) AS nth
-    FROM above_1_move
-    WHERE ${where} AND move IN ('new', 'off list')
-      AND data_date <= (SELECT month FROM band_month)
-  )
-  WHERE nth = 1 AND move = 'off list'
-  ORDER BY data_date DESC, stock_code, name
-  LIMIT ${OFF_LIST_ROWS + 1}`
-
-// Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
-const OFF_LIST: Record<Focus["kind"], string> = {
-  stock: `${PERIODS} ${OFF_LIST_LINES("stock_code = ?2")}`,
-  // An identity is `<key>#<n>`: those of the key sort from `<key>#` up to,
-  // not including, `<key>$`.
-  holder: `${PERIODS} ${OFF_LIST_LINES("holder >= ?2 || '#' AND holder < ?2 || '$'")}`,
-  // A custodian's earlier holders: each above-5% holding with shares in an
-  // account at one of its spellings of the day (?2) on a day before it, by its
-  // last such day, the period it left the first above-5% day after. A
-  // holding still there is dropped after (`offListOf`). Holder moves store
-  // no custodian, so this reads the accounts through
-  // above_5_account_by_custodian, every earlier day's at the custodian, and
-  // keeps the OFF_LIST_ROWS newest holdings and one more. A spelling the
-  // custodian no longer uses on the day is missed.
-  custodian: `${PERIODS},
-  through AS (
-    SELECT DISTINCT data_date, stock_code, no FROM above_5_account
-    WHERE custodian IN (SELECT value FROM json_each(?2))
-      AND data_date < (SELECT day FROM asof) AND scripless > 0
-  ),
-  last_through AS (
-    SELECT holder.stock_code, holder.holder_key,
-      MAX(holder.data_date) AS last_day
-    FROM through JOIN above_5_holder AS holder
-      USING (data_date, stock_code, no)
-    GROUP BY holder.stock_code, holder.holder_key
-    ORDER BY last_day DESC, holder.stock_code, holder.holder_key
-    LIMIT ${OFF_LIST_ROWS + 1}
-  )
-  SELECT last_through.stock_code, holder.issuer_name, '5%' AS band,
-    holder.holder_name AS name,
-    (SELECT MIN(data_date) FROM above_5_day
-      WHERE data_date > last_through.last_day) AS data_date,
-    MAX(holder.percentage_hundredths) AS stake_before
-  FROM last_through JOIN above_5_holder AS holder
-    ON holder.data_date = last_through.last_day
-      AND holder.stock_code = last_through.stock_code
-      AND holder.holder_key = last_through.holder_key
-  GROUP BY last_through.stock_code, last_through.holder_key
-  ORDER BY last_through.last_day DESC, last_through.stock_code,
-    last_through.holder_key`,
-}
-
 const DayRow = Schema.Struct({ data_date: WibDate })
-
-const Above5MapRow = Schema.Struct({
-  ...Above5HolderRow.fields,
-  stock_code: StockCode,
-})
-const Above5AccountMapRow = Schema.Struct({
-  ...Above5SecuritiesAccountRow.fields,
-  stock_code: StockCode,
-})
-const Above1MapRow = Schema.Struct({
-  ...Above1HoldingRow.fields,
-  stock_code: StockCode,
-  issuer_name: Schema.String,
-})
 
 const MostHeldRow = Schema.Struct({
   stock_code: StockCode,
   issuer_name: Schema.String,
   holders: Schema.Number,
-})
-
-const OffListRow = Schema.Struct({
-  ...LeavingRow.fields,
-  issuer_name: Schema.String,
 })
 
 const MOST_HELD_SQL = `${PERIODS}
@@ -321,9 +218,9 @@ const byStock = (
     return stocks
   })
 
-// A stock's links: its above-5% holders of the day, repeat blocks
-// collapsed and blocks of one holder key summed, then the month's ≥1%
-// holders whose key none of the day's blocks carries.
+// A stock's links: its above-5% holders of the day, then the month's ≥1%
+// holders whose key none of the day's blocks carries, each summed by key
+// (`holder-map-holders.ts`).
 //
 // Decision: the Holder map matches holders across stocks and reports by
 // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
@@ -333,97 +230,48 @@ const stockLinks = Effect.fnUntraced(function* (
   month: WibDate | undefined,
   rows: StockRows
 ) {
-  const [blocks] =
+  const above5 =
     day === undefined
       ? []
-      : yield* above5Days(
-          [{ data_date: day, listed_shares: null }],
-          rows.holders,
-          rows.accounts
-        )
-  const [held] =
-    month === undefined
-      ? []
-      : yield* above1Months([{ data_date: month }], rows.month)
-  // Keys as the map's: the read's boundary.
-  const monthHolders = new Map(
-    (held?.holders ?? []).map((holder) => [HolderKey.make(holder.key), holder])
+      : yield* listedHolders(code, day, rows.holders, rows.accounts)
+  const above1 =
+    month === undefined ? [] : yield* monthHolders(code, month, rows.month)
+  const typeOf = new Map(above1.map(({ key, sum }) => [key, sum.type]))
+  const inAbove5 = new Set(
+    rows.holders.map(({ holder_key }) => HolderKey.make(holder_key))
   )
-  const typeOf = (key: HolderKey) =>
-    monthHolders.get(key)?.rows.find(({ type }) => type !== undefined)?.type
-
-  const above5 = new Map<
-    HolderKey,
-    {
-      name: string
-      blocks: number
-      hundredths: number
-      shares: number
-      origins: Array<SplitOrigin>
-      accounts: Array<Account>
-    }
-  >()
-  for (const holder of yield* dayHolders(blocks?.holders ?? [])) {
-    const key = HolderKey.make(holder.key)
-    const summed = above5.get(key)
-    const origins = holder.accounts.map(({ origin }) => origin)
-    if (summed === undefined)
-      above5.set(key, {
-        name: holder.name,
-        blocks: 1,
-        hundredths: holder.percentageHundredths,
-        shares: holder.scripless,
-        origins,
-        accounts: [...holder.accounts],
-      })
-    else {
-      summed.blocks += 1
-      summed.hundredths += holder.percentageHundredths
-      summed.shares += holder.scripless
-      summed.origins.push(...origins)
-      summed.accounts.push(...holder.accounts)
-    }
-  }
-  const inAbove5 = new Set((blocks?.holders ?? []).map(({ key }) => key))
   const links: Array<StockLink> = []
-  for (const [key, holder] of above5)
+  for (const { key, sum } of above5)
     links.push({
       code,
       band: "5%",
       holder: key,
-      name: holder.name,
-      percentageHundredths: holder.hundredths,
-      shares: holder.shares,
-      origin: yield* originOf(holder.origins),
-      investorType: typeOf(key),
+      name: sum.name,
+      percentageHundredths: sum.hundredths,
+      shares: sum.shares,
+      origin: yield* originOf(sum.origins),
+      investorType: typeOf.get(key),
     })
-  for (const [key, holder] of monthHolders) {
+  for (const { key, sum } of above1) {
     if (inAbove5.has(key)) continue
     links.push({
       code,
       band: "1%",
       holder: key,
-      name: holder.rows[0]?.name ?? key,
-      percentageHundredths: holder.percentageHundredths,
-      shares: holder.total,
-      origin: yield* originOf(holder.rows.map(({ origin }) => origin)),
-      investorType: typeOf(key),
+      name: sum.name,
+      percentageHundredths: sum.hundredths,
+      shares: sum.shares,
+      origin: yield* originOf(sum.origins),
+      investorType: sum.type,
     })
   }
   return {
     links,
     // Each 5%-band holder's blocks, repeats collapsed, by key.
-    blocks: new Map([...above5].map(([key, holder]) => [key, holder.blocks])),
+    blocks: new Map(above5.map(({ key, blocks }) => [key, blocks])),
     // Each 5%-band holder's securities accounts, by key.
-    accounts: new Map(
-      [...above5].map(([key, holder]) => [key, holder.accounts])
-    ),
-    inMonth: new Map(
-      [...monthHolders].map(([key, holder]) => [
-        key,
-        holder.percentageHundredths,
-      ])
-    ),
+    accounts: new Map(above5.map(({ key, sum }) => [key, sum.accounts])),
+    inMonth: new Map(above1.map(({ key, sum }) => [key, sum.hundredths])),
   }
 })
 
@@ -458,7 +306,7 @@ const linksInView = Effect.fnUntraced(function* (
     yield* decodeRows(Above5AccountMapRow)(accountRows),
     yield* decodeRows(Above1MapRow)(monthRows)
   )
-  const lines = yield* moveLinesByKey(yield* decodeRows(MoveRow)(moveRows))
+  const moves = yield* movesByKey(yield* decodeRows(MoveRow)(moveRows))
   const left = yield* leavings(yield* decodeRows(LeavingRow)(leftRows))
   const links: Array<HolderMapLink> = []
   const accounts: Array<HoldingAccounts> = []
@@ -469,7 +317,7 @@ const linksInView = Effect.fnUntraced(function* (
     const stock = yield* stockLinks(code, periods.day, periods.month, rows)
     for (const [holder, of] of stock.accounts)
       accounts.push({ code, holder, accounts: of })
-    links.push(...(yield* changesOf(periods, stock, lines, left)))
+    links.push(...(yield* changesOf(periods, stock, moves, left)))
   }
   return { links, issuers, custodians: yield* custodianLinks(accounts) }
 })
@@ -555,7 +403,7 @@ const focusStatements = Effect.fnUntraced(function* (
       sql: `${IN_VIEW[focus.kind]} ${sql}`,
       params,
     })),
-    { sql: OFF_LIST[focus.kind], params },
+    ...OFF_LIST[focus.kind].map((sql) => ({ sql, params })),
   ]
 })
 
@@ -570,26 +418,6 @@ const mostHeldOf = Effect.fnUntraced(function* (
       holders,
     })
   )
-})
-
-// The focus's Off list: its leavings in neither band now. A holding in
-// either band now is no earlier one: a holder that left the above-5% list
-// for the 1% band crossed down out of 5%. A custodian's are holdings no
-// longer through it, whether they left the list or moved their account.
-const offListOf = Effect.fnUntraced(function* (
-  focus: Focus,
-  first: ReadonlyArray<HolderMapLink>,
-  rows: ReadonlyArray<typeof OffListRow.Type>
-) {
-  const linked = yield* placesOf(first)
-  const offList: Array<HolderMapOffList> = []
-  for (const [place, left] of yield* leavings(rows))
-    if (
-      !linked.has(place) &&
-      (focus.kind !== "holder" || left.holder === focus.key)
-    )
-      offList.push(left)
-  return offList
 })
 
 // The map of `query`, in one batch, so a parse run replacing a period
@@ -640,13 +468,11 @@ export const holderMapRead = Effect.fnUntraced(function* ({
     rest.slice(0, IN_VIEW_ROWS.length)
   )
   const { first, second } = yield* hopsOf(focus, links, custodians)
-  const offRead = yield* decodeRows(OffListRow)(rest[IN_VIEW_ROWS.length] ?? [])
-  const offListCut = offRead.length > OFF_LIST_ROWS
-  const offRows = offListCut ? offRead.slice(0, OFF_LIST_ROWS) : offRead
-  const offList = yield* offListOf(focus, first, offRows)
-  for (const row of offRows)
-    if (!issuers.has(row.stock_code))
-      issuers.set(row.stock_code, row.issuer_name)
+  const offRead = yield* offListRead(focus, rest.slice(IN_VIEW_ROWS.length))
+  const offListCut = offRead.cut
+  const offList = yield* offListOf(focus, first, offRead.leavings)
+  for (const [code, issuer] of offRead.issuers)
+    if (!issuers.has(code)) issuers.set(code, issuer)
   const inView = yield* placesOf([...first, ...second])
   const custodiansInView: Array<HolderMapCustodianLink> = []
   for (const link of custodians)

@@ -7,10 +7,15 @@
 import { StockCode, WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
-import { HolderKey } from "@/domain/holdings"
+import type { HolderKey } from "@/domain/holdings"
 import { placeOf } from "@/lib/holder-map-ids"
 
-import { holderKey } from "./holder-key.ts"
+import {
+  type KeyHolder,
+  leftHolders,
+  lineHolders,
+  type Lines,
+} from "./holder-map-holders.ts"
 import {
   HolderMapLink,
   HolderMapMove,
@@ -35,15 +40,16 @@ export const MoveRow = Schema.Struct({
   stock_code: StockCode,
   band: HolderMapLink.fields.band,
   name: Schema.String,
+  data_date: WibDate,
   move: Schema.Literals([...HolderMapMove.fields.kind.literals, "off list"]),
   share_change: Schema.NullOr(Schema.Number),
   percentage_change: Schema.NullOr(Schema.Number),
   stake_before: Schema.NullOr(Schema.Number),
   stake_now: Schema.NullOr(Schema.Number),
 })
-type MoveLine = typeof MoveRow.Type
 
-// Each holding's latest leaving of either list, by its place.
+// Each holding's latest leaving of either list, by its place: its key's
+// leavings of its newest period left, summed (`leftHolders`).
 //
 // Decision: the Holder map matches holders across stocks and reports by
 // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
@@ -51,18 +57,17 @@ export const leavings = Effect.fnUntraced(function* (
   rows: ReadonlyArray<typeof LeavingRow.Type>
 ) {
   const byPlace = new Map<string, HolderMapOffList>()
-  for (const row of rows) {
-    const key = HolderKey.make(yield* holderKey(row.name))
-    const place = yield* placeOf(row.stock_code, key)
+  for (const left of yield* leftHolders(rows)) {
+    const place = yield* placeOf(left.code, left.key)
     const known = byPlace.get(place)
-    if (known !== undefined && known.since >= row.data_date) continue
+    if (known !== undefined && known.since >= left.period) continue
     byPlace.set(place, {
-      code: row.stock_code,
-      band: row.band,
-      holder: key,
-      name: row.name,
-      since: row.data_date,
-      percentageHundredths: row.stake_before,
+      code: left.code,
+      band: left.band,
+      holder: left.key,
+      name: left.sum.name,
+      since: WibDate.make(left.period),
+      percentageHundredths: left.sum.stakeBefore,
     })
   }
   return byPlace
@@ -75,25 +80,18 @@ const movePlace = (
   holder: HolderKey
 ) => Effect.map(placeOf(code, holder), (place) => `${band} ${place}`)
 
-// Each stock's bands' stored lines by holder key. Holder moves follows a
-// holder by its identity within the stock (ADR 0129), the map by key, so a
-// key whose blocks are two identities, as CPGT's two ASIA ARGENTUM ASSETS
-// HONG KONG LIMITED blocks, takes their lines together (`keyMove`).
-export const moveLinesByKey = Effect.fnUntraced(function* (
-  rows: ReadonlyArray<MoveLine>
+// Each stock's bands' stored lines summed by holder key (`lineHolders`).
+// Holder moves follows a holder by its identity within the stock (ADR
+// 0129), the map by key, so a key whose blocks are two identities, as
+// CPGT's two ASIA ARGENTUM ASSETS HONG KONG LIMITED blocks, moves by their
+// lines together (`keyMove`). Each band's lines are of its one period.
+export const movesByKey = Effect.fnUntraced(function* (
+  rows: ReadonlyArray<typeof MoveRow.Type>
 ) {
-  const lines = new Map<string, Array<MoveLine>>()
-  for (const row of rows) {
-    const place = yield* movePlace(
-      row.band,
-      row.stock_code,
-      HolderKey.make(yield* holderKey(row.name))
-    )
-    const known = lines.get(place)
-    if (known === undefined) lines.set(place, [row])
-    else known.push(row)
-  }
-  return lines
+  const moves = new Map<string, KeyHolder<Lines>>()
+  for (const holder of yield* lineHolders(rows))
+    moves.set(yield* movePlace(holder.band, holder.code, holder.key), holder)
+  return moves
 })
 
 // A listed key's move from its lines, `blocks` its identities listed now.
@@ -104,41 +102,36 @@ export const moveLinesByKey = Effect.fnUntraced(function* (
 // and a block's leaving, its whole last holding out, counts toward Down,
 // never Off list, as the key is still listed.
 const keyMove = Effect.fnUntraced(function* (
-  of: ReadonlyArray<MoveLine>,
+  lines: KeyHolder<Lines> | undefined,
   blocks: number
 ) {
-  const [only] = of
+  if (lines === undefined) return undefined
+  const { moves, shareChange, percentageChange, stakeBefore, stakeNow } =
+    lines.sum
+  const [only] = moves
   if (only === undefined) return undefined
-  if (of.length === 1 && blocks === 1 && only.move !== "off list")
+  if (lines.blocks === 1 && blocks === 1 && only !== "off list")
     return {
-      kind: only.move,
-      shareChange: only.share_change ?? undefined,
-      percentageChange: only.percentage_change ?? undefined,
+      kind: only,
+      shareChange: shareChange ?? undefined,
+      percentageChange: percentageChange ?? undefined,
     } satisfies typeof HolderMapMove.Type
-  const shareChange = of.some(({ share_change }) => share_change === null)
-    ? undefined
-    : of.reduce((total, row) => total + (row.share_change ?? 0), 0)
-  if (of.length === blocks && of.every(({ move }) => move === "new"))
+  if (lines.blocks === blocks && moves.every((move) => move === "new"))
     return {
       kind: "new",
-      shareChange,
+      shareChange: shareChange ?? undefined,
       percentageChange: undefined,
     } satisfies typeof HolderMapMove.Type
-  // % × 100 now less before, a side a block isn't listed on counting 0.
-  const percentageChange = of.reduce(
-    (total, row) => total + (row.stake_now ?? 0) - (row.stake_before ?? 0),
-    0
-  )
   const kind = yield* summedKind(
-    only.band === "5%" ? shareChange : percentageChange,
-    of.some(({ move }) => move === "transfer")
+    lines.band === "5%" ? (shareChange ?? undefined) : stakeNow - stakeBefore,
+    moves.includes("transfer")
   )
   return kind === undefined
     ? undefined
     : ({
         kind,
-        shareChange,
-        percentageChange,
+        shareChange: shareChange ?? undefined,
+        percentageChange: stakeNow - stakeBefore,
       } satisfies typeof HolderMapMove.Type)
 })
 
@@ -170,7 +163,7 @@ export const changesOf = Effect.fnUntraced(function* (
     // Each month holder's %, by key.
     readonly inMonth: ReadonlyMap<HolderKey, number>
   },
-  lines: ReadonlyMap<string, ReadonlyArray<MoveLine>>,
+  moves: ReadonlyMap<string, KeyHolder<Lines>>,
   leftAbove5: ReadonlyMap<string, HolderMapOffList>
 ) {
   const out: Array<HolderMapLink> = []
@@ -179,7 +172,7 @@ export const changesOf = Effect.fnUntraced(function* (
     out.push({
       ...link,
       move: yield* keyMove(
-        lines.get(yield* movePlace(link.band, link.code, link.holder)) ?? [],
+        moves.get(yield* movePlace(link.band, link.code, link.holder)),
         link.band === "5%" ? (stock.blocks.get(link.holder) ?? 1) : 1
       ),
       gap:

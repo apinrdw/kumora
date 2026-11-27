@@ -878,7 +878,9 @@ describe("Holder map, custodians", () => {
         addAccount(w, "ASRI", 1, "PT ZP", 0)
         addAccount(w, "ENRG", 13, "PT ZP", 0, "2026-11-19")
         addAccount(w, "ENRG", 11, "PT ZP", 1_000)
-        const shima = yield* holderKey("PT Shima Global Kapital")
+        const shima = HolderKey.make(
+          yield* holderKey("PT Shima Global Kapital")
+        )
         const read = yield* custodianReadOf(w, "NAME:ZP")
         // Only Shima's ENRG block is held through it on 20 Nov: no link, no
         // book line and no node for the emptied account.
@@ -899,7 +901,7 @@ describe("Holder map, custodians", () => {
                 stocks,
               ])
             : undefined,
-          [[shima, 1_000, ["ENRG"]]]
+          [[shima, 1_000, [StockCode.make("ENRG")]]]
         )
         // Tangerang left it on 20 Nov; Shima, empty there on 19 Nov, never
         // held through it before.
@@ -1040,8 +1042,8 @@ describe("Holder map, one key's blocks", () => {
         const stock = yield* argentumIn(yield* stockReadOf(w, "CPGT"))
         assert.deepStrictEqual(stock.links, atBoth)
         assert.deepStrictEqual(
-          stock.custodians.map(([, shares]) => shares).sort(),
-          [324_374_252, 832_312_874]
+          stock.custodians.map(([, shares]) => shares),
+          [832_312_874, 324_374_252]
         )
         const reckson = yield* argentumIn(
           yield* holderReadOf(w, "RECKSON LIMITED")
@@ -1075,17 +1077,18 @@ describe("Holder map, one key's blocks", () => {
         assert.deepStrictEqual([stock.links, stock.offList], [[], left])
         const holder = yield* argentumIn(yield* holderReadOf(w, ARGENTUM))
         assert.deepStrictEqual([holder.links, holder.offList], [[], left])
-        // Each custodian it held a block through lists the holding at the
-        // key's last stake, not its block's.
-        for (const spelling of [DEUTSCHE, TRIMEGAH]) {
-          const custodian = yield* argentumIn(
-            yield* custodianReadOf(w, yield* custodianIdOf(spelling))
-          )
-          assert.deepStrictEqual(
-            [custodian.links, custodian.offList],
-            [[], left]
-          )
-        }
+        // Trimegah, which it held a block through, lists the holding at the
+        // key's last stake, not its block's. Deutsche Bank holds no account
+        // on 20 Nov, so that day knows no spelling of it to focus.
+        const trimegah = yield* argentumIn(
+          yield* custodianReadOf(w, yield* custodianIdOf(TRIMEGAH))
+        )
+        assert.deepStrictEqual([trimegah.links, trimegah.offList], [[], left])
+        const deutsche = yield* custodianReadOf(
+          w,
+          yield* custodianIdOf(DEUTSCHE)
+        )
+        assert.deepStrictEqual(deutsche.links, [])
       })
   )
 
