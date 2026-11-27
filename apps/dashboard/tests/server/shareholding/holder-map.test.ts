@@ -615,6 +615,29 @@ describe("Holder map, custodians", () => {
   )
 
   it.effect(
+    "keys a custodian without a code named at the parse's longest",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        // The above-5% parse's longest custodian name (above-5.ts,
+        // MAX_NAME_LENGTH), one word: its key is as long.
+        const name = "X".repeat(256)
+        addAccount(w, "CPGT", 7, name, 2_000)
+        const id = `NAME:${name}`
+        const stock = custodiansOf(yield* stockReadOf(w, "CPGT"))
+        assert.deepStrictEqual(
+          stock.filter(([, , custodian]) => custodian === id),
+          [["CPGT", "LIMITED RECKSON", id, name, 2_000]]
+        )
+        const read = yield* custodianReadOf(w, id)
+        assert.deepStrictEqual(
+          read.links.map(({ code }) => code),
+          ["CPGT"]
+        )
+      })
+  )
+
+  it.effect(
     "merges a custodian's spellings by broker code, and one without a code by its name",
     () =>
       Effect.gen(function* () {
