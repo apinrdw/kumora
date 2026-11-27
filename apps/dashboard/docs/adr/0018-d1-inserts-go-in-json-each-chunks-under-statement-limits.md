@@ -8,5 +8,6 @@ Sites:
 - `apps/dashboard/src/server/broker-totals/db.ts`
 - `apps/dashboard/src/server/d1.ts`
 - `apps/dashboard/src/server/archive/report-index.ts`
+- `apps/dashboard/src/server/disclosures/disclosure-index.ts`
 
 Source: apinrdw/kumora#355, apinrdw/kumora#419, apinrdw/kumora#659

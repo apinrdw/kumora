@@ -188,10 +188,11 @@ function MarkTable<Cell>({
                   {columns.map(({ abbr }, i) => {
                     const cell = cells[i] ?? null
                     const style = cell === null ? undefined : mark(cell)
+                    const note = cell === null ? undefined : describe?.(cell)
                     const tooltip =
                       cell === null || style === undefined
                         ? undefined
-                        : `${name(i)}: ${style.label}${describe ? ` ${describe(cell)}` : ""}`
+                        : `${name(i)}: ${style.label}${note ? ` ${note}` : ""}`
                     const pressed =
                       selected?.row === key && selected.index === i
                     return (

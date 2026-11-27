@@ -5,6 +5,10 @@ import { vi } from "vitest"
 import { timesWib } from "@/server/archive/schedule"
 import { RECONCILE_CRON } from "@/server/broker-totals/schedule"
 import {
+  DISCLOSURE_CRON,
+  nextDisclosureRun,
+} from "@/server/disclosures/schedule"
+import {
   KSEI_CRON,
   KSEI_PARSE_CRON,
   nextKseiParseRun,
@@ -45,6 +49,10 @@ const runLogoCron = vi.fn<() => Promise<void>>(() =>
   Effect.runPromise(Effect.void)
 )
 vi.mock("@/server/logos/cron", () => ({ runLogoCron }))
+const runDisclosureCron = vi.fn<(scheduledTime: number) => Promise<void>>(() =>
+  Effect.runPromise(Effect.void)
+)
+vi.mock("@/server/disclosures/cron", () => ({ runDisclosureCron }))
 const runReconcileCron = vi.fn<() => Promise<void>>(() =>
   Effect.runPromise(Effect.void)
 )
@@ -139,7 +147,7 @@ describe("a cron firing", () => {
   )
 
   it.effect(
-    "sets the reconcile cron on every stage, the archive, parse, sector, logo and board crons on Production only",
+    "sets the reconcile cron on every stage, the archive, parse, sector, logo, board and disclosure crons on Production only",
     () =>
       Effect.gen(function* () {
         assert.deepStrictEqual(stageCrons(false), [RECONCILE_CRON])
@@ -152,6 +160,7 @@ describe("a cron firing", () => {
           SECTOR_CRON,
           LOGO_CRON,
           SPECIAL_BOARD_CRON,
+          DISCLOSURE_CRON,
         ])
       })
   )
@@ -209,6 +218,36 @@ describe("a cron firing", () => {
         assert.strictEqual(runSectorCron.mock.calls.length, 0)
         assert.strictEqual(runArchiveCron.mock.calls.length, 0)
         assert.strictEqual(yield* timesWib(SPECIAL_BOARD_CRON), "23:00 WIB")
+      })
+  )
+
+  it.effect(
+    "starts a disclosure run, and no other, on the disclosure cron",
+    () =>
+      Effect.gen(function* () {
+        yield* Effect.promise(() => runCron(DISCLOSURE_CRON, scheduledTime))
+
+        assert.deepStrictEqual(runDisclosureCron.mock.calls, [[scheduledTime]])
+        assert.strictEqual(runArchiveCron.mock.calls.length, 0)
+        assert.strictEqual(runSpecialBoardCron.mock.calls.length, 0)
+      })
+  )
+
+  it.effect(
+    "fires the disclosure cron every 15 minutes, apart from every other cron",
+    () =>
+      Effect.gen(function* () {
+        for (const [now, next] of [
+          ["2026-11-26T03:00:00Z", "2026-11-26T03:15:00.000Z"],
+          ["2026-11-26T03:14:59Z", "2026-11-26T03:15:00.000Z"],
+          ["2026-11-26T23:50:00Z", "2026-11-27T00:00:00.000Z"],
+        ] as const)
+          assert.strictEqual(
+            (yield* nextDisclosureRun(new Date(now))).toISOString(),
+            next
+          )
+        const crons = stageCrons(true)
+        assert.strictEqual(new Set(crons).size, crons.length)
       })
   )
 })
