@@ -627,7 +627,7 @@ describe("Holder map, custodians", () => {
         const stock = custodiansOf(yield* stockReadOf(w, "CPGT"))
         assert.deepStrictEqual(
           stock.filter(([, , custodian]) => custodian === id),
-          [["CPGT", "LIMITED RECKSON", id, name, 2_000]]
+          [["CPGT", "ARGENTUM ASIA ASSETS HONG KONG LIMITED", id, name, 2_000]]
         )
         const read = yield* custodianReadOf(w, id)
         assert.deepStrictEqual(

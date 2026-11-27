@@ -302,11 +302,14 @@ export const RAIL_PERIODS = 10
 // with the period before them.
 export const TREND_PERIODS = 20
 
-// A key made of a published name: never blank, and at most 256
-// characters, as the name is (ADR 0045).
+// The longest published name the parses take (ADR 0045).
+const NAME_LENGTH = 256
+
+// A key made of a published name: never blank, and at most as long as the
+// name.
 const NameKey = Schema.String.check(
   Schema.isPattern(/\S/),
-  Schema.isMaxLength(256)
+  Schema.isMaxLength(NAME_LENGTH)
 )
 
 // A holder's name as matched across periods, stocks and reports
@@ -317,8 +320,12 @@ export type HolderKey = typeof HolderKey.Type
 
 // A custodian as one Holder map node across stocks
 // (server/holdings/holder-map-custodians.ts, `custodianOf`): its broker
-// code, or, with none, `NAME:` and its name keyed as a holder's name is.
-export const CustodianId = NameKey.pipe(Schema.brand("CustodianId"))
+// code, or, with none, `NAME:` and its name keyed as a holder's name is,
+// so up to that prefix longer than a name.
+export const CustodianId = Schema.String.check(
+  Schema.isPattern(/\S/),
+  Schema.isMaxLength(NAME_LENGTH + "NAME:".length)
+).pipe(Schema.brand("CustodianId"))
 export type CustodianId = typeof CustodianId.Type
 
 // What the Holder map is drawn around, and as of which trading day: a
