@@ -20,7 +20,12 @@ import {
 import { KButton } from "@/components/k/button"
 import type { HolderMapView, LegendEntry, Refocus } from "@/lib/holder-map"
 
-import { mapDefinition, ORIGIN_COLOR, STOCK_COLOR } from "./map-definition"
+import {
+  mapDefinition,
+  MOVE_COLOR,
+  ORIGIN_COLOR,
+  STOCK_COLOR,
+} from "./map-definition"
 import { useHolderMapLayout } from "./use-holder-map-layout"
 import { useMapViewport } from "./use-map-viewport"
 
@@ -180,6 +185,14 @@ const SWATCH: Record<string, CSSProperties> = {
   unknown: { background: ORIGIN_COLOR.unknown },
 }
 
+// A move's swatch is a short stroke, as its link is drawn.
+const moveSwatch = (color: string): CSSProperties => ({
+  height: 3,
+  width: 12,
+  borderRadius: 2,
+  background: color,
+})
+
 const LEGEND_NOTE: Partial<Record<string, string>> = {
   stock: "code inside",
   holder: "KSEI type inside, size by stake",
@@ -193,16 +206,27 @@ function Legend({ entries }: { entries: ReadonlyArray<LegendEntry> }) {
       aria-label="Legend"
       className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted-foreground"
     >
-      {entries.map(({ key, label }) => (
-        <li key={key} className="flex items-center gap-1.5">
-          <span
-            aria-hidden
-            className="inline-block size-2.5 shrink-0 rounded-full"
-            style={SWATCH[key]}
-          />
-          {label}
-          {LEGEND_NOTE[key] && (
-            <span className="text-[11px]">({LEGEND_NOTE[key]})</span>
+      {entries.map((entry) => (
+        <li
+          key={`${entry.kind} ${entry.key}`}
+          className="flex items-center gap-1.5"
+        >
+          {entry.kind === "move" ? (
+            <span
+              aria-hidden
+              className="inline-block shrink-0"
+              style={moveSwatch(MOVE_COLOR[entry.key])}
+            />
+          ) : (
+            <span
+              aria-hidden
+              className="inline-block size-2.5 shrink-0 rounded-full"
+              style={SWATCH[entry.key]}
+            />
+          )}
+          {entry.label}
+          {LEGEND_NOTE[entry.key] && (
+            <span className="text-[11px]">({LEGEND_NOTE[entry.key]})</span>
           )}
         </li>
       ))}

@@ -15,6 +15,7 @@ import {
   type HolderMapView,
   type MapNode,
   ORIGIN_LABEL,
+  type ShownMove,
 } from "@/lib/holder-map"
 import type { Layout } from "@/lib/holder-map-layout"
 import { type Viewport, viewportDomains } from "@/lib/holder-map-viewport"
@@ -34,6 +35,17 @@ export const ORIGIN_COLOR: Record<
   unknown: "var(--text-muted)",
 }
 export const STOCK_COLOR = "var(--accent-primary)"
+// A link's colour by its holder's move: Holder moves' tones, a crossing of
+// 5% toned as the Up or Down it is.
+export const MOVE_COLOR: Record<ShownMove, string> = {
+  new: "var(--semantic-info)",
+  up: "var(--semantic-up)",
+  down: "var(--semantic-down)",
+  transfer: "var(--text-secondary)",
+  unchanged: "var(--text-muted)",
+  "up into 5%": "var(--semantic-up)",
+  "down out of 5%": "var(--semantic-down)",
+}
 const SURFACE = "var(--bg-surface)"
 
 // A node placed, its radius in px and its colour.
@@ -139,8 +151,8 @@ export const mapDefinition = Effect.fnUntraced(function* (options: {
           x2: "x2",
           y2: "y2",
           key: "id",
-          stroke: "var(--text-muted)",
-          strokeOpacity: 0.55,
+          stroke: (row) => MOVE_COLOR[row.move],
+          strokeOpacity: (row) => (row.move === "unchanged" ? 0.55 : 0.85),
           strokeWidth: (row) => Math.max(0.5, row.strokeWidth),
           renderer: canvasChartRenderer,
         })

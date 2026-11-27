@@ -80,13 +80,17 @@ export interface MapLink {
   readonly stakeHundredths: number
   // In layout units, following the stake.
   readonly width: number
+  // What its holder's row shows, the link's colour.
+  readonly move: ShownMove
 }
 
-export interface LegendEntry {
-  readonly kind: "node" | "band" | "origin"
-  readonly key: string
-  readonly label: string
-}
+export type LegendEntry =
+  | {
+      readonly kind: "node" | "band" | "origin"
+      readonly key: string
+      readonly label: string
+    }
+  | { readonly kind: "move"; readonly key: ShownMove; readonly label: string }
 
 export interface HolderMapView {
   readonly day: WibDate | undefined
@@ -221,13 +225,28 @@ const graphOf = Effect.fnUntraced(function* (
     band: holder.band,
     stakeHundredths: holder.percentageHundredths,
     width: LINK_WIDTH + (WIDTH_PER_PERCENT * holder.percentageHundredths) / 100,
+    move: holder.shownMove,
   }))
   return { nodes, links }
 })
 
 const ORIGIN_ORDER = ["local", "foreign", "mixed", undefined] as const
 
-const legendOf = (nodes: ReadonlyArray<MapNode>) =>
+// Holder moves' order, then the crossings of 5%.
+const MOVE_LABEL: Record<ShownMove, string> = {
+  new: "New",
+  up: "Up",
+  down: "Down",
+  transfer: "Transfer",
+  unchanged: "Unchanged",
+  "up into 5%": "Up into 5%",
+  "down out of 5%": "Down out of 5%",
+}
+
+const legendOf = (
+  nodes: ReadonlyArray<MapNode>,
+  links: ReadonlyArray<MapLink>
+) =>
   Effect.sync((): ReadonlyArray<LegendEntry> => {
     const holders = nodes.filter(({ kind }) => kind === "holder")
     const kinds: Array<LegendEntry> = [
@@ -250,7 +269,14 @@ const legendOf = (nodes: ReadonlyArray<MapNode>) =>
       key: origin ?? "unknown",
       label: origin === undefined ? "Origin unknown" : ORIGIN_LABEL[origin],
     }))
-    return [...kinds, ...bands, ...origins]
+    const moves = (Object.keys(MOVE_LABEL) as Array<ShownMove>)
+      .filter((move) => links.some((each) => each.move === move))
+      .map((move): LegendEntry => ({
+        kind: "move",
+        key: move,
+        label: MOVE_LABEL[move],
+      }))
+    return [...kinds, ...bands, ...origins, ...moves]
   })
 
 export const holderMapView = Effect.fnUntraced(function* (
@@ -273,7 +299,7 @@ export const holderMapView = Effect.fnUntraced(function* (
       issuerName: focus.issuerName,
       bands,
       graph,
-      legend: yield* legendOf(graph.nodes),
+      legend: yield* legendOf(graph.nodes, graph.links),
       offList: [...offList].sort(
         (a, b) => b.since.localeCompare(a.since) || a.name.localeCompare(b.name)
       ),

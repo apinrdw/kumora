@@ -187,6 +187,32 @@ describe("holderMapView", () => {
       })
   )
 
+  it.effect("colours each holder's link by the move its row shows", () =>
+    Effect.gen(function* () {
+      const view = yield* holderMapView(
+        read([
+          {
+            ...link("5%", "A", 900),
+            move: { kind: "up", shareChange: 1000, percentageChange: 20 },
+            crossing: { kind: "up into 5%", monthHundredths: 450 },
+          },
+          {
+            ...link("5%", "B", 800),
+            move: { kind: "transfer", shareChange: 0, percentageChange: 0 },
+          },
+          link("1%", "C", 200),
+        ])
+      )
+      expect(
+        view.focus?.graph.links.map(({ target, move }) => [target, move])
+      ).toEqual([
+        ["holder:A", "up into 5%"],
+        ["holder:B", "transfer"],
+        ["holder:C", "unchanged"],
+      ])
+    })
+  )
+
   it.effect("sizes a holder's node and link by its stake", () =>
     Effect.gen(function* () {
       const view = yield* holderMapView(
@@ -230,7 +256,7 @@ describe("holderMapView", () => {
   )
 
   it.effect(
-    "names in the legend each node kind, band and origin the map draws",
+    "names in the legend each node kind, band, origin and move the map draws",
     () =>
       Effect.gen(function* () {
         const view = yield* holderMapView(
@@ -248,6 +274,7 @@ describe("holderMapView", () => {
           "Local",
           "Foreign",
           "Origin unknown",
+          "Unchanged",
         ])
         const only5 = yield* holderMapView(read([link("5%", "A", 900)]))
         expect(only5.focus?.legend.map(({ label }) => label)).toEqual([
@@ -255,8 +282,48 @@ describe("holderMapView", () => {
           "Holder",
           "5% and above",
           "Local",
+          "Unchanged",
         ])
       })
+  )
+
+  it.effect("names each move the links show, in Holder moves' order", () =>
+    Effect.gen(function* () {
+      const moved = (kind: "new" | "up" | "down" | "transfer") => ({
+        kind,
+        shareChange: 1000,
+        percentageChange: 10,
+      })
+      const view = yield* holderMapView(
+        read([
+          { ...link("5%", "A", 900), move: moved("transfer") },
+          {
+            ...link("5%", "B", 800),
+            crossing: {
+              kind: "down out of 5%",
+              since: WibDate.make("2026-11-20"),
+            },
+          },
+          { ...link("5%", "C", 700), move: moved("new") },
+          { ...link("1%", "D", 300), move: moved("down") },
+          {
+            ...link("5%", "E", 600),
+            crossing: { kind: "up into 5%", monthHundredths: 450 },
+          },
+        ])
+      )
+      expect(
+        view.focus?.legend
+          .filter(({ kind }) => kind === "move")
+          .map(({ key, label }) => [key, label])
+      ).toEqual([
+        ["new", "New"],
+        ["down", "Down"],
+        ["transfer", "Transfer"],
+        ["up into 5%", "Up into 5%"],
+        ["down out of 5%", "Down out of 5%"],
+      ])
+    })
   )
 
   it.effect("has no focus on the landing view, only the stocks most held", () =>
