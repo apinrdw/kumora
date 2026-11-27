@@ -4,6 +4,8 @@
 // destroy` does. A dry run destroys nothing. It prints one line per Preview.
 import { Command, Flag } from "effect/cli"
 import * as Console from "effect/Console"
+import * as DateTime from "effect/DateTime"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -37,19 +39,43 @@ class SweepFailed extends Schema.TaggedError<SweepFailed>()("SweepFailed", {
   }
 }
 
+// A Prototype branch's name starts with this (the Deploy glossary).
+const PROTOTYPE_PREFIX = "prototype/"
+
+// How long a branch with no PR keeps its Preview after its head commit.
+const GRACE = Duration.days(3)
+
 interface Verdict {
   readonly stale: boolean
   readonly reason: string
 }
 
-// The stale rule, first match wins. A gone branch is stale with no grace: the
-// work is deleted, so its Preview goes too. The rules that read a live
-// branch's PRs and head commit belong after it.
+// The stale rule (Stale Preview in the Deploy glossary), first match wins.
+// - A gone branch is stale with no grace: the work is deleted.
+// - An open PR keeps a Preview however old its head: a long review needs it.
+// - A Prototype branch is pushed for its Preview, so only its deletion ends it.
+// - A merged or closed PR with none open is stale with no grace, so a push
+//   after the merge can't keep a Preview alive (#79's did).
+// - A branch that never had a PR gets a grace, so a developer can look at its
+//   Preview before opening the PR, then goes once idle; integration
+//   sub-branches merge locally and never get one. Exactly GRACE old is still
+//   in grace. The Clock, not Date, so TestClock drives the boundary.
 const verdict = Effect.fnUntraced(function* (
   branch: Branch | undefined
 ): Effect.fn.Return<Verdict> {
   if (branch === undefined) return { stale: true, reason: "branch gone" }
-  return { stale: false, reason: `branch ${branch.name} is live` }
+  if (branch.pullRequests === "open") return { stale: false, reason: "open PR" }
+  if (branch.name.startsWith(PROTOTYPE_PREFIX))
+    return { stale: false, reason: "prototype branch" }
+  if (branch.pullRequests === "closed")
+    return { stale: true, reason: "PR closed" }
+  const now = yield* DateTime.now
+  return DateTime.isGreaterThan(
+    now,
+    DateTime.addDuration(branch.headCommitDate, GRACE)
+  )
+    ? { stale: true, reason: "no PR, idle" }
+    : { stale: false, reason: "no PR, in grace" }
 })
 
 // The state store keeps whatever stage alchemy was handed, so only names that

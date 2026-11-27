@@ -8,7 +8,7 @@ import { ChildProcessSpawner } from "effect/process"
 import * as Stdio from "effect/Stdio"
 import * as Terminal from "effect/Terminal"
 
-import { GitHub } from "../src/github.ts"
+import { type Branch, GitHub } from "../src/github.ts"
 import { Stacks } from "../src/stacks.ts"
 import { StoredStages } from "../src/stored-stages.ts"
 import type { App, Stage } from "../src/target.ts"
@@ -67,11 +67,9 @@ export const fakeStoredStages = (
     list: (app) => Effect.succeed(stages[app] ?? []),
   })
 
-// The repo's live branches.
-export const fakeGitHub = (branches: ReadonlyArray<string>) =>
-  Layer.succeed(GitHub, {
-    branches: Effect.succeed(branches.map((name) => ({ name }))),
-  })
+// The repo's live branches, with their PRs and head commit dates.
+export const fakeGitHub = (branches: ReadonlyArray<Branch>) =>
+  Layer.succeed(GitHub, { branches: Effect.succeed(branches) })
 
 // What the teardown command needs, for a test that never sweeps: an empty
 // state store and no branches.
