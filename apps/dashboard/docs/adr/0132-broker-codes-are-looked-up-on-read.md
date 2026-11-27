@@ -6,7 +6,7 @@ Sites:
 
 - `apps/dashboard/src/lib/broker-code.ts`
 - `apps/dashboard/src/lib/daily-holders.ts`
-- `apps/dashboard/src/server/holdings/holder-map.ts`
+- `apps/dashboard/src/server/holdings/holder-map-custodians.ts`
 - `scripts/write-exchange-members.mts`
 
 Source: apinrdw/kumora#673

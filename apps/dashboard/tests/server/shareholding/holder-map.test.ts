@@ -10,12 +10,12 @@ import { Effect } from "effect"
 import { CustodianId, HolderKey } from "@/domain/holdings"
 import { holderMapView } from "@/lib/holder-map"
 import { holderKey } from "@/server/holdings/holder-key"
-import {
-  type HolderMapLink,
-  type HolderMapRead,
-  holderMapRead,
-  holderMapSearchList,
-} from "@/server/holdings/holder-map"
+import { holderMapRead } from "@/server/holdings/holder-map"
+import type {
+  HolderMapLink,
+  HolderMapRead,
+} from "@/server/holdings/holder-map-schema"
+import { holderMapSearchList } from "@/server/holdings/holder-map-search-list"
 import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 
 import {

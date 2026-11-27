@@ -89,7 +89,7 @@ export const holderMapMoveSearch = (
     kind === "daily" ? { stock, day: period } : { stock }
   )
 
-// What the map's search offers (server/holdings/holder-map.ts,
+// What the map's search offers (server/holdings/holder-map-search-list.ts,
 // `holderMapSearchList`).
 export interface FocusList {
   readonly stocks: ReadonlyArray<{

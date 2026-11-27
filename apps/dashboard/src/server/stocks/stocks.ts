@@ -12,10 +12,8 @@ import { refusal } from "@/server/auth/refusal"
 import { accountOf } from "@/server/auth/session-account"
 import type { HolderMapQuery, MovesSelection } from "@/domain/holdings"
 import { brokerInventory } from "@/server/broker-totals/inventory"
-import {
-  holderMapRead,
-  holderMapSearchList,
-} from "@/server/holdings/holder-map"
+import { holderMapRead } from "@/server/holdings/holder-map"
+import { holderMapSearchList } from "@/server/holdings/holder-map-search-list"
 import { holderMovesRead } from "@/server/holdings/holder-moves"
 import { stockList, stockPage } from "@/server/holdings/stock-page"
 import { marketToday } from "@/server/market-live/market-clock"

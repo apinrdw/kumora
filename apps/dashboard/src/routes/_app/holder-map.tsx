@@ -11,7 +11,7 @@ import {
   queryOf,
   refocused,
 } from "@/lib/holder-map-search"
-import type { HolderMapRead } from "@/server/holdings/holder-map"
+import type { HolderMapRead } from "@/server/holdings/holder-map-schema"
 import { holderMapFn } from "@/server/stocks/stocks.functions"
 
 export const Route = createFileRoute("/_app/holder-map")({

@@ -29,6 +29,7 @@ Sites:
 - `apps/dashboard/src/server/holdings/above-1-moves.ts`
 - `apps/dashboard/src/server/holdings/holder-moves.ts`
 - `apps/dashboard/src/server/holdings/holder-map.ts`
+- `apps/dashboard/src/server/holdings/holder-map-moves.ts`
 - `apps/dashboard/src/lib/major-holders.ts`
 - `apps/dashboard/src/server/shareholding/above-5-parse.ts`
 - `apps/dashboard/src/server/shareholding/above-1-parse.ts`

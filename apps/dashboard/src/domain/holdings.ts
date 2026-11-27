@@ -313,7 +313,7 @@ export const HolderKey = Schema.String.check(
 export type HolderKey = typeof HolderKey.Type
 
 // A custodian as one Holder map node across stocks
-// (server/holdings/holder-map.ts, `custodianOf`): its broker code, or, with
+// (server/holdings/holder-map-custodians.ts, `custodianOf`): its broker code, or, with
 // none, its name keyed as a holder's name is.
 export const CustodianId = Schema.String.check(
   Schema.isPattern(/\S/),

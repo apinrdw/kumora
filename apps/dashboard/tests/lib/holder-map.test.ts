@@ -9,7 +9,7 @@ import type {
   HolderMapLink,
   HolderMapOffList,
   HolderMapRead,
-} from "@/server/holdings/holder-map"
+} from "@/server/holdings/holder-map-schema"
 
 const link = (
   band: HolderMapLink["band"],

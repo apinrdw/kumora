@@ -41,7 +41,7 @@ import {
 } from "@/lib/holder-map"
 import { type FocusMatch, refocused } from "@/lib/holder-map-search"
 import { dayDateLabel, monthLabel } from "@/lib/stock-page-display"
-import type { HolderMapOffList } from "@/server/holdings/holder-map"
+import type { HolderMapOffList } from "@/server/holdings/holder-map-schema"
 
 import { FocusPicker } from "./focus-picker"
 import { HolderMapGraph } from "./holder-map-graph"

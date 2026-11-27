@@ -9,5 +9,6 @@ The stock page and Holder moves keep their own rule: ADR 0129's identity within 
 Sites:
 
 - `apps/dashboard/src/server/holdings/holder-map.ts`
+- `apps/dashboard/src/server/holdings/holder-map-moves.ts`
 
 Source: apinrdw/kumora#733, apinrdw/kumora#734, apinrdw/kumora#738, apinrdw/kumora#739

@@ -11,7 +11,7 @@ import type {
   HolderMapLink,
   HolderMapOffList,
   HolderMapRead,
-} from "@/server/holdings/holder-map"
+} from "@/server/holdings/holder-map-schema"
 
 export type Band = HolderMapLink["band"]
 
