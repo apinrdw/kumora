@@ -59,11 +59,14 @@ export function useFocusList(
   )
 }
 
-// The search list of the map `read`, `asked` the day its URL asks for.
+// The search list of the map `read`, `asked` the day its URL asks for: as
+// of the day the map was read as of, so a map with no day asked that moves
+// onto a newer parsed day lists that day's, or the day asked for where the
+// read refused it.
 export function useMapFocusList(
   href: string,
   read: Pick<HolderMapRead, "day">,
   asked: WibDate | undefined
 ): FocusListState {
-  return useFocusList(href, asked)
+  return useFocusList(href, read.day ?? asked)
 }
