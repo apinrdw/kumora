@@ -48,6 +48,9 @@ function HolderMapRoute() {
       onStock={(stock) =>
         void navigate({ search: (previous) => ({ ...previous, stock }) })
       }
+      onRefocus={(refocus) =>
+        void navigate({ search: (previous) => ({ ...previous, ...refocus }) })
+      }
     />
   )
 }

@@ -1,7 +1,7 @@
-// The Holder map page (spec apinrdw/kumora#733; apinrdw/kumora#734): a
-// stock search, then the focus stock's holders as of one trading day in a
-// side panel of two bands, or, with no focus, the stocks with the most ≥1%
-// holders.
+// The Holder map page (spec apinrdw/kumora#733; apinrdw/kumora#734,
+// #735): a stock search, then the focus stock's holders as of one trading
+// day, drawn as a map above a side panel of two bands, or, with no focus,
+// the stocks with the most ≥1% holders.
 import { Link } from "@tanstack/react-router"
 import type { StockCode, WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
@@ -15,25 +15,23 @@ import { StockCodePicker } from "@/components/market-live/stock-code-picker"
 import { percentOf } from "@/components/stocks/holder-cells"
 import { KSEI_TYPE_LABELS } from "@/domain/holdings"
 import { count, lotsOfShares } from "@/lib/format"
-import type { BandSection, HolderMapView } from "@/lib/holder-map"
+import {
+  BAND_TITLE,
+  type BandSection,
+  type HolderMapView,
+  ORIGIN_LABEL,
+  type Refocus,
+} from "@/lib/holder-map"
 import { dayDateLabel, monthLabel } from "@/lib/stock-page-display"
 import type { HolderMapLink } from "@/server/holdings/holder-map"
+
+import { HolderMapGraph } from "./holder-map-graph"
 
 export type HolderMapPageProps = {
   map: HolderMapView
   list: StockCodeList
   onStock: (code: StockCode) => void
-}
-
-const BAND_TITLE: Record<BandSection["band"], string> = {
-  "5%": "5% and above",
-  "1%": "1% to 5%",
-}
-
-const ORIGIN_LABEL: Record<NonNullable<HolderMapLink["origin"]>, string> = {
-  local: "Local",
-  foreign: "Foreign",
-  mixed: "Local and foreign",
+  onRefocus: (refocus: Refocus) => void
 }
 
 // The bands' dates: the 5% band's trading day and the 1% band's month.
@@ -52,7 +50,12 @@ const datesLine = Effect.fnUntraced(function* (
   return parts.join(" · ")
 })
 
-export function HolderMapPage({ map, list, onStock }: HolderMapPageProps) {
+export function HolderMapPage({
+  map,
+  list,
+  onStock,
+  onRefocus,
+}: HolderMapPageProps) {
   return (
     <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 py-2">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -75,7 +78,7 @@ export function HolderMapPage({ map, list, onStock }: HolderMapPageProps) {
       {map.focus === undefined ? (
         <MostHeld map={map} />
       ) : (
-        <Focus focus={map.focus} day={map.day} />
+        <Focus focus={map.focus} day={map.day} onRefocus={onRefocus} />
       )}
     </div>
   )
@@ -127,9 +130,11 @@ function MostHeld({ map }: { map: HolderMapView }) {
 function Focus({
   focus,
   day,
+  onRefocus,
 }: {
   focus: NonNullable<HolderMapView["focus"]>
   day: WibDate | undefined
+  onRefocus: (refocus: Refocus) => void
 }) {
   const empty = focus.bands.every(({ holders }) => holders.length === 0)
   return (
@@ -162,7 +167,12 @@ function Focus({
           description={`Neither the day's above-5% report nor the month's above-1% report lists ${focus.code}. Check the code, or search another stock.`}
         />
       ) : (
-        focus.bands.map((band) => <Band key={band.band} band={band} />)
+        <>
+          <HolderMapGraph focus={focus} onRefocus={onRefocus} />
+          {focus.bands.map((band) => (
+            <Band key={band.band} band={band} />
+          ))}
+        </>
       )}
     </section>
   )
