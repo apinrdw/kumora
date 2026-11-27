@@ -31,7 +31,7 @@ import {
   LeavingRow,
   leavings,
   MoveRow,
-  movesByKey,
+  moveLinesByKey,
 } from "./holder-map-moves.ts"
 import {
   type Focus,
@@ -128,23 +128,22 @@ const IN_VIEW_ROWS = [
   FROM above_1_holding
   WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT month FROM band_month)
   ORDER BY stock_code, seq`,
-  // Their listed holders' stored moves: the day's against the trading day
-  // before, the month's against the month before. A period's lines of a
-  // stock are at most its holders.
+  // Their stored moves: the day's against the trading day before, the
+  // month's against the month before, Off list too, as a key still listed
+  // can have a block that left. A period's lines of a stock are at most
+  // its holders of the period and the one before.
   //
   // Decision: Holder moves are derived at parse time
   // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
   `SELECT stock_code, '5%' AS band, name, move, share_change,
-    percentage_change
+    percentage_change, stake_before, stake_now
   FROM above_5_move
   WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT day FROM asof)
-    AND move <> 'off list'
   UNION ALL
   SELECT stock_code, '1%' AS band, name, move, share_change,
-    percentage_change
+    percentage_change, stake_before, stake_now
   FROM above_1_move
-  WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT month FROM band_month)
-    AND move <> 'off list'`,
+  WHERE ${STOCKS_IN_VIEW} AND data_date = (SELECT month FROM band_month)`,
   // The month's ≥1% holders that left the above-5% list after the month:
   // each identity's newest leaving between the month and the day, unless
   // it came back since. An identity starts with the key it was first
@@ -356,6 +355,7 @@ const stockLinks = Effect.fnUntraced(function* (
     HolderKey,
     {
       name: string
+      blocks: number
       hundredths: number
       shares: number
       origins: Array<SplitOrigin>
@@ -369,12 +369,14 @@ const stockLinks = Effect.fnUntraced(function* (
     if (summed === undefined)
       above5.set(key, {
         name: holder.name,
+        blocks: 1,
         hundredths: holder.percentageHundredths,
         shares: holder.scripless,
         origins,
         accounts: [...holder.accounts],
       })
     else {
+      summed.blocks += 1
       summed.hundredths += holder.percentageHundredths
       summed.shares += holder.scripless
       summed.origins.push(...origins)
@@ -409,6 +411,8 @@ const stockLinks = Effect.fnUntraced(function* (
   }
   return {
     links,
+    // Each 5%-band holder's blocks, repeats collapsed, by key.
+    blocks: new Map([...above5].map(([key, holder]) => [key, holder.blocks])),
     // Each 5%-band holder's securities accounts, by key.
     accounts: new Map(
       [...above5].map(([key, holder]) => [key, holder.accounts])
@@ -453,7 +457,7 @@ const linksInView = Effect.fnUntraced(function* (
     yield* decodeRows(Above5AccountMapRow)(accountRows),
     yield* decodeRows(Above1MapRow)(monthRows)
   )
-  const moves = yield* movesByKey(yield* decodeRows(MoveRow)(moveRows))
+  const lines = yield* moveLinesByKey(yield* decodeRows(MoveRow)(moveRows))
   const left = yield* leavings(yield* decodeRows(LeavingRow)(leftRows))
   const links: Array<HolderMapLink> = []
   const accounts: Array<HoldingAccounts> = []
@@ -464,7 +468,7 @@ const linksInView = Effect.fnUntraced(function* (
     const stock = yield* stockLinks(code, periods.day, periods.month, rows)
     for (const [holder, of] of stock.accounts)
       accounts.push({ code, holder, accounts: of })
-    links.push(...(yield* changesOf(periods, stock, moves, left)))
+    links.push(...(yield* changesOf(periods, stock, lines, left)))
   }
   return { links, issuers, custodians: yield* custodianLinks(accounts) }
 })
