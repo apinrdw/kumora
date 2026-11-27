@@ -1,11 +1,20 @@
 # Destroys a branch's preview stage of every app when its PR closes or the
-# branch is deleted. Workers Builds deploys; this job only tears down.
+# branch is deleted, and runs the daily Preview sweep, which destroys every
+# Stale Preview. Workers Builds deploys; this workflow only tears down.
 name: Tear down preview
 
 on:
   pull_request:
     types: [closed]
   delete:
+  schedule:
+    - cron: "0 20 * * *" # 03:00 WIB
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: List the Stale Previews and destroy nothing
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -66,4 +75,39 @@ jobs:
       - run: bun packages/deploy/src/teardown.ts destroy "$STAGE"
         env:
           STAGE: ${{ needs.stage.outputs.stage }}
+          INFISICAL_IDENTITY_ID: ${{ vars.INFISICAL_TEARDOWN_IDENTITY_ID }}
+
+  sweep:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # One sweep at a time. Its destroys don't share the event-driven destroy's
+    # preview-<stage> group, which would take a job per Stale Preview: an
+    # overlap with that destroy is harmless, because whichever runs second
+    # finds the stage gone, as a merged PR's second trigger already does.
+    concurrency:
+      group: preview-sweep
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
+        with:
+          version: 1.8.0
+          node-version: 24
+          cache: true
+          run-install: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: vp install --frozen-lockfile
+      # Decision: teardown logs into Infisical by OIDC, as a Viewer that sees prod
+      # (docs/adr/0009-teardown-reads-infisical-by-github-oidc-as-a-viewer.md)
+      #
+      # A scheduled run has no inputs, so it destroys for real.
+      - run: bun packages/deploy/src/teardown.ts sweep $DRY_RUN
+        env:
+          DRY_RUN: ${{ inputs.dry-run && '--dry-run' || '' }}
+          GITHUB_TOKEN: ${{ github.token }}
           INFISICAL_IDENTITY_ID: ${{ vars.INFISICAL_TEARDOWN_IDENTITY_ID }}
