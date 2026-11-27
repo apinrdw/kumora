@@ -92,6 +92,12 @@ export type FocusView = (
   // The 5% band, then the 1% band; the 5% band only for a day before any
   // above-1% month, none for a refused day or a custodian focus.
   readonly bands: ReadonlyArray<BandSection>
+  // The hop beyond, so the side panel lists every node the graph draws: a
+  // stock focus's holders' other stocks, by the bands' order of their
+  // holders, or a holder focus's stocks' other holders, by its stocks';
+  // each most % first. None for a custodian focus, whose book lists its
+  // holders and stocks.
+  readonly beyond: ReadonlyArray<MapHolder>
   // The custodians the graph draws, but the focus; most shares first.
   readonly custodians: ReadonlyArray<MapCustodian>
   readonly graph: MapGraph
@@ -146,6 +152,31 @@ const section = Effect.fnUntraced(function* (
       0
     ),
   } satisfies BandSection as BandSection
+})
+
+// The hop beyond in the side panel's order: grouped by the first-hop row
+// it hangs off, a holder of a stock focus or a stock of a holder focus.
+const beyondOf = Effect.fnUntraced(function* (
+  kind: "stock" | "holder",
+  bands: ReadonlyArray<BandSection>,
+  hops: ReadonlyArray<HolderMapLink>,
+  issuers: ReadonlyMap<StockCode, string>
+) {
+  const near = (link: HolderMapLink): string =>
+    kind === "stock" ? link.holder : link.code
+  const row = new Map<string, number>()
+  for (const { holders } of bands)
+    for (const holder of holders)
+      if (!row.has(near(holder))) row.set(near(holder), row.size)
+  const beyond: Array<MapHolder> = []
+  for (const hop of hops) beyond.push(yield* shownOf(hop, issuers))
+  return beyond.sort(
+    (a, b) =>
+      (row.get(near(a)) ?? row.size) - (row.get(near(b)) ?? row.size) ||
+      b.percentageHundredths - a.percentageHundredths ||
+      a.name.localeCompare(b.name) ||
+      a.code.localeCompare(b.code)
+  )
 })
 
 // The custodians of `links`, each once, by id.
@@ -330,6 +361,10 @@ export const holderMapView = Effect.fnUntraced(function* (
     focus: {
       ...named,
       bands,
+      beyond:
+        focus.kind === "custodian"
+          ? []
+          : yield* beyondOf(focus.kind, bands, read.hops, issuers),
       custodians,
       graph,
       legend: yield* legendOf(graph),

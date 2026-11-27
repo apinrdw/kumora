@@ -326,6 +326,9 @@ function Focus({
           {focus.bands.map((band) => (
             <Band key={band.band} band={band} day={day} focus={focus} />
           ))}
+          {focus.kind !== "custodian" && (
+            <Beyond holdings={focus.beyond} focus={focus.kind} />
+          )}
           {focus.kind === "custodian" && <Book book={focus.book} />}
           <Custodians custodians={focus.custodians} focus={focus.kind} />
         </>
@@ -573,6 +576,83 @@ function Band({
           </table>
         </div>
       )}
+    </section>
+  )
+}
+
+// What the hop beyond lists, by focus: its holders' other stocks, or its
+// stocks' other holders, each row the first-hop holding it hangs off and
+// the far end.
+const BEYOND = {
+  stock: {
+    title: "Its holders' other stocks",
+    columns: ["Holder", "Stock", "Move", "% of listed"],
+  },
+  holder: {
+    title: "Its stocks' other holders",
+    columns: ["Stock", "Holder", "Move", "% of listed"],
+  },
+} as const
+
+// The hop beyond the first, so every node the map draws has a row: each
+// end a link refocusing the map on it.
+function Beyond({
+  holdings,
+  focus,
+}: {
+  holdings: ReadonlyArray<MapHolder>
+  focus: "stock" | "holder"
+}) {
+  if (holdings.length === 0) return null
+  const { title, columns } = BEYOND[focus]
+  const holderCell = (holding: MapHolder) => (
+    <RefocusLink to={{ holder: holding.holder }}>{holding.name}</RefocusLink>
+  )
+  const stockCell = (holding: MapHolder) => (
+    <>
+      <RefocusLink to={{ stock: holding.code }}>{holding.code}</RefocusLink>
+      <div className="mt-0.5 text-[12px] font-normal text-muted-foreground">
+        {holding.issuerName ?? "Issuer unknown"}
+      </div>
+    </>
+  )
+  const [near, far] =
+    focus === "stock" ? [holderCell, stockCell] : [stockCell, holderCell]
+  return (
+    <section aria-labelledby="beyond" className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 id="beyond" className="text-[15px] font-semibold">
+          {title}
+        </h3>
+        <p className="text-[13px] text-muted-foreground">
+          A hop beyond the bands
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table aria-label={title} className={TABLE}>
+          <Head columns={columns} />
+          <tbody>
+            {/* Decision: a page renders a list of stored rows through BoundedRows
+                (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md) */}
+            <BoundedRows rows={holdings}>
+              {(holding) => (
+                <tr key={`${holding.code} ${holding.holder}`}>
+                  <th scope="row" className="text-left font-medium">
+                    {near(holding)}
+                  </th>
+                  <td className="text-left font-medium">{far(holding)}</td>
+                  <td className="text-left">
+                    <ShownMoveCell holder={holding} />
+                  </td>
+                  <td className="num text-right whitespace-nowrap">
+                    {Effect.runSync(percentOf(holding.percentageHundredths))}
+                  </td>
+                </tr>
+              )}
+            </BoundedRows>
+          </tbody>
+        </table>
+      </div>
     </section>
   )
 }

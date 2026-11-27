@@ -15,7 +15,7 @@ What a panel's server render holds of its rows has one bound too. A list of stor
 - Daily holders' table, as one list: each holder, a listed one's securities accounts under it, then the earlier holders under their heading;
 - Major holders' table, and its Every month grid. The grid's server render holds as many rows as fit 6,000 cells, so fewer for more months (100 rows of 60 months), and works out a row's cells when it renders the row (`cellsOf` in `lib/every-month.ts`): every row's cells at once are holders times months, which no row budget bounds;
 - Holder moves' table and its Entered or left list (ADR 0134);
-- the Holder map's band tables (apinrdw/kumora#733).
+- the Holder map's band tables, its hop beyond, Off list, custodians and a custodian focus's book (apinrdw/kumora#733).
 
 The ownership bar draws a segment for each of its first 100 holders and one for the rest. A real stock's day stays under the bound unless it has well over a hundred earlier holders, which no stock's parsed days were checked for: at most 20 holders can be above 5%, and the busiest stock has 38 securities accounts (DNET, 25 Nov 2026). A real month has at most 28 rows. Holder moves' table does pass it on a real day.
 

@@ -337,6 +337,56 @@ describe("holderMapView", () => {
   )
 
   it.effect(
+    "lists the hop beyond for the side panel, by first-hop row, then most %",
+    () =>
+      Effect.gen(function* () {
+        const at = (code: string, held: HolderMapLink) => ({
+          ...held,
+          code: StockCode.make(code),
+        })
+        const stock = yield* holderMapView({
+          ...read([link("5%", "A", 900), link("1%", "B", 200)]),
+          hops: [
+            at("BSDE", link("1%", "B", 150)),
+            at("BSDE", link("1%", "A", 300)),
+            at("TLKM", link("5%", "A", 600)),
+          ],
+          issuers: [{ code: StockCode.make("TLKM"), issuerName: "TELKOM" }],
+        })
+        // Each of its holders' other stocks: A's, then B's, as the bands
+        // list them.
+        expect(
+          stock.focus?.beyond.map(({ name, code, issuerName, shownMove }) => [
+            name,
+            code,
+            issuerName,
+            shownMove,
+          ])
+        ).toEqual([
+          ["A", "TLKM", "TELKOM", "unchanged"],
+          ["A", "BSDE", undefined, "unchanged"],
+          ["B", "BSDE", undefined, "unchanged"],
+        ])
+        const holder = yield* holderMapView({
+          ...read([]),
+          focus: { kind: "holder", key: HolderKey.make("A"), name: "A" },
+          links: [at("TLKM", link("1%", "A", 240)), link("5%", "A", 900)],
+          hops: [
+            at("TLKM", link("1%", "C", 150)),
+            at("TRUE", link("5%", "B", 600)),
+          ],
+        })
+        // Each of its stocks' other holders: TRUE's, then TLKM's.
+        expect(
+          holder.focus?.beyond.map(({ name, code }) => [code, name])
+        ).toEqual([
+          ["TRUE", "B"],
+          ["TLKM", "C"],
+        ])
+      })
+  )
+
+  it.effect(
     "rings each holder's other stocks round it, unlabelled, their code inside",
     () =>
       Effect.gen(function* () {
