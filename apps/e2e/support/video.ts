@@ -17,6 +17,9 @@ export const COLD_DAY_SPEC = /cold-day\.spec\.ts$/
 /** The spec the config's holder-moves project runs. */
 export const HOLDER_MOVES_SPEC = /holder-moves\.spec\.ts$/
 
+/** The spec the config's holder-map project runs. */
+export const HOLDER_MAP_SPEC = /holder-map\.spec\.ts$/
+
 /** The spec the config's relay-load project runs. */
 export const RELAY_LOAD_SPEC = /relay-load\.spec\.ts$/
 
@@ -35,8 +38,8 @@ const isNamedBy = (typed: string) => (file: string) =>
 
 /**
  * What records, from the switch's value and the files under tests/: the
- * picked chromium specs, and whether the trading-day, cold-day and
- * holder-moves projects record.
+ * picked chromium specs, and whether the trading-day, cold-day,
+ * holder-moves and holder-map projects record.
  */
 export function recording(
   value: string | undefined,
@@ -61,11 +64,13 @@ export function recording(
         !TRADING_DAY_SPECS.test(file) &&
         !COLD_DAY_SPEC.test(file) &&
         !HOLDER_MOVES_SPEC.test(file) &&
+        !HOLDER_MAP_SPEC.test(file) &&
         !TIMED_SPECS.some((spec) => spec.test(file))
     ),
     tradingDay: picked.some((file) => TRADING_DAY_SPECS.test(file)),
     coldDay: picked.some((file) => COLD_DAY_SPEC.test(file)),
     holderMoves: picked.some((file) => HOLDER_MOVES_SPEC.test(file)),
+    holderMap: picked.some((file) => HOLDER_MAP_SPEC.test(file)),
   }
 }
 
