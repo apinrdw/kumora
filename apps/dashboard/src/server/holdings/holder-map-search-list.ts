@@ -58,6 +58,10 @@ export const holderMapSearchList = Effect.fnUntraced(function* (
         GROUP BY stock_code ORDER BY stock_code`,
         params,
       },
+      // One holder per key across the two reports.
+      //
+      // Decision: the Holder map matches holders across stocks and reports by
+      // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
       {
         sql: `${PERIODS} SELECT holder_key, MAX(name) AS name FROM (
           SELECT holder_key, holder_name AS name FROM above_5_holder

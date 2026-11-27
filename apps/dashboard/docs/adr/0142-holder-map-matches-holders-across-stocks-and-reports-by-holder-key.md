@@ -10,5 +10,6 @@ Sites:
 
 - `apps/dashboard/src/server/holdings/holder-map.ts`
 - `apps/dashboard/src/server/holdings/holder-map-moves.ts`
+- `apps/dashboard/src/server/holdings/holder-map-search-list.ts`
 
 Source: apinrdw/kumora#733, apinrdw/kumora#734, apinrdw/kumora#738, apinrdw/kumora#739
