@@ -30,7 +30,9 @@ class SweepFailed extends Schema.TaggedError<SweepFailed>()("SweepFailed", {
     return [
       "Sweeping Previews failed:",
       ...this.failures.map(
-        ({ stage, ...failure }) => `  ${stage} ${failureLine(failure)}`
+        // An Error's message getter is synchronous, and failureLine is pure.
+        ({ stage, ...failure }) =>
+          `  ${stage} ${Effect.runSync(failureLine(failure))}`
       ),
     ].join("\n")
   }

@@ -86,11 +86,12 @@ export const destroyEveryApp = Effect.fnUntraced(function* (target: Preview) {
 })
 
 // One app's failure from destroyEveryApp, as a failure message prints it.
-// An Error's message getter calls this synchronously, and errorMessage is pure.
-export const failureLine = ({
+export const failureLine = Effect.fnUntraced(function* ({
   app,
   error,
 }: {
   readonly app: App
   readonly error: unknown
-}) => `${app}: ${Effect.runSync(errorMessage(error))}`
+}) {
+  return `${app}: ${yield* errorMessage(error)}`
+})

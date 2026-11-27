@@ -34,7 +34,10 @@ class TeardownFailed extends Schema.TaggedError<TeardownFailed>()(
   override get message() {
     return [
       `Tearing down stage "${this.stage}" failed:`,
-      ...this.failures.map((failure) => `  ${failureLine(failure)}`),
+      // An Error's message getter is synchronous, and failureLine is pure.
+      ...this.failures.map(
+        (failure) => `  ${Effect.runSync(failureLine(failure))}`
+      ),
     ].join("\n")
   }
 }
