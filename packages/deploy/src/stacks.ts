@@ -10,6 +10,7 @@ import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 
+import { errorMessage } from "./report.ts"
 import { APPS, type App, type Preview, type Stage } from "./target.ts"
 
 type Operation = "deploy" | "destroy"
@@ -83,3 +84,13 @@ export const destroyEveryApp = Effect.fnUntraced(function* (target: Preview) {
     Exit.isFailure(exit) ? [{ app, error: Cause.squash(exit.cause) }] : []
   )
 })
+
+// One app's failure from destroyEveryApp, as a failure message prints it.
+// An Error's message getter calls this synchronously, and errorMessage is pure.
+export const failureLine = ({
+  app,
+  error,
+}: {
+  readonly app: App
+  readonly error: unknown
+}) => `${app}: ${Effect.runSync(errorMessage(error))}`

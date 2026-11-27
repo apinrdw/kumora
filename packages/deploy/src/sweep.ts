@@ -10,11 +10,10 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
-import { errorMessage } from "./report.ts"
 import { type Branch, GitHub } from "./github.ts"
-import { destroyEveryApp } from "./stacks.ts"
+import { destroyEveryApp, failureLine } from "./stacks.ts"
 import { StoredStages } from "./stored-stages.ts"
-import { APPS, Preview, stageForBranch } from "./target.ts"
+import { APPS, Preview, type Stage, stageForBranch } from "./target.ts"
 
 // Every Stale Preview has been tried before this fails, so one bad Preview
 // never keeps the others alive.
@@ -31,9 +30,7 @@ class SweepFailed extends Schema.TaggedError<SweepFailed>()("SweepFailed", {
     return [
       "Sweeping Previews failed:",
       ...this.failures.map(
-        // Error calls this getter synchronously, and errorMessage is pure.
-        ({ stage, app, error }) =>
-          `  ${stage} ${app}: ${Effect.runSync(errorMessage(error))}`
+        ({ stage, ...failure }) => `  ${stage} ${failureLine(failure)}`
       ),
     ].join("\n")
   }
@@ -98,7 +95,7 @@ const branchesByStage = Effect.gen(function* () {
   const entries = yield* Effect.forEach(branches, (branch) =>
     Effect.map(stageForBranch(branch.name), (stage) => [stage, branch] as const)
   )
-  return new Map<string, Branch>(entries)
+  return new Map<Stage, Branch>(entries)
 })
 
 export const sweepCommand = Command.make(

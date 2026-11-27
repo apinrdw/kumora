@@ -7,8 +7,7 @@ import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
-import { errorMessage } from "./report.ts"
-import { destroyEveryApp } from "./stacks.ts"
+import { destroyEveryApp, failureLine } from "./stacks.ts"
 import { sweepCommand } from "./sweep.ts"
 import { APPS, Preview, parseStage, Stage, stageForBranch } from "./target.ts"
 
@@ -35,10 +34,7 @@ class TeardownFailed extends Schema.TaggedError<TeardownFailed>()(
   override get message() {
     return [
       `Tearing down stage "${this.stage}" failed:`,
-      ...this.failures.map(
-        // Error calls this getter synchronously, and errorMessage is pure.
-        ({ app, error }) => `  ${app}: ${Effect.runSync(errorMessage(error))}`
-      ),
+      ...this.failures.map((failure) => `  ${failureLine(failure)}`),
     ].join("\n")
   }
 }
