@@ -2,7 +2,10 @@ import { describe, expect, it } from "@effect/vitest"
 import { StockCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { tooltipText } from "@/components/holder-map/map-definition"
+import {
+  printedInside,
+  tooltipText,
+} from "@/components/holder-map/map-definition"
 import type { MapNode } from "@/lib/holder-map-graph"
 
 const holder = (move: MapNode["move"]): MapNode => ({
@@ -142,6 +145,54 @@ describe("tooltipText", () => {
       ).toEqual([
         "MIRAE ASSET SEKURITAS INDONESIA",
         "Custodian of 45,259,395.84 lots in view",
+      ])
+    })
+  )
+})
+
+describe("printedInside", () => {
+  // An outer-ring stock and a holder, at the scale fit-to-view gives a
+  // hub's map: 4 layout units a px, so a 12-unit dot is 3 px across.
+  const stock: MapNode = {
+    ...holder(undefined),
+    id: "stock:BSDE",
+    kind: "stock",
+    name: "BSDE",
+    label: "BSDE",
+    inside: "BSDE",
+    band: undefined,
+    radius: 12,
+    labelled: false,
+  }
+  const graph = {
+    key: "stock:TRUE@2026-11-20",
+    nodes: [stock, { ...holder(undefined), inside: "CP", radius: 5 }],
+    links: [],
+  }
+  const layout = {
+    positions: {
+      "stock:BSDE": { x: 0, y: 0 },
+      "holder:PERINTIS": { x: 40, y: 0 },
+    },
+    extent: { x: [-2000, 2000] as const, y: [-1000, 1000] as const },
+  }
+  const printed = (unit: number) =>
+    Effect.map(
+      printedInside(graph, layout, { cx: 0, cy: 0, unit }, true),
+      (nodes) => nodes.map(({ id, inside }) => [id, inside])
+    )
+
+  it.effect("prints a stock's code however far the map is zoomed out", () =>
+    Effect.gen(function* () {
+      expect(yield* printed(4)).toEqual([["stock:BSDE", "BSDE"]])
+    })
+  )
+
+  it.effect("prints a holder's type once zoomed in to fit it", () =>
+    Effect.gen(function* () {
+      expect(yield* printed(0.25)).toEqual([
+        ["stock:BSDE", "BSDE"],
+        ["holder:PERINTIS", "CP"],
       ])
     })
   )

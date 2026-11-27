@@ -28,6 +28,11 @@ type Graph = NonNullable<HolderMapView["focus"]>["graph"]
 
 // A dot prints its code or type inside only from this radius in px.
 const INSIDE_FROM = 10
+// A stock's dot is never drawn smaller than this in px, the room its
+// four-letter code takes at the 10 px it is printed in, so an outer-ring
+// stock's code reads on a map fitted to view however many nodes it has
+// (spec apinrdw/kumora#733, story 27).
+const CODE_RADIUS = 13
 
 export const ORIGIN_COLOR: Record<
   NonNullable<MapNode["origin"]> | "unknown",
@@ -133,7 +138,15 @@ const placed = (
           : node.kind === "custodian"
             ? CUSTODIAN_COLOR
             : ORIGIN_COLOR[node.origin ?? "unknown"]
-      return [{ ...node, ...at, r: node.radius / view.unit, color }]
+      const r = node.radius / view.unit
+      return [
+        {
+          ...node,
+          ...at,
+          r: node.kind === "stock" ? Math.max(CODE_RADIUS, r) : r,
+          color,
+        },
+      ]
     })
     const byId = new Map(nodes.map((node) => [node.id, node]))
     const links = graph.links.flatMap((each) => {
@@ -194,10 +207,27 @@ const dots = (nodes: ReadonlyArray<NodeRow>) =>
     })
   })
 
+// The dots that print their code or type inside: those big enough for it.
+const insideOf = (nodes: ReadonlyArray<NodeRow>) =>
+  Effect.sync(() =>
+    nodes.filter((node) => node.inside !== undefined && node.r >= INSIDE_FROM)
+  )
+
+// The nodes of `graph` that print their code or type inside at `view`.
+export const printedInside = Effect.fnUntraced(function* (
+  graph: Graph,
+  layout: Layout,
+  view: Viewport,
+  showOffList: boolean
+) {
+  const { nodes } = yield* placed(graph, layout, view, showOffList)
+  return yield* insideOf(nodes)
+})
+
 // An Off list holder's dashed ring: every other chord of a polygon round
 // its dot, in layout units, so it zooms with the dot.
 const RING_CHORDS = 24
-const rings = (nodes: ReadonlyArray<NodeRow>) =>
+const rings = (nodes: ReadonlyArray<NodeRow>, unit: number) =>
   Effect.sync(() =>
     nodes
       .filter(({ offList }) => offList)
@@ -207,10 +237,10 @@ const rings = (nodes: ReadonlyArray<NodeRow>) =>
           const to = from + (2 * Math.PI) / RING_CHORDS
           return {
             id: `${node.id} ring ${index}`,
-            x1: node.x + node.radius * Math.cos(from),
-            y1: node.y + node.radius * Math.sin(from),
-            x2: node.x + node.radius * Math.cos(to),
-            y2: node.y + node.radius * Math.sin(to),
+            x1: node.x + node.r * unit * Math.cos(from),
+            y1: node.y + node.r * unit * Math.sin(from),
+            x2: node.x + node.r * unit * Math.cos(to),
+            y2: node.y + node.r * unit * Math.sin(to),
           }
         })
       )
@@ -236,9 +266,7 @@ export const mapDefinition = Effect.fnUntraced(function* (options: {
   const left = links.filter(({ move }) => move === "off list")
   // A custodian link has no move.
   const through = links.filter(({ move }) => move === undefined)
-  const inside = nodes.filter(
-    (node) => node.inside !== undefined && node.r >= INSIDE_FROM
-  )
+  const inside = yield* insideOf(nodes)
   // Labelled: the focus and its neighbours, and the node hovered. A stock
   // whose code is printed inside needs no label beside it.
   const labelled = nodes.filter(
@@ -292,7 +320,7 @@ export const mapDefinition = Effect.fnUntraced(function* (options: {
       ),
       ...(yield* dots(nodes)),
       decorative(
-        link(yield* rings(nodes), {
+        link(yield* rings(nodes, view.unit), {
           x1: "x1",
           y1: "y1",
           x2: "x2",
