@@ -25,10 +25,9 @@ import {
 //
 // The holder focus retained 32.4 MiB on 27 Nov 2026, its 20,005 nodes,
 // 8,000 custodian links and its side panel's hop beyond with it; the
-// custodian focus 13.6 MiB, and 8.9 MiB with 7,999 Off list holdings;
-// the stock focus 1.9 MiB, and 8.9 MiB with 80,000 stored leavings. A
-// custodian that left a holding on each of 30 days, each a day at the cap,
-// returns no statement over a day's rows.
+// custodian focus 13.7 MiB, and 8.9 MiB with 7,999 Off list holdings;
+// the stock focus 1.8 MiB, and 9.1 MiB with 80,000 stored leavings. In
+// every case no statement returns more rows than its budget.
 const HEAP_LIMIT_MIB = 40
 
 // The most stocks a report lists (ADR 0045), each with the day's blocks

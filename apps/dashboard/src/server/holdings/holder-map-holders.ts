@@ -4,7 +4,10 @@
 // Holder moves' stored lines and leavings, a custodian's earlier blocks.
 // Each kind becomes holders through `holdersByKey` here and nowhere else,
 // so no part of the map (the bands, moves, crossings, hops, Off lists,
-// custodian links and books) sees one block of a key that has two.
+// custodian links and books) sees one block of a key that has two. A
+// crossing Down out of 5% needs only its key's newest leaving, so its
+// statement groups by the month's stored key and returns one row a key
+// (`holder-map.ts`).
 //
 // Decision: the Holder map matches holders across stocks and reports by
 // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)

@@ -32,8 +32,8 @@ import {
 } from "./holder-map-holders.ts"
 import {
   changesOf,
-  LeavingRow,
-  leavings,
+  CrossingRow,
+  crossingsDown,
   MoveRow,
   movesByKey,
 } from "./holder-map-moves.ts"
@@ -159,28 +159,34 @@ const IN_VIEW_ROWS: ReadonlyArray<Budgeted> = [
     rows: 2 * DAY_ROWS + 2 * MONTH_ROWS,
   },
   // The month's ≥1% holders that left the above-5% list after the month:
-  // each identity's newest leaving between the month and the day, unless
-  // it came back since. An identity starts with the key it was first
-  // listed under (lib/holder-identity.ts), so matching it to the month's
-  // keys keeps this to at most the month's holders; one renamed since is
-  // missed, and shows its move, not Down out of 5%.
+  // each key's newest leaving between the month and the day of an identity
+  // that hasn't come back since. An identity starts with the key it was
+  // first listed under (lib/holder-identity.ts), so matching it to the
+  // month's keys and grouping by that key returns a row per month holder,
+  // at most the month's rows, however many identities left under one key
+  // (apinrdw/kumora#741's sixth review: 20 keys that each left 4,000 times
+  // returned 80,000 rows). One renamed since is missed, and shows its move,
+  // not Down out of 5%.
   {
-    sql: `SELECT stock_code, '5%' AS band, name, data_date, stake_before FROM (
-    SELECT stock_code, name, move, data_date, stake_before,
-      ROW_NUMBER() OVER (
-        PARTITION BY stock_code, holder ORDER BY data_date DESC
-      ) AS nth
-    FROM above_5_move AS line
-    WHERE ${STOCKS_IN_VIEW} AND move IN ('new', 'off list')
-      AND data_date > (SELECT month FROM band_month)
-      AND data_date <= (SELECT day FROM asof)
-      AND substr(holder, 1, instr(holder, '#') - 1) IN (
-        SELECT holder_key FROM above_1_holding
-        WHERE stock_code = line.stock_code
-          AND data_date = (SELECT month FROM band_month)
-      )
-  )
-  WHERE nth = 1 AND move = 'off list'`,
+    sql: `SELECT stock_code, holder_key, MAX(data_date) AS data_date FROM (
+      SELECT stock_code, substr(holder, 1, instr(holder, '#') - 1)
+          AS holder_key,
+        move, data_date,
+        ROW_NUMBER() OVER (
+          PARTITION BY stock_code, holder ORDER BY data_date DESC
+        ) AS nth
+      FROM above_5_move AS line
+      WHERE ${STOCKS_IN_VIEW} AND move IN ('new', 'off list')
+        AND data_date > (SELECT month FROM band_month)
+        AND data_date <= (SELECT day FROM asof)
+        AND substr(holder, 1, instr(holder, '#') - 1) IN (
+          SELECT holder_key FROM above_1_holding
+          WHERE stock_code = line.stock_code
+            AND data_date = (SELECT month FROM band_month)
+        )
+    )
+    WHERE nth = 1 AND move = 'off list'
+    GROUP BY stock_code, holder_key`,
     rows: MONTH_ROWS,
   },
 ]
@@ -204,9 +210,13 @@ const MOST_HELD_SQL = {
   rows: MOST_HELD,
 } satisfies Budgeted
 
-// The as-of picker's days.
+// The as-of picker's days: the newest that fit a day's rows at the cap,
+// over 30 years of trading days, oldest first.
 const DAYS_SQL = {
-  sql: "SELECT data_date FROM above_5_day ORDER BY data_date",
+  sql: `SELECT data_date FROM (
+    SELECT data_date FROM above_5_day ORDER BY data_date DESC LIMIT ${DAY_ROWS}
+  )
+  ORDER BY data_date`,
   rows: DAY_ROWS,
 } satisfies Budgeted
 
@@ -326,7 +336,7 @@ const linksInView = Effect.fnUntraced(function* (
     accountRows = [],
     monthRows = [],
     moveRows = [],
-    leftRows = [],
+    crossingRows = [],
   ] = rest
   const stocks = yield* byStock(
     yield* decodeRows(Above5MapRow)(holderRows),
@@ -334,7 +344,9 @@ const linksInView = Effect.fnUntraced(function* (
     yield* decodeRows(Above1MapRow)(monthRows)
   )
   const moves = yield* movesByKey(yield* decodeRows(MoveRow)(moveRows))
-  const left = yield* leavings(yield* decodeRows(LeavingRow)(leftRows))
+  const down = yield* crossingsDown(
+    yield* decodeRows(CrossingRow)(crossingRows)
+  )
   const links: Array<HolderMapLink> = []
   const accounts: Array<HoldingAccounts> = []
   const issuers = new Map<StockCode, string>()
@@ -344,7 +356,7 @@ const linksInView = Effect.fnUntraced(function* (
     const stock = yield* stockLinks(code, periods.day, periods.month, rows)
     for (const [holder, of] of stock.accounts)
       accounts.push({ code, holder, accounts: of })
-    links.push(...(yield* changesOf(periods, stock, moves, left)))
+    links.push(...(yield* changesOf(periods, stock, moves, down)))
   }
   return { links, issuers, custodians: yield* custodianLinks(accounts) }
 })

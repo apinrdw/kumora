@@ -1,13 +1,13 @@
 // What changed on the Holder map (spec apinrdw/kumora#733, "Moves"): each
 // link's stored move, its gap-holder mark and its crossing of 5%, and the
-// leavings its Off list and crossings come from.
+// leavings its Off list comes from.
 //
 // Decision: Holder moves are derived at parse time
 // (apps/dashboard/docs/adr/0134-holder-moves-are-derived-at-parse-time.md)
 import { StockCode, WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
-import type { HolderKey } from "@/domain/holdings"
+import { HolderKey } from "@/domain/holdings"
 import { placeOf } from "@/lib/holder-map-ids"
 
 import {
@@ -34,6 +34,14 @@ export const LeavingRow = Schema.Struct({
   name: Schema.String,
   data_date: WibDate,
   stake_before: Schema.Number,
+})
+
+// A month holder's newest leaving of the above-5% list since the month:
+// its key's, one row each.
+export const CrossingRow = Schema.Struct({
+  stock_code: StockCode,
+  holder_key: HolderKey,
+  data_date: WibDate,
 })
 
 export const MoveRow = Schema.Struct({
@@ -71,6 +79,17 @@ export const leavings = Effect.fnUntraced(function* (
     })
   }
   return byPlace
+})
+
+// Each month holder's day it left the above-5% list since the month, by
+// its place.
+export const crossingsDown = Effect.fnUntraced(function* (
+  rows: ReadonlyArray<typeof CrossingRow.Type>
+) {
+  const since = new Map<string, WibDate>()
+  for (const row of rows)
+    since.set(yield* placeOf(row.stock_code, row.holder_key), row.data_date)
+  return since
 })
 
 // A move's place: its band and its holding's place.
@@ -164,7 +183,8 @@ export const changesOf = Effect.fnUntraced(function* (
     readonly inMonth: ReadonlyMap<HolderKey, number>
   },
   moves: ReadonlyMap<string, KeyHolder<Lines>>,
-  leftAbove5: ReadonlyMap<string, HolderMapOffList>
+  // Each month holder's day it left the above-5% list, by place.
+  downSince: ReadonlyMap<string, WibDate>
 ) {
   const out: Array<HolderMapLink> = []
   for (const link of stock.links) {
@@ -183,7 +203,7 @@ export const changesOf = Effect.fnUntraced(function* (
         link,
         periods.month,
         stock.inMonth.get(link.holder),
-        leftAbove5.get(place)
+        downSince.get(place)
       ),
     })
   }
@@ -194,7 +214,7 @@ const crossingOf = (
   link: StockLink,
   month: WibDate | undefined,
   monthHundredths: number | undefined,
-  left: HolderMapOffList | undefined
+  down: WibDate | undefined
 ) =>
   Effect.sync((): HolderMapLink["crossing"] => {
     if (
@@ -205,10 +225,10 @@ const crossingOf = (
       return { kind: "up into 5%", monthHundredths }
     if (
       link.band === "1%" &&
-      left !== undefined &&
+      down !== undefined &&
       month !== undefined &&
-      left.since > month
+      down > month
     )
-      return { kind: "down out of 5%", since: left.since }
+      return { kind: "down out of 5%", since: down }
     return undefined
   })
