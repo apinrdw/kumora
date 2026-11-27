@@ -1,4 +1,5 @@
 import {
+  IconAffiliate,
   IconArchive,
   IconArrowsUpDown,
   IconChartBubble,
@@ -65,6 +66,13 @@ export const NAV: ReadonlyArray<NavGroup> = [
         shortLabel: "Moves",
         icon: IconArrowsUpDown,
         link: { to: "/holder-moves" },
+        feature: "stocks",
+      },
+      {
+        label: "Holder map",
+        shortLabel: "Map",
+        icon: IconAffiliate,
+        link: { to: "/holder-map" },
         feature: "stocks",
       },
     ],

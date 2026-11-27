@@ -20,6 +20,7 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppSplatRouteImport } from './routes/_app/$'
 import { Route as AppAccountRouteImport } from './routes/_app/account'
 import { Route as AppDeleteAccountRouteImport } from './routes/_app/delete-account'
+import { Route as AppHolderMapRouteImport } from './routes/_app/holder-map'
 import { Route as AppHolderMovesRouteImport } from './routes/_app/holder-moves'
 import { Route as AppMarketBubblesRouteImport } from './routes/_app/market-bubbles'
 import { Route as AppMarketLiveRouteImport } from './routes/_app/market-live'
@@ -85,6 +86,11 @@ const AppAccountRoute = AppAccountRouteImport.update({
 const AppDeleteAccountRoute = AppDeleteAccountRouteImport.update({
   id: '/delete-account',
   path: '/delete-account',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppHolderMapRoute = AppHolderMapRouteImport.update({
+  id: '/holder-map',
+  path: '/holder-map',
   getParentRoute: () => AppRoute,
 } as any)
 const AppHolderMovesRoute = AppHolderMovesRouteImport.update({
@@ -159,6 +165,7 @@ export interface FileRoutesByFullPath {
   '/$': typeof AppSplatRoute
   '/account': typeof AppAccountRoute
   '/delete-account': typeof AppDeleteAccountRoute
+  '/holder-map': typeof AppHolderMapRoute
   '/holder-moves': typeof AppHolderMovesRoute
   '/market-bubbles': typeof AppMarketBubblesRoute
   '/market-live': typeof AppMarketLiveRoute
@@ -182,6 +189,7 @@ export interface FileRoutesByTo {
   '/$': typeof AppSplatRoute
   '/account': typeof AppAccountRoute
   '/delete-account': typeof AppDeleteAccountRoute
+  '/holder-map': typeof AppHolderMapRoute
   '/holder-moves': typeof AppHolderMovesRoute
   '/market-bubbles': typeof AppMarketBubblesRoute
   '/market-live': typeof AppMarketLiveRoute
@@ -208,6 +216,7 @@ export interface FileRoutesById {
   '/_app/$': typeof AppSplatRoute
   '/_app/account': typeof AppAccountRoute
   '/_app/delete-account': typeof AppDeleteAccountRoute
+  '/_app/holder-map': typeof AppHolderMapRoute
   '/_app/holder-moves': typeof AppHolderMovesRoute
   '/_app/market-bubbles': typeof AppMarketBubblesRoute
   '/_app/market-live': typeof AppMarketLiveRoute
@@ -235,6 +244,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/account'
     | '/delete-account'
+    | '/holder-map'
     | '/holder-moves'
     | '/market-bubbles'
     | '/market-live'
@@ -258,6 +268,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/account'
     | '/delete-account'
+    | '/holder-map'
     | '/holder-moves'
     | '/market-bubbles'
     | '/market-live'
@@ -283,6 +294,7 @@ export interface FileRouteTypes {
     | '/_app/$'
     | '/_app/account'
     | '/_app/delete-account'
+    | '/_app/holder-map'
     | '/_app/holder-moves'
     | '/_app/market-bubbles'
     | '/_app/market-live'
@@ -389,6 +401,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDeleteAccountRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/holder-map': {
+      id: '/_app/holder-map'
+      path: '/holder-map'
+      fullPath: '/holder-map'
+      preLoaderRoute: typeof AppHolderMapRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/holder-moves': {
       id: '/_app/holder-moves'
       path: '/holder-moves'
@@ -480,6 +499,7 @@ interface AppRouteChildren {
   AppSplatRoute: typeof AppSplatRoute
   AppAccountRoute: typeof AppAccountRoute
   AppDeleteAccountRoute: typeof AppDeleteAccountRoute
+  AppHolderMapRoute: typeof AppHolderMapRoute
   AppHolderMovesRoute: typeof AppHolderMovesRoute
   AppMarketBubblesRoute: typeof AppMarketBubblesRoute
   AppMarketLiveRoute: typeof AppMarketLiveRoute
@@ -497,6 +517,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSplatRoute: AppSplatRoute,
   AppAccountRoute: AppAccountRoute,
   AppDeleteAccountRoute: AppDeleteAccountRoute,
+  AppHolderMapRoute: AppHolderMapRoute,
   AppHolderMovesRoute: AppHolderMovesRoute,
   AppMarketBubblesRoute: AppMarketBubblesRoute,
   AppMarketLiveRoute: AppMarketLiveRoute,
@@ -526,13 +547,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
