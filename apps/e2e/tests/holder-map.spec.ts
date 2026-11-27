@@ -7,25 +7,35 @@ import { parseNow, seedHoldingsFixtures } from "../support/parsed-holdings"
 
 const HOLDER_MAP = `${DASHBOARD}/holder-map`
 
-const search = (page: Page) =>
-  page.getByRole("combobox", { name: "Focus stock" })
+const search = (page: Page) => page.getByRole("combobox", { name: "Focus" })
 
 const band = (page: Page, name: "5% and above" | "1% to 5%") =>
   page.getByRole("table", { name }).locator("tbody tr")
 
 // The map's chart, named by its focus and how many holders and Off list
-// holders it draws; never its pixels. Off list left out matches any.
-const mapOf = (page: Page, code: string, holders?: number, offList?: number) =>
+// holders it draws; never its pixels. Off list left out matches any, and
+// the hop beyond any unless named.
+const mapOf = (
+  page: Page,
+  code: string,
+  holders?: number,
+  offList?: number,
+  beyond?: string
+) =>
   page.getByRole("img", {
     name:
       holders === undefined
         ? new RegExp(`^Holder map of ${code}: `)
         : offList === undefined
           ? new RegExp(
-              `^Holder map of ${code}: ${holders} holders( and \\d+ Off list)?\\. `
+              `^Holder map of ${code}: ${holders} holders( and \\d+ Off list)?(, [^.]* a hop beyond)?\\. `
             )
-          : `Holder map of ${code}: ${holders} holders${offList === 0 ? "" : ` and ${offList} Off list`}. The tables below list each.`,
+          : `Holder map of ${code}: ${holders} holders${offList === 0 ? "" : ` and ${offList} Off list`}${beyond === undefined ? "" : `, ${beyond} a hop beyond`}. The tables below list each.`,
   })
+
+const BPJS = "DJS KETENAGAKERJAAN PROGRAM JAMINAN HARI TUA"
+// Its holder key in the URL, spaces encoded either way.
+const BPJS_PARAM = /holder=DJS(%20|\+)HARI(%20|\+)JAMINAN/
 
 // Retried until `then` holds, since input before hydration does nothing.
 async function until(act: () => Promise<void>, then: () => Promise<void>) {
@@ -351,6 +361,109 @@ test.describe.serial("Holder map", () => {
       await mapLink("TLKM").click()
       await expect(page).toHaveURL(/\/holder-map\?stock=TLKM$/)
       await expect(page.getByRole("heading", { name: /^TLKM / })).toBeVisible()
+    })
+
+    test("focuses a holder through the search, its stocks and their other holders drawn", async ({
+      page,
+    }) => {
+      await page.goto(`${HOLDER_MAP}?day=2026-11-20`)
+      await pick(
+        page,
+        "jaminan hari",
+        page.getByRole("option", { name: new RegExp(`^${BPJS}\\s*Holder`) })
+      )
+      await expect(page).toHaveURL(BPJS_PARAM)
+      await expect(page).toHaveURL(/day=2026-11-20/)
+      await expect(page).not.toHaveURL(/stock=/)
+      await expect(
+        page.getByRole("heading", { name: `${BPJS} Holder` })
+      ).toBeVisible()
+      // Its stocks in Oct's report, each with its issuer.
+      await expect(band(page, "1% to 5%")).toHaveCount(2)
+      await expect(band(page, "1% to 5%").nth(0)).toContainText(
+        /BSDE\s*BUMI SERPONG DAMAI Tbk.*2\.70%/
+      )
+      await expect(band(page, "1% to 5%").nth(1)).toContainText(
+        /TLKM\s*TELKOM INDONESIA \(PERSERO\) Tbk.*2\.40%/
+      )
+      await expect(
+        page.getByRole("region", { name: "1% to 5%" })
+      ).toContainText("2 stocks · 5.10% · Oct 2026")
+      // BSDE's six other ≥1% holders and TLKM's four.
+      await expect(
+        page.getByRole("img", {
+          name: `Holder map of ${BPJS}: 2 stocks, 10 other holders a hop beyond. The tables below list each.`,
+        })
+      ).toBeVisible()
+    })
+
+    test("refocuses from a holder to its stocks and back through the side panel and the URL", async ({
+      page,
+    }) => {
+      await page.goto(`${HOLDER_MAP}?stock=BSDE&day=2026-11-20`)
+      // BPJS's other stock, TLKM, rings the map.
+      await expect(mapOf(page, "BSDE", 7, 4, "1 other stock")).toBeVisible()
+      await until(
+        () => band(page, "1% to 5%").getByRole("link", { name: BPJS }).click(),
+        () => expect(page).toHaveURL(BPJS_PARAM, { timeout: 1000 })
+      )
+      await expect(page).toHaveURL(/day=2026-11-20/)
+      await expect(page).not.toHaveURL(/stock=/)
+      await expect(
+        page.getByRole("heading", { name: `${BPJS} Holder` })
+      ).toBeVisible()
+
+      await band(page, "1% to 5%").getByRole("link", { name: "TLKM" }).click()
+      await expect(page).toHaveURL(
+        /\/holder-map\?(?=.*stock=TLKM)(?=.*day=2026-11-20)/
+      )
+      await expect(page).not.toHaveURL(/holder=/)
+      await expect(
+        page.getByRole("heading", { name: /^TLKM TELKOM/ })
+      ).toBeVisible()
+
+      // Back and forward restore each focus.
+      await page.goBack()
+      await expect(page).toHaveURL(BPJS_PARAM)
+      await expect(
+        page.getByRole("heading", { name: `${BPJS} Holder` })
+      ).toBeVisible()
+      await page.goBack()
+      await expect(page).toHaveURL(/stock=BSDE/)
+      await page.goForward()
+      await expect(page).toHaveURL(BPJS_PARAM)
+
+      // The URL alone focuses a holder; naming a stock too names neither.
+      await page.goto(
+        `${HOLDER_MAP}?holder=${encodeURIComponent("DJS HARI JAMINAN KETENAGAKERJAAN PROGRAM TUA")}`
+      )
+      await expect(
+        page.getByRole("heading", { name: `${BPJS} Holder` })
+      ).toBeVisible()
+      await page.goto(`${HOLDER_MAP}?stock=TRUE&holder=DJONI`)
+      await expect(
+        page.getByRole("heading", { name: /^Stocks with the most ≥1% holders/ })
+      ).toBeVisible()
+    })
+
+    test("refocuses on a ring stock picked on the map with the keyboard", async ({
+      page,
+    }) => {
+      await page.goto(`${HOLDER_MAP}?stock=BSDE&day=2026-11-20`)
+      const map = mapOf(page, "BSDE", 7, 4, "1 other stock")
+      await expect(map).toBeVisible()
+      await map.focus()
+      // The arrow keys step through the nodes until the tooltip names TLKM.
+      await expect(async () => {
+        await page.keyboard.press("ArrowRight")
+        await expect(page.getByRole("status")).toContainText("TLKM", {
+          timeout: 200,
+        })
+      }).toPass()
+      await page.keyboard.press("Enter")
+      await expect(page).toHaveURL(
+        /\/holder-map\?(?=.*stock=TLKM)(?=.*day=2026-11-20)/
+      )
     })
 
     test("shows an empty state for a code no report lists", async ({
