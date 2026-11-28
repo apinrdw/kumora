@@ -3,12 +3,20 @@
 // or name.
 // Type to filter, arrows to move, Enter or a click to pick.
 import { IconSearch } from "@tabler/icons-react"
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxLabel,
+  ComboboxList,
+} from "@ui-sdk/react/combobox"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
-import { useId, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 
-import { KInput } from "@/components/k/input"
-import { comboboxKeyDown } from "@/components/market-live/stock-code-picker"
+import { FIELD_HEIGHT, fieldControl } from "@/components/k/input"
 import { type FocusMatch, findFoci } from "@/lib/holder-map-search"
 
 import type { FocusListState } from "./use-focus-list"
@@ -21,6 +29,13 @@ const EMPTY_TEXT: Record<FocusListState["_tag"], string> = {
   Ready: "No stock, holder or custodian matches.",
 }
 
+const valueOf = (match: FocusMatch) =>
+  match.kind === "stock"
+    ? match.code
+    : match.kind === "holder"
+      ? `holder ${match.key}`
+      : `custodian ${match.id}`
+
 export type FocusPickerProps = {
   state: FocusListState
   onPick: (match: FocusMatch) => void
@@ -28,10 +43,8 @@ export type FocusPickerProps = {
 }
 
 export function FocusPicker({ state, onPick, className }: FocusPickerProps) {
-  const listId = useId()
   const [query, setQuery] = useState("")
-  const [focused, setFocused] = useState(false)
-  const [active, setActive] = useState(0)
+  const [open, setOpen] = useState(false)
   const matches = useMemo(
     () =>
       state._tag === "Ready"
@@ -39,83 +52,54 @@ export function FocusPicker({ state, onPick, className }: FocusPickerProps) {
         : [],
     [state, query]
   )
-  const at = Math.min(active, matches.length - 1)
-  const activeMatch = matches[at]
-
-  const pick = (match: FocusMatch) => {
-    setQuery("")
-    setActive(0)
-    onPick(match)
-  }
 
   return (
-    <div className={cn("relative", className)}>
-      <KInput
-        label="Focus"
-        hideLabel
-        icon={IconSearch}
-        placeholder="Search a stock, holder or custodian"
-        role="combobox"
-        aria-expanded={focused}
-        aria-controls={listId}
-        aria-autocomplete="list"
-        aria-activedescendant={
-          focused && activeMatch ? `${listId}-${at}` : undefined
-        }
-        autoComplete="off"
-        spellCheck={false}
-        value={query}
-        onChange={(event) => {
-          setQuery(event.target.value)
-          setActive(0)
-        }}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        onKeyDown={(event) =>
-          comboboxKeyDown(event, {
-            count: matches.length,
-            setActive,
-            pick: activeMatch && (() => pick(activeMatch)),
-            clear: () => setQuery(""),
-            closes: true,
-          })
-        }
-      />
-      {focused && (
-        <div
-          id={listId}
-          role="listbox"
-          aria-label="Focus"
-          className="shadow-modal absolute inset-x-0 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-sm border border-border bg-popover py-1 text-[13px]"
-        >
-          {matches.length === 0 && (
-            <div className="px-3 py-1.5 text-muted-foreground">
-              {EMPTY_TEXT[state._tag]}
-            </div>
-          )}
-          {matches.map((match, index) => (
-            <div
-              key={
-                match.kind === "stock"
-                  ? match.code
-                  : match.kind === "holder"
-                    ? `holder ${match.key}`
-                    : `custodian ${match.id}`
-              }
-              id={`${listId}-${index}`}
-              role="option"
-              aria-selected={index === at}
-              className={cn(
-                "flex cursor-pointer items-baseline gap-2 px-3 py-1.5",
-                index === at && "bg-elevated"
-              )}
-              // Before the input's blur closes the list.
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => pick(match)}
-              tabIndex={-1}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") pick(match)
-              }}
+    <Combobox
+      value={null}
+      onValueChange={(value) => {
+        const match = matches.find((each) => valueOf(each) === value)
+        if (match === undefined) return
+        setQuery("")
+        onPick(match)
+      }}
+      query={query}
+      onQueryChange={(next, details) => {
+        // Choosing writes the item's label; the search empties instead.
+        if (details.reason !== "item-press") setQuery(next)
+      }}
+      open={open}
+      onOpenChange={setOpen}
+      filter={false}
+      autoHighlight
+    >
+      <div className={cn("relative flex items-center", className)}>
+        <ComboboxLabel className="sr-only">Focus</ComboboxLabel>
+        <IconSearch
+          aria-hidden
+          stroke={1.75}
+          className="pointer-events-none absolute left-3 size-4.5 text-muted-foreground"
+        />
+        <ComboboxInput
+          placeholder="Search a stock, holder or custodian"
+          spellCheck={false}
+          onFocus={() => setOpen(true)}
+          className={cn(fieldControl, FIELD_HEIGHT.sm, "pr-3 pl-9")}
+        />
+      </div>
+      <ComboboxContent
+        sideOffset={4}
+        className="shadow-modal z-20 max-h-[min(20rem,var(--list-height))] w-(--anchor-width) overflow-y-auto rounded-sm border border-border bg-popover py-1 text-[13px] [--list-height:var(--available-height)]"
+      >
+        <ComboboxEmpty className="px-3 py-1.5 text-muted-foreground">
+          {EMPTY_TEXT[state._tag]}
+        </ComboboxEmpty>
+        <ComboboxList aria-label="Focus">
+          {matches.map((match) => (
+            <ComboboxItem
+              key={valueOf(match)}
+              value={valueOf(match)}
+              label={match.kind === "stock" ? match.code : match.name}
+              className="data-highlighted:bg-elevated flex cursor-pointer items-baseline gap-2 px-3 py-1.5"
             >
               {match.kind === "stock" ? (
                 <>
@@ -138,10 +122,10 @@ export function FocusPicker({ state, onPick, className }: FocusPickerProps) {
                   </span>
                 </>
               )}
-            </div>
+            </ComboboxItem>
           ))}
-        </div>
-      )}
-    </div>
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   )
 }

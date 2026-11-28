@@ -17,6 +17,7 @@ import {
   useState,
 } from "react"
 
+import { Toolbar, ToolbarButton } from "@ui-sdk/react/toolbar"
 import { KButton } from "@/components/k/button"
 import type { HolderMapView } from "@/lib/holder-map"
 import {
@@ -42,6 +43,9 @@ type Focus = NonNullable<HolderMapView["focus"]>
 // The map's height in px, and a zoom button's step.
 const HEIGHT = 480
 const BUTTON_ZOOM = 1.5
+
+// A disabled toolbar button keeps its focus, with aria-disabled.
+const TOOL = "aria-disabled:pointer-events-none aria-disabled:opacity-50"
 
 // The map's width in px, as laid out.
 function useWidth(element: RefObject<HTMLDivElement | null>) {
@@ -194,29 +198,48 @@ export function HolderMapGraph({
         <h3 id="holder-map-graph" className="text-[15px] font-semibold">
           Map
         </h3>
-        <div className="flex gap-1">
-          <ZoomButton
-            label="Zoom in"
-            icon={IconPlus}
+        <Toolbar aria-label="Map view" className="flex gap-1">
+          <ToolbarButton
+            aria-label="Zoom in"
             disabled={!definition}
             onClick={() => viewport.zoom(BUTTON_ZOOM)}
+            render={
+              <KButton
+                variant="secondary"
+                size="sm"
+                icon={IconPlus}
+                className={TOOL}
+              />
+            }
           />
-          <ZoomButton
-            label="Zoom out"
-            icon={IconMinus}
+          <ToolbarButton
+            aria-label="Zoom out"
             disabled={!definition}
             onClick={() => viewport.zoom(1 / BUTTON_ZOOM)}
+            render={
+              <KButton
+                variant="secondary"
+                size="sm"
+                icon={IconMinus}
+                className={TOOL}
+              />
+            }
           />
-          <KButton
-            variant="secondary"
-            size="sm"
-            icon={IconFocusCentered}
+          <ToolbarButton
             disabled={!definition}
             onClick={viewport.fit}
+            render={
+              <KButton
+                variant="secondary"
+                size="sm"
+                icon={IconFocusCentered}
+                className={TOOL}
+              />
+            }
           >
             Fit to view
-          </KButton>
-        </div>
+          </ToolbarButton>
+        </Toolbar>
       </div>
       {searchedNode !== undefined && (
         <p
@@ -273,29 +296,6 @@ export function HolderMapGraph({
       </div>
       <Legend entries={legend} />
     </section>
-  )
-}
-
-function ZoomButton({
-  label,
-  icon,
-  disabled,
-  onClick,
-}: {
-  label: string
-  icon: typeof IconPlus
-  disabled: boolean
-  onClick: () => void
-}) {
-  return (
-    <KButton
-      variant="secondary"
-      size="sm"
-      icon={icon}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-    />
   )
 }
 
