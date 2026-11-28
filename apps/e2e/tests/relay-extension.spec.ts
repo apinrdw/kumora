@@ -628,8 +628,9 @@ const ajaibTape = (query: URLSearchParams) => {
   }
 }
 
-// HOPE's Done Details rows: each side's order id is the day and its order
-// number. The closing auction's time is `HH:mm`.
+// HOPE's Done Details rows, newest first as Ajaib answers them: each side's
+// order id is the day and its order number. The closing auction's time is
+// `HH:mm`.
 const detail = (time: string, buy: number, sell: number) => ({
   time,
   code: "HOPE",
@@ -650,9 +651,9 @@ const detail = (time: string, buy: number, sell: number) => ({
   },
 })
 const HOPE_DETAILS = [
-  detail("08:58", 1_000, 1_500),
-  detail("10:00:05", 2_002, 1_800),
   detail("10:00:05", 2_003, 1_800),
+  detail("10:00:05", 2_002, 1_800),
+  detail("08:58", 1_000, 1_500),
 ]
 
 test("after Ajaib's tape walk, its Done Details walk posts the kept trades' order numbers", async () => {
@@ -716,8 +717,9 @@ test("after Ajaib's tape walk, its Done Details walk posts the kept trades' orde
 
     // The tape walk posted every trade first, then the Done Details walk
     // posted HOPE's three with their order numbers and no fields; BBCA's
-    // has none. The tied trades are one run, and take their rows in order
-    // of their aggressor orders.
+    // has none. Each row, newest first, takes the highest-numbered trade
+    // left of its key (ADR 0026, done-details-walk.ts), so the newest tied
+    // row, 2,003, takes trade 3.
     expect(
       rows()
         .filter(([, , , pair]) => pair === undefined)
