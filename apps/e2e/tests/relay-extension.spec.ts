@@ -483,13 +483,13 @@ const CLOSED_DAY = WibDate.make("2026-11-10")
 // first tick can come before the test moves its clock, and on a real evening
 // that tick starts Ajaib's walk of the real day, which asks for its tab once
 // a minute (guard in apps/extension/src/worker/broker-codes/ajaib-walk.ts).
-//
+const AJAIB_TAB_POLL = { timeout: 70_000 }
+
 // A test that waits on Streaming hours moves the clock into them before it
 // saves a setting. A tick into Streaming hours starts no run (newestClosedDay
-// in hours.ts is none there), so the run a later setting starts is the one
-// that reports them; runs started on the real clock may all have ended by
-// the time the clock moves. See apinrdw/kumora#731.
-const AJAIB_TAB_POLL = { timeout: 70_000 }
+// in hours.ts), so a run a later setting starts reports them, after any run
+// still going ends; the runs started on the real clock may all have ended
+// before the clock moves, and report nothing after. See apinrdw/kumora#731.
 
 test("Run now with a Stockbit tab open starts a broker codes walk, at any hour, posting its trades' order numbers", async () => {
   test.setTimeout(120_000)
@@ -687,8 +687,6 @@ test("after Ajaib's tape walk, its Done Details walk posts the kept trades' orde
     brokers.port
   )
   try {
-    // In Session 1, the run Production's token starts reports Streaming
-    // hours, as does whatever run the worker's first tick started.
     await setRelayClock(worker, SESSION_1)
     const options = await context.newPage()
     await options.goto(optionsUrl)
@@ -787,8 +785,7 @@ test("after the Ajaib tab reloads and its page makes no call, a walk call still 
     brokers.port
   )
   try {
-    // The PIN sign-in's token is the walk's once the page holds none. In
-    // Session 1, the runs the settings start report Streaming hours.
+    // The PIN sign-in's token is the walk's once the page holds none.
     await setRelayClock(worker, SESSION_1)
     const options = await context.newPage()
     await options.goto(optionsUrl)
