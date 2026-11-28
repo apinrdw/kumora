@@ -26,7 +26,7 @@ const initials = (name: string): Effect.Effect<string> =>
   )
 
 // Signs out, then to sign-in, which returns to `href` on the next sign-in.
-const signOut = Effect.fnUntraced(function* (
+export const signOut = Effect.fnUntraced(function* (
   href: string,
   navigate: (href: string) => Promise<void>
 ) {

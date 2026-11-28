@@ -96,6 +96,22 @@
   --sidebar-border: var(--border-subtle);
   --sidebar-ring: var(--accent-primary);
 
+  --ui-background: var(--bg-elevated);
+  --ui-foreground: var(--text-primary);
+  --ui-muted: var(--bg-selected);
+  --ui-muted-foreground: var(--text-secondary);
+  --ui-border: var(--border-subtle);
+  --ui-input: var(--border-strong);
+  --ui-primary: var(--accent-primary);
+  --ui-primary-foreground: var(--accent-on-primary);
+  --ui-destructive: var(--semantic-down);
+  --ui-ring: var(--accent-primary);
+  --ui-ring-border: var(--accent-primary);
+  --ui-overlay: rgb(4 10 18 / 0.6);
+  --ui-shadow: var(--shadow-modal);
+  --ui-radius: var(--radius);
+  --ui-font-sans: "Manrope Variable", Arial, sans-serif;
+
   color-scheme: dark;
 }
 

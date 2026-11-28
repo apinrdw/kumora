@@ -573,6 +573,10 @@ _Avoid_: Ownership chart, holding history
 The search in the Shell header, on every page, that opens a stock page. It offers the stocks parsed holdings have, code matches before issuer-name matches, and `/` focuses it. Bare `/stocks` opens the stock page this browser last opened.
 _Avoid_: Code picker, which picks Market Live's code
 
+**Command palette**:
+The Shell's dialog that runs a command by name: open a page the account may view, open Account or sign out and, once something is typed, open a stock page from the stock search's list. Ctrl/⌘+K or the header's Commands button opens it; on Market Live, Ctrl/⌘+K stays with Market Live's own Go to code palette.
+_Avoid_: Quick switcher, which reads as pages only
+
 ### Access
 
 **Account**:
