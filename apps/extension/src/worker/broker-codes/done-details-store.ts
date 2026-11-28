@@ -29,13 +29,32 @@ const decodeTrade = Schema.decodeUnknownOption(TapeTrade)
 const decodeRow = Schema.decodeUnknownOption(DetailRow)
 const decodeMatched = Schema.decodeUnknownOption(MatchedTrade)
 const decodeCode = Schema.decodeUnknownOption(StockCode)
+// A version 4 store's position on a code, whose rows had no offsets: the
+// upgrade walks that code again from its first page.
+const decodeV4Walking = Schema.decodeUnknownOption(
+  Schema.TaggedStruct("Walking", { code: StockCode })
+)
 
-// Decision: Done Details store v4 keys trades by number; older walks are dropped
+// Decision: Done Details store keys trades by number; pre-v4 walks are dropped
 // (apps/extension/docs/adr/0003-the-done-details-store-keys-trades-by-trade-number.md)
 const openDatabase = Effect.callback<IDBDatabase>((resume) => {
-  const request = indexedDB.open(DATABASE, 4)
-  request.onupgradeneeded = () => {
+  const request = indexedDB.open(DATABASE, 5)
+  request.onupgradeneeded = (event) => {
     const db = request.result
+    // Decision: a code of more than one page is walked again at 999 rows a page
+    // (apps/extension/docs/adr/0027-a-multi-page-done-details-code-is-walked-again-at-999-rows.md)
+    if (event.oldVersion === 4 && request.transaction !== null) {
+      const tx = request.transaction
+      tx.objectStore(ROWS).clear()
+      const meta = tx.objectStore(META)
+      const held = meta.get(POSITION_KEY)
+      held.onsuccess = () => {
+        const walking = decodeV4Walking(held.result)
+        if (Option.isSome(walking))
+          meta.put({ ...walking.value, pass: "first", page: 1 }, POSITION_KEY)
+      }
+      return
+    }
     for (const name of Array.from(db.objectStoreNames))
       db.deleteObjectStore(name)
     db.createObjectStore(TRADES).createIndex(BY_CODE, "code")
@@ -147,15 +166,6 @@ export const doneDetailsStore = Effect.gen(function* () {
             )
         }
       ),
-    read: (day, from, to) =>
-      inTransaction<number>("readonly", (stores, stored, answer) => {
-        answer(0)
-        if (!Option.contains(stored, day)) return
-        const request = stores.trades.count(
-          IDBKeyRange.bound(Number(from), Number(to))
-        )
-        request.onsuccess = () => answer(request.result)
-      }),
     position: (day) =>
       inTransaction<Option.Option<DoneDetailsPosition>>(
         "readonly",
@@ -167,7 +177,8 @@ export const doneDetailsStore = Effect.gen(function* () {
         }
       ),
     // A code's rows are only ever its own pages', since `page` forgets them
-    // at each code's first page.
+    // at each code's first page. An index answers its equal keys in primary
+    // key order, here the order `page` added them: Ajaib's.
     rows: (day, code) =>
       inTransaction<ReadonlyArray<DetailRow>>(
         "readonly",
@@ -184,7 +195,11 @@ export const doneDetailsStore = Effect.gen(function* () {
     page: (day, next, rows) =>
       inTransaction<void>("readwrite", (stores, stored) => {
         if (!Option.contains(stored, day)) return
-        if (next._tag !== "Walking" || next.page === 1) stores.rows.clear()
+        if (
+          next._tag !== "Walking" ||
+          (next.pass === "first" && next.page === 1)
+        )
+          stores.rows.clear()
         if (next._tag === "Posted") stores.trades.clear()
         if (next._tag === "Walking")
           for (const row of rows) stores.rows.add({ ...row, code: next.code })

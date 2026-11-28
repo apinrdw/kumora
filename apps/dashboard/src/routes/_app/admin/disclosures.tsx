@@ -33,7 +33,7 @@ function DisclosuresPage() {
           Every disclosure IDX publishes on its Keterbukaan Informasi page, in
           Indonesian and English, with every attachment, kept as published. Run
           now stores what the last {RECENT_DAYS} days added on this stage, then
-          backfills the oldest days not yet complete.
+          backfills the newest days not yet complete.
         </p>
       </header>
       <DisclosureLastRunCard lastRun={lastRun} nextRun={nextRun} now={now} />

@@ -18,8 +18,18 @@ The Stage `staging`, deployed from the `staging` branch, GitHub's default branch
 Production or Staging: the two Stages with a fixed URL that outside services, such as the Google OAuth client and a Turnstile widget, are set up for.
 
 **Preview**:
-A Stage deployed from any other branch, named by a slug of the branch plus a 6-character hash of its full name. It reads Infisical `staging` and is destroyed when its PR closes or its branch is deleted.
+A Stage deployed from any other branch, named by a slug of the branch plus a 6-character hash of its full name. It reads Infisical `staging` and is destroyed when its PR closes or its branch is deleted, or by the Preview sweep once it is a Stale Preview. A merged PR's branch is deleted with it (the repo's `delete_branch_on_merge`, on since 2026-11-27: `gh api repos/apinrdw/kumora --jq .delete_branch_on_merge`).
 _Avoid_: Preview environment
+
+**Prototype branch**:
+A branch under `prototype/`, pushed for its Preview and never meant for a PR. Its Preview lives until the branch is deleted.
+
+**Stale Preview**:
+A Preview whose branch is gone; or, outside a Prototype branch, whose branch's latest PR is merged or closed with none open, or whose branch never had a PR and whose head commit is more than 3 days old.
+_Avoid_: Orphan Preview
+
+**Preview sweep**:
+The daily job that destroys every Stale Preview it finds in the Alchemy state store. It also runs by hand, dry or for real.
 
 **Dev stage**:
 A developer's local Stage, `dev_$USER`, run by `bun alchemy dev` with local emulation and local state. It reads Infisical `staging` through the developer's Alchemy profile.

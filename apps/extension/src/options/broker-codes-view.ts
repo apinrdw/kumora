@@ -205,8 +205,14 @@ const phaseLabel = Effect.fnUntraced(function* (phase: WalkPhase | undefined) {
   switch (phase.step) {
     case "awaiting-close":
       return `waiting for Ajaib's close since ${since}${stall}`
-    case "fetching":
-      return `fetching since ${since}${stall}`
+    case "fetching": {
+      const { pass, page, pages } = phase
+      const at =
+        pass === undefined || page === undefined || pages === undefined
+          ? ""
+          : `, ${pass} pass, page ${yield* count(page)} of ${yield* count(pages)}`
+      return `fetching since ${since}${at}${stall}`
+    }
     case "awaiting-token":
       return phase.reloads === 0
         ? `waiting for a fresh Ajaib token since ${since}${stall}`

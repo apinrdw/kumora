@@ -41,8 +41,8 @@ export type NotStoredAttachment = typeof NotStoredAttachment.Type
 
 // A day older than the recent ones whose listing couldn't be read: the run
 // went on without it, and the next run lists it again.
-// Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
-// (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
+// Decision: each disclosure run backfills the newest incomplete days with its leftover budget
+// (apps/dashboard/docs/adr/0142-disclosure-runs-backfill-the-newest-incomplete-days.md)
 const UnlistedDay = Schema.Struct({
   day: WibDate,
   // At most MAX_RUN_ERROR_LENGTH characters.
@@ -59,10 +59,11 @@ export const DisclosureRunResult = Schema.Struct({
   outcome: RunOutcome,
   // The disclosure days listed, newest first.
   days: Schema.Array(WibDate),
-  // The older disclosure days it took up, oldest first: listed, or resumed
-  // where an earlier run's budget ran out.
+  // The older disclosure days it took up, in the order it did: those an
+  // earlier run's budget left waiting, newest first, then those it walked
+  // back to from the recent days.
   backfillDays: Schema.Array(WibDate),
-  // The older days it couldn't list, at most MAX_BACKFILL_DAYS, oldest
+  // The older days it couldn't list, at most MAX_BACKFILL_DAYS, newest
   // first; none is among backfillDays.
   unlistedDays: Schema.Array(UnlistedDay),
   // Disclosure versions the archive didn't hold, stored.

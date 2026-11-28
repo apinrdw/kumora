@@ -73,6 +73,7 @@ import { makeReadingsBook } from "./readings-book.ts"
 import { dayValuesAnswer, makePreviousValues } from "./previous-values.ts"
 import {
   makeBrokerCodes,
+  orderNumbersMoved,
   summarizeTape,
   summarizeAddedTrades,
 } from "./broker-codes.ts"
@@ -2164,6 +2165,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         ),
       status: (search: URLSearchParams) =>
         turned(brokerCodes.status(search), (emptied) => emptied.status(search)),
+      // An admin's read of the held order numbers (ADR 0141), which a day
+      // moved to R2 no longer holds.
+      orderNumbers: (search: URLSearchParams) =>
+        turned(brokerCodes.orderNumbers(search), () => orderNumbersMoved),
       held: (tradeNumber: TradeNumber) =>
         turned(brokerCodes.held(tradeNumber), () =>
           Effect.die("The day moved")
