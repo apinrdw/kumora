@@ -223,7 +223,9 @@ const WaitingAttachment = Schema.Struct({
 export type WaitingAttachment = typeof WaitingAttachment.Type
 
 // Up to `limit` attachments of `days` that wait to be stored, in the order
-// `days` names their days.
+// `days` names their days, and within a day the newest disclosure's first.
+// Decision: each disclosure run backfills the newest incomplete days with its leftover budget
+// (apps/dashboard/docs/adr/0142-disclosure-runs-backfill-the-newest-incomplete-days.md)
 export const waitingAttachments = Effect.fnUntraced(function* (
   days: ReadonlyArray<WibDate>,
   limit: number
@@ -234,7 +236,7 @@ export const waitingAttachments = Effect.fnUntraced(function* (
       "SELECT a.disclosure_key AS disclosure, a.path " +
       "FROM json_each(?) AS listed JOIN disclosure_attachment AS a " +
       `ON a.day = listed.value WHERE ${WAITING} ` +
-      "ORDER BY listed.key, a.disclosure_key, a.path LIMIT ?",
+      "ORDER BY listed.key, a.disclosure_key DESC, a.path LIMIT ?",
     params: [JSON.stringify(days), limit],
   })
 })

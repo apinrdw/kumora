@@ -6,10 +6,10 @@ import { DateTime, Duration, Effect } from "effect"
 import { type DisclosureKey, publishDateOf } from "./key.ts"
 
 // IDX's first disclosure day: GetAnnouncement listed nothing before 3 July
-// 2023 when probed on 2026-11-26. The oldest day a run backfills
-// (archive-run.ts) and the first the coverage shows (coverage.ts).
-// Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
-// (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
+// 2023 when probed on 2026-11-26. The last day a run's backfill walks back
+// to (archive-run.ts) and the first the coverage shows (coverage.ts).
+// Decision: each disclosure run backfills the newest incomplete days with its leftover budget
+// (apps/dashboard/docs/adr/0142-disclosure-runs-backfill-the-newest-incomplete-days.md)
 export const FIRST_DISCLOSURE_DAY = WibDate.make("2023-07-03")
 
 // The disclosure days each run lists again: today in WIB and the 6 before,
@@ -21,13 +21,21 @@ export const RECENT_DAYS = 7
 // (apps/dashboard/docs/adr/0139-an-attachment-failing-for-7-days-is-unavailable.md)
 export const UNAVAILABLE_AFTER = Duration.days(7)
 
-// The day after `day`.
-export const dayAfter = Effect.fnUntraced(function* (day: WibDate) {
-  return WibDate.make(
+const daysFrom = (day: WibDate, days: number) =>
+  WibDate.make(
     DateTime.formatIsoDate(
-      DateTime.add(DateTime.makeUnsafe(`${day}T00:00:00Z`), { days: 1 })
+      DateTime.add(DateTime.makeUnsafe(`${day}T00:00:00Z`), { days })
     )
   )
+
+// The day after `day`.
+export const dayAfter = Effect.fnUntraced(function* (day: WibDate) {
+  return daysFrom(day, 1)
+})
+
+// The day before `day`.
+export const dayBefore = Effect.fnUntraced(function* (day: WibDate) {
+  return daysFrom(day, -1)
 })
 
 // The disclosure day a key was published on: its first eight digits, a

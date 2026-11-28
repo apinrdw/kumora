@@ -67,10 +67,13 @@ const NAV: Published = {
   files: ["nav.pdf", "nav_lamp1.pdf"],
 }
 
-// IDX's first disclosure, on its first disclosure day.
-const FIRST: Published = {
-  stamp: "20230703081455",
-  number: "092/KIC-CS/VII/2023",
+// The day before the 7 days the run lists, the first it backfills.
+const OLDER_DAY = WibDate.make("2026-11-19")
+
+// A disclosure of OLDER_DAY.
+const OLDER: Published = {
+  stamp: "20261119081455",
+  number: "092/KIC-CS/XI/2026",
   files: ["a.pdf"],
 }
 
@@ -265,7 +268,8 @@ describe("a disclosure run", () => {
     Effect.gen(function* () {
       const { idx, bucket, run } = world()
       const oldest = { ...NAV, stamp: "20261120080000", number: "A/1" }
-      const tooOld = { ...NAV, stamp: "20261119235959", number: "A/2" }
+      // Further back than one run's backfill reaches.
+      const tooOld = { ...NAV, stamp: "20250101235959", number: "A/2" }
       const broker = { ...NAV, stamp: "20261126090000", number: "B/3" }
       for (const published of [oldest, tooOld, broker]) publish(idx, published)
 
@@ -355,7 +359,7 @@ describe("a disclosure run", () => {
     () =>
       Effect.gen(function* () {
         const { idx, run } = world()
-        publish(idx, FIRST)
+        publish(idx, OLDER)
         idx.files.set(pathOf("a.pdf"), { body: "", status: 404 })
 
         const first = yield* run()
@@ -367,7 +371,7 @@ describe("a disclosure run", () => {
             outcome: "partial",
             attachmentsWaiting: 1,
           })
-        assert.strictEqual(later.backfillDays[0], FIRST_DISCLOSURE_DAY)
+        assert.strictEqual(later.backfillDays[0], OLDER_DAY)
         assert.deepStrictEqual(fileRequests(idx), [pathOf("a.pdf")])
       })
   )
@@ -377,7 +381,7 @@ describe("a disclosure run", () => {
     () =>
       Effect.gen(function* () {
         const { idx, run } = world()
-        publish(idx, FIRST)
+        publish(idx, OLDER)
         idx.files.set(pathOf("a.pdf"), { body: "", status: 404 })
 
         yield* run()
@@ -390,8 +394,8 @@ describe("a disclosure run", () => {
         )
 
         assert.deepStrictEqual(fileRequests(idx), [])
-        assert.notInclude(after.backfillDays, FIRST_DISCLOSURE_DAY)
-        assert.notInclude(listedDates(idx), "20230703")
+        assert.notInclude(after.backfillDays, OLDER_DAY)
+        assert.notInclude(listedDates(idx), "20261119")
       })
   )
 
@@ -400,7 +404,7 @@ describe("a disclosure run", () => {
     () =>
       Effect.gen(function* () {
         const { idx, db, run } = world()
-        publish(idx, FIRST)
+        publish(idx, OLDER)
         idx.files.set(pathOf("a.pdf"), { body: "", status: 503 })
         yield* run()
 
@@ -432,7 +436,7 @@ describe("a disclosure run", () => {
     () =>
       Effect.gen(function* () {
         const { idx, bucket, db, run } = world()
-        publish(idx, FIRST)
+        publish(idx, OLDER)
         // The file is in the bucket, then its index row fails to say so,
         // and IDX no longer serves it when the step is retried.
         db.failBatch = (sql) => {
@@ -463,7 +467,7 @@ describe("a disclosure run", () => {
           ]
         )
         assert.strictEqual(
-          bucket.objects.get(`${encoded(FIRST)}/files${pathOf("a.pdf")}`)?.body,
+          bucket.objects.get(`${encoded(OLDER)}/files${pathOf("a.pdf")}`)?.body,
           bodyOf(pathOf("a.pdf"))
         )
       })
@@ -531,13 +535,13 @@ describe("a disclosure run", () => {
       Effect.gen(function* () {
         const { idx, run } = world()
         const second: Published = {
-          stamp: "20230704090000",
+          stamp: "20261118090000",
           number: "093/KIC",
           files: ["b.pdf"],
         }
-        for (const published of [FIRST, second, NAV]) publish(idx, published)
+        for (const published of [OLDER, second, NAV]) publish(idx, published)
         idx.listingResponse = (url) =>
-          url.searchParams.get("dateFrom") === "20230703"
+          url.searchParams.get("dateFrom") === "20261119"
             ? new Response("busy", { status: 500 })
             : undefined
 
@@ -549,22 +553,22 @@ describe("a disclosure run", () => {
           pathOf("nav_lamp1.pdf"),
           pathOf("b.pdf"),
         ])
-        assert.notInclude(first.backfillDays, FIRST_DISCLOSURE_DAY)
-        assert.strictEqual(first.backfillDays[0], "2023-07-04")
+        assert.notInclude(first.backfillDays, OLDER_DAY)
+        assert.strictEqual(first.backfillDays[0], "2026-11-18")
         assert.deepStrictEqual(
           first.unlistedDays.map(({ day }) => day),
-          [FIRST_DISCLOSURE_DAY]
+          [OLDER_DAY]
         )
         assert.match(
           first.unlistedDays[0]?.message ?? "",
-          /^IDX's disclosures of 2023-07-03 \(id\) answered 500/
+          /^IDX's disclosures of 2026-11-19 \(id\) answered 500/
         )
 
         idx.listingResponse = undefined
         idx.requests.length = 0
         const later = yield* run()
 
-        assert.strictEqual(later.backfillDays[0], FIRST_DISCLOSURE_DAY)
+        assert.strictEqual(later.backfillDays[0], OLDER_DAY)
         assert.deepStrictEqual(later.unlistedDays, [])
         assert.deepStrictEqual(fileRequests(idx), [pathOf("a.pdf")])
       })
@@ -680,9 +684,9 @@ describe("a disclosure run", () => {
     () =>
       Effect.gen(function* () {
         const { idx, run } = world()
-        publish(idx, FIRST)
+        publish(idx, OLDER)
         const unkeyed = replyOf(
-          { stamp: "20230703100000", number: "U/1", files: [] },
+          { stamp: "20261119100000", number: "U/1", files: [] },
           "en"
         )
         idx.versions.en.push({
@@ -696,8 +700,8 @@ describe("a disclosure run", () => {
 
         const second = yield* run()
 
-        assert.notInclude(second.backfillDays, FIRST_DISCLOSURE_DAY)
-        assert.notInclude(listedDates(idx), "20230703")
+        assert.notInclude(second.backfillDays, OLDER_DAY)
+        assert.notInclude(listedDates(idx), "20261119")
       })
   )
 
@@ -779,35 +783,41 @@ describe("a disclosure run", () => {
   )
 
   it.effect(
-    "stores the 7 days first, then backfills from IDX's first disclosure day",
+    "stores the 7 days first, then backfills from the day before them, newest day and disclosure first",
     () =>
       Effect.gen(function* () {
         const { idx, bucket, run } = world()
-        const first = FIRST
-        const second = {
-          stamp: "20230704090000",
+        const later: Published = {
+          stamp: "20261119150000",
+          number: "094/KIC",
+          files: ["c.pdf"],
+        }
+        const second: Published = {
+          stamp: "20261118090000",
           number: "093/KIC",
           files: ["b.pdf"],
         }
-        for (const published of [second, first, NAV]) publish(idx, published)
+        for (const published of [second, OLDER, later, NAV])
+          publish(idx, published)
 
         const result = yield* run()
 
-        assert.strictEqual(FIRST_DISCLOSURE_DAY, "2023-07-03")
         assert.deepStrictEqual(result.backfillDays.slice(0, 2), [
-          "2023-07-03",
-          "2023-07-04",
+          "2026-11-19",
+          "2026-11-18",
         ])
-        assert.isNotEmpty(keysOf(bucket, first))
+        assert.isNotEmpty(keysOf(bucket, OLDER))
         assert.isNotEmpty(keysOf(bucket, second))
-        // The 7 days' files first, then the oldest day's.
+        // The 7 days' files first, then the newest older day's, its newest
+        // disclosure's first.
         assert.deepStrictEqual(fileRequests(idx), [
           pathOf("nav.pdf"),
           pathOf("nav_lamp1.pdf"),
+          pathOf("c.pdf"),
           pathOf("a.pdf"),
           pathOf("b.pdf"),
         ])
-        assert.deepInclude(result, { outcome: "complete", versionsAdded: 6 })
+        assert.deepInclude(result, { outcome: "complete", versionsAdded: 8 })
       })
   )
 
@@ -816,19 +826,61 @@ describe("a disclosure run", () => {
     () =>
       Effect.gen(function* () {
         const { idx, run } = world()
-        publish(idx, FIRST)
+        publish(idx, OLDER)
 
         const first = yield* run()
-        assert.strictEqual(first.backfillDays.at(-1), "2023-08-02")
+        assert.strictEqual(first.backfillDays.at(-1), "2026-10-20")
         idx.requests.length = 0
 
         const second = yield* run()
 
-        assert.strictEqual(second.backfillDays[0], "2023-08-03")
+        assert.strictEqual(second.backfillDays[0], "2026-10-19")
         assert.deepStrictEqual(
-          listedDates(idx).filter((day) => day < "2026"),
+          listedDates(idx).filter((day) => day < "20261120"),
           second.backfillDays.map((day) => day.replaceAll("-", ""))
         )
+      })
+  )
+
+  it.effect(
+    "takes up the days earlier runs left waiting, newest first, before listing a newer day",
+    () =>
+      Effect.gen(function* () {
+        const { idx, db, run } = world()
+        for (const day of ["2023-07-03", "2024-01-02"]) {
+          const file = `w${day}.pdf`
+          db.database
+            .prepare(
+              "INSERT INTO disclosure_day (day, listed_at) VALUES (?, ?)"
+            )
+            .run(day, `${day}T20:00:00.000Z`)
+          db.database
+            .prepare(
+              "INSERT INTO disclosure_attachment (disclosure_key, path, day, object_key) " +
+                "VALUES (?, ?, ?, ?)"
+            )
+            .run(
+              `${day.replaceAll("-", "")}090000-W/1`,
+              pathOf(file),
+              day,
+              `w/${day}`
+            )
+          idx.files.set(pathOf(file), { body: bodyOf(pathOf(file)) })
+        }
+
+        const result = yield* run()
+
+        assert.deepStrictEqual(result.backfillDays.slice(0, 3), [
+          "2024-01-02",
+          "2023-07-03",
+          OLDER_DAY,
+        ])
+        assert.deepStrictEqual(fileRequests(idx), [
+          pathOf("w2024-01-02.pdf"),
+          pathOf("w2023-07-03.pdf"),
+        ])
+        assert.notInclude(listedDates(idx), "20240102")
+        assert.notInclude(listedDates(idx), "20230703")
       })
   )
 
@@ -840,7 +892,7 @@ describe("a disclosure run", () => {
         for (let n = 0; n < FILES_PER_RUN + 1; n++)
           publish(
             idx,
-            { stamp: "20230703100000", number: `D/${n}`, files: [`d${n}.pdf`] },
+            { stamp: "20261119100000", number: `D/${n}`, files: [`d${n}.pdf`] },
             ["id"]
           )
 
@@ -852,7 +904,7 @@ describe("a disclosure run", () => {
           attachmentsWaiting: 1,
           notStored: [],
         })
-        assert.deepStrictEqual(first.backfillDays, [WibDate.make("2023-07-03")])
+        assert.deepStrictEqual(first.backfillDays, [OLDER_DAY])
         idx.requests.length = 0
 
         const second = yield* run()
@@ -862,13 +914,13 @@ describe("a disclosure run", () => {
           attachmentsStored: 1,
           attachmentsWaiting: 0,
         })
-        assert.strictEqual(second.backfillDays[0], "2023-07-03")
-        assert.notInclude(listedDates(idx), "20230703")
+        assert.strictEqual(second.backfillDays[0], OLDER_DAY)
+        assert.notInclude(listedDates(idx), "20261119")
         idx.requests.length = 0
 
         const third = yield* run()
 
-        assert.strictEqual(third.backfillDays[0], "2023-08-03")
+        assert.strictEqual(third.backfillDays[0], "2026-10-19")
         assert.deepStrictEqual(fileRequests(idx), [])
       }),
     { timeout: 30_000 }
@@ -879,7 +931,7 @@ describe("a disclosure run", () => {
     () =>
       Effect.gen(function* () {
         const { idx, run } = world()
-        publish(idx, FIRST)
+        publish(idx, OLDER)
         for (let n = 0; n < FILES_PER_RUN; n++)
           publish(
             idx,
@@ -894,13 +946,13 @@ describe("a disclosure run", () => {
           attachmentsStored: FILES_PER_RUN,
         })
         assert.deepStrictEqual(result.backfillDays, [])
-        assert.notInclude(listedDates(idx), "20230703")
+        assert.notInclude(listedDates(idx), "20261119")
       }),
     { timeout: 30_000 }
   )
 
   it.effect(
-    "takes up the oldest incomplete day of the whole history within its caps",
+    "takes up a day an earlier run left waiting before the newer days it hasn't listed, within its caps",
     () =>
       Effect.gen(function* () {
         const { idx, db, run } = world()
@@ -942,10 +994,36 @@ describe("a disclosure run", () => {
           attachmentsStored: FILES_PER_RUN,
           attachmentsWaiting: FILES_PER_RUN,
         })
-        // Neither the complete days nor the day it resumed are listed.
+        // Neither the complete days, the day it resumed, nor the newer days
+        // it never reached are listed.
         assert.deepStrictEqual(
           listedDates(idx).filter((day) => day < "20261120"),
           []
+        )
+      }),
+    { timeout: 60_000 }
+  )
+
+  it.effect(
+    "walks back no further than IDX's first disclosure day",
+    () =>
+      Effect.gen(function* () {
+        const { idx, db, run } = world()
+        seedHistory(db, "2026-11-19")
+        db.database
+          .prepare("DELETE FROM disclosure_day WHERE day <= '2023-07-04'")
+          .run()
+
+        const result = yield* run()
+
+        assert.strictEqual(FIRST_DISCLOSURE_DAY, "2023-07-03")
+        assert.deepStrictEqual(result.backfillDays, [
+          WibDate.make("2023-07-04"),
+          FIRST_DISCLOSURE_DAY,
+        ])
+        assert.deepStrictEqual(
+          listedDates(idx).filter((day) => day < "20261120"),
+          ["20230704", "20230703"]
         )
       }),
     { timeout: 60_000 }
@@ -956,15 +1034,15 @@ describe("a disclosure run", () => {
     () =>
       Effect.gen(function* () {
         const { idx, bucket, run } = world()
-        // A run at 10:00 WIB on 3 July 2023 lists the day so far.
-        yield* run(new Date("2023-07-03T03:00:00Z"))
-        publish(idx, FIRST)
+        // A run at 10:00 WIB on 19 November 2026 lists the day so far.
+        yield* run(new Date("2026-11-19T03:00:00Z"))
+        publish(idx, OLDER)
 
         // The next, long after.
         const later = yield* run()
 
-        assert.strictEqual(later.backfillDays[0], "2023-07-03")
-        assert.isNotEmpty(keysOf(bucket, FIRST))
+        assert.strictEqual(later.backfillDays[0], OLDER_DAY)
+        assert.isNotEmpty(keysOf(bucket, OLDER))
       })
   )
 
