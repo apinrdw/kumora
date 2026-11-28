@@ -63,7 +63,7 @@ Before writing a PR body (opening a PR or rewriting one), invoke the `/mattpococ
 
 List each ADR the PR adds, edits or supersedes, by title and path, under a `Decisions` heading in the PR body. Leave the heading out when there are none.
 
-CI holds a PR that touches `apps/{web,dashboard,extension,e2e}` or `packages/` on its `e2e-evidence` status. After opening one, run `vp run e2e:evidence <spec...>` naming the specs that show the change, or add the `no-e2e-evidence` label when nothing visible changed. Rules: `.claude/skills/post-implementation-review/workspaces/e2e.md`.
+A PR that touches `apps/{web,dashboard,extension,e2e}` or `packages/` needs two checks: CI's `e2e`, which runs the whole Playwright suite, and its `e2e-evidence` status. After opening one, run `vp run e2e:evidence <spec...>` naming the specs that show the change, which records and posts their video, or add the `no-e2e-evidence` label when nothing visible changed. Rules: `.claude/skills/post-implementation-review/workspaces/e2e.md`.
 
 ## Asking the user
 

@@ -31,7 +31,7 @@ Never print a secret value; hash prefixes only. Never run `alchemy deploy` or `a
 - The verify command or test the spec names passes, with the exact command and output in the report.
 - From the repo root: `vp run check`, which is what CI runs, and the lint and format commands in `AGENTS.md` exit 0.
 - A Vitest test that is slow on purpose sets its own `timeout`. The local default is 2.5 s, half CI's (`vitest.timeout.mts`), so a test that would time out on CI's 2 cores times out here first.
-- An e2e change passes `vp run test:e2e`, which runs only on the dev machine. A per-ticket implementer inside an implement-spec run posts no evidence; `post-implementation-review` runs `vp run e2e:evidence` on the integration PR.
+- An e2e change passes the specs it touches locally (`vp run test:e2e <spec files>`, or `E2E_PROJECTS=<project>`); CI's `e2e` check runs the whole suite. A per-ticket implementer inside an implement-spec run posts no evidence; `post-implementation-review` runs `vp run e2e:evidence` on the integration PR.
 - A new entry file, such as a `scripts/*.mts` that a command runs, lands in the same commit as the `package.json` script that runs it. Until then fallow's commit gate blocks it as an unused file.
 - A name is exported only when another file imports it in the same commit. An export kept for a test that doesn't exist yet, or for a later ticket, led every one of specs #303 and #327's 13 commit-gate blocks.
 - Small logical commits whose messages end with the attribution line the harness requires. Before reporting, merge the integration branch's current tip.

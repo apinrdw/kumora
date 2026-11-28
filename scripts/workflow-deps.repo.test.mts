@@ -1,12 +1,18 @@
 // A workflow job that runs a packages/deploy entry point imports its
 // dependencies, so it has to install them first on a clean runner. CI runs the
-// same checks as `vp run check`, one root `check:*` script per job. No job runs
-// e2e: a PR carries locally recorded evidence instead.
+// same checks as `vp run check`, one root `check:*` script per job. Only
+// e2e.yml's suite jobs run e2e, on the free runner, behind one required `e2e`
+// job.
 // Workflows are read as YAML, so comments and layout never change a verdict.
+// Decision: e2e runs on GitHub's free runners; local evidence is video only
+// (docs/adr/0024-e2e-runs-on-github-s-free-runners-and-local-evidence-is-video-only.md)
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
+import { ChildProcess } from "effect/process"
 import { parse } from "yaml"
+
+import { collect } from "./lib/command.mts"
 
 const Manifest = Schema.fromJsonString(
   Schema.Struct({ scripts: Schema.Record(Schema.String, Schema.String) })
@@ -15,16 +21,31 @@ const Manifest = Schema.fromJsonString(
 const Step = Schema.Struct({
   uses: Schema.optional(Schema.String),
   run: Schema.optional(Schema.String),
+  env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 })
 type Step = typeof Step.Type
 
-const Workflow = Schema.Struct({
-  jobs: Schema.Record(
-    Schema.String,
+const Job = Schema.Struct({
+  name: Schema.optional(Schema.String),
+  if: Schema.optional(Schema.String),
+  needs: Schema.optional(
+    Schema.Union([Schema.String, Schema.Array(Schema.String)])
+  ),
+  "runs-on": Schema.optional(Schema.String),
+  strategy: Schema.optional(
     Schema.Struct({
-      steps: Schema.optional(Schema.Array(Step)),
+      matrix: Schema.Struct({
+        include: Schema.optional(
+          Schema.Array(Schema.Struct({ projects: Schema.String }))
+        ),
+      }),
     })
   ),
+  steps: Schema.optional(Schema.Array(Step)),
+})
+
+const Workflow = Schema.Struct({
+  jobs: Schema.Record(Schema.String, Job),
 })
 
 const readWorkflow = Effect.fn("readWorkflow")(function* (file: string) {
@@ -40,6 +61,10 @@ const workflowsDir = Effect.map(Path.Path, (path) =>
 
 const ciWorkflow = Effect.flatMap(workflowsDir, (dir) =>
   readWorkflow(`${dir}/ci.yml`)
+)
+
+const e2eWorkflow = Effect.flatMap(workflowsDir, (dir) =>
+  readWorkflow(`${dir}/e2e.yml`)
 )
 
 // Each job's steps, by job name.
@@ -132,22 +157,103 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
       })
   )
 
-  it.effect("no workflow job runs test:e2e", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const dir = yield* workflowsDir
-      const files = yield* fs.readDirectory(dir)
-      const e2e: Array<string> = []
-      for (const file of files.filter((name) => name.endsWith(".yml"))) {
-        for (const [job, steps] of jobSteps(
-          yield* readWorkflow(`${dir}/${file}`)
-        )) {
-          if (steps.some((step) => runs(step, /\btest:e2e\b/)))
-            e2e.push(`${file} ${job}`)
+  it.effect(
+    "only e2e.yml's suite job runs test:e2e, on the free runner, by project",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const dir = yield* workflowsDir
+        const files = yield* fs.readDirectory(dir)
+        const e2e: Array<string> = []
+        for (const file of files.filter((name) => name.endsWith(".yml"))) {
+          for (const [job, steps] of jobSteps(
+            yield* readWorkflow(`${dir}/${file}`)
+          )) {
+            if (steps.some((step) => runs(step, /\btest:e2e\b/)))
+              e2e.push(`${file} ${job}`)
+          }
         }
-      }
-      assert.deepStrictEqual(e2e, [])
-    })
+        assert.deepStrictEqual(e2e, ["e2e.yml suite"])
+        const { suite } = (yield* e2eWorkflow).jobs
+        // A larger runner bills by the minute even on a public repo.
+        assert.strictEqual(suite?.["runs-on"], "ubuntu-latest")
+        const step = suite?.steps?.find((one) => runs(one, /\btest:e2e\b/))
+        assert.include(step?.run, "--forbid-only")
+        assert.strictEqual(
+          step?.env?.["E2E_PROJECTS"],
+          "${{ matrix.projects }}"
+        )
+      })
+  )
+
+  it.effect(
+    "e2e.yml's matrix runs every Playwright project but setup and the repaint bench",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const config = yield* fs.readFileString(
+          path.resolve(import.meta.dirname, "../apps/e2e/playwright.config.ts")
+        )
+        // chromium-video exists only on an evidence run, which CI never is.
+        // The repaint bench's bar is the dev machine's CPU (e2e.yml says why).
+        const projects = [...config.matchAll(/^\s*name: "([\w-]+)",$/gm)]
+          .map(([, name]) => name as string)
+          .filter(
+            (name) =>
+              !["setup", "chromium-video", "repaint-bench"].includes(name)
+          )
+        assert.isAbove(projects.length, 0, "found the config's projects")
+        const matrix = (yield* e2eWorkflow).jobs.suite?.strategy?.matrix.include
+        assert.deepStrictEqual(
+          [...new Set(matrix?.map((job) => job.projects))].sort(),
+          projects.sort()
+        )
+      })
+  )
+
+  it.effect(
+    "the required e2e job always runs and waits on every other job",
+    () =>
+      Effect.gen(function* () {
+        const { jobs } = yield* e2eWorkflow
+        const { e2e } = jobs
+        assert.strictEqual(e2e?.name, "e2e")
+        assert.match(e2e?.if ?? "", /^always\(\) && /)
+        assert.deepStrictEqual(
+          [e2e?.needs ?? []].flat().sort(),
+          Object.keys(jobs)
+            .filter((job) => job !== "e2e")
+            .sort()
+        )
+      })
+  )
+
+  it.effect(
+    "the e2e job passes with no app code or every suite job green, and fails otherwise",
+    () =>
+      Effect.gen(function* () {
+        const script = (yield* e2eWorkflow).jobs.e2e?.steps?.[0]?.run ?? ""
+        const verdict = (env: Record<string, string>) =>
+          Effect.map(
+            collect(ChildProcess.make("bash", ["-c", script], { env })),
+            ({ exitCode }) => (exitCode === 0 ? "pass" : "fail")
+          )
+        // When the changes job finds no app code, the suite jobs skip.
+        const cases = [
+          [{ CHANGES: "success", APP: "false", SUITE: "skipped" }, "pass"],
+          [{ CHANGES: "success", APP: "true", SUITE: "success" }, "pass"],
+          [{ CHANGES: "success", APP: "true", SUITE: "failure" }, "fail"],
+          [{ CHANGES: "success", APP: "true", SUITE: "cancelled" }, "fail"],
+          [{ CHANGES: "success", APP: "true", SUITE: "skipped" }, "fail"],
+          [{ CHANGES: "failure", APP: "", SUITE: "skipped" }, "fail"],
+          [{ CHANGES: "cancelled", APP: "", SUITE: "skipped" }, "fail"],
+        ] as const
+        assert.deepStrictEqual(
+          yield* Effect.forEach(cases, ([env]) => verdict(env)),
+          cases.map(([, expected]) => expected)
+        )
+      })
   )
 
   it.effect(

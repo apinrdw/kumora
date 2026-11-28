@@ -322,7 +322,7 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
           comment.body,
           [
             "## e2e evidence",
-            `The full suite passed on ${SHA}: 11 passed in 31 s.`,
+            `The picked specs passed on ${SHA}: 11 passed in 31 s. The whole suite's result is CI's \`e2e\` check.`,
             "### web.spec.ts",
             "#### GET / serves the landing page",
             `![](${video})`,
@@ -335,7 +335,8 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
           sha: SHA,
           state: "success",
           context: "e2e-evidence",
-          description: "Full suite passed: 11 tests. Videos in the PR comment.",
+          description:
+            "Picked specs passed: 11 tests. Videos in the PR comment.",
         })
       })
   )
@@ -473,7 +474,7 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
   )
 
   it.effect(
-    "refuses to post when a file changed while the suite ran, listing what is dirty",
+    "refuses to post when a file changed while the specs ran, listing what is dirty",
     () =>
       Effect.gen(function* () {
         const refused = yield* Effect.flip(
@@ -483,7 +484,7 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
           })
         )
         assert.instanceOf(refused, EvidenceRefused)
-        assert.include(refused.message, "while the suite ran")
+        assert.include(refused.message, "while the specs ran")
         assert.include(refused.message, "nothing was posted")
         assert.include(refused.message, "apps/web/src/routes/index.tsx")
         assert.include(refused.message, "notes.txt")
@@ -491,14 +492,14 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
   )
 
   it.effect(
-    "refuses to post when HEAD left the PR's head while the suite ran, naming both",
+    "refuses to post when HEAD left the PR's head while the specs ran, naming both",
     () =>
       Effect.gen(function* () {
         const refused = yield* Effect.flip(
           planAfter({ dirty: [], head: OTHER_SHA })
         )
         assert.instanceOf(refused, EvidenceRefused)
-        assert.include(refused.message, "while the suite ran")
+        assert.include(refused.message, "while the specs ran")
         assert.include(refused.message, OTHER_SHA)
         assert.include(refused.message, SHA)
         assert.include(refused.message, "PR #217")
@@ -599,7 +600,7 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
         )
         assert.strictEqual(
           post.status.description,
-          "Full suite passed: 11 tests. Videos in 2 PR comments."
+          "Picked specs passed: 11 tests. Videos in 2 PR comments."
         )
       })
   )
