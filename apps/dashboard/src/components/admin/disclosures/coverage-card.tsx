@@ -38,7 +38,7 @@ const STATE = {
  * Each disclosure day from IDX's first to today
  * (server/disclosures/coverage.ts), month by day: complete, incomplete or
  * not yet listed, with how many days are in each and the earliest day the
- * archive holds. Read-only: runs backfill the oldest incomplete day first.
+ * archive holds. Read-only: runs backfill the newest incomplete day first.
  */
 export function DisclosureCoverageCard({
   coverage: { earliestDay, complete, incomplete, notListed, months },
@@ -62,7 +62,7 @@ export function DisclosureCoverageCard({
         )}{" "}
         {Effect.runSync(count(complete, "day complete", "days complete"))},{" "}
         {incomplete} incomplete, {notListed} not yet listed. Each run takes up
-        the oldest incomplete days after the last {RECENT_DAYS}.
+        the newest incomplete days before the last {RECENT_DAYS}.
       </p>
       <DayGrid
         title="Disclosure days"

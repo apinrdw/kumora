@@ -8,7 +8,8 @@
 // A `list:` step stores the versions the archive lacks and indexes their
 // attachments as waiting; the `files:` steps store waiting attachments, at
 // most FILES_PER_RUN a run: the recent days' newest day first, then the
-// older days' oldest first. An attachment that isn't stored stays waiting in
+// older days' in the order the run took them up, and within a day the newest
+// disclosure's first. An attachment that isn't stored stays waiting in
 // the index, so the next run takes it up without listing its day again.
 import {
   STEP_RESULT_BYTES,
@@ -30,7 +31,7 @@ import {
   STORE_SLOWEST_ANSWER,
 } from "../archive/run.ts"
 import {
-  dayAfter,
+  dayBefore,
   disclosureDayOf,
   FIRST_DISCLOSURE_DAY,
   listedWhole,
@@ -228,8 +229,8 @@ const listDay = Effect.fnUntraced(function* (day: WibDate, run: RunId) {
   }
 })
 
-// A day the run may backfill, oldest first: whether it is listed whole
-// already, and if so how many of its attachments wait.
+// A day the run may backfill: whether it is listed whole already, and if so
+// how many of its attachments wait.
 interface BackfillDay {
   readonly day: WibDate
   readonly listed: boolean
@@ -237,23 +238,37 @@ interface BackfillDay {
 }
 
 // How many attachments of the run's recent days wait, and up to
-// MAX_BACKFILL_DAYS days older than them that aren't complete, oldest first
-// from IDX's first disclosure day. A complete day is never among them.
-// Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
-// (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
+// MAX_BACKFILL_DAYS days older than them that aren't complete, in the order
+// the run takes them up: those listed whole with attachments waiting, newest
+// first, then the others walking back from the recent days to IDX's first
+// disclosure day. A complete day is never among them.
+// Decision: each disclosure run backfills the newest incomplete days with its leftover budget
+// (apps/dashboard/docs/adr/0142-disclosure-runs-backfill-the-newest-incomplete-days.md)
 const backfill = Effect.fnUntraced(function* (recent: ReadonlyArray<WibDate>) {
   const before = recent.at(-1) ?? FIRST_DISCLOSURE_DAY
-  const listed = new Map(
-    (yield* listedDays(FIRST_DISCLOSURE_DAY)).map((row) => [row.day, row])
-  )
+  const rows = yield* listedDays(FIRST_DISCLOSURE_DAY)
+  const listed = new Map(rows.map((row) => [row.day, row]))
   const days: Array<BackfillDay> = []
+  const begun = new Set<WibDate>()
+  for (const row of [...rows].reverse()) {
+    if (days.length >= MAX_BACKFILL_DAYS) break
+    if (
+      row.day < before &&
+      row.complete_at == null &&
+      row.waiting > 0 &&
+      (yield* listedWhole(row.day, row.listed_at))
+    ) {
+      days.push({ day: row.day, listed: true, waiting: row.waiting })
+      begun.add(row.day)
+    }
+  }
   for (
-    let day = FIRST_DISCLOSURE_DAY;
-    day < before && days.length < MAX_BACKFILL_DAYS;
-    day = yield* dayAfter(day)
+    let day = yield* dayBefore(before);
+    day >= FIRST_DISCLOSURE_DAY && days.length < MAX_BACKFILL_DAYS;
+    day = yield* dayBefore(day)
   ) {
     const row = listed.get(day)
-    if (row?.complete_at != null) continue
+    if (row?.complete_at != null || begun.has(day)) continue
     const whole =
       row !== undefined && (yield* listedWhole(row.day, row.listed_at))
     days.push({ day, listed: whole, waiting: whole ? row.waiting : 0 })
@@ -266,8 +281,9 @@ const backfill = Effect.fnUntraced(function* (recent: ReadonlyArray<WibDate>) {
 const completeDays = Effect.fnUntraced(function* (
   days: ReadonlyArray<WibDate>
 ) {
-  const [oldest] = days
-  if (oldest === undefined) return []
+  const [first] = days
+  if (first === undefined) return []
+  const oldest = days.reduce((day, other) => (other < day ? other : day), first)
   const complete: Array<WibDate> = []
   for (const row of yield* listedDays(oldest))
     if (
@@ -438,8 +454,8 @@ const summary = Effect.fnUntraced(function* (
     // download that failed, or one past the run's budget, which the next
     // run takes up first. So does a listing entry it skipped, and an older
     // day whose listing it couldn't read.
-    // Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
-    // (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
+    // Decision: each disclosure run backfills the newest incomplete days with its leftover budget
+    // (apps/dashboard/docs/adr/0142-disclosure-runs-backfill-the-newest-incomplete-days.md)
     outcome:
       notStored.length === 0 &&
       attachmentsWaiting === 0 &&
@@ -521,13 +537,14 @@ export const disclosureRun = Effect.fn("disclosureRun")(function* (
         })
       )
     )
-  // What the recent days leave of the run's budget goes to the oldest days
-  // not complete: each listed whole already is taken up as it stands, each
-  // other listed first, until their waiting attachments fill the budget. An
-  // older day whose listing can't be read is left for the next run, named
-  // on the run's record, and the run takes up the day after it.
-  // Decision: each disclosure run backfills the oldest incomplete days with its leftover budget
-  // (apps/dashboard/docs/adr/0138-disclosure-runs-backfill-the-oldest-incomplete-days.md)
+  // What the recent days leave of the run's budget goes to the newest days
+  // not complete, those an earlier run began first: each listed whole
+  // already is taken up as it stands, each other listed first, until their
+  // waiting attachments fill the budget. An older day whose listing can't be
+  // read is left for the next run, named on the run's record, and the run
+  // takes up the day before it.
+  // Decision: each disclosure run backfills the newest incomplete days with its leftover budget
+  // (apps/dashboard/docs/adr/0142-disclosure-runs-backfill-the-newest-incomplete-days.md)
   const older = yield* steps.do("backfill", backfill(days))
   let budget = FILES_PER_RUN - older.recentWaiting
   for (const { day, listed, waiting } of older.days) {
