@@ -40,7 +40,7 @@ A `Decision:` comment that justifies a choice by its cost states the rows billed
 
    The token is not stored anywhere. An agent asks with `request_secret`, file delivery, and reads the file only inside the command.
 
-2. Write down the account ID, `8ecc24065089e01c57d5470fa0848f9a`. Production's `TradingDay` namespace is `295e30c501fb411daf0a7f125637c301`.
+2. Write down the account ID as `<accountId>`: it is `CLOUDFLARE_ACCOUNT_ID` at `/` in Infisical's `prod` environment (project `kumora`), and it shows in the Cloudflare dashboard's URL. Write down Production's `TradingDay` namespace ID as `<namespaceId>`: the Workers Scripts list maps each namespace ID to its Worker, or the Cloudflare dashboard shows it under Durable Objects. Neither is kept in this public repo.
 3. Save the script below as `do-usage.mjs` in an empty directory outside the repo. It ran as written on 2026-11-18 ([apinrdw/kumora#532](https://github.com/apinrdw/kumora/issues/532)).
 
 <details><summary><code>do-usage.mjs</code></summary>
@@ -130,7 +130,7 @@ The datasets go back to at least 2026-10-18. Dates and hours are UTC. A WIB trad
 1. Run the daily mode over the dates you want:
 
    ```sh
-   node do-usage.mjs <tokenFile> 8ecc24065089e01c57d5470fa0848f9a 2026-11-01 2026-11-18 . daily
+   node do-usage.mjs <tokenFile> <accountId> 2026-11-01 2026-11-18 . daily
    ```
 
 2. Sum the rows by Worker and class:
@@ -155,13 +155,13 @@ Each `TradingDay` object holds one WIB trading day, and its `name` is that date,
 1. Run the hourly mode for one namespace. Keep the window to a few days: the query returns at most 10,000 rows, one for each object and hour.
 
    ```sh
-   node do-usage.mjs <tokenFile> 8ecc24065089e01c57d5470fa0848f9a 2026-11-16T00:00:00Z 2026-11-19T00:00:00Z . hourly 295e30c501fb411daf0a7f125637c301
+   node do-usage.mjs <tokenFile> <accountId> 2026-11-16T00:00:00Z 2026-11-19T00:00:00Z . hourly <namespaceId>
    ```
 
 2. Sum each object over the window:
 
    ```sh
-   jq 'group_by(.name) | map({name: .[0].name, rowsRead: (map(.rowsRead) | add), rowsWritten: (map(.rowsWritten) | add)}) | sort_by(-.rowsRead)' hourly-295e30c501fb411daf0a7f125637c301.json
+   jq 'group_by(.name) | map({name: .[0].name, rowsRead: (map(.rowsRead) | add), rowsWritten: (map(.rowsWritten) | add)}) | sort_by(-.rowsRead)' hourly-<namespaceId>.json
    ```
 
    For a busy day's totals, run a window that covers the day's live hours and every night after them until its walk is done. Compare the day's sums with the 2 M and 0.5 B thresholds.
@@ -169,7 +169,7 @@ Each `TradingDay` object holds one WIB trading day, and its `name` is that date,
 3. List one object's hours to see when it read and wrote:
 
    ```sh
-   jq -r --arg day 2026-11-17 'map(select(.name == $day)) | sort_by(.datetimeHour) | .[] | [.datetimeHour, .rowsRead, .rowsWritten] | @tsv' hourly-295e30c501fb411daf0a7f125637c301.json
+   jq -r --arg day 2026-11-17 'map(select(.name == $day)) | sort_by(.datetimeHour) | .[] | [.datetimeHour, .rowsRead, .rowsWritten] | @tsv' hourly-<namespaceId>.json
    ```
 
    Rows during 02:00–09:15 UTC on the object's own date are live trading. Later rows are the seal, the evening walk and any later reads of the sealed day. A cold day's object bills no rows after its move.

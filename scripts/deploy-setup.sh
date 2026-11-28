@@ -194,7 +194,9 @@ finish() {
 TOTAL_STAGES=10
 
 cd "$(git rev-parse --show-toplevel)"
-ACCOUNT="8ecc24065089e01c57d5470fa0848f9a"
+# The Cloudflare account ID stays out of this public repo: Infisical holds it
+# as CLOUDFLARE_ACCOUNT_ID at / in each environment (docs/runbooks/deploy.md).
+ACCOUNT="${CLOUDFLARE_ACCOUNT_ID:?Set CLOUDFLARE_ACCOUNT_ID to the Cloudflare account ID, from Infisical (project kumora, / in prod or staging)}"
 CF="https://dash.cloudflare.com/$ACCOUNT"
 INFISICAL="https://app.infisical.com"
 SIGN_IN_PR="https://github.com/apinrdw/kumora/pull/94"
