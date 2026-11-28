@@ -718,7 +718,8 @@ test("after Ajaib's tape walk, its Done Details walk posts the kept trades' orde
     // The tape walk posted every trade first, then the Done Details walk
     // posted HOPE's three with their order numbers and no fields; BBCA's
     // has none. Each row, newest first, takes the highest-numbered trade
-    // left of its key, so the tied trades take their rows newest first.
+    // left of its key (ADR 0026, done-details-walk.ts), so the newest tied
+    // row, 2,003, takes trade 3.
     expect(
       rows()
         .filter(([, , , pair]) => pair === undefined)
