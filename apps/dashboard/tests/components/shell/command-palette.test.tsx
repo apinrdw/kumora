@@ -137,6 +137,7 @@ test("Ctrl/⌘+K opens the viewer's pages and account actions, without stocks un
     "Market Bubbles",
     "Order book radar",
     "Holder moves",
+    "Holder map",
     "Account",
     "Sign out",
   ])
