@@ -41,6 +41,10 @@ A PR that changes `apps/extension` bumps `version` in its `package.json`, the ow
 - The `effect` and `alchemy` versions live once, in the `pnpm-workspace.yaml` catalog. A PR that bumps either also runs `git subtree pull --prefix repos/<name> <url> <tag> --squash` to the matching tag. Alchemy's subtree brings back its `submodules/*` entries, which break the Workers Builds clone: drop them with `git rm --cached`; `scripts/check-no-gitlinks.mts` fails until you do.
 - After any filtered `vp add --filter <pkg>`, run a full `vp install`: a filtered add links only that package and the root, which leaves the other workspaces unresolved.
 
+### ui-sdk
+
+`@ui-sdk/core` sits in `packages/ui`, whose `src/styles/globals.css` loads its styles once, in the `ui-sdk` and `components` layers. `@ui-sdk/react` sits in `apps/dashboard`; add both to another workspace when it first imports them, since fallow rejects an unused dependency. Before using ui-sdk, follow the `ui-sdk` skill if it's installed, and read `apps/dashboard/node_modules/@ui-sdk/react/docs/llms.txt`. To build a new component, also search `apps/dashboard/node_modules/@ui-sdk/react/docs/core.md` by heading, and read `rendering.md` next to it.
+
 ### Briefing a subagent
 
 Before writing an `Agent` prompt for an implementer or reviewer, read `docs/agents/subagent-brief.md`.
