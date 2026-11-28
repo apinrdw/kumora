@@ -6,5 +6,6 @@ Sites:
 
 - `.github/workflows/ci.yml`
 - `.github/workflows/e2e-evidence.yml`
+- `.github/workflows/e2e.yml`
 
 Source: none

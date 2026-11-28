@@ -1,7 +1,8 @@
-// `vp run e2e:evidence [--pr <n>] [--dry-run] [spec...]`: runs the full e2e
-// suite, recording video of only the picked specs, posts their videos to the
-// PR as comments of at most 50 videos each and, once every one is up, marks
-// the PR head `e2e-evidence: success`, linking to the first. Every decision
+// `vp run e2e:evidence [--pr <n>] [--dry-run] [spec...]`: runs setup and the
+// picked specs alone, recording their video, posts the videos to the PR as
+// comments of at most 50 videos each and, once every one is up, marks the PR
+// head `e2e-evidence: success`, linking to the first. The whole suite runs in
+// CI, as the `e2e` check (.github/workflows/e2e.yml), which this never reads. Every decision
 // is in scripts/e2e-evidence-plan.mts; this file runs git, gh and Playwright.
 // --dry-run prints every comment and the gh calls instead of making them.
 import { availableParallelism } from "node:os"
@@ -169,11 +170,12 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
   const results = path.join(root, "apps/e2e/test-results")
   const reportFile = path.join(results, "e2e-evidence-report.json")
   yield* fs.remove(reportFile, { force: true })
-  // About a quarter of the cores, since the trace of every test is
-  // the run's load, not the picked specs' video: on 16 cores, 8 workers timed
-  // out account.spec.ts in 2 of 3 runs (one during a DNS outage) with no video
-  // on it and finished no sooner than 4, which passed (apinrdw/kumora#210).
-  const workers = Math.max(1, Math.floor(availableParallelism() / 4))
+  // Half the cores, Playwright's default: the run is setup and the picked
+  // specs, each recording video. The quarter a full-suite run took
+  // (apinrdw/kumora#210) was for the whole suite's load.
+  // Decision: e2e runs on GitHub's free runners; local evidence is video only
+  // (docs/adr/0024-e2e-runs-on-github-s-free-runners-and-local-evidence-is-video-only.md)
+  const workers = Math.max(1, Math.floor(availableParallelism() / 2))
   const playwright = [
     "run",
     "test:e2e",
@@ -187,8 +189,8 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
     ChildProcess.make("vp", playwright, {
       cwd: root,
       // The video switch, as apps/e2e/support/video.ts defines it: the picked
-      // specs, comma-separated. A root script imports from no workspace, so
-      // the two name each other.
+      // specs, comma-separated, which the config then runs alone after setup.
+      // A root script imports from no workspace, so the two name each other.
       env: {
         E2E_VIDEO: specs.join(","),
         PLAYWRIGHT_JSON_OUTPUT_FILE: reportFile,

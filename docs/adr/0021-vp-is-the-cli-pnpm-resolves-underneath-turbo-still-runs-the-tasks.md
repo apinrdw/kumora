@@ -5,6 +5,7 @@ Contributors, agents, CI and the pre-commit hook call Vite+'s `vp` for package w
 Sites:
 
 - `.github/workflows/ci.yml`
+- `.github/workflows/e2e.yml`
 - `.github/workflows/release.yml`
 - `.github/workflows/teardown-preview.yml`
 - `scripts/vp-version.mts`

@@ -1,10 +1,11 @@
 import { test } from "@playwright/test"
 
 /**
- * The switch an evidence run sets to record video of the specs it will post:
- * `E2E_VIDEO=<spec>,<spec>`, each a spec file under tests/ by name or by a
- * path ending in it. Unset or empty, nothing records. scripts/e2e-evidence.mts
- * sets it by name, so change the two together.
+ * The switch an evidence run sets to run and record video of only the specs
+ * it will post: `E2E_VIDEO=<spec>,<spec>`, each a spec file under tests/ by
+ * name or by a path ending in it. Unset or empty, the whole suite runs and
+ * nothing records. scripts/e2e-evidence.mts sets it by name, so change the
+ * two together.
  */
 export const SWITCH = "E2E_VIDEO"
 
@@ -37,11 +38,10 @@ const isNamedBy = (typed: string) => (file: string) =>
   file === typed || typed.endsWith(`/${file}`)
 
 /**
- * What records, from the switch's value and the files under tests/: the
- * picked chromium specs, and whether the trading-day, cold-day,
- * holder-moves and holder-map projects record.
+ * The spec files under tests/ the switch's value picks, by file name. An
+ * evidence run runs these alone (support/projects.ts's onlyFiles).
  */
-export function recording(
+export function pickedFiles(
   value: string | undefined,
   files: ReadonlyArray<string>
 ) {
@@ -52,9 +52,19 @@ export function recording(
     throw new Error(
       `${SWITCH}=${JSON.stringify(value)}: no spec file under apps/e2e/tests is ${unknown.join(", ")}. Set it to the spec files to record, comma-separated, or unset it.`
     )
-  const picked = specs.filter((file) =>
-    typed.some((spec) => isNamedBy(spec)(file))
-  )
+  return specs.filter((file) => typed.some((spec) => isNamedBy(spec)(file)))
+}
+
+/**
+ * What records, from the switch's value and the files under tests/: the
+ * picked chromium specs, and whether the trading-day, cold-day,
+ * holder-moves and holder-map projects record.
+ */
+export function recording(
+  value: string | undefined,
+  files: ReadonlyArray<string>
+) {
+  const picked = pickedFiles(value, files)
   return {
     // A picked relay-load spec or repaint bench records nothing,
     // since encoding video would take CPU from the relay whose lag, or the

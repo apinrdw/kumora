@@ -71,6 +71,8 @@ jobs:
               pull_number: pr.number,
               per_page: 100,
             })
+            // e2e.yml's changes job decides whether to run the suite by
+            // the same rule, so change the two together.
             const app = /^(apps\/(web|dashboard|extension|e2e)|packages)\//
             const touchesApp = files.some(
               (f) =>
