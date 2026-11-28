@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { StockCode } from "@workspace/relay"
+import { StockCode, WibDate } from "@workspace/relay"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, describe, expect, test } from "vitest"
@@ -13,6 +13,8 @@ import type {
   Above5Holder,
   DailyHoldersDay,
 } from "@/server/holdings/stock-page"
+
+import { mountAt } from "../../support/render-at"
 
 // React's `act` warns outside a test environment that declares itself.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -38,7 +40,11 @@ const block = (
 const day = (
   dataDate: string,
   holders: ReadonlyArray<Above5Holder>
-): DailyHoldersDay => ({ dataDate, listedShares: 10_000, holders })
+): DailyHoldersDay => ({
+  dataDate: WibDate.make(dataDate),
+  listedShares: 10_000,
+  holders,
+})
 
 // 17 Nov: Alpha 10% (listed twice, a repeat block), Beta 7%, Gamma 6%.
 // 18 Nov: Alpha up 100 shares at KB with its accounts shuffled, Beta renamed
@@ -88,17 +94,15 @@ const root = createRoot(container)
 afterEach(() => act(() => root.render(null)))
 
 const render = (props: Partial<DailyHoldersProps>) =>
-  act<void>(() =>
-    root.render(
-      <DailyHolders
-        code={StockCode.make("ENRG")}
-        days={DAYS}
-        day={undefined}
-        onDay={() => {}}
-        {...props}
-      />
-    )
-  )
+  mountAt(root, "/stocks/ENRG", () => (
+    <DailyHolders
+      code={StockCode.make("ENRG")}
+      days={DAYS}
+      day={undefined}
+      onDay={() => {}}
+      {...props}
+    />
+  ))
 
 const text = () => container.textContent ?? ""
 
@@ -369,5 +373,12 @@ describe("Daily holders", () => {
       "ENRG has no holder above 5% on any day parsed from IDX's daily report."
     )
     expect(table()).toBeNull()
+  })
+
+  test("links to the stock's Holder map, not the day's", async () => {
+    await render({ day: "2026-11-18" })
+    const link = container.querySelector('a[aria-label="Holder map of ENRG"]')
+    expect(link?.textContent).toBe("Holder map")
+    expect(link?.getAttribute("href")).toBe("/holder-map?stock=ENRG")
   })
 })

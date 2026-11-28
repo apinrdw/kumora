@@ -3,7 +3,8 @@
 // or ≥1% holder in one above-1% report month (Monthly), across the market,
 // filtered by move and searched, beside a rail of the last periods' counts
 // and the holders that entered or left the list. A row opens its stock's
-// Daily holders at that day, or Major holders in that month.
+// Daily holders at that day, or Major holders in that month, and its Holder
+// map.
 import { Link } from "@tanstack/react-router"
 import type { WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
@@ -13,6 +14,7 @@ import { BoundedRows } from "@/components/k/bounded-rows"
 import { kCard, kFocus } from "@/components/k/styles"
 import {
   Change,
+  OpenHolderMapLink,
   LotsChange,
   MoveChip,
   offListText,
@@ -25,6 +27,7 @@ import {
 } from "@/components/stocks/holder-cells"
 import { monthOf, type MoveKind, TREND_PERIODS } from "@/domain/holdings"
 import { count } from "@/lib/format"
+import { holderMapMoveSearch } from "@/lib/holder-map-search"
 import {
   type HolderMoves,
   type MoveCounts,
@@ -363,6 +366,13 @@ function MoveCell({
               {line.issuerName}
             </span>
           </Link>
+          <div>
+            <OpenHolderMapLink
+              search={Effect.runSync(
+                holderMapMoveSearch(kind, line.code, period)
+              )}
+            />
+          </div>
         </td>
       )
     }

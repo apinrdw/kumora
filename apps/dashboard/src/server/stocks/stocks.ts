@@ -1,7 +1,7 @@
 // The stock page's server side, /stocks/$CODE (spec apinrdw/kumora#363,
 // "Stock page UI"): open to every signed-in member, through the access
 // policy's `stocks` feature.
-import { StockCode } from "@workspace/relay"
+import { StockCode, type WibDate } from "@workspace/relay"
 import { NotFound } from "@workspace/server"
 import { Effect, Option, Schema } from "effect"
 
@@ -10,8 +10,10 @@ import { Auth } from "@/server/auth/auth"
 import { decide } from "@/server/auth/policy"
 import { refusal } from "@/server/auth/refusal"
 import { accountOf } from "@/server/auth/session-account"
-import type { MovesSelection } from "@/domain/holdings"
+import type { HolderMapQuery, MovesSelection } from "@/domain/holdings"
 import { brokerInventory } from "@/server/broker-totals/inventory"
+import { holderMapRead } from "@/server/holdings/holder-map"
+import { holderMapSearchList } from "@/server/holdings/holder-map-search-list"
 import { holderMovesRead } from "@/server/holdings/holder-moves"
 import { stockList, stockPage } from "@/server/holdings/stock-page"
 import { marketToday } from "@/server/market-live/market-clock"
@@ -65,6 +67,23 @@ export const stockListView = Effect.fn("stockListView")(function* (
 })
 
 // /holder-moves' read, open to every signed-in member as the stock page is.
+export const holderMapPageView = Effect.fn("holderMapPageView")(function* (
+  headers: Headers,
+  query: HolderMapQuery
+) {
+  yield* authorize(headers, "/holder-map")
+  return yield* holderMapRead(query)
+})
+
+// The Holder map search's stocks, holders and custodians as of `day`;
+// `href` is the page the visitor returns to after signing in again.
+export const holderMapSearchListView = Effect.fn("holderMapSearchListView")(
+  function* (headers: Headers, href: string, day: WibDate | undefined) {
+    yield* authorize(headers, href)
+    return yield* holderMapSearchList(day)
+  }
+)
+
 export const holderMovesPageView = Effect.fn("holderMovesPageView")(function* (
   headers: Headers,
   selection: MovesSelection

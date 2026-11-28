@@ -7,6 +7,7 @@ import { MARKET_CLOCK_OFFSET } from "./support/clock"
 import { TEST_INGEST_TOKEN } from "./support/ingest"
 import {
   COLD_DAY_SPEC,
+  HOLDER_MAP_SPEC,
   HOLDER_MOVES_SPEC,
   RELAY_LOAD_SPEC,
   REPAINT_BENCH_SPEC,
@@ -42,6 +43,7 @@ const projects = [
       TRADING_DAY_SPECS,
       COLD_DAY_SPEC,
       HOLDER_MOVES_SPEC,
+      HOLDER_MAP_SPEC,
       RELAY_LOAD_SPEC,
       REPAINT_BENCH_SPEC,
       ...recorded.chromium,
@@ -100,6 +102,19 @@ const projects = [
     ],
     testMatch: HOLDER_MOVES_SPEC,
     ...(recorded.holderMoves ? { use: { video } } : {}),
+  },
+  // The Holder map spec parses the same fixtures with Parse now, so it runs
+  // after the Holder moves spec, whose runs would otherwise overlap its own.
+  {
+    name: "holder-map",
+    dependencies: [
+      "setup",
+      "chromium",
+      ...(recorded.chromium.length > 0 ? ["chromium-video"] : []),
+      "holder-moves",
+    ],
+    testMatch: HOLDER_MAP_SPEC,
+    ...(recorded.holderMap ? { use: { video } } : {}),
   },
 ]
 

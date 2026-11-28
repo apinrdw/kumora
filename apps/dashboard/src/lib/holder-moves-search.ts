@@ -4,7 +4,7 @@
 // so a plain link opens the newest day's moves. Each kind keeps its own
 // period, so the toggle returns to the one picked before.
 import { WibDate } from "@workspace/relay"
-import { Effect, Option, Schema } from "effect"
+import { Effect, Schema } from "effect"
 
 import {
   Month,
@@ -14,6 +14,7 @@ import {
   type MovesSelection,
 } from "@/domain/holdings"
 import type { MoveFilter } from "@/lib/holder-moves"
+import { field } from "@/lib/search-field"
 
 // The filter as the URL spells it; absent for All.
 const MOVE_PARAMS = {
@@ -44,11 +45,6 @@ export interface HolderMovesSearch {
   // As typed; absent when empty.
   readonly q?: string | undefined
 }
-
-const field = <S extends Schema.Decoder<unknown>>(schema: S, raw: unknown) =>
-  Effect.sync((): S["Type"] | undefined =>
-    Option.getOrUndefined(Schema.decodeUnknownOption(schema)(raw))
-  )
 
 /**
  * Keeps the fields that parse and drops anything else. A dropped one is set

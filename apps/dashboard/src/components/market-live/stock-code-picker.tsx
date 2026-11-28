@@ -41,6 +41,35 @@ export type StockCodePickerProps = {
   onFocus?: () => void
 }
 
+// A picker's input keys: arrows move the active match among `count`, Enter
+// picks it, and, for a list that `closes` on blur, leaves the input, as
+// Escape does after clearing the query.
+export const comboboxKeyDown = (
+  event: KeyboardEvent<HTMLInputElement>,
+  options: {
+    readonly count: number
+    readonly setActive: (update: (current: number) => number) => void
+    // Undefined with no match to pick.
+    readonly pick: (() => void) | undefined
+    readonly clear: () => void
+    readonly closes: boolean
+  }
+) => {
+  const { count, setActive, pick, clear, closes } = options
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault()
+    const step = event.key === "ArrowDown" ? 1 : -1
+    setActive((current) => Math.max(0, Math.min(count - 1, current + step)))
+  } else if (event.key === "Enter" && pick) {
+    event.preventDefault()
+    pick()
+    if (closes) event.currentTarget.blur()
+  } else if (event.key === "Escape" && closes) {
+    clear()
+    event.currentTarget.blur()
+  }
+}
+
 // A combobox over the day's stock codes: type to filter, arrows to move,
 // Enter or a click to pick. Shares rank above warrants and rights.
 export function StockCodePicker({
@@ -74,22 +103,14 @@ export function StockCodePicker({
     onPick(code)
   }
 
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault()
-      const step = event.key === "ArrowDown" ? 1 : -1
-      setActive((current) =>
-        Math.max(0, Math.min(matches.length - 1, current + step))
-      )
-    } else if (event.key === "Enter" && activeMatch) {
-      event.preventDefault()
-      pick(activeMatch.code)
-      if (open === "focus") event.currentTarget.blur()
-    } else if (event.key === "Escape" && open === "focus") {
-      setQuery("")
-      event.currentTarget.blur()
-    }
-  }
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) =>
+    comboboxKeyDown(event, {
+      count: matches.length,
+      setActive,
+      pick: activeMatch && (() => pick(activeMatch.code)),
+      clear: () => setQuery(""),
+      closes: open === "focus",
+    })
 
   return (
     <div className={cn("relative", className)}>

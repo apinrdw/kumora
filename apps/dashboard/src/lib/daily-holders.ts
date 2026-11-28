@@ -2,7 +2,7 @@
 // apinrdw/kumora#673, "Holder identity and moves"; apinrdw/kumora#677): the
 // stock's above-5% holders, repeat blocks collapsed, each against the trading
 // day before by shares, those off the list since, and every earlier holder.
-import type { BrokerCode } from "@workspace/relay"
+import type { BrokerCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { brokerOf } from "@/lib/broker-code"
@@ -88,13 +88,13 @@ export interface Transfer<Side> {
 }
 
 export interface HoldersDay {
-  readonly dataDate: string
+  readonly dataDate: WibDate
   // The trading day the moves are against; undefined on the stock's first
   // parsed day.
   readonly against: string | undefined
   // The days the picker offers: every parsed day from the stock's first
   // with a holder, oldest first.
-  readonly days: ReadonlyArray<string>
+  readonly days: ReadonlyArray<WibDate>
   // Listed this day, most % first.
   readonly listed: ReadonlyArray<DailyHolderLine>
   // Listed the day before and not now, most % first.
@@ -222,7 +222,8 @@ const repeatSignature = ({ scripless, accounts }: Above5Holder) =>
     ])
   )
 
-const dayHolders = (holders: ReadonlyArray<Above5Holder>) =>
+// A stock-day's blocks, each repeat folded into the block it repeats.
+export const dayHolders = (holders: ReadonlyArray<Above5Holder>) =>
   Effect.map(collapseRepeats(holders, repeatSignature), (collapsed) =>
     collapsed.map(({ holder, aliases }): DailyHolder => ({
       ...holder,

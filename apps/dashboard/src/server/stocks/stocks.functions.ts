@@ -4,7 +4,7 @@ import { runServerEffect } from "@workspace/server"
 import { WibDate } from "@workspace/relay"
 import { Effect, Layer, Schema } from "effect"
 
-import { MovesSelection } from "@/domain/holdings"
+import { HolderMapQuery, MovesSelection } from "@/domain/holdings"
 import { RANGE_PRESETS } from "@/lib/broker-inventory"
 import { safeRedirect } from "@/lib/redirect"
 import { Auth } from "@/server/auth/auth"
@@ -13,6 +13,8 @@ import { holdingsDbD1 } from "@/server/holdings/db"
 
 import {
   brokerInventoryView,
+  holderMapPageView,
+  holderMapSearchListView,
   holderMovesPageView,
   stockListView,
   stockPageView,
@@ -66,6 +68,45 @@ export const stockListFn = createServerFn({ method: "GET" })
   .handler(({ data }) =>
     runServerEffect(
       stockListView(getRequest().headers, data).pipe(Effect.provide(services))
+    )
+  )
+
+const decodeHolderMap = Schema.decodeUnknownSync(HolderMapQuery)
+
+// /holder-map's loader.
+export const holderMapFn = createServerFn({ method: "GET" })
+  .validator(decodeHolderMap)
+  .handler(({ data }) =>
+    runServerEffect(
+      holderMapPageView(getRequest().headers, data).pipe(
+        Effect.provide(services)
+      )
+    )
+  )
+
+const decodeSearchListDay = Schema.decodeUnknownSync(
+  Schema.Struct({ day: Schema.UndefinedOr(WibDate) })
+)
+
+// The Holder map search's stocks, holders and custodians as of the map's
+// `day` (the newest when undefined); `href` is the page the visitor returns
+// to after signing in again.
+export const holderMapSearchListFn = createServerFn({ method: "GET" })
+  .validator((data: unknown) => ({
+    href: Effect.runSync(
+      safeRedirect(
+        typeof data === "object" && data !== null && "href" in data
+          ? data.href
+          : undefined
+      )
+    ),
+    day: decodeSearchListDay(data).day,
+  }))
+  .handler(({ data }) =>
+    runServerEffect(
+      holderMapSearchListView(getRequest().headers, data.href, data.day).pipe(
+        Effect.provide(services)
+      )
     )
   )
 

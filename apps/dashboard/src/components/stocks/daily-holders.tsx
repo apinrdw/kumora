@@ -4,16 +4,18 @@
 // above-5% holders, each against the trading day before by shares with its
 // securities accounts listed under it, the day's Off list greyed below them,
 // then every earlier holder as Off list since the day it left.
-import type { StockCode } from "@workspace/relay"
+import type { StockCode, WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 
 import { BoundedRows } from "@/components/k/bounded-rows"
-import { kCard, kFocus } from "@/components/k/styles"
+import { kCard } from "@/components/k/styles"
+import { DayPicker } from "@/components/stocks/day-picker"
 import {
   BrokerChip,
   Change,
   changeTone,
+  OpenHolderMapLink,
   lotsChangeText,
   MoveChip,
   offListText,
@@ -43,7 +45,7 @@ export type DailyHoldersProps = {
   days: ReadonlyArray<DailyHoldersDay>
   // The URL's `YYYY-MM-DD`; a day the stock doesn't have shows its newest.
   day: string | undefined
-  onDay: (dataDate: string) => void
+  onDay: (dataDate: WibDate) => void
 }
 
 export function DailyHolders({ code, days, day, onDay }: DailyHoldersProps) {
@@ -55,16 +57,21 @@ export function DailyHolders({ code, days, day, onDay }: DailyHoldersProps) {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h2 id="daily-holders" className="text-[15px] font-semibold">
-            Daily holders
-          </h2>
+          <div className="flex items-baseline gap-3">
+            <h2 id="daily-holders" className="text-[15px] font-semibold">
+              Daily holders
+            </h2>
+            <OpenHolderMapLink search={{ stock: code }} />
+          </div>
           {holders && (
             <p className="text-[13px] text-muted-foreground">
               {Effect.runSync(summary(holders))}
             </p>
           )}
         </div>
-        {holders && <DayPicker holders={holders} onDay={onDay} />}
+        {holders && (
+          <DayPicker days={holders.days} day={holders.dataDate} onDay={onDay} />
+        )}
       </div>
       {holders === undefined ? (
         <p className="text-muted-foreground">
@@ -120,60 +127,6 @@ const summary = Effect.fnUntraced(function* (holders: HoldersDay) {
     return `${held} · First day parsed, nothing to compare`
   return `${held} · vs ${yield* dayDateLabel(against)}: ${counts.new} new, ${counts.up} up, ${counts.down} down, ${counts.transfer > 0 ? `${counts.transfer} transfer, ` : ""}${counts.offList} off list`
 })
-
-const ICON_BUTTON = cn(
-  "bg-surface grid size-7.5 place-items-center rounded-md border border-border text-[14px] disabled:cursor-default disabled:opacity-35",
-  kFocus
-)
-
-function DayPicker({
-  holders,
-  onDay,
-}: {
-  holders: HoldersDay
-  onDay: (dataDate: string) => void
-}) {
-  const at = holders.days.indexOf(holders.dataDate)
-  const previous = holders.days[at - 1]
-  const next = holders.days[at + 1]
-  return (
-    <div className="flex items-center gap-1.5">
-      <button
-        type="button"
-        aria-label="Previous trading day"
-        disabled={previous === undefined}
-        onClick={() => previous && onDay(previous)}
-        className={ICON_BUTTON}
-      >
-        ‹
-      </button>
-      <select
-        aria-label="Trading day"
-        value={holders.dataDate}
-        onChange={(event) => onDay(event.target.value)}
-        className={cn(
-          "num bg-surface rounded-md border border-border px-2 py-1 text-[13px] font-semibold",
-          kFocus
-        )}
-      >
-        {holders.days.map((each) => (
-          <option key={each} value={each}>
-            {Effect.runSync(dayDateLabel(each))}
-          </option>
-        ))}
-      </select>
-      <button
-        type="button"
-        aria-label="Next trading day"
-        disabled={next === undefined}
-        onClick={() => next && onDay(next)}
-        className={ICON_BUTTON}
-      >
-        ›
-      </button>
-    </div>
-  )
-}
 
 function HoldersTable({ holders }: { holders: HoldersDay }) {
   const compared = holders.against !== undefined

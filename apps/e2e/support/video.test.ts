@@ -10,6 +10,7 @@ const FILES = [
   "relay-load.spec.ts",
   "cold-day.spec.ts",
   "holder-moves.spec.ts",
+  "holder-map.spec.ts",
   "repaint-bench.spec.ts",
   "accounts.setup.ts",
 ]
@@ -21,6 +22,7 @@ describe("recording", () => {
       tradingDay: false,
       coldDay: false,
       holderMoves: false,
+      holderMap: false,
     }
     expect(recording(undefined, FILES)).toEqual(none)
     expect(recording("", FILES)).toEqual(none)
@@ -32,6 +34,7 @@ describe("recording", () => {
       tradingDay: false,
       coldDay: false,
       holderMoves: false,
+      holderMap: false,
     })
   })
 
@@ -50,6 +53,7 @@ describe("recording", () => {
       tradingDay: true,
       coldDay: false,
       holderMoves: false,
+      holderMap: false,
     })
   })
 
@@ -59,6 +63,7 @@ describe("recording", () => {
       tradingDay: false,
       coldDay: true,
       holderMoves: false,
+      holderMap: false,
     })
   })
 
@@ -68,6 +73,17 @@ describe("recording", () => {
       tradingDay: false,
       coldDay: false,
       holderMoves: true,
+      holderMap: false,
+    })
+  })
+
+  it("records the holder-map project, not chromium, when its spec is picked", () => {
+    expect(recording("holder-map.spec.ts", FILES)).toEqual({
+      chromium: [],
+      tradingDay: false,
+      coldDay: false,
+      holderMoves: false,
+      holderMap: true,
     })
   })
 
@@ -77,6 +93,7 @@ describe("recording", () => {
       tradingDay: false,
       coldDay: false,
       holderMoves: false,
+      holderMap: false,
     })
   })
 
@@ -86,6 +103,7 @@ describe("recording", () => {
       tradingDay: false,
       coldDay: false,
       holderMoves: false,
+      holderMap: false,
     })
   })
 
@@ -97,6 +115,7 @@ describe("recording", () => {
       tradingDay: true,
       coldDay: false,
       holderMoves: false,
+      holderMap: false,
     })
   })
 

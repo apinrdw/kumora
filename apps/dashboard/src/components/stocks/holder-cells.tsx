@@ -1,6 +1,7 @@
 // What Major holders, Daily holders and Holder moves show alike: the
 // ownership bar, the move chip, a change of a % or of lots under its figure,
-// a broker chip, and a trend's bars.
+// a broker chip, a trend's bars, and the link to the stock's Holder map.
+import { Link } from "@tanstack/react-router"
 import type { BrokerCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
@@ -10,6 +11,7 @@ import { KTooltip } from "@/components/k/tooltip"
 import { MOVEMENT } from "@/components/stocks/holder-movement"
 import { type MoveKind, TREND_PERIODS } from "@/domain/holdings"
 import type { Transfer } from "@/lib/daily-holders"
+import type { HolderMapSearch } from "@/lib/holder-map-search"
 import type { Move, TrendCell } from "@/lib/holder-identity"
 import { lotsOfShares, MINUS, plain } from "@/lib/format"
 
@@ -301,6 +303,20 @@ export function LotsChange({
     <Change value={shareChange} text={lotsChangeText} />
   ) : (
     Effect.runSync(lotsOfShares(transfer.shares))
+  )
+}
+
+// The Holder map focused on a stock (spec apinrdw/kumora#733, "Links in").
+export function OpenHolderMapLink({ search }: { search: HolderMapSearch }) {
+  return (
+    <Link
+      to="/holder-map"
+      search={search}
+      aria-label={`Holder map of ${search.stock}`}
+      className={cn("text-info rounded-xs text-[12px] hover:underline", kFocus)}
+    >
+      Holder map
+    </Link>
   )
 }
 

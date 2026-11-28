@@ -197,7 +197,7 @@ describe("Holder moves", () => {
     )
     expect(rows()).toEqual([
       [
-        "ENRGENRG TBK",
+        "ENRGENRG TBKHolder map",
         "MAYBANK SEKURITAS INDONESIARenamed from PT MAYBANK SEKURITAS INDONESIA - REGISTRAR",
         "Up",
         "ZP",
@@ -206,7 +206,7 @@ describe("Holder moves", () => {
         "+0.01%",
       ],
       [
-        "ENRGENRG TBK",
+        "ENRGENRG TBKHolder map",
         "CGS INTERNATIONAL SEKURITAS INDONESIA",
         "Down",
         "YU",
@@ -215,7 +215,7 @@ describe("Holder moves", () => {
         "−0.01%",
       ],
       [
-        "NSSSNSSS TBK",
+        "NSSSNSSS TBKHolder map",
         "PT SAMUEL TUMBUH BERSAMA",
         "New",
         "IF",
@@ -224,7 +224,7 @@ describe("Holder moves", () => {
         "—",
       ],
       [
-        "NSSSNSSS TBK",
+        "NSSSNSSS TBKHolder map",
         "PARADISO RESOURCES LTD",
         "Off list",
         "Custodian",
@@ -283,7 +283,7 @@ describe("Holder moves", () => {
     await act<void>(() => button("Transfer").click())
     expect(rows()).toEqual([
       [
-        "CMNPCMNP TBK",
+        "CMNPCMNP TBKHolder map",
         "MOHAMMAD JUSUF HAMKA",
         "Transfer",
         "Custodian RG",
@@ -311,7 +311,7 @@ describe("Holder moves", () => {
     await typeSearch("nsss")
     expect(rows()).toHaveLength(2)
     await typeSearch("paradiso")
-    expect(rows().map((row) => row[0])).toEqual(["NSSSNSSS TBK"])
+    expect(rows().map((row) => row[0])).toEqual(["NSSSNSSS TBKHolder map"])
     await typeSearch("no such holder")
     expect(rows()).toEqual([])
     expect(text()).toContain("No holder matches. Clear the search or pick All.")
@@ -339,7 +339,7 @@ describe("Holder moves", () => {
     expect(rows()).toHaveLength(250)
   })
 
-  test("links each row to its stock's Daily holders on the day", async () => {
+  test("links each row to its stock's Daily holders and Holder map on the day", async () => {
     await render(MOVES)
     expect(
       [...container.querySelectorAll("tbody tr[data-move] a")].map((link) =>
@@ -347,9 +347,13 @@ describe("Holder moves", () => {
       )
     ).toEqual([
       "/stocks/ENRG?holdersDay=2026-11-20#daily-holders",
+      "/holder-map?stock=ENRG&day=2026-11-20",
       "/stocks/ENRG?holdersDay=2026-11-20#daily-holders",
+      "/holder-map?stock=ENRG&day=2026-11-20",
       "/stocks/NSSS?holdersDay=2026-11-20#daily-holders",
+      "/holder-map?stock=NSSS&day=2026-11-20",
       "/stocks/NSSS?holdersDay=2026-11-20#daily-holders",
+      "/holder-map?stock=NSSS&day=2026-11-20",
     ])
   })
 
@@ -490,7 +494,7 @@ describe("Holder moves, Monthly", () => {
     ).toBe("DANANTARA: change in lots on each of the last 3 months")
   })
 
-  test("links each row to its stock's Major holders in the month", async () => {
+  test("links each row to its stock's Major holders in the month, and Holder map", async () => {
     await render(MONTHLY)
     expect(
       [...container.querySelectorAll("tbody tr[data-move] a")].map((link) =>
@@ -498,8 +502,11 @@ describe("Holder moves, Monthly", () => {
       )
     ).toEqual([
       "/stocks/TLKM?holdersMonth=2026-08#major-holders",
+      "/holder-map?stock=TLKM",
       "/stocks/TLKM?holdersMonth=2026-08#major-holders",
+      "/holder-map?stock=TLKM",
       "/stocks/TRUE?holdersMonth=2026-08#major-holders",
+      "/holder-map?stock=TRUE",
     ])
   })
 

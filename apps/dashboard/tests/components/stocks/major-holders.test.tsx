@@ -13,6 +13,8 @@ import type {
   MajorHoldersMonth,
 } from "@/server/holdings/stock-page"
 
+import { mountAt } from "../../support/render-at"
+
 // React's `act` warns outside a test environment that declares itself.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
@@ -109,17 +111,15 @@ const root = createRoot(container)
 afterEach(() => act(() => root.render(null)))
 
 const render = (props: Partial<MajorHoldersProps>) =>
-  act<void>(() =>
-    root.render(
-      <MajorHolders
-        code={StockCode.make("AADI")}
-        months={MONTHS}
-        month={undefined}
-        onMonth={() => {}}
-        {...props}
-      />
-    )
-  )
+  mountAt(root, "/stocks/AADI", () => (
+    <MajorHolders
+      code={StockCode.make("AADI")}
+      months={MONTHS}
+      month={undefined}
+      onMonth={() => {}}
+      {...props}
+    />
+  ))
 
 const text = () => container.textContent ?? ""
 
@@ -392,5 +392,12 @@ describe("Major holders", () => {
       "AADI isn't in any IDX above-1% report, so its ≥1% holders aren't shown."
     )
     expect(table()).toBeNull()
+  })
+
+  test("links to the stock's Holder map", async () => {
+    await render({})
+    const link = container.querySelector('a[aria-label="Holder map of AADI"]')
+    expect(link?.textContent).toBe("Holder map")
+    expect(link?.getAttribute("href")).toBe("/holder-map?stock=AADI")
   })
 })

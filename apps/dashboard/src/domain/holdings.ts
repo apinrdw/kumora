@@ -1,7 +1,7 @@
 // Parsed holdings' vocabulary, shared by the server's reads and the stock
 // page: origins, the 39 investor classifications and KSEI's 9 investor
 // types.
-import { WibDate } from "@workspace/relay"
+import { StockCode, WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
 // A report month as a URL or a server function spells it, `YYYY-MM`: a
@@ -301,3 +301,44 @@ export const RAIL_PERIODS = 10
 // Holder moves alike, ending at the selected one. Its oldest bar compares
 // with the period before them.
 export const TREND_PERIODS = 20
+
+// The longest published name the parses take (ADR 0045).
+export const NAME_LENGTH = 256
+
+// A key made of a published name: never blank, and at most as long as the
+// name.
+const NameKey = Schema.String.check(
+  Schema.isPattern(/\S/),
+  Schema.isMaxLength(NAME_LENGTH)
+)
+
+// A holder's name as matched across periods, stocks and reports
+// (server/holdings/holder-key.ts): its words upper-cased, sorted, with
+// punctuation and legal-form words dropped.
+export const HolderKey = NameKey.pipe(Schema.brand("HolderKey"))
+export type HolderKey = typeof HolderKey.Type
+
+// A custodian as one Holder map node across stocks
+// (server/holdings/holder-map-custodians.ts, `custodianOf`): its broker
+// code, or, with none, `NAME:` and its name keyed as a holder's name is,
+// so up to that prefix longer than a name.
+export const CustodianId = Schema.String.check(
+  Schema.isPattern(/\S/),
+  Schema.isMaxLength(NAME_LENGTH + "NAME:".length)
+).pipe(Schema.brand("CustodianId"))
+export type CustodianId = typeof CustodianId.Type
+
+// What the Holder map is drawn around, and as of which trading day: a
+// stock, a holder, a custodian, or nothing for the landing view; the day
+// absent for the newest parsed.
+export const HolderMapQuery = Schema.Struct({
+  focus: Schema.UndefinedOr(
+    Schema.Union([
+      Schema.Struct({ kind: Schema.Literal("stock"), code: StockCode }),
+      Schema.Struct({ kind: Schema.Literal("holder"), key: HolderKey }),
+      Schema.Struct({ kind: Schema.Literal("custodian"), id: CustodianId }),
+    ])
+  ),
+  day: Schema.UndefinedOr(WibDate),
+})
+export type HolderMapQuery = typeof HolderMapQuery.Type
