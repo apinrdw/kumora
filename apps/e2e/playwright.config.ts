@@ -5,10 +5,12 @@ import { readdirSync } from "node:fs"
 import { ADMIN, testUrl } from "./support/accounts"
 import { MARKET_CLOCK_OFFSET } from "./support/clock"
 import { TEST_INGEST_TOKEN } from "./support/ingest"
+import { onlyFiles, onlyProjects, PROJECTS_SWITCH } from "./support/projects"
 import {
   COLD_DAY_SPEC,
   HOLDER_MAP_SPEC,
   HOLDER_MOVES_SPEC,
+  pickedFiles,
   RELAY_LOAD_SPEC,
   REPAINT_BENCH_SPEC,
   recording,
@@ -27,10 +29,8 @@ if (process.argv.includes("--")) {
   process.exit(2)
 }
 
-const recorded = recording(
-  process.env[SWITCH],
-  readdirSync(new URL("tests", import.meta.url))
-)
+const testFiles = readdirSync(new URL("tests", import.meta.url))
+const recorded = recording(process.env[SWITCH], testFiles)
 
 const projects = [
   // Signs up and verifies the shared accounts through the UI and saves
@@ -70,8 +70,8 @@ const projects = [
     testMatch: TRADING_DAY_SPECS,
     workers: 1,
     // Not split like chromium, or its two halves would run side
-    // by side: when an evidence run picks any trading-day spec, the whole
-    // project records.
+    // by side: when an evidence run picks any trading-day spec, the project
+    // records, narrowed to the picked specs.
     ...(recorded.tradingDay ? { use: { video } } : {}),
   },
   // The cold day spec runs after every chromium and trading-day
@@ -118,6 +118,21 @@ const projects = [
   },
 ]
 
+// An evidence run runs only its picked specs, after setup; a CI job runs
+// only the projects E2E_PROJECTS names (.github/workflows/e2e.yml). Neither
+// waits on a project it leaves out, so each starts from setup's accounts and
+// otherwise empty stores.
+function selected<P extends { readonly name: string }>(all: ReadonlyArray<P>) {
+  const picked = pickedFiles(process.env[SWITCH], testFiles)
+  const named = process.env[PROJECTS_SWITCH]
+  if (picked.length > 0 && named)
+    throw new Error(
+      `e2e: set ${SWITCH} or ${PROJECTS_SWITCH}, not both: an evidence run picks its own projects.`
+    )
+  if (picked.length > 0) return onlyFiles(all, picked)
+  return named ? onlyProjects(all, named.split(",")) : [...all]
+}
+
 const config = defineConfig({
   testDir: "tests",
   // Decision: tests, not files, run in parallel; a sequence uses a serial describe
@@ -128,7 +143,7 @@ const config = defineConfig({
   retries: 0,
   reporter: "list",
   use: { browserName: "chromium" },
-  projects: [
+  projects: selected([
     ...projects,
     // The relay-load spec times the relay against the wall clock,
     // so it runs alone, after every other project: a spec alongside would
@@ -149,7 +164,7 @@ const config = defineConfig({
       testMatch: REPAINT_BENCH_SPEC,
       workers: 1,
     },
-  ],
+  ]),
   // Both apps run on alchemy's local `test` stage: local state, no Infisical,
   // so the dummy value below comes from the process environment and no
   // Cloudflare or Infisical credential is needed.
@@ -192,7 +207,8 @@ const config = defineConfig({
 // Refuse a run that names only specs of a project waiting on other
 // projects. Playwright runs every test of those projects first, so naming
 // relay-load's spec ran all 64 tests, and #272's implementer waited minutes
-// for its one bench. `--no-deps` with the projects named runs it alone.
+// for its one bench. E2E_PROJECTS with the projects named runs them alone,
+// after setup.
 const named = process.argv.filter((arg) => arg.endsWith(".spec.ts"))
 const waitingFor = (file: string) =>
   (config.projects ?? []).find(
@@ -210,7 +226,7 @@ if (
 ) {
   const only = [...new Set(named.map((file) => waitingFor(file)?.name))]
   console.error(
-    `e2e: ${only.join(", ")} first waits for every other project, so this would run the whole suite. Run it alone: \`vp run test:e2e ${["setup", ...only].map((name) => `--project=${name}`).join(" ")} --no-deps --workers=1\`.`
+    `e2e: ${only.join(", ")} first waits for every other project, so this would run the whole suite. Run it alone: \`${PROJECTS_SWITCH}=${only.join(",")} vp run test:e2e\`.`
   )
   process.exit(2)
 }

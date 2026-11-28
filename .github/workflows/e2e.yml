@@ -1,0 +1,151 @@
+# The Playwright suite, on every ready PR that touches app code. The `e2e`
+# job is the one the ruleset requires; the jobs it waits on run the suite.
+# A PR's video still comes from `vp run e2e:evidence` and its own
+# e2e-evidence status (e2e-evidence.yml).
+name: e2e
+
+# Decision: e2e runs on GitHub's free runners; local evidence is video only
+# (docs/adr/0024-e2e-runs-on-github-s-free-runners-and-local-evidence-is-video-only.md)
+on:
+  # Decision: a draft PR runs no CI and gets no status until ready for review
+  # (docs/adr/0004-drafts-run-no-checks.md)
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: e2e-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Whether the PR touches app code, by the e2e-evidence gate's rule: a
+  # changed or renamed path under apps/{web,dashboard,extension,e2e} or
+  # packages/. Change the two together.
+  changes:
+    if: "!github.event.pull_request.draft"
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      pull-requests: read
+    outputs:
+      app: ${{ steps.files.outputs.result }}
+    steps:
+      - id: files
+        uses: actions/github-script@v9
+        with:
+          result-encoding: string
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              ...context.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            })
+            const app = /^(apps\/(web|dashboard|extension|e2e)|packages)\//
+            return String(
+              files.some(
+                (f) =>
+                  app.test(f.filename) || app.test(f.previous_filename ?? "")
+              )
+            )
+
+  # Decision: e2e runs on GitHub's free runners; local evidence is video only
+  # (docs/adr/0024-e2e-runs-on-github-s-free-runners-and-local-evidence-is-video-only.md)
+  suite:
+    name: e2e (${{ matrix.projects }} ${{ matrix.index }}/${{ matrix.total }})
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    # The free runner: 4 cores on a public repo. Never a larger runner,
+    # which bills by the minute even here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      # Each job runs setup and its projects alone (E2E_PROJECTS,
+      # apps/e2e/support/projects.ts): Playwright runs in full every project
+      # another waits on, so --shard alone would run the whole suite on every
+      # job. A project in a job of its own starts from empty stores, which is
+      # what waiting on chromium bought on one machine. chromium and
+      # trading-day split further by --shard.
+      matrix:
+        include:
+          - { projects: chromium, index: 1, total: 4 }
+          - { projects: chromium, index: 2, total: 4 }
+          - { projects: chromium, index: 3, total: 4 }
+          - { projects: chromium, index: 4, total: 4 }
+          - { projects: trading-day, index: 1, total: 3 }
+          - { projects: trading-day, index: 2, total: 3 }
+          - { projects: trading-day, index: 3, total: 3 }
+          - { projects: cold-day, index: 1, total: 1 }
+          - { projects: holder-moves, index: 1, total: 1 }
+          - { projects: holder-map, index: 1, total: 1 }
+          - { projects: relay-load, index: 1, total: 1 }
+          - { projects: repaint-bench, index: 1, total: 1 }
+    steps:
+      - uses: actions/checkout@v5
+      # Decision: vp is the CLI; pnpm resolves underneath; turbo still runs the tasks
+      # (docs/adr/0021-vp-is-the-cli-pnpm-resolves-underneath-turbo-still-runs-the-tasks.md)
+      - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
+        with:
+          version: 1.8.0
+          node-version: 24
+          cache: true
+          run-install: false
+      # The Test stage runs alchemy dev, and alchemy runs under bun.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: vp install --frozen-lockfile
+      - id: playwright
+        run: echo "version=$(vp exec --filter e2e playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      # The browser is cached by the Playwright version the lockfile pins,
+      # and installed only on a miss. No --with-deps: the runner image already
+      # has its system packages.
+      - id: browser
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - if: steps.browser.outputs.cache-hit != 'true'
+        run: vp exec --filter e2e playwright install chromium
+      # No retries (the config's retries: 0): a flake is red, and its trace
+      # is in the job's artifact.
+      - run: vp run test:e2e --forbid-only --shard="$INDEX/$TOTAL" --trace=retain-on-failure
+        env:
+          E2E_PROJECTS: ${{ matrix.projects }}
+          INDEX: ${{ matrix.index }}
+          TOTAL: ${{ matrix.total }}
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ matrix.projects }}-${{ matrix.index }}-of-${{ matrix.total }}
+          path: apps/e2e/test-results
+          retention-days: 7
+
+  # The required check. It always runs, so a PR with no app code gets a
+  # green `e2e` rather than one left pending, and the ruleset names one check
+  # however the suite is split.
+  e2e:
+    name: e2e
+    needs: [changes, suite]
+    if: always() && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          CHANGES: ${{ needs.changes.result }}
+          APP: ${{ needs.changes.outputs.app }}
+          SUITE: ${{ needs.suite.result }}
+        run: |
+          if [ "$CHANGES" != success ]; then
+            echo "The changes job ended $CHANGES, so whether e2e had to run is unknown."
+            exit 1
+          fi
+          if [ "$APP" != true ]; then
+            echo "The PR touches no app code (apps/web, dashboard, extension, e2e, packages/*)."
+            exit 0
+          fi
+          if [ "$SUITE" = success ]; then
+            echo "Every e2e job passed."
+            exit 0
+          fi
+          echo "An e2e job ended $SUITE; its log and artifact say which test."
+          exit 1

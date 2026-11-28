@@ -1,6 +1,7 @@
 // The evidence command's decisions, with no I/O. Before the run, `preflight`
 // checks the preconditions and picks the specs; after it, `evidencePlan` reads
-// Playwright's JSON report and either refuses or says what to post.
+// the JSON report of the picked specs' run and either refuses or says what to
+// post. The whole suite runs in CI (.github/workflows/e2e.yml).
 // scripts/e2e-evidence.mts gathers the inputs and does the posting.
 import { Effect, Path, Schema } from "effect"
 
@@ -232,7 +233,7 @@ export interface EvidenceInputs {
   readonly report: typeof PlaywrightReport.Type
   /** Each results folder, as the report names it, to the files in it. */
   readonly files: ReadonlyMap<string, ReadonlyArray<ResultFile>>
-  /** The checkout once the suite has run. */
+  /** The checkout once the run has ended. */
   readonly checkout: Checkout
   readonly dryRun: boolean
 }
@@ -390,8 +391,8 @@ const splitComments = Effect.fnUntraced(function* (
   })
 })
 
-// Any failure blocks the post, in a picked spec or not, and so does
-// a non-zero exit with no failed test (a global setup error, a test.only).
+// Any failure blocks the post, in a picked spec or in setup, and so
+// does a non-zero exit with no failed test (a global setup error, a test.only).
 // Nothing is posted and the status is left alone; the author gets each
 // failure's video and trace to look at (apinrdw/kumora#207).
 const redRun = Effect.fnUntraced(function* (
@@ -434,16 +435,16 @@ export const evidencePlan = Effect.fn("evidencePlan")(function* (
   const red = yield* redRun(tests, inputs)
   if (red !== undefined) return yield* new EvidenceRefused({ reason: red })
 
-  // The checkout is read again once the suite ends, because the dev
+  // The checkout is read again once the run ends, because the dev
   // servers serve the working tree: an edit or a switched commit mid-run means
-  // the suite did not test the PR's head. A throwaway checkout per run would
+  // the run did not test the PR's head. A throwaway checkout per run would
   // also catch an edit undone before the end, but adds an install and a cold
   // local state to every run (apinrdw/kumora#217). A dry run is only told.
   const unmet = yield* offThePrHead(checkout, pr)
   if (unmet.length > 0 && !dryRun)
     return yield* new EvidenceRefused({
       reason: [
-        `The checkout changed while the suite ran, so nothing was posted and the ${CONTEXT} status is unchanged. Run it again and leave the checkout alone until it ends.`,
+        `The checkout changed while the specs ran, so nothing was posted and the ${CONTEXT} status is unchanged. Run it again and leave the checkout alone until it ends.`,
         ...unmet,
       ].join("\n"),
     })
@@ -493,7 +494,7 @@ export const evidencePlan = Effect.fn("evidencePlan")(function* (
     })
   const comments = yield* splitComments(
     paragraphs,
-    `The full suite passed on ${pr.headSha}: ${report.stats.expected} passed in ${Math.round(report.stats.duration / 1000)} s.`
+    `The picked specs passed on ${pr.headSha}: ${report.stats.expected} passed in ${Math.round(report.stats.duration / 1000)} s. The whole suite's result is CI's \`e2e\` check.`
   )
   return {
     unmet,
@@ -503,7 +504,7 @@ export const evidencePlan = Effect.fn("evidencePlan")(function* (
       sha: pr.headSha,
       state: "success",
       context: CONTEXT,
-      description: `Full suite passed: ${report.stats.expected} tests. Videos in ${comments.length === 1 ? "the PR comment" : `${comments.length} PR comments`}.`,
+      description: `Picked specs passed: ${report.stats.expected} tests. Videos in ${comments.length === 1 ? "the PR comment" : `${comments.length} PR comments`}.`,
     },
   } satisfies PostPlan
 })
