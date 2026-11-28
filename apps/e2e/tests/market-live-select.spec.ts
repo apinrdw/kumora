@@ -104,6 +104,10 @@ test("the Ctrl+K palette selects a code", async ({ page }) => {
   await page.keyboard.press("Control+k")
   const palette = page.getByRole("dialog", { name: "Go to code" })
   await expect(palette).toBeVisible()
+  // Market Live keeps Ctrl+K; the Shell's command palette leaves it alone.
+  await expect(
+    page.getByRole("dialog", { name: "Command palette" })
+  ).toHaveCount(0)
   await page.keyboard.type("bbri")
   await page.keyboard.press("Enter")
   await expect(palette).toBeHidden()
