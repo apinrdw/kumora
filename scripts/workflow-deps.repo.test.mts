@@ -186,24 +186,30 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
       })
   )
 
-  it.effect("e2e.yml's matrix runs every Playwright project but setup", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const config = yield* fs.readFileString(
-        path.resolve(import.meta.dirname, "../apps/e2e/playwright.config.ts")
-      )
-      // chromium-video exists only on an evidence run, which CI never is.
-      const projects = [...config.matchAll(/^\s*name: "([\w-]+)",$/gm)]
-        .map(([, name]) => name as string)
-        .filter((name) => name !== "setup" && name !== "chromium-video")
-      assert.isAbove(projects.length, 0, "found the config's projects")
-      const matrix = (yield* e2eWorkflow).jobs.suite?.strategy?.matrix.include
-      assert.deepStrictEqual(
-        [...new Set(matrix?.map((job) => job.projects))].sort(),
-        projects.sort()
-      )
-    })
+  it.effect(
+    "e2e.yml's matrix runs every Playwright project but setup and the repaint bench",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const config = yield* fs.readFileString(
+          path.resolve(import.meta.dirname, "../apps/e2e/playwright.config.ts")
+        )
+        // chromium-video exists only on an evidence run, which CI never is.
+        // The repaint bench's bar is the dev machine's CPU (e2e.yml says why).
+        const projects = [...config.matchAll(/^\s*name: "([\w-]+)",$/gm)]
+          .map(([, name]) => name as string)
+          .filter(
+            (name) =>
+              !["setup", "chromium-video", "repaint-bench"].includes(name)
+          )
+        assert.isAbove(projects.length, 0, "found the config's projects")
+        const matrix = (yield* e2eWorkflow).jobs.suite?.strategy?.matrix.include
+        assert.deepStrictEqual(
+          [...new Set(matrix?.map((job) => job.projects))].sort(),
+          projects.sort()
+        )
+      })
   )
 
   it.effect(

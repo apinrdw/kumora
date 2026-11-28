@@ -81,7 +81,10 @@ jobs:
           - { projects: holder-moves, index: 1, total: 1 }
           - { projects: holder-map, index: 1, total: 1 }
           - { projects: relay-load, index: 1, total: 1 }
-          - { projects: repaint-bench, index: 1, total: 1 }
+          # No repaint-bench: its 16 ms bar at 4× CPU slowdown is set
+          # against the dev machine's CPU, and the free runner read 18.2 ms
+          # where the dev machine reads 10-15 ms (PR #768). It stays a
+          # dev-machine bench: E2E_PROJECTS=repaint-bench vp run test:e2e.
     steps:
       - uses: actions/checkout@v5
       # Decision: vp is the CLI; pnpm resolves underneath; turbo still runs the tasks
