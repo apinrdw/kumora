@@ -143,6 +143,11 @@ const config = defineConfig({
   // No retries, so a flake the parallelism brings shows up and gets
   // fixed instead of passing on a second try (apinrdw/kumora#168).
   retries: 0,
+  // A CI runner's test gets 60 s, not the default 30 s: on the free
+  // 4-core runner the account journey that hashes real passwords took 31.2 s
+  // (PR #768), as it timed out on the old 2-core shards (apinrdw/kumora#190).
+  // Locally the 30 s stays, so a slow test still shows up here first.
+  timeout: process.env.CI ? 60_000 : 30_000,
   reporter: "list",
   use: { browserName: "chromium" },
   projects: selected([
