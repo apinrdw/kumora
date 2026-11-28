@@ -625,6 +625,32 @@ describe("Holder map, holder focus", () => {
     })
   )
 
+  it.effect(
+    "reads no leaving of a key that is its key and a #, as of another stock",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        // `DJONI#2` keys itself, so its identity `DJONI#2#1` sorts among
+        // Djoni's: it left BSDE's above-5% list on 19 Nov.
+        w.holdings.database
+          .prepare(
+            `INSERT INTO above_5_move VALUES ('2026-11-19', 'BSDE', ?,
+              'BUMI SERPONG DAMAI Tbk', 'DJONI#2', '[]', NULL, 'off list',
+              '[]', NULL, 600, NULL, NULL, '[]', NULL)`
+          )
+          .run(`${yield* holderKey("DJONI#2")}#1`)
+        const read = yield* holderReadOf(w, "DJONI")
+        assert.deepStrictEqual(
+          read.offList.map(({ code, band, since }) => [code, band, since]),
+          [["TRUE", "1%", "2026-08-31"]]
+        )
+        assert.deepStrictEqual(
+          read.issuers.map(({ code }) => code),
+          ["TRUE"]
+        )
+      })
+  )
+
   it.effect("finds nothing for a key no report lists", () =>
     Effect.gen(function* () {
       const read = yield* holderReadOf(yield* parsed, "NOBODY AT ALL")
@@ -951,6 +977,26 @@ describe("Holder map, custodians", () => {
             ([, , id]) => id === "NAME:ZP"
           ),
           []
+        )
+      })
+  )
+
+  it.effect(
+    "lists no earlier holding whose only account through it was empty, though its holder holds the stock elsewhere",
+    () =>
+      Effect.gen(function* () {
+        const w = yield* parsed
+        // Tangerang held ASRI through a bank on 19 Nov, its account there
+        // emptied by 20 Nov. Shima's ENRG block had an empty account there
+        // on 19 Nov, and none on 20 Nov, while Shima still holds ENRG
+        // through others: it never held ENRG through the bank.
+        addAccount(w, "ASRI", 1, "PT ZP", 1_000, "2026-11-19")
+        addAccount(w, "ASRI", 1, "PT ZP", 0)
+        addAccount(w, "ENRG", 13, "PT ZP", 0, "2026-11-19")
+        const read = yield* custodianReadOf(w, "NAME:ZP")
+        assert.deepStrictEqual(
+          read.offList.map(({ code, holder, since }) => [code, holder, since]),
+          [["ASRI", "ESTATE FAJAR INDUSTRIAL TANGERANG", "2026-11-20"]]
         )
       })
   )

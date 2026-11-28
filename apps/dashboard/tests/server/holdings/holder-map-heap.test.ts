@@ -363,9 +363,14 @@ describe("the Holder map's read of a hub", () => {
         // No statement passes its budget, the Off list's a day at the cap:
         // it keeps the newest day whose blocks and accounts fit.
         assert.deepStrictEqual(over, [])
-        // The newest holding left, and older ones said to be left out.
+        // The newest holding left, and older ones said to be left out: of
+        // its day's blocks, not the oldest day's a row LIMIT would keep.
         assert.strictEqual(read.links.length, 1)
         assert.strictEqual(view.focus?.offList.length, 1)
+        assert.deepStrictEqual(
+          read.offList.map(({ since }) => since),
+          [days.at(-1)]
+        )
         assert.isTrue(view.focus?.offListCut)
         assert.isBelow(
           retained,
