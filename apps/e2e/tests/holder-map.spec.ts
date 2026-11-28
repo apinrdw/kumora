@@ -174,6 +174,33 @@ test.describe.serial("Holder map", () => {
       )
     })
 
+    test("picks a search match with Enter, and steps the view buttons with the arrows", async ({
+      page,
+    }) => {
+      await page.goto(`${HOLDER_MAP}?day=2026-11-20`)
+      const option = page.getByRole("option", { name: /^TRUE/ })
+      await until(
+        async () => {
+          await search(page).blur()
+          await search(page).fill("TRUE")
+        },
+        () => expect(option).toBeVisible({ timeout: 1000 })
+      )
+      await search(page).press("Enter")
+      await expect(page).toHaveURL(/\/holder-map\?(?=.*stock=TRUE)/)
+      await expect(search(page)).toHaveValue("")
+
+      const view = page.getByRole("toolbar", { name: "Map view" })
+      await expect(view.getByRole("button", { name: "Zoom in" })).toBeEnabled()
+      await view.getByRole("button", { name: "Zoom in" }).focus()
+      await page.keyboard.press("ArrowRight")
+      await expect(view.getByRole("button", { name: "Zoom out" })).toBeFocused()
+      await page.keyboard.press("End")
+      await expect(
+        view.getByRole("button", { name: "Fit to view" })
+      ).toBeFocused()
+    })
+
     test("refocuses from the stocks most held and the search, and back and forward restore each focus", async ({
       page,
     }) => {
