@@ -70,7 +70,7 @@ const MOST_HELD = 20
 // key, whatever stock it was first listed in.
 //
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0143-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 const IN_VIEW: Record<Focus["kind"], string> = {
   stock: `${PERIODS},
   focus_keys AS (
@@ -207,7 +207,7 @@ const IN_VIEW_ROWS: ReadonlyArray<Budgeted> = [
   // out of 5%.
   //
   // Decision: the Holder map matches holders across stocks and reports by
-  // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+  // holder key (apps/dashboard/docs/adr/0143-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
   {
     sql: `SELECT stock_code, holder_key, MAX(data_date) AS data_date FROM (
       SELECT stock_code, ${identityKey("holder")} AS holder_key,
@@ -239,7 +239,7 @@ const IN_VIEW_ROWS: ReadonlyArray<Budgeted> = [
   // most its rows.
   //
   // Decision: the Holder map matches holders across stocks and reports by
-  // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+  // holder key (apps/dashboard/docs/adr/0143-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
   ...dayBlocks(`${STOCKS_IN_VIEW} AND`, DAY_BEFORE),
   // The stocks in view first listed on the day, whose holders Holder moves
   // compares with no day: at most the day's blocks.
@@ -346,7 +346,7 @@ export const byStock = (read: {
 // these links too, so it offers no key the map folds away.
 //
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0143-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 export const stockLinks = Effect.fnUntraced(function* (
   code: StockCode,
   day: WibDate | undefined,

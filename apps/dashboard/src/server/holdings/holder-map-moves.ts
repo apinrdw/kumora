@@ -59,7 +59,7 @@ export const MoveRow = Schema.Struct({
 // leavings of its newest period left, summed (`leftHolders`).
 //
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0143-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 export const leavings = Effect.fnUntraced(function* (
   rows: ReadonlyArray<typeof LeavingRow.Type>
 ) {
@@ -84,7 +84,7 @@ export const leavings = Effect.fnUntraced(function* (
 // its place: its key's, one row each, grouped in the query.
 //
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0143-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 export const crossingsDown = Effect.fnUntraced(function* (
   rows: ReadonlyArray<typeof CrossingRow.Type>
 ) {
@@ -144,7 +144,7 @@ interface DayHolders {
 // crossed custodians between its accounts, whichever blocks they sit in.
 //
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0143-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 const dayMove = Effect.fnUntraced(function* (
   key: HolderKey,
   day: DayHolders,

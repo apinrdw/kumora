@@ -66,7 +66,7 @@ const STOCKS_SQL = {
 // repeat block the map folds into another key's (ADR 0131).
 //
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0143-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 const holdersOf = Effect.fnUntraced(function* ([
   periodRow = [],
   holderRows = [],

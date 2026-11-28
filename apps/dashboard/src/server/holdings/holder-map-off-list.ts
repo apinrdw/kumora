@@ -32,7 +32,7 @@ import {
 // custodian's earlier days grow with every period parsed, so each focus
 // keeps its newest holders that fit, and says when older ones were left
 // out. It cuts between whole groups of rows a holder is summed from, never
-// through one, so no holder is summed from part of its rows (ADR 0142).
+// through one, so no holder is summed from part of its rows (ADR 0143).
 //
 // Decision: a stock's holders are read from its newest periods that fit a
 // row budget (apps/dashboard/docs/adr/0133-a-stocks-holders-are-read-from-its-newest-periods-that-fit-a-row-budget.md)
@@ -112,7 +112,7 @@ const leftStatements = (focus: LeftFocus): ReadonlyArray<Budgeted> => [
 // none on the day, by its last such day, the period it left the first
 // above-5% day after. Holder moves store no custodian, so this reads the
 // accounts through above_5_account_by_custodian. To sum a holding's key on
-// its last day (ADR 0142) it reads that day's blocks of the holding and
+// its last day (ADR 0143) it reads that day's blocks of the holding and
 // every block with the same shares, a repeat's only candidates, with their
 // accounts. A holder's rows are one stock-day's, so the cut keeps whole
 // stock-days, newest first, while their blocks and their accounts each fit
@@ -209,7 +209,7 @@ const isKept = (alias: string, day: string) =>
   )`
 
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0143-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 export const OFF_LIST: Record<Focus["kind"], ReadonlyArray<Budgeted>> = {
   stock: leftStatements({ where: "stock_code = ?2", by: "stock" }),
   // An identity is `<key>#<n>`: those of the key sort from `<key>#` up to,

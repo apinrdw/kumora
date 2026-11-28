@@ -12,7 +12,7 @@
 // (`holder-map.ts`).
 //
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0143-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 import { StockCode, type WibDate } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 

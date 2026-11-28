@@ -30,7 +30,7 @@ export const Route = createFileRoute("/_app/holder-map")({
   // in place of this entry.
   //
   // Decision: the Holder map matches holders across stocks and reports by
-  // holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+  // holder key (apps/dashboard/docs/adr/0143-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
   loader: ({ deps }): Promise<HolderMapRead> =>
     runLoader(loadServerFn(() => holderMapFn({ data: deps.query }))).then(
       (read) => {

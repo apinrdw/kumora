@@ -267,7 +267,7 @@ const isHolderKeySql = (key: string) =>
 // 12), and one report's bad row fails no read of every other.
 //
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0143-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 export const drawable = ({
   code,
   key,
@@ -312,7 +312,7 @@ const isHolderKey = Schema.is(HolderKey)
 // map statement that returns a stored code or key is read through this.
 //
 // Decision: the Holder map matches holders across stocks and reports by
-// holder key (apps/dashboard/docs/adr/0142-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
+// holder key (apps/dashboard/docs/adr/0143-holder-map-matches-holders-across-stocks-and-reports-by-holder-key.md)
 export const storedRows = <A, I>(row: Schema.Codec<A, I>) => {
   const decode = decodeRows(row)
   return (rows: ReadonlyArray<Record<string, unknown>>) =>
