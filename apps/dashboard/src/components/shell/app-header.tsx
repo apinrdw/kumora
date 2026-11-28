@@ -7,6 +7,7 @@ import type { AnyRouteMatch } from "@tanstack/react-router"
 import type { Crumb } from "@/lib/crumbs"
 import type { Viewer } from "@/server/auth/gate"
 
+import { CommandPalette } from "./command-palette"
 import { StockSearch } from "./stock-search"
 import { UserMenu } from "./user-menu"
 
@@ -19,6 +20,7 @@ export function AppHeader({ viewer }: { viewer: Viewer }) {
       <Breadcrumbs />
       <span className="flex-1" />
       <StockSearch />
+      <CommandPalette viewer={viewer} />
       <WibClock />
       {/* The sidebar holds the menu from 768px up. */}
       <span className="md:hidden">

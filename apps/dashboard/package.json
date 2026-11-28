@@ -21,6 +21,8 @@
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/react-start": "latest",
+    "@ui-sdk/core": "0.1.0-beta.17",
+    "@ui-sdk/react": "0.1.0-beta.17",
     "@workspace/client": "workspace:*",
     "@workspace/deploy": "workspace:*",
     "@workspace/relay": "workspace:*",
