@@ -5,6 +5,7 @@ e2e left CI in apinrdw/kumora#209 because 6 shards on 2-core runners took 13+ mi
 Sites:
 
 - `.github/workflows/e2e.yml`
+- `apps/e2e/playwright.config.ts`
 - `apps/e2e/support/projects.ts`
 - `scripts/e2e-evidence.mts`
 - `scripts/workflow-deps.repo.test.mts`

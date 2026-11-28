@@ -64,7 +64,10 @@ jobs:
       # another waits on, so --shard alone would run the whole suite on every
       # job. A project in a job of its own starts from empty stores, which is
       # what waiting on chromium bought on one machine. chromium and
-      # trading-day split further by --shard.
+      # trading-day split further by --shard: trading-day's workers: 1 keeps
+      # its specs off one shared trading day at once, and each shard has a
+      # trading day of its own. The counts, and Playwright's default workers
+      # (half the cores), are a first guess until CI's timings set them.
       matrix:
         include:
           - { projects: chromium, index: 1, total: 4 }
@@ -113,7 +116,9 @@ jobs:
           E2E_PROJECTS: ${{ matrix.projects }}
           INDEX: ${{ matrix.index }}
           TOTAL: ${{ matrix.total }}
-      - if: failure()
+      # A job that hits its timeout is cancelled, not failed, and its trace
+      # is the one most worth reading.
+      - if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-${{ matrix.projects }}-${{ matrix.index }}-of-${{ matrix.total }}

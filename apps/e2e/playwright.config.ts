@@ -122,6 +122,8 @@ const projects = [
 // only the projects E2E_PROJECTS names (.github/workflows/e2e.yml). Neither
 // waits on a project it leaves out, so each starts from setup's accounts and
 // otherwise empty stores.
+// Decision: e2e runs on GitHub's free runners; local evidence is video only
+// (docs/adr/0024-e2e-runs-on-github-s-free-runners-and-local-evidence-is-video-only.md)
 function selected<P extends { readonly name: string }>(all: ReadonlyArray<P>) {
   const picked = pickedFiles(process.env[SWITCH], testFiles)
   const named = process.env[PROJECTS_SWITCH]

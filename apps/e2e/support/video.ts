@@ -4,8 +4,8 @@ import { test } from "@playwright/test"
  * The switch an evidence run sets to run and record video of only the specs
  * it will post: `E2E_VIDEO=<spec>,<spec>`, each a spec file under tests/ by
  * name or by a path ending in it. Unset or empty, the whole suite runs and
- * nothing records. scripts/e2e-evidence.mts
- * sets it by name, so change the two together.
+ * nothing records. scripts/e2e-evidence.mts sets it by name, so change the
+ * two together.
  */
 export const SWITCH = "E2E_VIDEO"
 
